@@ -1,0 +1,51 @@
+{
+	"name": "smg",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"node:use": "fnm install && fnm use",
+		"dev": "vite dev",
+		"build": "node scripts/ensure-node22.mjs build",
+		"preview": "node scripts/ensure-node22.mjs preview",
+		"deploy": "node scripts/ensure-node22.mjs deploy",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "node scripts/ensure-node22.mjs check",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"gen": "node scripts/ensure-node22.mjs gen",
+		"lint": "prettier --check . && eslint .",
+		"format": "prettier --write .",
+		"db:push": "drizzle-kit push",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate",
+		"db:studio": "drizzle-kit studio",
+		"db:migrate:local": "node scripts/ensure-node22.mjs db:migrate:local",
+		"db:migrate:remote": "node scripts/ensure-node22.mjs db:migrate:remote"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@sveltejs/adapter-cloudflare": "^7.2.8",
+		"@sveltejs/kit": "^2.57.0",
+		"@sveltejs/vite-plugin-svelte": "^7.0.0",
+		"@types/node": "^20",
+		"drizzle-kit": "^0.31.10",
+		"drizzle-orm": "^0.45.2",
+		"eslint": "^10.4.0",
+		"eslint-config-prettier": "^10.1.8",
+		"eslint-plugin-svelte": "^3.17.0",
+		"globals": "^17.4.0",
+		"prettier": "^3.8.1",
+		"prettier-plugin-svelte": "^3.5.1",
+		"svelte": "^5.55.2",
+		"svelte-check": "^4.4.6",
+		"typescript": "^6.0.2",
+		"typescript-eslint": "^8.58.1",
+		"vite": "^8.0.7",
+		"wrangler": "^4.81.0"
+	},
+	"dependencies": {
+		"gsap": "^3.15.0",
+		"highlight.js": "^11.11.1",
+		"marked": "^18.0.5"
+	}
+}

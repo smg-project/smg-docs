@@ -2642,10 +2642,6 @@ a {
 	.home-hero {
 		min-height: 100svh;
 	}
-
-	.home-hero-mark {
-		padding-top: 24vh;
-	}
 }
 
 @media (max-width: 640px) {
@@ -2653,20 +2649,14 @@ a {
 		--content-pad-x: 1.25rem;
 	}
 
-	/* Center the mark symbol relative to the full viewport width on small screens. */
+	/* On mobile: symbol fills the 1fr row and is centered in it.
+	   Buttons going below the fold is fine — symbol is the hero. */
 	.home-hero-mark {
-		padding-top: 18vh;
-		justify-content: center;
+		padding-top: 0;
 		padding-left: 0;
 		padding-right: 0;
-	}
-
-	/* Constrain the hero content so it doesn't fill 100% of the viewport
-	   and center it under the symbol. */
-	.home-hero-inner {
-		display: flex;
+		align-items: center;
 		justify-content: center;
-		text-align: left;
 	}
 
 	.home-hero-content {

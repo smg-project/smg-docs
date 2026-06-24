@@ -2649,14 +2649,24 @@ a {
 		--content-pad-x: 1.25rem;
 	}
 
-	/* On mobile: symbol fills the 1fr row and is centered in it.
-	   Buttons going below the fold is fine — symbol is the hero. */
+	/* Absolutely center the symbol in the full hero viewport.
+	   Content is pushed down with padding so it doesn't overlap. */
 	.home-hero-mark {
-		padding-top: 0;
-		padding-left: 0;
-		padding-right: 0;
+		position: absolute;
+		inset: 0;
+		display: flex;
 		align-items: center;
 		justify-content: center;
+		padding: 0;
+		pointer-events: none;
+	}
+
+	.home-hero-mark-btn {
+		pointer-events: auto;
+	}
+
+	.home-hero-inner {
+		padding-top: 60svh;
 	}
 
 	.home-hero-content {

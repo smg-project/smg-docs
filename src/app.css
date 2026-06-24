@@ -845,6 +845,7 @@ a {
 	display: flex;
 	align-items: flex-start;
 	justify-content: center;
+	width: 100%;
 	min-height: 0;
 	padding-top: 38vh;
 }
@@ -2652,16 +2653,36 @@ a {
 		--content-pad-x: 1.25rem;
 	}
 
+	/* Center the mark symbol relative to the full viewport width on small screens. */
 	.home-hero-mark {
-		padding-top: 20vh;
+		padding-top: 18vh;
+		justify-content: center;
+		padding-left: 0;
+		padding-right: 0;
 	}
 
+	/* Constrain the hero content so it doesn't fill 100% of the viewport
+	   and center it under the symbol. */
+	.home-hero-inner {
+		display: flex;
+		justify-content: center;
+		text-align: left;
+	}
+
+	.home-hero-content {
+		width: 100%;
+		max-width: 100%;
+	}
+
+	/* Smaller, tighter title on phone. */
 	.home-hero-title {
-		font-size: clamp(1.85rem, 7vw, 2.3rem);
+		font-size: clamp(1.5rem, 5.5vw, 1.9rem);
+		letter-spacing: -0.025em;
 	}
 
 	.home-hero-subtitle {
-		font-size: 1rem;
+		font-size: 0.9375rem;
+		margin-top: 0.875rem;
 	}
 
 	/* Stacked, full-width buttons make better touch targets. */

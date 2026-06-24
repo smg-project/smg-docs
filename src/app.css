@@ -1490,7 +1490,7 @@ a {
 	transition: background-color 320ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
-.home-flow-mark :global(.home-flow-mark-icon) {
+.home-flow-mark .home-flow-mark-icon {
 	display: block;
 	width: 0.9375rem;
 	height: 0.9375rem;
@@ -1498,7 +1498,7 @@ a {
 	transition: transform 320ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
-.home-how-output--open .home-flow-mark :global(.home-flow-mark-icon) {
+.home-how-output--open .home-flow-mark .home-flow-mark-icon {
 	transform: rotate(45deg);
 }
 

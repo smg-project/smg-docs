@@ -2649,11 +2649,14 @@ a {
 		--content-pad-x: 1.25rem;
 	}
 
-	/* Absolutely center the symbol in the full hero viewport.
-	   Content is pushed down with padding so it doesn't overlap. */
+	/* Symbol occupies the top 68svh and is centered within it
+	   (center point ≈ 34svh). Content sits below without overlap. */
 	.home-hero-mark {
 		position: absolute;
-		inset: 0;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 68svh;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -2666,7 +2669,7 @@ a {
 	}
 
 	.home-hero-inner {
-		padding-top: 60svh;
+		padding-top: 52svh;
 	}
 
 	.home-hero-content {

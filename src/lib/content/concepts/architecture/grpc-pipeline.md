@@ -44,6 +44,14 @@ Parse function calls and execute MCP tools with automatic result injection.
 
 </div>
 
+<div class="card" markdown>
+
+### :material-lock-check: Constrained Decoding
+
+XGrammar-enforced tool calls and structured outputs, guaranteed to match declared schemas.
+
+</div>
+
 </div>
 
 ---
@@ -86,6 +94,7 @@ SMG handles routing, load balancing, and failover. Workers run full OpenAI-compa
 |------------|--------------------|--------------------|
 | Chat template | Gateway | Worker |
 | Tokenization | Gateway (cached) | Worker |
+| Constrained decoding (XGrammar) | Gateway builds, worker enforces | Worker |
 | Load balancing | Token-aware | Request count |
 | Reasoning extraction | Gateway | Worker |
 | Tool call parsing | Gateway | Worker |
@@ -286,6 +295,35 @@ Qwen3-Coder / Qwen3.5+ XML format with parameter tags.
 3. **Execute**: Run MCP tools or return to client
 4. **Inject**: Add tool results back to conversation
 5. **Continue**: Resume generation if needed
+
+---
+
+## Constrained Decoding (XGrammar)
+
+When a request declares `tools` or a structured `response_format`, SMG builds a **constraint** during chat preparation and sends it with the gRPC request. The backend engine compiles it with XGrammar and enforces it token-by-token during decoding, so tool-call framing and JSON arguments are guaranteed to conform to the declared schemas before SMG's own parsers ever see the output.
+
+### Where It Runs in the Pipeline
+
+In the regular gRPC pipeline, the constraint is generated **after chat template rendering and tokenization** (`model_gateway/src/routers/grpc/regular/stages/chat/preparation.rs`):
+
+1. Filter tools by `tool_choice`
+2. Apply chat template
+3. Tokenize
+4. **Build tool constraint** (`generate_tool_constraint`)
+5. Build stop decoder → worker selection → dispatch
+
+The Harmony pipeline (GPT-OSS) differs: it generates the constraint before encoding (`model_gateway/src/routers/grpc/harmony/stages/preparation.rs`). The architecture diagrams follow the regular pipeline order.
+
+### Constraint Types
+
+| Type | When used | What it constrains |
+|------|-----------|--------------------|
+| `structural_tag` | Configured tool parser has a native tag builder (`mistral`, `kimik2`, `kimi_k3`, `inkling`) | Full tool-call format: trigger tokens, tool-call framing, and argument JSON |
+| `json_schema` | Fallback for `required` / specific-function `tool_choice` | Argument JSON only |
+
+### Enforcement
+
+The constraint travels on `GenerateRequest`'s `constraint` oneof (`crates/grpc_client/proto/`), which also carries structured-output controls (`json_schema`, `regex`, `grammar`, `json_object`, `choice`). Engines compile these through XGrammar-guided decoding, and SMG's tool/reasoning parsers then extract the already well-formed calls from the response.
 
 ---
 

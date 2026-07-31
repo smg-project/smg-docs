@@ -28,7 +28,10 @@ export const gettingStartedNav: GettingStartedNavSection[] = [
 		items: [
 			{ label: 'Reliability Controls', href: '/getting-started/reliability-controls' },
 			{ label: 'Data Connections', href: '/getting-started/data-connections' },
-			{ label: 'Tokenization and Parsing APIs', href: '/getting-started/tokenization-and-parsing-apis' }
+			{
+				label: 'Tokenization and Parsing APIs',
+				href: '/getting-started/tokenization-and-parsing-apis'
+			}
 		]
 	},
 	{

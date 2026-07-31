@@ -43,6 +43,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm exec wrangler types
       - run: pnpm check
 
   build:
@@ -59,6 +60,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm exec wrangler types
       - run: pnpm build
 
   finish:

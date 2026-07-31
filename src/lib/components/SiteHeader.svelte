@@ -148,7 +148,7 @@
 					<Symbol size={18} />
 				</a>
 				<ul class="site-nav-links">
-					{#each headerNavItems as item}
+					{#each headerNavItems as item (item)}
 						<li>
 							<a href={item.href} class:active={isActive(item.href, $page.url.pathname)}>
 								{item.label}
@@ -196,7 +196,7 @@
 		>
 			<nav class="site-mobile-nav" aria-label="Mobile">
 				<ul class="site-mobile-links">
-					{#each headerNavItems as item}
+					{#each headerNavItems as item (item)}
 						<li>
 							<a
 								href={item.href}
@@ -208,11 +208,7 @@
 						</li>
 					{/each}
 					<li>
-						<a
-							href="/search"
-							class:active={$page.url.pathname === '/search'}
-							onclick={closeMenu}
-						>
+						<a href="/search" class:active={$page.url.pathname === '/search'} onclick={closeMenu}>
 							Search
 						</a>
 					</li>

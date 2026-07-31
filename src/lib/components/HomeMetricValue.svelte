@@ -90,7 +90,7 @@
 					class:home-metric-value-digit-strip--done={done || reducedMotion}
 					style:transform="translateY({digitOffsets[index]}%)"
 				>
-					{#each Array.from({ length: 10 }, (_, n) => n) as num}
+					{#each Array.from({ length: 10 }, (_, n) => n) as num (num)}
 						<span class="home-metric-value-digit-num">{num}</span>
 					{/each}
 				</span>

@@ -36,14 +36,9 @@
 			<p class="site-footer-copy">© {year} SMG Contributors</p>
 
 			<ul class="site-footer-links">
-				{#each links as link}
+				{#each links as link (link)}
 					<li>
-						<a
-							class="site-footer-link"
-							href={link.href}
-							target="_blank"
-							rel="noopener noreferrer"
-						>
+						<a class="site-footer-link" href={link.href} target="_blank" rel="noopener noreferrer">
 							<span class="site-footer-link-icon" aria-hidden="true">
 								{#if link.icon === 'github'}
 									<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">

@@ -92,7 +92,11 @@
 		const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		if (prefersReducedMotion) return;
 
-		const gl = canvas.getContext('webgl', { alpha: true, antialias: false, premultipliedAlpha: false });
+		const gl = canvas.getContext('webgl', {
+			alpha: true,
+			antialias: false,
+			premultipliedAlpha: false
+		});
 		if (!gl) return;
 
 		gl.enable(gl.BLEND);

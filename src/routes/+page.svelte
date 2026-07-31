@@ -8,10 +8,7 @@
 	let { data } = $props();
 </script>
 
-<HomeHero
-	title={data.content['home.hero.title']}
-	subtitle={data.content['home.hero.subtitle']}
-/>
+<HomeHero title={data.content['home.hero.title']} subtitle={data.content['home.hero.subtitle']} />
 <HomeMetrics />
 <HomeWorksWith />
 <HomeDetailPanel />

@@ -68,7 +68,7 @@
 			start: 'top 85%'
 		}}
 	>
-		{#each features as feature, index}
+		{#each features as feature, index (feature)}
 			<div class="home-why-item" class:home-why-item--open={openIndex === index}>
 				<button
 					type="button"

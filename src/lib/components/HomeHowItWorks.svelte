@@ -64,10 +64,7 @@
 </script>
 
 <section class="home-how" aria-labelledby="home-how-heading">
-	<header
-		class="home-how-header"
-		use:scrollReveal={{ y: 28, duration: 0.75, start: 'top 90%' }}
-	>
+	<header class="home-how-header" use:scrollReveal={{ y: 28, duration: 0.75, start: 'top 90%' }}>
 		<SectionLabel
 			label="HOW IT WORKS"
 			as="h2"
@@ -95,8 +92,11 @@
 				<HomeFlowMark />
 			</button>
 			{#if openNodeId === clients.id}
-				<div class="home-how-output-body home-how-output-body--center" transition:slide={panelMotion}>
-					{#each clients.lines as line}
+				<div
+					class="home-how-output-body home-how-output-body--center"
+					transition:slide={panelMotion}
+				>
+					{#each clients.lines as line, lineIndex (lineIndex)}
 						<p>{line}</p>
 					{/each}
 				</div>
@@ -112,7 +112,7 @@
 			<div class="home-how-stack-body">
 				<div class="home-how-stack-header">Gateway</div>
 				<ul class="home-how-feature-list">
-					{#each gatewayFeatures as feature}
+					{#each gatewayFeatures as feature (feature)}
 						<li>{feature}</li>
 					{/each}
 				</ul>
@@ -128,7 +128,7 @@
 			<div class="home-how-stack-body">
 				<div class="home-how-stack-header">Router</div>
 				<ul class="home-how-feature-list">
-					{#each routerFeatures as feature}
+					{#each routerFeatures as feature (feature)}
 						<li>{feature}</li>
 					{/each}
 				</ul>
@@ -141,9 +141,10 @@
 			</div>
 
 			<div class="home-how-outputs">
-				{#each outputs as output, index}
+				{#each outputs as output, index (output)}
 					<div
-						class="home-how-output home-how-output--{output.variant} home-how-output--slot-{index + 1}"
+						class="home-how-output home-how-output--{output.variant} home-how-output--slot-{index +
+							1}"
 						class:home-how-output--open={openNodeId === output.id}
 					>
 						<button
@@ -157,7 +158,7 @@
 						</button>
 						{#if openNodeId === output.id}
 							<div class="home-how-output-body" transition:slide={panelMotion}>
-								{#each output.lines as line}
+								{#each output.lines as line, lineIndex (lineIndex)}
 									<p>{line}</p>
 								{/each}
 							</div>
@@ -168,10 +169,7 @@
 		</div>
 	</div>
 
-	<p
-		class="home-how-tagline"
-		use:scrollReveal={{ y: 24, duration: 0.7, start: 'top 92%' }}
-	>
+	<p class="home-how-tagline" use:scrollReveal={{ y: 24, duration: 0.7, start: 'top 92%' }}>
 		One API<span class="home-how-tagline-sep" aria-hidden="true">•</span>Any Backend<span
 			class="home-how-tagline-sep"
 			aria-hidden="true">•</span

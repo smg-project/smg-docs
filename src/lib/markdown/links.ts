@@ -82,12 +82,6 @@ export function rewriteDocLinks(text: string, sourcePath?: string): string {
 
 export function rewriteAssetPaths(text: string): string {
 	return text
-		.replace(
-			/!\[([^\]]*)\]\((?:\.\.\/)+assets\/images\/([^)]+)\)/g,
-			'![$1](/images/$2)'
-		)
-		.replace(
-			/!\[([^\]]*)\]\(\.\/assets\/images\/([^)]+)\)/g,
-			'![$1](/images/$2)'
-		);
+		.replace(/!\[([^\]]*)\]\((?:\.\.\/)+assets\/images\/([^)]+)\)/g, '![$1](/images/$2)')
+		.replace(/!\[([^\]]*)\]\(\.\/assets\/images\/([^)]+)\)/g, '![$1](/images/$2)');
 }

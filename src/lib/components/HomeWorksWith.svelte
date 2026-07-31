@@ -4,7 +4,11 @@
 
 	const partners = [
 		{ name: 'vLLM', logo: '/images/logos/vllm.svg', href: 'https://vllm.ai' },
-		{ name: 'SGLang', logo: '/images/logos/sglang.svg', href: 'https://github.com/sgl-project/sglang' },
+		{
+			name: 'SGLang',
+			logo: '/images/logos/sglang.svg',
+			href: 'https://github.com/sgl-project/sglang'
+		},
 		{
 			name: 'TensorRT-LLM',
 			logo: '/images/logos/tensorrt-llm.svg',
@@ -29,7 +33,7 @@
 	<SectionLabel label="WORKS WITH" as="h2" class="home-works-with-label" markSize={5} />
 
 	<ul class="home-works-with-grid">
-		{#each partners as partner}
+		{#each partners as partner (partner)}
 			<li class="home-works-with-item">
 				<a
 					class="home-works-with-link"

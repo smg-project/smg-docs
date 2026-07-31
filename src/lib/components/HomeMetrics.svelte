@@ -41,7 +41,7 @@
 	use:scrollReveal={{ children: '.home-metrics-card', y: 48, stagger: 0.12, duration: 0.85 }}
 >
 	<div class="home-metrics-grid">
-		{#each metrics as metric, index}
+		{#each metrics as metric, index (metric)}
 			<article class="home-metrics-card">
 				<div class="home-metrics-card-head">
 					<SectionLabel label={metric.title} as="h2" class="home-metrics-card-title" />

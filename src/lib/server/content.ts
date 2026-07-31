@@ -13,10 +13,7 @@ export async function getContentBlocks(
 
 	try {
 		const drizzle = getDb(db);
-		const rows = await drizzle
-			.select()
-			.from(contentBlocks)
-			.where(inArray(contentBlocks.key, keys));
+		const rows = await drizzle.select().from(contentBlocks).where(inArray(contentBlocks.key, keys));
 
 		const result: ContentMap = { ...fallbacks };
 		for (const row of rows) {

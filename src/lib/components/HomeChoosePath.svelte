@@ -12,8 +12,7 @@
 		},
 		{
 			title: 'Learn the Concepts',
-			description:
-				"Understand SMG's architecture, routing strategies, and reliability features.",
+			description: "Understand SMG's architecture, routing strategies, and reliability features.",
 			href: '/concepts',
 			cta: 'Read Concepts'
 		},
@@ -52,9 +51,10 @@
 				markSize={5}
 			/>
 			<p class="home-choose-path-intro">
-				SMG sits between your applications and LLM workers, providing a unified control and data plane
-				for managing inference at scale. Whether you're running a single model or orchestrating
-				hundreds of workers across multiple clusters, SMG gives you the tools to do it reliably.
+				SMG sits between your applications and LLM workers, providing a unified control and data
+				plane for managing inference at scale. Whether you're running a single model or
+				orchestrating hundreds of workers across multiple clusters, SMG gives you the tools to do it
+				reliably.
 			</p>
 		</div>
 
@@ -68,7 +68,7 @@
 				start: 'top 85%'
 			}}
 		>
-			{#each paths as path}
+			{#each paths as path (path)}
 				<article class="home-choose-path-card">
 					<p class="home-choose-path-card-copy">{path.description}</p>
 					<a class="home-choose-path-cta" href={path.href}>

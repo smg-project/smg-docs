@@ -517,6 +517,35 @@ headers can otherwise spoof storage hook request context values.
 
 ---
 
+## Runtime Configuration
+
+Controls the tokio async runtime that backs request handling.
+
+By default the runtime is **container-aware**. tokio sizes its worker pool to
+`std::thread::available_parallelism()`, which on Rust 1.95+ already reads the
+cgroup CPU quota — so under a Kubernetes `limits.cpu` the worker count matches
+the pod's quota, not the host's core count. No extra configuration is needed for
+the default to be right under a CPU limit.
+
+Do **not** set an inflated `TOKIO_WORKER_THREADS` (for example a fixed `32`).
+That overrides the container-aware default and oversubscribes worker threads
+against the cores the scheduler actually grants, causing scheduler thrash,
+tail-latency spikes, and `/health` starvation. Leaving it unset is the correct
+production configuration.
+
+### Worker Threads
+
+Explicit async runtime worker-thread count. Leave unset to use tokio's
+container-aware default above; set it only to pin an explicit count (overriding
+the cgroup-quota-derived default).
+
+| Option | `--runtime-worker-threads` |
+|--------|----------------------------|
+| Environment | - |
+| Default | tokio default (`available_parallelism()`, cgroup-quota-aware) |
+
+---
+
 ## Rate Limiting Configuration
 
 ### Concurrent Request Limit
@@ -907,3 +936,32 @@ smg \
 | `JWT_AUDIENCE` | `--jwt-audience` | JWT audience |
 | `JWT_JWKS_URI` | `--jwt-jwks-uri` | JWKS URI |
 | `CONTROL_PLANE_API_KEYS` | `--control-plane-api-keys` | Control plane API keys |
+
+### Multimodal Tensor Transport
+
+Controls how the router ships preprocessed multimodal tensors (image/video
+encoder inputs and model-specific tensors) to the worker. This does not affect
+accuracy — the inline and shared-memory paths produce byte-identical tensors.
+Shared memory is currently used by the TokenSpeed backend.
+
+Resolution precedence (highest first): per-worker `WorkerSpec` override →
+router config / CLI flag → `SMG_MM_*` environment variable → built-in default.
+
+| CLI Flag | Config / WorkerSpec field | Default | Description |
+|----------|---------------------------|---------|-------------|
+| `--multimodal-tensor-transport` | `multimodal_tensor_transport` | `inline` | Transport for large MM tensors: `inline` (gRPC bytes), `shm` (use `/dev/shm` whenever the router can write it — the operator asserts co-location), `auto` (use `/dev/shm` only when the worker is *verified* to share it), or `rdma` (pull pixels over the NIXL RDMA lane; requires the `mm-rdma` build feature + NIXL, and falls back to inline when unavailable). In `auto`, the router compares the worker's advertised `/dev/shm` namespace token (`GetServerInfo`) to its own and uses SHM only on a match; otherwise it falls back to inline. |
+| `--multimodal-shm-min-bytes` | `multimodal_shm_min_bytes` | `65536` | Minimum tensor size (bytes) before the SHM path is used; smaller tensors stay inline. |
+
+Both settings can be overridden per worker via the matching `WorkerSpec` fields
+(e.g. force `shm` for a co-located worker and `inline` for a remote one).
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `SMG_MM_TENSOR_TRANSPORT` | `inline` | Env fallback for `--multimodal-tensor-transport`. Legacy alias: `SMG_TOKENSPEED_MM_TENSOR_TRANSPORT`. |
+| `SMG_MM_SHM_MIN_BYTES` | `65536` | Env fallback for `--multimodal-shm-min-bytes`. Legacy alias: `SMG_TOKENSPEED_MM_SHM_MIN_BYTES`. |
+| `SMG_LOG_MM_TIMING` | `false` | Log per-stage multimodal preprocessing/assembly timing at `INFO`. Accepts `1`/`true`/`yes`. |
+
+The TokenSpeed gRPC servicer (worker side) reads two companion variables:
+`TOKENSPEED_UNLINK_MM_SHM_AFTER_READ` (default on — unlink each `/dev/shm`
+segment after the worker reads it) and `TOKENSPEED_LOG_MM_TIMING` (worker-side
+timing logs).

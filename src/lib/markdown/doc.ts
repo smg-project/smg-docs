@@ -39,7 +39,7 @@ function escapeHtml(value: string): string {
 function dedentBlock(body: string): string {
 	return body
 		.split('\n')
-		.map((line) => line.replace(/^    /, ''))
+		.map((line) => line.replace(/^ {4}/, ''))
 		.join('\n')
 		.trim();
 }
@@ -94,23 +94,26 @@ function convertArchitectureDiagram(text: string): string {
 }
 
 function convertGrid(text: string): string {
-	return text.replace(/<div class="grid" markdown>\s*([\s\S]*?)\s*<\/div>/gi, (_match, body: string) => {
-		const cards: string[] = [];
-		const cardRe = /<div class="card" markdown>\s*([\s\S]*?)\s*<\/div>/gi;
-		let match: RegExpExecArray | null;
+	return text.replace(
+		/<div class="grid" markdown>\s*([\s\S]*?)\s*<\/div>/gi,
+		(_match, body: string) => {
+			const cards: string[] = [];
+			const cardRe = /<div class="card" markdown>\s*([\s\S]*?)\s*<\/div>/gi;
+			let match: RegExpExecArray | null;
 
-		while ((match = cardRe.exec(body)) !== null) {
-			cards.push(dedentBlock(match[1]));
+			while ((match = cardRe.exec(body)) !== null) {
+				cards.push(dedentBlock(match[1]));
+			}
+
+			docBlocks.push({ kind: 'grid', cards });
+			return blockPlaceholder();
 		}
-
-		docBlocks.push({ kind: 'grid', cards });
-		return blockPlaceholder();
-	});
+	);
 }
 
 function convertAdmonitions(text: string): string {
 	return text.replace(
-		/^!!! (\w+)(?: "(.+)")?\n((?:    .+\n?)*)/gm,
+		/^!!! (\w+)(?: "(.+)")?\n((?: {4}.+\n?)*)/gm,
 		(_match, variant: string, title: string | undefined, body: string) => {
 			docBlocks.push({
 				kind: 'admonition',
@@ -134,10 +137,13 @@ function convertPrerequisites(text: string): string {
 }
 
 function convertDetails(text: string): string {
-	return text.replace(/^\?\?\? question "(.+)"\n((?:    .+\n?)*)/gm, (_match, title: string, body: string) => {
-		docBlocks.push({ kind: 'details', title, markdown: dedentBlock(body) });
-		return blockPlaceholder();
-	});
+	return text.replace(
+		/^\?\?\? question "(.+)"\n((?: {4}.+\n?)*)/gm,
+		(_match, title: string, body: string) => {
+			docBlocks.push({ kind: 'details', title, markdown: dedentBlock(body) });
+			return blockPlaceholder();
+		}
+	);
 }
 
 function isTabStart(line: string): RegExpMatchArray | null {
@@ -164,7 +170,7 @@ function collectTabContent(lines: string[], start: number): { content: string[];
 		}
 
 		if (line.startsWith('    ')) {
-			content.push(line.replace(/^    ?/, ''));
+			content.push(line.replace(/^ {3} ?/, ''));
 			i++;
 			continue;
 		}

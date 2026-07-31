@@ -61,7 +61,7 @@
 			</a>
 		</li>
 
-		{#each nav.sections as section, index}
+		{#each nav.sections as section, index (section)}
 			<li class="docs-sidebar-section" class:docs-sidebar-section--open={isOpen(index)}>
 				<button
 					type="button"
@@ -74,7 +74,7 @@
 
 				{#if isOpen(index)}
 					<ul class="docs-sidebar-links" transition:slide={{ duration: 220, easing: cubicOut }}>
-						{#each section.items as item}
+						{#each section.items as item (item)}
 							<li>
 								<a
 									class="docs-sidebar-link"

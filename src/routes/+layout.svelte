@@ -36,8 +36,7 @@
 
 	const pageTitle = $derived.by(() => {
 		const match = headerNavItems.find(
-			(item) =>
-				$page.url.pathname === item.href || $page.url.pathname.startsWith(`${item.href}/`)
+			(item) => $page.url.pathname === item.href || $page.url.pathname.startsWith(`${item.href}/`)
 		);
 		if ($page.url.pathname === '/search') return `Search · ${siteName}`;
 		if (match) return `${match.label} · ${siteName}`;
@@ -51,7 +50,10 @@
 
 <svelte:head>
 	<title>{pageTitle}</title>
-	<meta name="description" content="Shepherd Model Gateway — high-performance inference gateway for production LLM deployments." />
+	<meta
+		name="description"
+		content="Shepherd Model Gateway — high-performance inference gateway for production LLM deployments."
+	/>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 	<link rel="icon" href="/favicon.png" type="image/png" sizes="192x192" />
 	<link rel="apple-touch-icon" href="/favicon.png" />

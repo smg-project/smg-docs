@@ -68,12 +68,7 @@
 			color-interpolation-filters="sRGB"
 		>
 			<feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur-white">
-				<animate
-					attributeName="stdDeviation"
-					values="5;8;5"
-					dur="2.4s"
-					repeatCount="indefinite"
-				/>
+				<animate attributeName="stdDeviation" values="5;8;5" dur="2.4s" repeatCount="indefinite" />
 			</feGaussianBlur>
 			<feFlood flood-color="#ffffff" flood-opacity="0.85" result="color-white" />
 			<feComposite in="color-white" in2="blur-white" operator="in" result="glow-white" />

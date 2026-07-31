@@ -13,9 +13,7 @@
 	const html = $derived(renderDocMarkdown(content, sourcePath));
 
 	const editUrl = $derived(
-		sourcePath
-			? `https://github.com/lightseekorg/smg/edit/main/docs/${sourcePath}`
-			: undefined
+		sourcePath ? `https://github.com/lightseekorg/smg/edit/main/docs/${sourcePath}` : undefined
 	);
 
 	const rawUrl = $derived(
@@ -81,5 +79,6 @@
 		</div>
 	{/if}
 
+	<!-- eslint-disable-next-line svelte/no-at-html-tags -- rendered markdown comes from this repo's own content tree -->
 	{@html html}
 </article>

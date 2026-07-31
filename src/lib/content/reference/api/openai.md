@@ -33,6 +33,37 @@ Enable authentication with `--api-key`:
 smg --worker-urls http://worker:8000 --api-key "your-api-key"
 ```
 
+For real multi-tenant separation (e.g. per-tenant rate limiting), configure one key per
+tenant instead with `--tenant-api-key tenant_id:key` (repeatable). Each key resolves to
+its own tenant identity; `--api-key` remains available as a single shared fallback key
+whose callers all share one identity.
+
+```bash
+smg --worker-urls http://worker:8000 \
+  --tenant-api-key team-red:red-secret \
+  --tenant-api-key team-blue:blue-secret
+```
+
+Callers authenticate the same way as with `--api-key` — a `Bearer` token in the
+`Authorization` header — just using their own tenant's key instead of the shared one:
+
+```bash
+curl http://localhost:30000/v1/chat/completions \
+  -H "Authorization: Bearer red-secret" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
+
+This request is attributed to `team-red`, distinct from a request authenticated with
+`blue-secret`. A key that doesn't match any configured `--api-key` or `--tenant-api-key`
+value is rejected with `401 Unauthorized`. Tenant keys authenticate serving endpoints
+only — `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, etc. They do not grant
+access to admin/management routes (`/workers`, `/flush_cache`, and similar); that surface
+requires either the shared `--api-key` or control-plane authentication.
+
 ---
 
 ## Endpoints
@@ -229,6 +260,60 @@ curl http://localhost:30000/v1/models
 ```
 
 `owned_by` is `self_hosted` for locally hosted workers, or the provider name (for example `openai`, `anthropic`, `xai`, `gemini`) for upstream providers.
+
+---
+
+### Audio Transcriptions
+
+Transcribe an audio file (batch). Requires a worker serving an ASR model.
+
+```
+POST /v1/audio/transcriptions
+```
+
+Sent as `multipart/form-data` with fields `file` (the audio) and `model`, plus optional
+`language`, `prompt`, `response_format`, `temperature`, and `stream`.
+
+```bash
+curl http://localhost:30000/v1/audio/transcriptions \
+  -F file=@audio.wav \
+  -F model=Qwen/Qwen3-ASR-1.7B
+```
+
+---
+
+### Realtime API
+
+SMG proxies the OpenAI Realtime API to a realtime-capable worker. Both the OpenAI router
+(to an upstream provider) and the HTTP router (to a **local** worker labeled
+[`realtime: "true"`](../../getting-started/multiple-workers.md#realtime-capable-workers))
+support it. SMG relays frames verbatim, so the worker must speak the OpenAI Realtime
+protocol — for local workers, for example vLLM serving an ASR model with the realtime task.
+
+| Endpoint | Transport | Purpose |
+|----------|-----------|---------|
+| `GET /v1/realtime` | WebSocket | Bidirectional realtime session (e.g. live streaming transcription) |
+| `POST /v1/realtime/calls` | WebRTC (SDP) | Browser/WebRTC realtime session |
+| `POST /v1/realtime/sessions` | HTTP | Create a realtime session |
+| `POST /v1/realtime/client_secrets` | HTTP | Mint an ephemeral client secret |
+| `POST /v1/realtime/transcription_sessions` | HTTP | Create a realtime transcription session |
+
+#### WebSocket example
+
+```python
+# pip install websockets
+import asyncio, websockets
+
+async def main():
+    url = "ws://localhost:30000/v1/realtime?model=Qwen/Qwen3-ASR-1.7B"
+    headers = {"Authorization": "Bearer your-api-key"}
+    async with websockets.connect(url, additional_headers=headers) as ws:
+        # Send realtime events (session.update, input_audio_buffer.append, ...)
+        # and receive transcription/response events from the worker.
+        ...
+
+asyncio.run(main())
+```
 
 ---
 

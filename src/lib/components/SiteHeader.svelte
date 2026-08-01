@@ -17,7 +17,7 @@
 	let menuOpen = $state(false);
 	let hidden = $state(false);
 
-	const isHome = $derived($page.url.pathname === '/');
+	const isHome = $derived($page.route.id === '/');
 	const solid = $derived(!isHome || scrolled);
 
 	function isActive(href: string, pathname: string) {

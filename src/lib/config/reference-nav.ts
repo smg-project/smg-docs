@@ -25,7 +25,7 @@ export const referenceNav: DocsNavSection[] = [
 ];
 
 export const referenceDocsNav: DocsNavConfig = {
-	indexHref: '/reference',
+	indexHref: `${base}/reference`,
 	indexLabel: 'Reference',
 	ariaLabel: 'Reference',
 	sections: referenceNav

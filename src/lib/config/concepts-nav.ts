@@ -53,7 +53,7 @@ export const conceptsNav: DocsNavSection[] = [
 ];
 
 export const conceptsDocsNav: DocsNavConfig = {
-	indexHref: '/concepts',
+	indexHref: `${base}/concepts`,
 	indexLabel: 'Concepts',
 	ariaLabel: 'Concepts',
 	sections: conceptsNav

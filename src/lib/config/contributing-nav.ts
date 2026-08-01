@@ -13,7 +13,7 @@ export const contributingNav: DocsNavSection[] = [
 ];
 
 export const contributingDocsNav: DocsNavConfig = {
-	indexHref: '/contributing',
+	indexHref: `${base}/contributing`,
 	indexLabel: 'Contributing',
 	ariaLabel: 'Contributing',
 	sections: contributingNav

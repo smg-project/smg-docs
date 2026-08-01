@@ -13,7 +13,7 @@
 		{
 			name: 'TokenSpeed',
 			logo: `${assets}/images/logos/tokenspeed.svg`,
-			href: 'https://lightseek.org/tokenspeed/',
+			href: 'https://github.com/lightseekorg/tokenspeed',
 			kind: 'engine'
 		},
 		{

@@ -23,7 +23,7 @@ MCP tool execution in SMG is currently implemented through the **Responses API**
 servers:
   - name: brave
     protocol: sse
-    url: "https://mcp.brave.com/sse"
+    url: "https://mcp.example.com/sse"
     token: "${BRAVE_API_KEY}"  # literal placeholder — substitute before loading
     required: true
 

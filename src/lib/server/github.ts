@@ -6,7 +6,7 @@ export type GitHubRepoStats = {
 	forks: number;
 };
 
-const REPO = 'lightseekorg/smg';
+const REPO = 'smg-project/smg';
 const DEFAULT_STATS: GitHubRepoStats = {
 	fullName: REPO,
 	url: `https://github.com/${REPO}`,

@@ -20,6 +20,7 @@ Thumbs.db
 
 # Machine-local agent settings
 .claude/settings.local.json
+.claude/worktrees/
 
 # Vite
 vite.config.js.timestamp-*

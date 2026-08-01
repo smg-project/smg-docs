@@ -5,7 +5,7 @@
 	import HeroShaderBackground from '$lib/components/HeroShaderBackground.svelte';
 	import { heroShaderActive, toggleHeroShader } from '$lib/stores/hero-shader';
 
-	const githubUrl = 'https://github.com/lightseekorg/smg';
+	const githubUrl = 'https://github.com/smg-project/smg';
 
 	let {
 		title,

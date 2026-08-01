@@ -8,7 +8,7 @@
 	const links = [
 		{
 			label: 'GitHub',
-			href: 'https://github.com/lightseekorg/smg',
+			href: 'https://github.com/smg-project/smg',
 			icon: 'github'
 		},
 		{

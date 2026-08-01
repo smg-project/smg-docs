@@ -15,6 +15,11 @@ Thumbs.db
 # Env
 .env
 .env.*
+.dev.vars
+.dev.vars.*
+
+# Machine-local agent settings
+.claude/settings.local.json
 
 # Vite
 vite.config.js.timestamp-*

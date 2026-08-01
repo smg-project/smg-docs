@@ -8,14 +8,8 @@
 		{
 			"binding": "DB",
 			"database_name": "smg-db",
-			"database_id": "ac4eee7b-b67b-4964-b503-d577a6331737",
+			"database_id": "6613c46e-e99d-49bc-958a-c00f39e7bf4a",
 			"migrations_dir": "drizzle"
-		}
-	],
-	"r2_buckets": [
-		{
-			"binding": "MEDIA",
-			"bucket_name": "smg"
 		}
 	]
 }

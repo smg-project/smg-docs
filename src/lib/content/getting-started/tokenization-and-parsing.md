@@ -122,6 +122,6 @@ curl http://localhost:30000/parse/reasoning \
 
 ## Next Steps
 
-- [Gateway Extensions API](../reference/api/extensions.md#tokenize)
-- [Gateway Extensions API](../reference/api/extensions.md#parse-function-calls)
+- [Gateway Extensions API](../reference/api/extensions.md#tokenizer-management)
+- [Gateway Extensions API](../reference/api/extensions.md#parser-utilities)
 - [Admin API Reference](../reference/api/admin.md)

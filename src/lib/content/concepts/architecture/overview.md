@@ -122,7 +122,7 @@ The gRPC path provides maximum performance by handling all text processing at th
 
 ---
 
-## HTTP Path (OpenAI Compatible)
+## HTTP Path (OpenAI-Compatible)
 
 The HTTP path supports two modes for OpenAI-compatible backends.
 
@@ -147,9 +147,9 @@ Disaggregated inference with separate prefill and decode workers:
 
 ---
 
-## 3rd Party Path
+## Third-Party Path
 
-The 3rd party path routes to external LLM providers through a unified interface.
+The third-party path routes to external LLM providers through a unified interface.
 
 ### Model Discovery
 

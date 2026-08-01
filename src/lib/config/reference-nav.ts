@@ -6,7 +6,7 @@ export const referenceNav: DocsNavSection[] = [
 	{
 		label: 'API',
 		items: [
-			{ label: 'OpenAI Compatible', href: `${base}/reference/api/openai` },
+			{ label: 'OpenAI-Compatible', href: `${base}/reference/api/openai` },
 			{ label: 'Responses API', href: `${base}/reference/api/responses` },
 			{ label: 'Anthropic Messages API', href: `${base}/reference/api/messages` },
 			{ label: 'Admin API', href: `${base}/reference/api/admin` },

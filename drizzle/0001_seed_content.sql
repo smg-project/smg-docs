@@ -1,0 +1,15 @@
+INSERT OR IGNORE INTO `content_blocks` (`key`, `value`, `updated_at`) VALUES
+  ('home.hero.title', 'The High-performance inference gateway for production LLM deployments', datetime('now')),
+  ('home.hero.subtitle', 'Route, balance, and orchestrate traffic across your LLM fleet with enterprise-grade reliability.', datetime('now')),
+  ('getting-started.title', 'Getting Started', datetime('now')),
+  ('getting-started.lead', 'Install Shepherd, configure your first route, and send a test request.', datetime('now')),
+  ('getting-started.body', 'Start with a minimal deployment, define upstream providers, then validate traffic through the gateway before rolling out to production workloads.', datetime('now')),
+  ('concepts.title', 'Concepts', datetime('now')),
+  ('concepts.lead', 'Core ideas behind routing, policy enforcement, and gateway operations.', datetime('now')),
+  ('concepts.body', 'Learn how requests flow through the gateway, how policies are evaluated, and how observability data is collected across providers.', datetime('now')),
+  ('reference.title', 'Reference', datetime('now')),
+  ('reference.lead', 'Configuration options, API endpoints, and operational knobs.', datetime('now')),
+  ('reference.body', 'Use this section as the authoritative guide for gateway settings, environment variables, and integration contracts.', datetime('now')),
+  ('contributing.title', 'Contributing', datetime('now')),
+  ('contributing.lead', 'How to propose changes, report issues, and improve documentation.', datetime('now')),
+  ('contributing.body', 'Contributions are welcome. Open an issue to discuss larger changes, keep pull requests focused, and update docs alongside code.', datetime('now'));

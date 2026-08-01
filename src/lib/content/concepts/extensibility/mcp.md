@@ -181,7 +181,7 @@ Configure response formats and argument mappings per tool:
 servers:
   - name: brave
     protocol: sse
-    url: "https://mcp.brave.com/sse"
+    url: "https://mcp.example.com/sse"
     token: "${BRAVE_API_KEY}"
 
     tools:
@@ -212,7 +212,7 @@ smg --worker-urls http://localhost:8000 --mcp-config-path /etc/smg/mcp.yaml
 servers:
   - name: brave
     protocol: sse
-    url: "https://mcp.brave.com/sse"
+    url: "https://mcp.example.com/sse"
     token: "${BRAVE_API_KEY}"
     required: true
 

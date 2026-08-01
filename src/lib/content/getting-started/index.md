@@ -54,7 +54,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     docker pull ghcr.io/lightseekorg/smg:1.4.1-sglang-v0.5.10
     ```
 
-    Tag format: `{smg_version}-{engine}-{engine_version}`. Browse all tags at [ghcr.io/lightseekorg/smg](https://github.com/lightseekorg/smg/pkgs/container/smg).
+    Tag format: `{smg_version}-{engine}-{engine_version}`. Browse all tags at [ghcr.io/lightseekorg/smg](https://github.com/orgs/lightseekorg/packages/container/package/smg).
 
 === "From Source"
 
@@ -64,7 +64,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     source "$HOME/.cargo/env"
 
     # Clone and build
-    git clone https://github.com/lightseekorg/smg.git
+    git clone https://github.com/smg-project/smg.git
     cd smg
     cargo build --release
     ```

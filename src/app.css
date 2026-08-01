@@ -1197,10 +1197,11 @@ a {
 
 .home-works-with-grid {
 	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
+	/* 12 tracks so the 4 engines and the 3 providers each fill their own row */
+	grid-template-columns: repeat(12, minmax(0, 1fr));
 	gap: 1.25rem 0.75rem;
 	width: 100%;
-	max-width: 42rem;
+	max-width: 46rem;
 	margin: 0 auto;
 	padding: 0;
 	list-style: none;
@@ -1210,6 +1211,11 @@ a {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
+	grid-column: span 3;
+}
+
+.home-works-with-item--provider {
+	grid-column: span 4;
 }
 
 .home-works-with-link {
@@ -1218,6 +1224,7 @@ a {
 	align-items: center;
 	gap: 0.625rem;
 	width: 100%;
+	max-width: 10rem;
 	color: inherit;
 	text-decoration: none;
 	border-radius: 999px;
@@ -1289,6 +1296,11 @@ a {
 	.home-works-with-grid {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		max-width: 20rem;
+	}
+
+	.home-works-with-item,
+	.home-works-with-item--provider {
+		grid-column: span 1;
 	}
 }
 

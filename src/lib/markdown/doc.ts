@@ -14,8 +14,15 @@ type DocBlock =
 let docBlocks: DocBlock[] = [];
 
 function slugifyHeading(text: string): string {
+	// The renderer slugifies parsed inline HTML, the TOC slugifies raw markdown;
+	// decoding entities keeps both sides producing the same id.
 	return text
 		.replace(/<[^>]+>/g, '')
+		.replace(/&#(\d+);/g, (_match, code: string) => String.fromCharCode(Number(code)))
+		.replace(/&amp;/g, '&')
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&quot;/g, '"')
 		.trim()
 		.toLowerCase()
 		.replace(/[^\w\s-]/g, '')
@@ -45,15 +52,16 @@ function dedentBlock(body: string): string {
 }
 
 function blockPlaceholder(): string {
-	const id = docBlocks.length;
+	// Callers push their block first, so the last index is the one to reference.
+	const id = docBlocks.length - 1;
 	return `\n<!--DOCBLOCK:${id}-->\n`;
 }
 
 function stripMaterialIcons(text: string): string {
 	return text
-		.replace(/:material-check:/g, '✓')
-		.replace(/:material-close:/g, '✗')
 		.replace(/:material-[\w-]+:\{[^}]*\}\s*/g, '')
+		.replace(/:material-check(?:-circle)?:/g, '✓')
+		.replace(/:material-close(?:-circle)?:/g, '✗')
 		.replace(/:octicons-[\w-]+-\d+:\s*/g, '')
 		.replace(/:material-[\w-]+:\s*/g, '');
 }
@@ -93,27 +101,55 @@ function convertArchitectureDiagram(text: string): string {
 	);
 }
 
+function findBalancedDivClose(text: string, openEnd: number): number {
+	const tokenRe = /<div\b|<\/div>/gi;
+	tokenRe.lastIndex = openEnd;
+	let depth = 1;
+	let match: RegExpExecArray | null;
+
+	while ((match = tokenRe.exec(text)) !== null) {
+		depth += match[0] === '</div>' ? -1 : 1;
+		if (depth === 0) return match.index;
+	}
+
+	return -1;
+}
+
 function convertGrid(text: string): string {
-	return text.replace(
-		/<div class="grid" markdown>\s*([\s\S]*?)\s*<\/div>/gi,
-		(_match, body: string) => {
-			const cards: string[] = [];
-			const cardRe = /<div class="card" markdown>\s*([\s\S]*?)\s*<\/div>/gi;
-			let match: RegExpExecArray | null;
+	// A lazy regex would stop at the first nested card's </div>; scan for the
+	// balanced close instead so the grid keeps all of its cards.
+	const open = '<div class="grid" markdown>';
+	let result = '';
+	let cursor = 0;
 
-			while ((match = cardRe.exec(body)) !== null) {
-				cards.push(dedentBlock(match[1]));
-			}
+	for (;;) {
+		const start = text.indexOf(open, cursor);
+		if (start === -1) break;
 
-			docBlocks.push({ kind: 'grid', cards });
-			return blockPlaceholder();
+		const bodyStart = start + open.length;
+		const end = findBalancedDivClose(text, bodyStart);
+		if (end === -1) break;
+
+		const body = text.slice(bodyStart, end);
+		const cards: string[] = [];
+		const cardRe = /<div class="card" markdown>\s*([\s\S]*?)\s*<\/div>/gi;
+		let match: RegExpExecArray | null;
+
+		while ((match = cardRe.exec(body)) !== null) {
+			cards.push(dedentBlock(match[1]));
 		}
-	);
+
+		docBlocks.push({ kind: 'grid', cards });
+		result += text.slice(cursor, start) + blockPlaceholder();
+		cursor = end + '</div>'.length;
+	}
+
+	return result + text.slice(cursor);
 }
 
 function convertAdmonitions(text: string): string {
 	return text.replace(
-		/^!!! (\w+)(?: "(.+)")?\n((?: {4}.+\n?)*)/gm,
+		/^!!! (\w+)(?: "(.+)")?\n((?:(?: {4}.*)?\n)*)/gm,
 		(_match, variant: string, title: string | undefined, body: string) => {
 			docBlocks.push({
 				kind: 'admonition',
@@ -138,9 +174,10 @@ function convertPrerequisites(text: string): string {
 
 function convertDetails(text: string): string {
 	return text.replace(
-		/^\?\?\? question "(.+)"\n((?: {4}.+\n?)*)/gm,
-		(_match, title: string, body: string) => {
-			docBlocks.push({ kind: 'details', title, markdown: dedentBlock(body) });
+		/^\?\?\?\+? (\w+)(?: "(.+)")?\n((?:(?: {4}.*)?\n)*)/gm,
+		(_match, variant: string, title: string | undefined, body: string) => {
+			const summary = title ?? variant.charAt(0).toUpperCase() + variant.slice(1);
+			docBlocks.push({ kind: 'details', title: summary, markdown: dedentBlock(body) });
 			return blockPlaceholder();
 		}
 	);
@@ -249,6 +286,8 @@ function stripDocNoiseForToc(raw: string): string {
 	let text = stripFrontmatter(raw);
 	text = text.replace(/<div class="prerequisites" markdown>[\s\S]*?<\/div>/gi, '');
 	text = stripMkdocsHtml(text);
+	// Same icon handling as the render path, so TOC text and anchors line up.
+	text = stripMaterialIcons(text);
 	return text;
 }
 
@@ -256,8 +295,10 @@ function createMarked(slugCounts = new Map<string, number>()): Marked {
 	return new Marked({
 		renderer: {
 			code({ text, lang }) {
-				const language = lang?.trim().toLowerCase() || 'plaintext';
-				const highlighted = highlightCode(text, lang);
+				// The info string may carry attributes (```yaml title="…"); only the
+				// first token is the language.
+				const language = lang?.trim().split(/\s+/)[0]?.toLowerCase() || 'plaintext';
+				const highlighted = highlightCode(text, language);
 				return `<div class="doc-code"><button type="button" class="doc-code-copy" aria-label="Copy to clipboard">Copy</button><pre class="doc-pre"><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre></div>`;
 			},
 			heading({ tokens, depth }) {

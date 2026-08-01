@@ -15,10 +15,8 @@
 		if (navigation.willUnload) return;
 		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-		const from = navigation.from?.url.pathname ?? '';
-		const to = navigation.to?.url.pathname ?? '';
 		// Home hero is full-viewport with negative margin — morphing main bounds looks like orange sliding up.
-		if (from === '/' || to === '/') return;
+		if (navigation.from?.route.id === '/' || navigation.to?.route.id === '/') return;
 
 		return new Promise<void>((resolve) => {
 			document.startViewTransition(async () => {
@@ -29,7 +27,7 @@
 	});
 
 	$effect(() => {
-		if ($page.url.pathname !== '/') {
+		if ($page.route.id !== '/') {
 			heroShaderActive.set(false);
 			heroShaderEnergy.set(0);
 		}
@@ -39,14 +37,14 @@
 		const match = headerNavItems.find(
 			(item) => $page.url.pathname === item.href || $page.url.pathname.startsWith(`${item.href}/`)
 		);
-		if ($page.url.pathname === '/search') return `Search · ${siteName}`;
+		if ($page.route.id === '/search') return `Search · ${siteName}`;
 		if (match) return `${match.label} · ${siteName}`;
 		return siteName;
 	});
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
-	const isHome = $derived($page.url.pathname === '/');
+	const isHome = $derived($page.route.id === '/');
 </script>
 
 <svelte:head>

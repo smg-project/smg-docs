@@ -16,9 +16,7 @@ declare global {
 		}
 
 		// interface Error {}
-		interface Locals {
-			isAdmin: boolean;
-		}
+		// interface Locals {}
 		// interface PageData {}
 		// interface PageState {}
 	}

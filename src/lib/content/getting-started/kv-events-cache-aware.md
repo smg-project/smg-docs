@@ -21,9 +21,9 @@ This guide walks through wiring an **SGLang worker emitting KV cache events** to
 
 ## Why event-driven?
 
-Cache-aware routing has three internal flavours. The one this guide configures is the most accurate of the three because it routes against the worker's **actual** KV cache state rather than an approximation.
+Cache-aware routing has three internal flavors. The one this guide configures is the most accurate of the three because it routes against the worker's **actual** KV cache state rather than an approximation.
 
-| Flavour | Tree | Input | Worker connection | Triggered when |
+| Flavor | Tree | Input | Worker connection | Triggered when |
 |---|---|---|---|---|
 | **Event-driven** | `PositionalIndexer` (event-built) | Token IDs | gRPC | Worker emits KV events |
 | Approximate token tree | `TokenTree` (prefix observed at routing time) | Token IDs | gRPC | Worker is gRPC but emits no events |
@@ -113,7 +113,7 @@ Event-driven routing needs the worker in **SMG gRPC mode** (`--grpc`) — KV eve
 | `publisher: "zmq"` | Selects the ZMQ publisher the servicer bridges. |
 | `endpoint` / `topic` | ZMQ `PUB` address and topic prefix. For data-parallel, the port is `endpoint_port + dp_rank`; SMG currently consumes rank 0. |
 
-SMG learns the block size from the `BlockStored` events themselves, so you needn't set it; pass vLLM's `--block-size N` (the analogue of SGLang's `--page-size`) only to pin a non-default value.
+SMG learns the block size from the `BlockStored` events themselves, so you needn't set it; pass vLLM's `--block-size N` (the analog of SGLang's `--page-size`) only to pin a non-default value.
 
 Everything downstream — SMG flags, block-size learning, and the verification logs — is unchanged; `KvEventMonitor` consumes the events the same way for any gRPC worker.
 

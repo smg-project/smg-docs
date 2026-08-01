@@ -5,7 +5,7 @@
 
 	const metrics = [
 		{
-			title: 'TIFT REDUCTION',
+			title: 'TTFT REDUCTION',
 			prefix: '',
 			value: 70,
 			suffix: '%',
@@ -26,11 +26,11 @@
 			description: 'Metrics Available'
 		},
 		{
-			title: 'OPEN AI COMPATIBLE',
+			title: 'OPENAI-COMPATIBLE',
 			prefix: '',
 			value: 100,
 			suffix: '%',
-			description: 'Open AI Compatible'
+			description: 'OpenAI-Compatible'
 		}
 	] as const;
 </script>

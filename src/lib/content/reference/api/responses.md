@@ -544,7 +544,7 @@ curl http://localhost:30000/v1/conversations/conv_abc123def456
 
 ### Update Conversation
 
-Update conversation metadata. Uses merge semantics - set a key to `null` to delete it.
+Update conversation metadata. Uses merge semantics — set a key to `null` to delete it.
 
 ```
 POST /v1/conversations/{conversation_id}
@@ -744,7 +744,7 @@ Returns the item object.
 
 ### Delete Conversation Item
 
-Remove an item from a conversation. This performs a soft delete - the item may still exist if referenced by other conversations.
+Remove an item from a conversation. This performs a soft delete — the item may still exist if referenced by other conversations.
 
 ```
 DELETE /v1/conversations/{conversation_id}/items/{item_id}

@@ -55,7 +55,7 @@ These run behind protected-route auth middleware:
 
 For OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/embeddings`), see:
 
-- [OpenAI Compatible API](openai.md)
+- [OpenAI-Compatible API](openai.md)
 - [Responses API](responses.md)
 
 ---

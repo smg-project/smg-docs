@@ -155,7 +155,7 @@ registered id until the worker is re-registered.
 With vLLM data parallelism (`data_parallel_size > 1`), run SMG with
 `--dp-aware`: SMG pins each request to a DP rank and mints the decode params
 with the matching `{engine_id}_dp{rank}` engine-core id. Without `--dp-aware`,
-DP>1 prefill workers are not minted for and SMG falls back to legacy host/port
+decode params are not minted for DP>1 prefill workers, and SMG falls back to legacy host/port
 injection (decode recomputes the prompt locally). External-LB DP
 (`--data-parallel-external-lb`, one pod per rank) is unsupported for Mooncake
 minting: every pod's engine core is `{engine_id}_dp0`, so register pods as

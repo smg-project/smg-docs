@@ -44,7 +44,7 @@ The scheduler surfaces admission and preemption outcomes as HTTP status codes. E
 
 | Status | Condition | `X-SMG-Error-Code` | Extra headers |
 |--------|-----------|--------------------|---------------|
-| **503** Service Unavailable | **Preempted** — admitted, then cancelled before its first byte to make room for a higher-priority request | `scheduler_preempted` | `X-SMG-Preempted: true`, `Retry-After: 1` |
+| **503** Service Unavailable | **Preempted** — admitted, then canceled before its first byte to make room for a higher-priority request | `scheduler_preempted` | `X-SMG-Preempted: true`, `Retry-After: 1` |
 | **429** Too Many Requests | **Queue full** — the request's per-class queue is at its configured depth | `scheduler_queue_full` | — |
 | **408** Request Timeout | **Queue timeout** — the request waited longer than its class's `queue_timeout` | `scheduler_queue_timeout` | — |
 | **499** Client Closed Request | **Client gone** — the client disconnected before admission completed (nginx convention; never actually read) | `scheduler_client_cancelled` | — |

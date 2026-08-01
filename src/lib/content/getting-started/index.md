@@ -206,8 +206,10 @@ curl http://localhost:30000/v1/responses \
 ### Advanced Features
 
 - [Load Balancing](load-balancing.md)
+- [KV Events Cache-Aware Routing](kv-events-cache-aware.md)
 - [Tokenizer Caching](tokenizer-caching.md)
 - [MCP in Responses API](mcp.md)
+- [External Providers](external-providers.md)
 
 ---
 
@@ -521,14 +523,16 @@ curl http://localhost:30000/workers
 ### Reliability and Data
 
 - [Reliability Controls](reliability-controls.md) — concurrency limits, retries, and circuit breakers
-- [Data Connections](data-connections.md) — history backend setup for Postgres, Redis, and Oracle
+- [Data Connections](data-connections.md) — history backend setup for PostgreSQL, Redis, and Oracle
 - [Tokenization and Parsing APIs](tokenization-and-parsing.md) — tokenize, detokenize, and parser endpoints
 
 ### Advanced Features
 
 - [Load Balancing](load-balancing.md) — policy selection and tuning
+- [KV Events Cache-Aware Routing](kv-events-cache-aware.md) — prefix routing driven by engine KV cache events
 - [Tokenizer Caching](tokenizer-caching.md) — L0/L1 cache setup for gRPC mode
 - [MCP in Responses API](mcp.md) — configure and execute MCP tools through `/v1/responses`
+- [External Providers](external-providers.md) — route to OpenAI, Anthropic, Gemini, and xAI backends
 
 ## Troubleshooting
 

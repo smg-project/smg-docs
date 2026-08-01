@@ -13,12 +13,14 @@
 	const html = $derived(renderDocMarkdown(content, sourcePath));
 
 	const editUrl = $derived(
-		sourcePath ? `https://github.com/lightseekorg/smg/edit/main/docs/${sourcePath}` : undefined
+		sourcePath
+			? `https://github.com/smg-project/smg-docs/edit/main/src/lib/content/${sourcePath}`
+			: undefined
 	);
 
 	const rawUrl = $derived(
 		sourcePath
-			? `https://raw.githubusercontent.com/lightseekorg/smg/main/docs/${sourcePath}`
+			? `https://raw.githubusercontent.com/smg-project/smg-docs/main/src/lib/content/${sourcePath}`
 			: undefined
 	);
 

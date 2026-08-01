@@ -1,11 +1,13 @@
+import { base } from '$app/paths';
+
 import type { DocsNavConfig, DocsNavSection } from '$lib/config/docs-nav';
 
 export const contributingNav: DocsNavSection[] = [
 	{
 		label: 'Guides',
 		items: [
-			{ label: 'Development Setup', href: '/contributing/development' },
-			{ label: 'Code Style', href: '/contributing/code-style' }
+			{ label: 'Development Setup', href: `${base}/contributing/development` },
+			{ label: 'Code Style', href: `${base}/contributing/code-style` }
 		]
 	}
 ];

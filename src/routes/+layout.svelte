@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { assets } from '$app/paths';
 	import '../app.css';
 	import { onNavigate } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -54,9 +55,9 @@
 		name="description"
 		content="Shepherd Model Gateway — high-performance inference gateway for production LLM deployments."
 	/>
-	<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-	<link rel="icon" href="/favicon.png" type="image/png" sizes="192x192" />
-	<link rel="apple-touch-icon" href="/favicon.png" />
+	<link rel="icon" href="{assets}/favicon.svg" type="image/svg+xml" />
+	<link rel="icon" href="{assets}/favicon.png" type="image/png" sizes="192x192" />
+	<link rel="apple-touch-icon" href="{assets}/favicon.png" />
 </svelte:head>
 
 <div

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import FooterMark from '$lib/components/FooterMark.svelte';
 	import { siteName } from '$lib/config/nav';
 
@@ -26,7 +27,7 @@
 <footer class="site-footer">
 	<div class="site-footer-inner">
 		<div class="site-footer-brand-block">
-			<a href="/" class="site-footer-brand" aria-label="{siteName} home">
+			<a href={base || '/'} class="site-footer-brand" aria-label="{siteName} home">
 				<FooterMark class="site-footer-mark" />
 			</a>
 			<p class="site-footer-name">{siteName}</p>

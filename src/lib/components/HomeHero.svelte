@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { scrollReveal } from '$lib/actions/scrollReveal';
 	import HeroMark from '$lib/components/HeroMark.svelte';
 	import HeroShaderBackground from '$lib/components/HeroShaderBackground.svelte';
@@ -48,7 +49,7 @@
 			<h1 class="home-hero-title">{title}</h1>
 			<p class="home-hero-subtitle">{subtitle}</p>
 			<div class="home-hero-actions">
-				<a class="home-hero-btn" href="/getting-started">Get Started</a>
+				<a class="home-hero-btn" href="{base}/getting-started">Get Started</a>
 				<a
 					class="home-hero-btn home-hero-btn--github"
 					href={githubUrl}

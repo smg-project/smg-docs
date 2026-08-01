@@ -8,6 +8,9 @@ const config = {
 	},
 	kit: {
 		adapter: adapter(),
+		paths: {
+			base: '/smg'
+		},
 		typescript: {
 			config: (config) => ({
 				...config,

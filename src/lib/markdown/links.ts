@@ -1,3 +1,4 @@
+import { base } from '$app/paths';
 import { fileToSlug } from '$lib/content/getting-started/slugs';
 
 function dirname(filePath: string): string {
@@ -57,7 +58,7 @@ export function rewriteDocLinks(text: string, sourcePath?: string): string {
 	return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label: string, href: string) => {
 		if (href.startsWith('https://lightseek.org/smg/')) {
 			const path = href.replace('https://lightseek.org/smg/', '').replace(/\/$/, '');
-			return `[${label}](/${path})`;
+			return `[${label}](${base}/${path})`;
 		}
 
 		const hashIndex = href.indexOf('#');
@@ -70,18 +71,18 @@ export function rewriteDocLinks(text: string, sourcePath?: string): string {
 
 		if (normalized === 'index.md') {
 			const section = dirname(fromFile).split('/')[0];
-			if (section === 'getting-started') return `[${label}](/getting-started${fragment})`;
-			if (section === 'concepts') return `[${label}](/concepts${fragment})`;
-			if (section === 'reference') return `[${label}](/reference${fragment})`;
-			if (section === 'contributing') return `[${label}](/contributing${fragment})`;
+			if (section === 'getting-started') return `[${label}](${base}/getting-started${fragment})`;
+			if (section === 'concepts') return `[${label}](${base}/concepts${fragment})`;
+			if (section === 'reference') return `[${label}](${base}/reference${fragment})`;
+			if (section === 'contributing') return `[${label}](${base}/contributing${fragment})`;
 		}
 
-		return `[${label}](${toUrlPath(resolveRelativePath(fromFile, normalized))}${fragment})`;
+		return `[${label}](${base}${toUrlPath(resolveRelativePath(fromFile, normalized))}${fragment})`;
 	});
 }
 
 export function rewriteAssetPaths(text: string): string {
 	return text
-		.replace(/!\[([^\]]*)\]\((?:\.\.\/)+assets\/images\/([^)]+)\)/g, '![$1](/images/$2)')
-		.replace(/!\[([^\]]*)\]\(\.\/assets\/images\/([^)]+)\)/g, '![$1](/images/$2)');
+		.replace(/!\[([^\]]*)\]\((?:\.\.\/)+assets\/images\/([^)]+)\)/g, `![$1](${base}/images/$2)`)
+		.replace(/!\[([^\]]*)\]\(\.\/assets\/images\/([^)]+)\)/g, `![$1](${base}/images/$2)`);
 }

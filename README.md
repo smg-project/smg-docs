@@ -39,4 +39,10 @@ CI (`.github/workflows/ci.yml`) runs lint, type checks, and a production build o
 
 ## Design
 
-Brand identity and site design by [Studio NOIICH](https://studio-noiich.com). Typography: [Changa](https://fonts.google.com/specimen/Changa) and [Inter](https://rsms.me/inter/).
+The identity and site were designed by [Studio Noiich](https://studio-noiich.com) through a two-round concept process (May–June 2026), positioned deliberately at the interaction of tech and the humanities & arts.
+
+The visual anchor is **Piet Mondrian**: his work distills complex reality into a perfect geometric equilibrium, with the grid standing for universal order and structural clarity. That maps directly onto what SMG does with inference traffic — orchestration as geometric equilibrium, efficiency as structural clarity — and the grid discipline runs through the whole site.
+
+- **Symbol** — a gateway arch set into a Mondrian-like grid, progressively reduced until only the rounded arch remains: the mark that anchors the home hero and the favicon.
+- **Color** — solid tech black and warm paper off-whites around the signature **radial orange glow**. Orange was chosen for its warmth — the humanities-and-arts half of the pairing, balancing the cool precision of the tech side — and the glow renders live as the home hero's shader background.
+- **Typography** — [Changa](https://fonts.google.com/specimen/Changa) for the wordmark and display, [Inter](https://rsms.me/inter/) for text.

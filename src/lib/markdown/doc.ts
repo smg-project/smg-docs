@@ -229,6 +229,9 @@ function parseTabGroups(text: string, parseMarkdown: (input: string) => string):
 		result.push(
 			`<div class="doc-tabbed-set">${inputs}<div class="doc-tab-labels">${labels}</div><div class="doc-tab-panels">${panels}</div></div>`
 		);
+		// The blank lines after the tab block were consumed above; emit one so the
+		// raw-HTML block ends here and whatever follows is parsed as markdown.
+		result.push('');
 	}
 
 	return result.join('\n');

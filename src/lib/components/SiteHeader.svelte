@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { page } from '$app/stores';
 	import { slide, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -132,7 +133,7 @@
 	bind:this={headerEl}
 >
 	<div class="site-header-inner">
-		<a class="site-brand" href="/" onclick={closeMenu}>
+		<a class="site-brand" href={base || '/'} onclick={closeMenu}>
 			<Logo />
 		</a>
 
@@ -156,7 +157,8 @@
 						</li>
 					{/each}
 					<li>
-						<a href="/search" class:active={$page.url.pathname === '/search'}>Search</a>
+						<a href="{base}/search" class:active={$page.url.pathname === `${base}/search`}>Search</a
+						>
 					</li>
 				</ul>
 			</nav>
@@ -208,7 +210,11 @@
 						</li>
 					{/each}
 					<li>
-						<a href="/search" class:active={$page.url.pathname === '/search'} onclick={closeMenu}>
+						<a
+							href="{base}/search"
+							class:active={$page.url.pathname === `${base}/search`}
+							onclick={closeMenu}
+						>
 							Search
 						</a>
 					</li>

@@ -1,42 +1,48 @@
 <script lang="ts">
+	import { assets } from '$app/paths';
 	import { scrollReveal } from '$lib/actions/scrollReveal';
 	import SectionLabel from '$lib/components/SectionLabel.svelte';
 
 	const partners = [
-		{ name: 'vLLM', logo: '/images/logos/vllm.svg', href: 'https://vllm.ai', kind: 'engine' },
+		{
+			name: 'vLLM',
+			logo: `${assets}/images/logos/vllm.svg`,
+			href: 'https://vllm.ai',
+			kind: 'engine'
+		},
 		{
 			name: 'TokenSpeed',
-			logo: '/images/logos/tokenspeed.svg',
+			logo: `${assets}/images/logos/tokenspeed.svg`,
 			href: 'https://lightseek.org/tokenspeed/',
 			kind: 'engine'
 		},
 		{
 			name: 'SGLang',
-			logo: '/images/logos/sglang.svg',
+			logo: `${assets}/images/logos/sglang.svg`,
 			href: 'https://github.com/sgl-project/sglang',
 			kind: 'engine'
 		},
 		{
 			name: 'TensorRT-LLM',
-			logo: '/images/logos/tensorrt-llm.svg',
+			logo: `${assets}/images/logos/tensorrt-llm.svg`,
 			href: 'https://developer.nvidia.com/tensorrt-llm',
 			kind: 'engine'
 		},
 		{
 			name: 'OpenAI',
-			logo: '/images/logos/openai.svg',
+			logo: `${assets}/images/logos/openai.svg`,
 			href: 'https://openai.com',
 			kind: 'provider'
 		},
 		{
 			name: 'Claude',
-			logo: '/images/logos/claude.svg',
+			logo: `${assets}/images/logos/claude.svg`,
 			href: 'https://www.anthropic.com/claude',
 			kind: 'provider'
 		},
 		{
 			name: 'Gemini',
-			logo: '/images/logos/gemini.svg',
+			logo: `${assets}/images/logos/gemini.svg`,
 			href: 'https://ai.google.dev/gemini-api',
 			kind: 'provider'
 		}

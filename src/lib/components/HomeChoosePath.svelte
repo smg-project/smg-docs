@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { scrollReveal } from '$lib/actions/scrollReveal';
 	import ChoosePathArrow from '$lib/components/ChoosePathArrow.svelte';
 	import SectionLabel from '$lib/components/SectionLabel.svelte';
@@ -7,25 +8,25 @@
 		{
 			title: 'New to SMG',
 			description: 'Start here to understand what SMG does and get it running in minutes.',
-			href: '/getting-started',
+			href: `${base}/getting-started`,
 			cta: 'Getting Started'
 		},
 		{
 			title: 'Learn the Concepts',
 			description: "Understand SMG's architecture, routing strategies, and reliability features.",
-			href: '/concepts',
+			href: `${base}/concepts`,
 			cta: 'Read Concepts'
 		},
 		{
 			title: 'Ops Setup',
 			description: 'Continue onboarding with monitoring, logging, and TLS guides.',
-			href: '/getting-started',
+			href: `${base}/getting-started`,
 			cta: 'View Getting Started Guides'
 		},
 		{
 			title: 'API Reference',
 			description: 'Complete reference for the OpenAI-compatible API and SMG extensions.',
-			href: '/reference',
+			href: `${base}/reference`,
 			cta: 'View Reference'
 		}
 	] as const;

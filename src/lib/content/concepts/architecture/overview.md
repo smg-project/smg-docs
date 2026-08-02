@@ -165,8 +165,8 @@ The gateway discovers available models from external providers and exposes them 
 | xAI Grok | OpenAI |
 | Together AI | OpenAI |
 | OpenRouter | OpenAI |
-| AWS Bedrock | Bedrock |
-| OCI Generative AI | OCI |
+| AWS Bedrock | OpenAI-compatible |
+| OCI Generative AI | OpenAI-compatible |
 
 ---
 

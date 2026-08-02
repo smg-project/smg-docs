@@ -38,19 +38,24 @@
 			id: 'grpc',
 			title: 'gRPC Workers',
 			variant: 'grpc',
-			lines: ['SGLang / vLLM / TRT-LLM', 'Raw Inference + PD', 'Max Performance']
+			lines: [
+				'vLLM / SGLang / TokenSpeed',
+				'TRT-LLM / MLX',
+				'Raw Inference + PD',
+				'Max Performance'
+			]
 		},
 		{
 			id: 'http',
 			title: 'HTTP Workers',
 			variant: 'http',
-			lines: ['SGLang / vLLM / TRT-LLM', 'OpenAI-Compatible']
+			lines: ['vLLM / SGLang', 'OpenAI-Compatible']
 		},
 		{
 			id: 'external',
 			title: 'External APIs',
 			variant: 'external',
-			lines: ['OpenAI / Claude / Gemini', 'Groq / Together / Bedrock']
+			lines: ['OpenAI / Claude / Gemini', 'OCI / Groq / Together']
 		}
 	] as const;
 

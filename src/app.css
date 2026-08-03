@@ -305,6 +305,11 @@ a {
 	background: var(--smg-orange);
 }
 
+/* Auto-hide on scroll down, reveal on scroll up. */
+.site-header--hidden:not(.site-header--menu-open) {
+	transform: translateY(-100%);
+}
+
 .site-shell--home .site-header--on-dark .site-nav-symbol:hover,
 .site-shell--home .site-header--on-dark .site-nav-symbol:focus-visible {
 	color: #ffffff;
@@ -2615,11 +2620,6 @@ a {
 
 	.site-menu-toggle {
 		display: inline-flex;
-	}
-
-	/* Auto-hide on scroll down, reveal on scroll up (mobile only). */
-	.site-header--hidden:not(.site-header--menu-open) {
-		transform: translateY(-100%);
 	}
 }
 

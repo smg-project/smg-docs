@@ -319,6 +319,16 @@ class AdaptiveClient:
 
 <div class="card" markdown>
 
+### :material-swap-horizontal: Tenant Rate Limiting
+
+Cap per-tenant LLM token and request consumption per minute — a different axis than this page's worker concurrency limits.
+
+[Tenant Rate Limiting →](tenant-rate-limiting.md)
+
+</div>
+
+<div class="card" markdown>
+
 ### :material-electric-switch: Circuit Breakers
 
 Isolate failing workers to prevent cascade failures.

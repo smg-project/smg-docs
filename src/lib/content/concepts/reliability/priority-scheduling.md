@@ -150,6 +150,16 @@ The legacy concurrency-limit path the scheduler falls back to.
 
 <div class="card" markdown>
 
+### :material-swap-horizontal: Tenant Rate Limiting
+
+Another opt-in, per-tenant-policy layer — this one meters tokens instead of ordering by class.
+
+[Tenant Rate Limiting →](tenant-rate-limiting.md)
+
+</div>
+
+<div class="card" markdown>
+
 ### :material-electric-switch: Circuit Breakers
 
 Isolate failing workers to prevent cascade failures.

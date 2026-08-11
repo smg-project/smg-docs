@@ -36,6 +36,10 @@ export const conceptsNav: DocsNavSection[] = [
 		items: [
 			{ label: 'Circuit Breakers', href: `${base}/concepts/reliability/circuit-breakers` },
 			{ label: 'Rate Limiting', href: `${base}/concepts/reliability/rate-limiting` },
+			{
+				label: 'Tenant Rate Limiting',
+				href: `${base}/concepts/reliability/tenant-rate-limiting`
+			},
 			{ label: 'Priority Scheduling', href: `${base}/concepts/reliability/priority-scheduling` },
 			{ label: 'Retries', href: `${base}/concepts/reliability/retries` },
 			{ label: 'Health Checks', href: `${base}/concepts/reliability/health-checks` },

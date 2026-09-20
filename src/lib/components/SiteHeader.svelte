@@ -230,7 +230,9 @@
 			>
 				<Symbol size={18} />
 				<span class="site-mobile-repo-name">{github.fullName}</span>
-				<span class="site-mobile-repo-stats">&#9733; {github.stars}</span>
+				{#if github.stars !== null}
+					<span class="site-mobile-repo-stats">&#9733; {github.stars}</span>
+				{/if}
 			</a>
 		</div>
 	{/if}

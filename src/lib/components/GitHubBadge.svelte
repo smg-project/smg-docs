@@ -20,29 +20,35 @@
 		</svg>
 		<span class="github-repo">{github.fullName}</span>
 	</span>
-	<ul class="github-stats">
-		{#if github.version}
-			<li class="github-stat">{github.version}</li>
-		{/if}
-		<li class="github-stat">
-			<svg viewBox="0 0 16 16" aria-hidden="true">
-				<path
-					fill="currentColor"
-					d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.819 6.856a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"
-				/>
-			</svg>
-			{github.stars}
-		</li>
-		<li class="github-stat">
-			<svg viewBox="0 0 16 16" aria-hidden="true">
-				<path
-					fill="currentColor"
-					d="M5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0Zm3.75 0a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0ZM3 7.25a.75.75 0 0 1 .75-.75h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1-.75-.75ZM3.75 10.5a.75.75 0 0 0 0 1.5h8.5a.75.75 0 0 0 0-1.5h-8.5Z"
-				/>
-			</svg>
-			{github.forks}
-		</li>
-	</ul>
+	{#if github.version !== null || github.stars !== null || github.forks !== null}
+		<ul class="github-stats">
+			{#if github.version}
+				<li class="github-stat">{github.version}</li>
+			{/if}
+			{#if github.stars !== null}
+				<li class="github-stat">
+					<svg viewBox="0 0 16 16" aria-hidden="true">
+						<path
+							fill="currentColor"
+							d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.819 6.856a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"
+						/>
+					</svg>
+					{github.stars}
+				</li>
+			{/if}
+			{#if github.forks !== null}
+				<li class="github-stat">
+					<svg viewBox="0 0 16 16" aria-hidden="true">
+						<path
+							fill="currentColor"
+							d="M5 3.25a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0Zm3.75 0a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0ZM3 7.25a.75.75 0 0 1 .75-.75h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1-.75-.75ZM3.75 10.5a.75.75 0 0 0 0 1.5h8.5a.75.75 0 0 0 0-1.5h-8.5Z"
+						/>
+					</svg>
+					{github.forks}
+				</li>
+			{/if}
+		</ul>
+	{/if}
 </a>
 
 <style>

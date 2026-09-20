@@ -11,7 +11,8 @@ declare global {
 		interface Platform {
 			env: Env;
 			ctx: ExecutionContext;
-			caches: CacheStorage;
+			// The DOM lib's CacheStorage hides the Workers-only `default` cache.
+			caches: CacheStorage & { readonly default: Cache };
 			cf?: IncomingRequestCfProperties;
 		}
 

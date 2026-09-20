@@ -35,6 +35,8 @@ pnpm preview            # serve the built site with wrangler pages dev
 
 Every push to `main` runs `.github/workflows/deploy.yml`: build, apply D1 migrations to `smg-db`, and deploy to the `smg` Cloudflare Pages project. The production URL is [lightseek.org/smg](https://lightseek.org/smg); `smg-anw.pages.dev` is the underlying Pages origin, and its root redirects into `/smg`.
 
+The header badge reads stars, forks, and the latest release from the GitHub API at request time. Set a `GITHUB_TOKEN` secret on the Pages project (`wrangler pages secret put GITHUB_TOKEN --project-name smg`; any token that can read public repositories works) so those calls are authenticated: unauthenticated calls share GitHub's 60-requests-per-hour limit per egress IP with every other Worker on Cloudflare, and the badge hides its counts whenever GitHub cannot be reached. Results are cached per edge location for 15 minutes and served stale for up to a day while refreshes fail. Locally, `pnpm preview` reads the token from `.dev.vars`.
+
 CI (`.github/workflows/ci.yml`) runs lint, type checks, and a production build on every pull request. Branches follow `<type>/<description>` naming, PR titles follow Conventional Commits, and commits are DCO-signed.
 
 ## Design

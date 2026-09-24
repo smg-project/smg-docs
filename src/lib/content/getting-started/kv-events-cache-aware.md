@@ -4,7 +4,7 @@ title: KV Events Cache-Aware Routing
 
 # KV Events Cache-Aware Routing
 
-This guide walks through wiring an **SGLang worker emitting KV cache events** to **SMG running the cache-aware policy in event-driven mode**, so the gateway routes each request to the worker whose KV cache already holds the longest prefix.
+This guide wires **gRPC workers that publish KV cache events** to **SMG's `cache_aware` policy**, so the gateway routes each request to the worker whose KV cache actually holds the longest prefix of it. SGLang is the main example; vLLM and TokenSpeed workers are set up the same way.
 
 <div class="prerequisites" markdown>
 
@@ -13,7 +13,7 @@ This guide walks through wiring an **SGLang worker emitting KV cache events** to
 - Completed the [Getting Started](index.md) guide
 - Read [Cache-Aware Routing](../concepts/routing/cache-aware.md) for the routing concepts
 - A machine that can run an SGLang worker (GPU + CUDA-capable Python environment)
-- `smg-grpc-servicer[sglang]` installed alongside SGLang
+- `smg-grpc-servicer[sglang]` installed alongside SGLang (the extra requires SGLang 0.5.20 or newer)
 
 </div>
 
@@ -21,33 +21,39 @@ This guide walks through wiring an **SGLang worker emitting KV cache events** to
 
 ## Why event-driven?
 
-Cache-aware routing has three internal flavors. The one this guide configures is the most accurate of the three because it routes against the worker's **actual** KV cache state rather than an approximation.
+Without events, `cache_aware` predicts cache contents from its own routing history. With events, it routes against the blocks each engine reports it has stored and evicted.
 
-| Flavor | Tree | Input | Worker connection | Triggered when |
-|---|---|---|---|---|
-| **Event-driven** | `PositionalIndexer` (event-built) | Token IDs | gRPC | Worker emits KV events |
-| Approximate token tree | `TokenTree` (prefix observed at routing time) | Token IDs | gRPC | Worker is gRPC but emits no events |
-| Approximate string tree | `Tree` (prefix observed at routing time) | Raw text | HTTP | Worker is HTTP |
+| Mode | Index | Input | Used when |
+|---|---|---|---|
+| **Event-driven** | `PositionalIndexer`, built from engine events | Token IDs | The model's event index has data |
+| Approximate token tree | `TokenTree`, built from routing decisions | Token IDs | The request has token IDs and the model has no event data |
+| Approximate string tree | `Tree`, built from routing decisions | Raw text | HTTP requests without token IDs |
 
-Selection is automatic and per-worker: enabling events on one worker upgrades that worker's routing path; the others keep using the approximate tree.
+The choice is made **per model**, not per worker. Once any worker of a model has streamed events into the index, every token-bearing request for that model is scored against the event index, and workers that do not stream events can then receive that model's requests only through the load-based fallback. Enable events on every worker of a model.
+
+Event-driven routing also needs the default `--cache-index tree`: with `--cache-index hash`, the gateway never consults the event index.
 
 ---
 
 ## How the pieces fit together
 
-```
-┌────────────┐     ┌────────────────────────┐     ┌──────────────────┐
-│   client   │ ──▶ │ smg gateway            │ ──▶ │ smg-grpc-servicer│
-│            │     │ ─ cache_aware policy   │     │ + sglang scheduler│
-│            │     │ ─ KvEventMonitor       │ ◀── │ ZMQ PUB ─ KV evt │
-└────────────┘     └────────────────────────┘     └──────────────────┘
-                         gRPC                            ZMQ (in-process)
-                         SubscribeKvEvents
+```text
+client
+  │ OpenAI-compatible HTTP
+  ▼
+SMG gateway: cache_aware policy ◀── PositionalIndexer (one per model)
+  │                                        ▲
+  │ gRPC requests                          │ KvEventMonitor
+  ▼                                        │ (SubscribeKvEvents stream)
+worker: smg-grpc-servicer ─────────────────┘
+  ▲
+  │ ZMQ PUB → SUB, on the worker host (--kv-events-config)
+engine scheduler (SGLang, vLLM or TokenSpeed)
 ```
 
-1. SGLang's scheduler publishes block-stored / block-removed events on a ZMQ `PUB` socket configured by `--kv-events-config`.
-2. `smg-grpc-servicer` (running in the same process, launched via `--grpc-mode`) subscribes to that ZMQ socket and re-publishes the events as a gRPC server-streaming RPC (`SubscribeKvEvents`).
-3. SMG's `KvEventMonitor` opens one gRPC subscription per worker, feeds the events into a per-model `PositionalIndexer`, and the `cache_aware` policy queries that indexer at routing time.
+1. The engine's scheduler publishes block-stored, block-removed and all-blocks-cleared events on a ZMQ `PUB` socket configured by `--kv-events-config`.
+2. `smg-grpc-servicer`, which serves the worker's gRPC API, subscribes to that socket locally and re-publishes the events as the server-streaming RPC `SubscribeKvEvents`.
+3. SMG's `KvEventMonitor` opens one subscription per gRPC worker and feeds the events into a per-model `PositionalIndexer`; `cache_aware` scores token-bearing requests against that index. If a stream breaks, the monitor resumes after the last batch it applied (see [Recovery after gaps](#recovery-after-gaps)).
 
 ---
 
@@ -64,16 +70,16 @@ python -m sglang.launch_server \
   --port 50051 \
   --grpc-mode \
   --page-size 16 \
-  --kv-events-config '{"publisher":"zmq","endpoint":"tcp://*:5557","topic":"kv-events"}'
+  --kv-events-config '{"publisher":"zmq","endpoint":"tcp://*:5557","replay_endpoint":"tcp://*:5558","topic":"kv-events"}'
 ```
 
 What each flag does:
 
 | Flag | Why |
 |---|---|
-| `--grpc-mode` | Hands the request loop off to `smg-grpc-servicer`'s gRPC `SglangScheduler` service instead of SGLang's default HTTP server. Required for SMG to talk to this worker in gRPC mode. |
-| `--page-size 16` | The KV cache block size, in tokens. Mirror this in SMG's worker config so the gateway can align its overlap scoring to the right page boundaries (see [Block size alignment](#block-size-alignment)). |
-| `--kv-events-config` | A JSON object parsed by SGLang's `KVEventsConfig.from_cli`. Setting `publisher: "zmq"` is what actually turns on event publishing — the default `publisher: "null"` is a no-op. |
+| `--grpc-mode` | Serves SMG's gRPC `SglangScheduler` service from `smg-grpc-servicer` instead of SGLang's HTTP server. Required for SMG to talk to this worker over gRPC. Recent SGLang versions name this flag `--smg-grpc-mode` and keep `--grpc-mode` as a deprecated alias. |
+| `--page-size 16` | The KV cache page size, in tokens. Use the same value for SMG's `--block-size` (see [Block size alignment](#block-size-alignment)). |
+| `--kv-events-config` | A JSON object parsed by SGLang's `KVEventsConfig.from_cli`. `"publisher":"zmq"` turns publishing on (the default `"null"` publishes nothing), and `replay_endpoint` lets the bridge replay batches SMG missed. |
 
 ### `--kv-events-config` field reference
 
@@ -81,15 +87,15 @@ All fields and defaults match SGLang's `KVEventsConfig` (see `python/sglang/srt/
 
 | Field | Default | Notes |
 |---|---|---|
-| `publisher` | `"null"` | Set to `"zmq"` to enable. Any other value disables event bridging in the servicer. |
-| `endpoint` | `"tcp://*:5557"` | ZMQ `PUB` socket address. The publisher **binds** when the endpoint contains `*`, `::`, or starts with `ipc://` / `inproc://`; otherwise it connects. |
-| `topic` | `""` | ZMQ topic prefix. Match this on the subscriber side; SMG accepts any topic, so the value here matters only if you wire other subscribers in parallel. |
-| `replay_endpoint` | `null` | Optional REQ/REP socket for replaying missed events. SMG does not currently use replay. |
-| `buffer_steps` | `10000` | Size of the in-publisher replay buffer (events). |
-| `hwm` | `100000` | ZMQ high-water mark. Once N events are queued and the consumer hasn't drained them, new events drop. |
-| `max_queue_size` | `100000` | Internal queue between SGLang and the ZMQ thread. |
+| `publisher` | `"null"` | Set to `"zmq"` to publish. With any other value the bridge answers `SubscribeKvEvents` with `UNIMPLEMENTED`, and SMG stops subscribing to that worker. |
+| `endpoint` | `"tcp://*:5557"` | ZMQ `PUB` address. The publisher binds wildcard endpoints such as `tcp://*:PORT` (and `ipc://` or `inproc://` ones) and connects to any other address, which leaves nothing listening, so keep the wildcard form. The bridge connects to it locally, rewriting `*` and `0.0.0.0` to `127.0.0.1`. |
+| `topic` | `""` | ZMQ topic. The bridge reads the same config and subscribes to this topic, so any value works. |
+| `replay_endpoint` | `null` | ZMQ `ROUTER` address that serves recent batches for replay. When set, the bridge replays the batches SMG missed after a gap, instead of SMG dropping the worker's index entries. |
+| `buffer_steps` | `10000` | Number of recent batches kept for replay. |
+| `hwm` | `100000` | ZMQ high-water mark: once this many messages are queued for a subscriber that is not keeping up, new events are dropped. The bridge uses the same value for its receive queue. |
+| `max_queue_size` | `100000` | Queue between the scheduler and SGLang's publisher thread. |
 
-For data-parallel deployments, the actual TCP port becomes `endpoint_port + dp_rank` (rank 0 keeps the configured port).
+With data parallelism, each rank publishes on `endpoint` port + `dp_rank` and serves replay on `replay_endpoint` port + `dp_rank`; rank 0 keeps the configured ports. Pick port ranges that do not overlap (`5557` and `5558` collide as soon as there are two ranks). The bridge currently subscribes to rank 0 only.
 
 ### Alternative: launch a vLLM worker
 
@@ -98,24 +104,24 @@ vLLM publishes KV cache events on a ZMQ socket; enable them with `--kv-events-co
 ```bash
 pip install "smg-grpc-servicer[vllm]"
 
-# `--grpc` runs vLLM in SMG gRPC mode (loads smg-grpc-servicer);
+# --grpc serves vLLM through smg-grpc-servicer instead of the OpenAI HTTP server;
 # --kv-events-config turns on KV-event publishing:
 vllm serve meta-llama/Llama-3.1-8B-Instruct \
   --grpc \
+  --host 0.0.0.0 \
+  --port 50051 \
   --kv-events-config '{"enable_kv_cache_events": true, "publisher": "zmq", "endpoint": "tcp://*:5557", "topic": "kv-events"}'
 ```
 
-Event-driven routing needs the worker in **SMG gRPC mode** (`--grpc`) — KV events stream over the `SubscribeKvEvents` RPC, so an HTTP worker can't participate. See [gRPC Workers](grpc-workers.md) for additional launch flags (host, port, TP size).
+Event-driven routing needs the worker in SMG gRPC mode (`--grpc`; `pip install "vllm[grpc]"` pulls in the same servicer package), because KV events stream over the `SubscribeKvEvents` RPC. See [gRPC Workers](grpc-workers.md) for other launch flags.
 
 | Field | Why |
 |---|---|
-| `enable_kv_cache_events: true` | vLLM-specific master switch. Without it no events are published even if a publisher is set. |
-| `publisher: "zmq"` | Selects the ZMQ publisher the servicer bridges. |
-| `endpoint` / `topic` | ZMQ `PUB` address and topic prefix. For data-parallel, the port is `endpoint_port + dp_rank`; SMG currently consumes rank 0. |
+| `enable_kv_cache_events: true` | vLLM's master switch. Without it no events are published, and SMG stops subscribing to the worker. |
+| `publisher: "zmq"` | Selects the ZMQ publisher the bridge reads. Recent vLLM versions default to it once events are enabled. |
+| `endpoint` / `topic` | As for SGLang; keep the wildcard `tcp://*:PORT` form. With data parallelism the port is `endpoint` port + `dp_rank`, and SMG consumes rank 0 only. |
 
-SMG learns the block size from the `BlockStored` events themselves, so you needn't set it; pass vLLM's `--block-size N` (the analog of SGLang's `--page-size`) only to pin a non-default value.
-
-Everything downstream — SMG flags, block-size learning, and the verification logs — is unchanged; `KvEventMonitor` consumes the events the same way for any gRPC worker.
+The vLLM bridge does not replay missed events. SMG learns the block size from the `BlockStored` events themselves; set SMG's `--block-size` to vLLM's `--block-size` so the approximate token tree uses the same pages.
 
 ### Alternative: launch a TokenSpeed worker
 
@@ -123,7 +129,7 @@ TokenSpeed's scheduler publishes KV cache events on a ZMQ socket; enable them wi
 
 ```bash
 # TokenSpeed is installed from source (engine + kernel + scheduler); see
-# scripts/ci_install_tokenspeed.sh. Install the bridge's extra deps:
+# scripts/ci_install_tokenspeed.sh in the smg repository. Install the bridge's extra deps:
 pip install "smg-grpc-servicer[tokenspeed]"
 
 # --kv-events-config turns on KV-event publishing in the scheduler:
@@ -137,20 +143,20 @@ python -m smg_grpc_servicer.tokenspeed \
 | Field | Why |
 |---|---|
 | `enable_kv_cache_events: true` | TokenSpeed master switch. Without it the scheduler records no events even if a publisher is set. |
-| `publisher: "zmq"` | Selects the ZMQ publisher the servicer bridges. Unset defaults to `"zmq"` when events are enabled; `"null"` (or any other value) disables bridging. |
-| `endpoint` / `topic` | ZMQ `PUB` address and topic prefix. Use a **bind-style** endpoint (`tcp://*:PORT`) — TokenSpeed only *binds* when the endpoint contains `*`/`::`/`ipc://`/`inproc://`, so a concrete address like `tcp://127.0.0.1:PORT` makes it *connect* instead, leaving nothing bound and the stream idle. For data-parallel the port is `endpoint_port + dp_rank`, and SMG currently consumes rank 0. |
+| `publisher: "zmq"` | Selects the ZMQ publisher the bridge reads. Unset defaults to `"zmq"` when events are enabled; `"null"` (or any other value) disables bridging. |
+| `endpoint` / `topic` | ZMQ `PUB` address and topic. Use a **bind-style** endpoint (`tcp://*:PORT`): TokenSpeed binds only when the endpoint contains `*` or `::` or starts with `ipc://` or `inproc://`, so a concrete address like `tcp://127.0.0.1:PORT` makes it *connect* instead, leaving nothing bound and the stream idle. With data parallelism the port is `endpoint` port + `dp_rank`, and SMG consumes rank 0 only. |
 
-`--kv-events-config` is parsed by TokenSpeed's `KVEventsConfig.from_cli`. SMG learns the block size from the `BlockStored` events themselves, so you needn't set it; pass TokenSpeed's `--page-size N` only to pin a non-default value. Everything downstream is identical to the SGLang and vLLM paths.
+`--kv-events-config` is parsed by TokenSpeed's `KVEventsConfig.from_cli`. The TokenSpeed bridge does not replay missed events. SMG learns the block size from the `BlockStored` events; TokenSpeed's cache reuse granularity is `--prefix-granularity` (default 64 tokens; older builds call it `--block-size`, which remains an alias), so set SMG's `--block-size` to the same value.
 
 ---
 
 ## Step 2 — Launch SMG
 
-Point SMG at the gRPC worker and select `cache_aware`:
+Point SMG at the gRPC workers and select `cache_aware`:
 
 ```bash
 smg \
-  --worker-urls grpc://worker-1:50051 \
+  --worker-urls grpc://worker-1:50051 grpc://worker-2:50051 \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --policy cache_aware \
   --block-size 16 \
@@ -158,41 +164,29 @@ smg \
   --port 30000
 ```
 
+`worker-2` is a second worker launched the same way, on another host. On a single host, give each worker its own `--port` and its own event ports.
+
 The flags that matter for event-driven routing:
 
 | Flag | Why |
 |---|---|
-| `grpc://...` worker URL | Event subscription only runs over gRPC; HTTP workers are skipped silently. |
-| `--policy cache_aware` | The only policy that consults the `PositionalIndexer`. |
-| `--block-size 16` | Fallback block size used until the first event arrives. After events start flowing, SMG **learns** the worker's true block size from the event payload and uses the learned value automatically. |
+| `grpc://...` worker URLs | SMG subscribes to KV events only on gRPC workers. HTTP workers are skipped, and ZMQ (`ipc://`) workers log a warning and use the approximate token tree. |
+| `--policy cache_aware` | The only policy that reads the event index. It is also the default policy. |
+| `--block-size 16` | Page size of the approximate token tree, which routes until the event index has data, and the block size the event index assumes until it learns the engine's. Match the engine's page size. |
 
-`--model-path` is still required for tokenization at the gateway, the same as any gRPC-worker deployment ([gRPC Workers](grpc-workers.md)).
+`--model-path` tells the gateway which tokenizer to use, as in any gRPC-worker deployment ([gRPC Workers](grpc-workers.md)). For the other routing knobs, see [Tuning](#tuning).
 
 ### Block size alignment
 
-The cache-aware policy chunks an incoming request's token IDs into blocks of `block_size` tokens to look them up in the `PositionalIndexer`. If the block size does not match what SGLang actually wrote to its cache, **the lookup misses every block** and the policy silently falls back to load-only routing.
+The event index cuts each request's token IDs into blocks and looks the blocks up by content hash. If the block size differs from the one the engine used, **no block matches**, and the model's token requests are routed by load alone.
 
-Order of precedence inside SMG:
+SMG picks the block size per model, in this order:
 
-1. **Event-learned block size** (highest priority — discovered per-model from the event stream).
-2. **Per-worker `kv_block_size`** in the worker spec, if you load workers from a config file.
-3. **`--block-size` CLI flag** (router-wide default).
+1. **Learned from events** (highest priority): each worker's subscription records the block size of the first stored block it receives; the most recent value wins.
+2. **`kv_block_size` in the worker spec**, when the worker is registered through the [admin API](../reference/api/admin.md) (`POST /workers`). The first worker of the model that sets it wins, and events override it.
+3. **`--block-size`** (router-wide default).
 
-In practice: keep `--page-size` (SGLang) and `--block-size` (SMG) numerically equal, and let SMG correct itself once events arrive.
-
-### Worker config file
-
-If you load workers from a config file rather than CLI, pin the block size per worker so event-driven routing works on the very first request:
-
-```yaml
-workers:
-  - url: grpc://worker-1:50051
-    connection_mode: grpc
-    kv_block_size: 16
-  - url: grpc://worker-2:50052
-    connection_mode: grpc
-    kv_block_size: 16
-```
+In practice, keep the engine's page size (SGLang `--page-size`, vLLM `--block-size`, TokenSpeed `--prefix-granularity`) and SMG's `--block-size` equal, and let SMG correct itself once events arrive. The approximate token tree always uses `--block-size`. Serve each model with one page size: with mixed sizes, the model's block size is whichever a worker reported last.
 
 ---
 
@@ -211,31 +205,63 @@ curl http://localhost:30000/v1/chat/completions \
   }'
 ```
 
-Send the same prompt twice. On the second call the request should land on the worker that already serves the first call's prefix.
+Send the same prompt twice. The first request has no cached prefix and goes to the lowest-expected-wait worker. Once that worker reports the blocks it stored, the second request is scored against them and lands on the same worker, as long as that worker is not far busier than the rest of the fleet.
 
 ---
 
 ## Verifying event delivery
 
-The gateway logs three events that prove the path is live.
+The gateway logs these lines when the path is live (timestamps, targets and source locations omitted).
 
-**1. Subscription started.** When SMG registers a gRPC worker, `KvEventMonitor::on_worker_added` logs:
+**1. Subscription started.** When SMG registers a gRPC worker under `cache_aware`, `KvEventMonitor` logs:
 
-```
+```text
 INFO Starting KV event subscription worker_url=grpc://worker-1:50051 model_id=meta-llama/Llama-3.1-8B-Instruct
+INFO KV event stream connected worker_url=grpc://worker-1:50051 start_seq=0
 ```
 
-If you do not see this line for a worker, that worker is either HTTP or the subscription task crashed before the first connect — check the worker logs.
+If you do not see the first line for a worker, the worker is not a gRPC worker or its model is not routed by `cache_aware`. If events are disabled on the worker, the bridge rejects the stream and SMG stops trying:
 
-**2. Backend block size learned.** Once the first event arrives, SMG records the backend's actual block size:
-
-```
-DEBUG Learned block_size=16 model_id=meta-llama/Llama-3.1-8B-Instruct
+```text
+WARN Backend does not implement SubscribeKvEvents, disabling KV event subscription for this worker worker_url=grpc://worker-1:50051
 ```
 
-**3. Routing decision uses the indexer.** With `RUST_LOG=model_gateway::policies::cache_aware=debug`, a routed request prints the overlap count and the chosen worker.
+**2. Backend block size learned.** Once the first stored block arrives, SMG records the backend's block size:
 
-If events never arrive, the policy keeps working — it falls back to the approximate `TokenTree` for that worker — so cache hits will still happen, just less accurately.
+```text
+INFO Learned block_size from KV event model_id=meta-llama/Llama-3.1-8B-Instruct block_size=16
+```
+
+**3. Routing decision uses the index.** With `RUST_LOG=info,smg::policies::cache_aware=debug`, each routed request logs `Event-driven routing: overlap match` with the chosen `worker` and a `branch` of `event_hit` (affinity held) or `event_spill` (the spill gate moved the request), or `Event-driven routing: no overlap, expected-wait fallback`.
+
+While the model's event index is empty, token requests route on the approximate token tree, so cache affinity keeps working, only less accurately.
+
+---
+
+## Recovery after gaps
+
+Every event batch carries the publisher's sequence number. `KvEventMonitor` applies batches in order and skips duplicates. When it sees a gap in the sequence, it reconnects immediately and asks the bridge to resume after the last batch it applied; after a stream error or a clean close, it reconnects with exponential backoff from 100 ms up to 30 s.
+
+| Bridge | On resume |
+|---|---|
+| SGLang with `replay_endpoint` | Replays the missed batches from SGLang's replay buffer, then continues with live events without duplicates. The index stays intact. |
+| SGLang without `replay_endpoint`, or when the missed batches are no longer available | Rejects the resume with `OUT_OF_RANGE` (or `DATA_LOSS` if the replay fails partway). SMG drops that worker's index entries and resubscribes from live events. |
+| vLLM, TokenSpeed | No replay: the bridge ignores the resume point and streams live events. |
+
+Resubscribing from live events rebuilds the worker's entries from new events only; it is not a snapshot of the engine's cache, so affinity to that worker returns as it caches new prefixes. SMG logs `KV event replay cursor expired; clearing worker state ...` or `KV event subscriber fell behind; clearing worker state ...` when it drops a worker's entries, and `Sequence gap detected, reconnecting for replay from seq N` on a gap. The SGLang bridge waits up to five seconds for each replay message before it gives up.
+
+---
+
+## Bounding the index
+
+The event index drops a worker's entries when its engine reports evictions or the worker is removed. If an engine stops reporting evictions, entries accumulate. Two optional bounds, both off by default, are checked every 30 seconds:
+
+| Flag | Effect |
+|---|---|
+| `--kv-indexer-ttl-secs` | Prune entries that were neither stored nor read by a routing query within this many seconds. Unset or `0` disables the TTL pass. |
+| `--kv-indexer-max-entries` | Per-model ceiling; above it, the least recently touched entries are pruned down to 90% of the ceiling. Unset or `0` disables the ceiling. |
+
+A pass that prunes entries logs `Pruned positional indexer` with the counts.
 
 ---
 
@@ -243,19 +269,39 @@ If events never arrive, the policy keeps working — it falls back to the approx
 
 | Knob | Where | Effect |
 |---|---|---|
-| `--cache-threshold` | SMG | Minimum prefix overlap ratio before cache affinity overrides load. Default 0.5. Lower for more aggressive cache stickiness. |
-| `--balance-abs-threshold` / `--balance-rel-threshold` | SMG | Imbalance triggers. When workers diverge in load past both thresholds, the policy switches to shortest-queue regardless of cache. |
-| `hwm` | SGLang `--kv-events-config` | Raise if you see SGLang logs reporting dropped events under bursty load. |
-| `buffer_steps` | SGLang `--kv-events-config` | Raise if SMG ever reports gap-detected reconnects on its KV event stream. |
+| `--block-size` | SMG | Keep equal to the engine's page size. |
+| `--balance-abs-threshold` / `--balance-rel-threshold` | SMG | Spill gate: a holder whose in-flight request count exceeds both margins over the fleet mean sends the request to another worker. |
+| `--overlap-decay` | SMG | De-ranks candidates with a waiting-prefill backlog. Needs workers that report waiting uncached tokens (SGLang does; vLLM and TokenSpeed do not). |
+| `--selection-temperature` | SMG | Spreads picks across candidates with near-equal overlap instead of always taking the best. |
+| `--balance-token-usage-threshold` / `--overload-token-usage-threshold` | SMG | Suspend cache affinity under KV pressure (off by default). |
+| `--kv-indexer-ttl-secs` / `--kv-indexer-max-entries` | SMG | Bound the event index (see [Bounding the index](#bounding-the-index)). |
+| `replay_endpoint` / `buffer_steps` | SGLang `--kv-events-config` | Enable replay; raise `buffer_steps` if resumes fail because the missed batches already left the buffer. |
+| `hwm` | `--kv-events-config` | Raise if events are dropped under bursty load. |
+
+`--cache-threshold` does not apply to event-driven routing: any worker holding at least the request's first full block is a candidate. See [Cache-Aware Routing](../concepts/routing/cache-aware.md#tuning-knobs) for the full list of knobs.
+
+---
+
+## Monitoring
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `smg_kv_event_subscription_failures_total` | counter | `worker`, `reason` | A subscription task failed: `panic`, `join_error` or `intern_failed`. After `panic` or `intern_failed`, that worker's events no longer reach the index. |
+| `smg_engine_cache_hit_rate` | gauge | `worker`, `model`, `dp_rank` | Engine-reported prefix cache hit rate, to check that routing on events pays off. |
+
+The `smg_cache_aware_policy_branch_total` and `smg_cache_aware_match_ratio` metrics count tree-mode decisions only; use the debug log above to inspect event-driven decisions.
 
 ---
 
 ## Caveats
 
-- **gRPC only.** Event-driven routing requires a gRPC worker — `smg-grpc-servicer` is the bridge that turns SGLang's in-process ZMQ feed into a gRPC server-streaming surface SMG can subscribe to. HTTP workers fall back to the approximate string tree automatically.
-- **Per-worker block size assumed homogeneous within a model.** If you mix workers serving the same model with different `--page-size` values, the policy uses whichever block size the most recent event reported. Keep page sizes homogeneous within a model.
-- **`mesh` mode synchronizes the approximate trees, not events.** When multiple SMG instances cluster via `--enable-mesh`, the event-driven indexer is local to each gateway. Each gateway independently subscribes to each worker.
-- **No replay on reconnect today.** SMG reconnects with exponential backoff on stream drops, but does not currently consume SGLang's `replay_endpoint`. A drop window may briefly degrade routing to load-only until events resume.
+- **gRPC only.** Events stream over gRPC through `smg-grpc-servicer`. HTTP workers use the approximate string tree, ZMQ (`ipc://`) workers use the approximate token tree, and MLX workers do not implement `SubscribeKvEvents`.
+- **DP rank 0 only.** The bridges subscribe to rank 0's publisher, so for data-parallel workers the index reflects rank 0's cache.
+- **One block size per model.** If workers serving the same model use different page sizes, the policy uses whichever block size a worker reported last. Keep page sizes homogeneous within a model.
+- **Per-gateway index.** Each gateway subscribes to every worker itself. With `--enable-mesh`, gateways synchronize the approximate trees, not the event index.
+- **No cache partitions.** The event index ignores the `cache_salt`, `extra_key` and LoRA fields that partition the approximate trees.
+- **Unaligned stores are skipped.** The vLLM and TokenSpeed bridges drop any `BlockStored` event whose token count is not its block count times its block size (vLLM can emit these for Mamba models) and log `Skipping BlockStored: ...`; those blocks never reach the index.
+- **Replay needs SGLang.** Only the SGLang bridge replays missed events, and only when `replay_endpoint` is set.
 
 ---
 
@@ -263,9 +309,11 @@ If events never arrive, the policy keeps working — it falls back to the approx
 
 - Policy implementation: `model_gateway/src/policies/cache_aware.rs`
 - Event subscription manager: `model_gateway/src/worker/kv_event_monitor.rs`
-- KV event proto: `crates/grpc_client/proto/common.proto` (messages `KvEventBatch`, `KvCacheEvent`, `KvBlocksStored`, `KvBlocksRemoved`)
-- Servicer bridge: `grpc_servicer/smg_grpc_servicer/sglang/servicer.py` (`SubscribeKvEvents`)
+- KV event proto: `crates/grpc_client/proto/common.proto` (messages `SubscribeKvEventsRequest`, `KvEventBatch`, `KvCacheEvent`, `KvBlocksStored`, `KvBlocksRemoved`, `KvCacheCleared`)
+- SGLang bridge: `grpc_servicer/smg_grpc_servicer/sglang/servicer.py` (`SubscribeKvEvents`) and `grpc_servicer/smg_grpc_servicer/sglang/kv_events.py` (live stream and replay)
 - Shared ZMQ→proto conversion: `grpc_servicer/smg_grpc_servicer/kv_events.py` (engine-neutral; used by the vLLM and TokenSpeed bridges)
-- TokenSpeed servicer bridge: `grpc_servicer/smg_grpc_servicer/tokenspeed/servicer.py` (`SubscribeKvEvents`) + config resolver `grpc_servicer/smg_grpc_servicer/tokenspeed/kv_events.py`
+- vLLM bridge: `grpc_servicer/smg_grpc_servicer/vllm/servicer.py` (`SubscribeKvEvents`) + config resolver `grpc_servicer/smg_grpc_servicer/vllm/kv_events.py`
+- TokenSpeed bridge: `grpc_servicer/smg_grpc_servicer/tokenspeed/servicer.py` (`SubscribeKvEvents`) + config resolver `grpc_servicer/smg_grpc_servicer/tokenspeed/kv_events.py`
 - SGLang upstream config: `python/sglang/srt/disaggregation/kv_events.py` (class `KVEventsConfig`)
+- vLLM upstream config: `vllm/config/kv_events.py` (class `KVEventsConfig`)
 - TokenSpeed upstream config: `tokenspeed/runtime/pd/kv_events.py` (class `KVEventsConfig`)

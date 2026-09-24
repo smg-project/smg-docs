@@ -106,11 +106,11 @@ On the worker path:
 A vLLM gRPC worker processes references when its servicer runs a media processor:
 
 ```bash
-vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc --mm-processor inprocess \
-  --allowed-media-domains example.com
+SMG_VLLM_MM_PROCESSOR=inprocess \
+  vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc --allowed-media-domains example.com
 ```
 
-The `--mm-*` flags reach the servicer from a vLLM launcher that passes them through (smg-project/smg#2626). With an older launcher, set the matching `SMG_VLLM_MM_*` variable instead; the env fallback logs a deprecation warning and goes away in the next minor release.
+The servicer reads each setting below from its `--mm-*` flag when the launcher passes the flags through (smg-project/smg#2626), and otherwise from the matching `SMG_VLLM_MM_*` variable. vLLM's gRPC launcher (`vllm serve --grpc`) does not pass them, so set the variables; a value read from a variable logs a deprecation warning, and env support is due to end in the next minor release.
 
 | Servicer flag | Env fallback | Default | Description |
 |---------------|--------------|---------|-------------|
@@ -120,7 +120,7 @@ The `--mm-*` flags reach the servicer from a vLLM launcher that passes them thro
 | `--mm-max-item-bytes` | `SMG_VLLM_MM_MAX_ITEM_BYTES` | 32 MiB | Cap on one inline `data:` payload |
 | `--mm-redis-url` | `SMG_VLLM_MM_REDIS_URL` | `redis://127.0.0.1:6379/0` | Sidecar Redis (`redis` mode) |
 | `--mm-sidecar-timeout-ms` | `SMG_VLLM_MM_SIDECAR_TIMEOUT_MS` | `30000` | How long the worker waits for a sidecar result |
-| `--mm-sidecar-max-queue` | `SMG_VLLM_MM_SIDECAR_MAX_QUEUE` | `256` | Fail fast when the sidecar job queue is deeper |
+| `--mm-sidecar-max-queue` | `SMG_VLLM_MM_SIDECAR_MAX_QUEUE` | `256` | Fail fast once this many jobs are queued for the sidecar |
 | `--mm-sidecar-namespace` | `SMG_VLLM_MM_SIDECAR_NAMESPACE` | derived | Overrides the Redis key namespace |
 
 `SMG_VLLM_MM_MAX_VIDEO_FRAMES` (env only; default `0`, which leaves it to vLLM's `--media-io-kwargs`) caps the frames a video is sampled to.
@@ -139,13 +139,13 @@ pip install "smg-grpc-servicer[vllm,vllm-redis]"
 python -m smg_grpc_servicer.vllm.mm_sidecar --model Qwen/Qwen3-VL-8B-Instruct \
   --redis-url redis://127.0.0.1:6379/0 --allowed-media-domains example.com
 
-vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc --mm-processor redis \
-  --mm-redis-url redis://127.0.0.1:6379/0
+SMG_VLLM_MM_PROCESSOR=redis SMG_VLLM_MM_REDIS_URL=redis://127.0.0.1:6379/0 \
+  vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc
 ```
 
 - The sidecar takes `--redis-url` (falls back to `SMG_VLLM_MM_REDIS_URL`, then localhost), `--namespace` (falls back to `SMG_VLLM_MM_SIDECAR_NAMESPACE`), `--concurrency` (default `2`), and vLLM's engine flags. It has no timeout flag: the worker's `--mm-sidecar-timeout-ms` travels with each job as its deadline (smg-project/smg#2651).
-- The worker and the sidecar must agree on the model, vLLM version, dtype, video backend, media and processor kwargs, and `--limit-mm-per-prompt` (pass it to both; the sidecar's limit is the one that applies). The worker advertises `mm_processor=redis` only while a sidecar with a matching fingerprint keeps its `hello` key alive (refreshed every 5 seconds, 15-second TTL), so `auto` keeps the model on the router path until a sidecar is up.
-- Jobs and results travel over Redis lists under `smg:mm:v1:{namespace}`, and results expire after 120 seconds. A result larger than `SMG_VLLM_MM_MAX_RESULT_BYTES` (default 512 MiB, lowered to Redis's `proto-max-bulk-len` when that is smaller) is refused with a 400 whose message starts with `media_too_large`.
+- The worker and the sidecar must agree on the model, vLLM version, dtype, video backend, media and processor kwargs, and `--limit-mm-per-prompt` (pass it to both; the sidecar's limit is the one that applies). The worker advertises `mm_processor=redis` only while a sidecar with a matching fingerprint keeps its `hello` key alive (refreshed every 5 seconds, 15-second TTL). SMG reads the label when it registers the worker, so start the sidecar first: a worker registered while no sidecar was up keeps the model on the router path in `auto` until that worker is registered again.
+- Jobs and results travel over Redis lists under `smg:mm:v1:{namespace}`, and results expire after 120 seconds. An encoded result at or above `SMG_VLLM_MM_MAX_RESULT_BYTES` (default 512 MiB, lowered to Redis's `proto-max-bulk-len` when that is smaller) is not pushed; the request fails with a 400 whose message includes `media_too_large`.
 
 ---
 
@@ -199,7 +199,7 @@ SMG decodes video on the gateway. The default build runs `ffprobe` and `ffmpeg`,
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `SMG_VIDEO_DECODE_BACKEND` | `auto` | `auto`, `opencv` (needs `opencv-video`), or `ffmpeg` |
-| `SMG_VIDEO_PROCESS_TIMEOUT_SECS` | `30` | Time limit for each `ffprobe` or `ffmpeg` run |
+| `SMG_VIDEO_PROCESS_TIMEOUT_SECS` | `30` | Time limit for each `ffprobe` or `ffmpeg` run and each OpenCV decode |
 | `SMG_VIDEO_MAX_DECODED_BYTES` | 1 GiB | Cap on a clip's decoded RGB frames |
 
 Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer threads as more run at once (smg-project/smg#2583).
@@ -255,7 +255,7 @@ Neither setting enables a modality the model does not support. When you raise a 
 
 ### In-Flight Media Budget
 
-`--multimodal-max-inflight-bytes` caps the bytes of preprocessed media SMG holds for engines at once (smg-project/smg#2585). A request that fits waits up to 2 seconds for room and then gets 429 `multimodal_inflight_budget`. A request larger than the whole budget gets 413 `multimodal_payload_too_large` right away. A waiting request still holds its media, and the waiting queue is capped at one budget, so size memory for about twice the value. Unset leaves the budget unbounded; `0` is refused.
+`--multimodal-max-inflight-bytes` caps the bytes of preprocessed media SMG holds for engines at once (smg-project/smg#2585). A request that fits waits up to 2 seconds for room and then gets 429 `multimodal_inflight_budget`. A request larger than the whole budget gets 413 `multimodal_payload_too_large` right away. A waiting request still holds its media, and the waiting queue is capped at one budget (a request that would overfill it gets 429 right away), so size memory for about twice the value. Unset leaves the budget unbounded; `0` is refused.
 
 ### Errors
 
@@ -273,7 +273,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `media_ref_too_large` | Worker path: an inline `data:` payload is above the byte cap |
 | 400 | `media_ref_scheme_not_accepted` | Worker path: the selected worker does not fetch that URL scheme |
 | 413 | `multimodal_payload_too_large` | The request's media exceed the whole in-flight budget |
-| 429 | `multimodal_inflight_budget` | The in-flight budget stayed full for 2 seconds |
+| 429 | `multimodal_inflight_budget` | The in-flight budget stayed full for 2 seconds, or the queue waiting for it was full |
 | 503 | `no_media_ref_capable_worker` | `--mm-processing worker`, and no worker of the model advertises a media processor |
 
 Prefill-decode deployments add three codes, listed under [Prefill-Decode Disaggregation](#prefill-decode-disaggregation).
@@ -334,9 +334,9 @@ vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-prep
 
 ### Prefill-Decode Disaggregation
 
-With prefill-decode disaggregation, media are processed once, for the prefill leg:
+With prefill-decode disaggregation, media are normally processed once, for the prefill leg:
 
-- **Router path.** The prefill worker gets the pixels. The decode worker gets only each item's identity (content hashes, placeholder ranges, and M-RoPE grid tensors), never the pixels (smg-project/smg#2243, #2365, #2366). On vLLM, the hashes are folded into the decode-side cache salt, so two different images behind the same text cannot share cached KV blocks.
+- **Router path.** The prefill worker gets the pixels. On vLLM and TokenSpeed, the decode worker gets each item's identity (content hashes, placeholder ranges, and M-RoPE grid tensors) but not the pixels; on SGLang it gets no media data (smg-project/smg#2243, #2365, #2366). The exception is vLLM with `n > 1`: there is no KV handoff, so the decode leg keeps the full payload and encodes the media itself. On vLLM, the decode worker keys its cached KV blocks by the content hashes (through the cache salt when no grid tensors travel), so two different images behind the same text cannot share cached KV blocks.
 - **Worker path (vLLM).** The prefill worker processes the references and returns the processed identity with its result. SMG builds the decode leg from it, so the decode worker does not fetch or process the media again (smg-project/smg#2627). With `n > 1` there is no KV handoff, so the decode leg keeps the references and processes them itself.
 - **Language-model-only decode workers.** vLLM decode workers started with `--language-model-only` report `supports_vision=false` and get the prefill-expanded prompt plus the content hashes, with no media payload (smg-project/smg#2640). Three combinations cannot be served and are refused with a non-retryable 400: models that need M-RoPE grids (`pd_decode_language_model_only_mrope`), media references (`pd_decode_language_model_only_media_refs`), and `n > 1` (`pd_decode_language_model_only_n_samples`).
 
@@ -393,7 +393,7 @@ python -m vllm.entrypoints.grpc_server \
   --host 0.0.0.0 \
   --port 50051
 
-smg \
+smg launch \
   --worker-urls grpc://localhost:50051 \
   --model-path Qwen/Qwen3-VL-8B-Instruct \
   --port 30000

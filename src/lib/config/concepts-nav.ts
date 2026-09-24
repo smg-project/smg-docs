@@ -9,6 +9,7 @@ export const conceptsNav: DocsNavSection[] = [
 			{ label: 'Overview', href: `${base}/concepts/architecture/overview` },
 			{ label: 'Service Discovery', href: `${base}/concepts/architecture/service-discovery` },
 			{ label: 'gRPC Pipeline', href: `${base}/concepts/architecture/grpc-pipeline` },
+			{ label: 'Multimodal Pipeline', href: `${base}/concepts/architecture/multimodal` },
 			{ label: 'High Availability', href: `${base}/concepts/architecture/high-availability` }
 		]
 	},

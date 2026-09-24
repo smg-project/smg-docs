@@ -95,10 +95,13 @@ These endpoints are for gateway operations and administration.
 
 ### Cache and Load Utilities
 
-| Method | Path |
-|---|---|
-| `POST` | `/flush_cache` |
-| `GET` | `/get_loads` |
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/flush_cache` | Flush the KV prefix cache on every worker that supports it |
+| `GET` | `/loads` | Fleet engine load from the gateway's cached load snapshot (optional `?model=` filter) |
+| `GET` | `/get_loads` | Deprecated alias of `/loads` |
+
+`/loads` is registered with the public routes and needs no auth; `/flush_cache` and the deprecated `/get_loads` alias are control-plane routes. See [Cache Management](admin.md#cache-management) for request and response details.
 
 ---
 

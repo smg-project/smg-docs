@@ -41,6 +41,7 @@ export const conceptsNav: DocsNavSection[] = [
 				href: `${base}/concepts/reliability/tenant-rate-limiting`
 			},
 			{ label: 'Priority Scheduling', href: `${base}/concepts/reliability/priority-scheduling` },
+			{ label: 'Overload Protection', href: `${base}/concepts/reliability/overload-protection` },
 			{ label: 'Retries', href: `${base}/concepts/reliability/retries` },
 			{ label: 'Health Checks', href: `${base}/concepts/reliability/health-checks` },
 			{ label: 'Graceful Shutdown', href: `${base}/concepts/reliability/graceful-shutdown` }

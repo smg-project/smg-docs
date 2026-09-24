@@ -45,7 +45,7 @@ With the override, keyed requests stick on every policy, and by default the conf
 
 ### :material-gauge: Bounded and Observable
 
-Idle pins expire, a per-key in-flight cap keeps one conversation from piling onto its worker, and responses from HTTP workers name the worker that served them.
+Idle pins expire, a key's requests beyond two in flight are placed again instead of going straight to its pinned worker, and inference responses from HTTP workers name the worker that served them.
 
 </div>
 
@@ -110,13 +110,13 @@ A value that fails these checks is skipped without an error, and SMG tries the n
 
 ```bash
 # Read an upstream proxy's header first, and keep the SMG header as a fallback
-smg --worker-urls http://w1:8000 http://w2:8000 \
+smg launch --worker-urls http://w1:8000 http://w2:8000 \
   --routing-key-override \
   --routing-key-headers x-routing-key x-smg-routing-key
 ```
 
 !!! warning "`manual` and `consistent_hashing` read headers their own way"
-    These two policies handle routing keys themselves, even with the override enabled. `manual` reads only `X-SMG-Routing-Key`, requires a non-empty ASCII value, and ignores `--routing-key-headers`. `consistent_hashing` tries the `--routing-key-headers` list, then `X-SMG-Routing-Key`. Neither strips lineage suffixes from header values. A body `rid` is still stripped and still wins on both.
+    These two policies handle routing keys themselves, even with the override enabled. `manual` reads only `X-SMG-Routing-Key`, requires a non-empty ASCII value but applies no 128-byte cap, and ignores `--routing-key-headers`. `consistent_hashing` tries the `--routing-key-headers` list, then `X-SMG-Routing-Key`. Neither strips lineage suffixes from header values. A body `rid` is still stripped and still wins on both.
 
 ---
 
@@ -125,7 +125,7 @@ smg --worker-urls http://w1:8000 http://w2:8000 \
 Enable the override on top of any policy, here `cache_aware`:
 
 ```bash
-smg --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 \
+smg launch --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 \
   --policy cache_aware \
   --routing-key-override
 ```
@@ -163,7 +163,7 @@ The next turn sends `"rid": "chat-7f3a_t2"`, and a retry of that turn sends `"ri
 | Key sources | `X-SMG-Routing-Key`; the body `rid` first only when the override is also enabled | Body `rid`, then `--routing-key-headers` |
 | Lineage stripping of header keys | No | Yes |
 | Pins scoped by model | No (by PD leg only) | Yes (by model and PD leg) |
-| Per-key in-flight cap | No | Yes |
+| Per-key in-flight threshold | No | Yes |
 
 Choose the override to keep another policy, usually `cache_aware`, in charge of where conversations start. Choose `manual` when placement should depend only on the assignment mode.
 
@@ -205,18 +205,18 @@ Each key remembers up to two workers: a primary and one failover candidate. A re
 
 When no remembered worker is available, SMG places the request again and records the result:
 
-- In `delegate` mode, the configured policy picks the worker, which becomes the new primary; the previous primary is kept as the failover candidate.
-- In the other modes, the assignment mode picks the worker and adds it behind the existing candidate, dropping the older one when two are already remembered. The earlier worker stays first, so the key returns to it as soon as it is available again.
+- Under the override in `delegate` mode, the configured policy picks the worker, which becomes the new primary; the previous primary is kept as the failover candidate.
+- In the other modes, and in every mode under `--policy manual`, the assignment mode picks the worker and adds it behind the existing candidate, dropping the older one when two are already remembered. The earlier worker stays first, so the key returns to it as soon as it is available again.
 
-### In-Flight Cap
+### In-Flight Threshold
 
-Under the override, one conversation cannot pile requests onto its worker. When a key already has **2** requests in flight on its pinned worker, SMG places the next concurrent request for that key again: through the configured policy in `delegate` mode, otherwise through the assignment mode. That placement may still pick the pinned worker. The pin moves only if the placement picks a different worker that has fewer than 2 of the key's requests in flight, so fleet-wide pressure cannot walk a conversation away from the worker that holds its prefix. Other traffic on the worker never triggers the cap, and each gateway replica counts its own requests. The `manual` policy has no in-flight cap.
+Under the override, when a key already has **2** requests in flight on its pinned worker, SMG places the next concurrent request for that key again: through the configured policy in `delegate` mode, otherwise through the assignment mode. The request goes wherever that placement lands. The threshold triggers a new placement; it is not a hard limit. The placement can pick the pinned worker again, for example when `cache_aware` finds the conversation's prefix there, so a key can have more than 2 requests in flight on one worker. The pin moves only if the placement picks a different worker that has fewer than 2 of the key's requests in flight, so fleet-wide pressure cannot walk a conversation away from the worker that holds its prefix. Other traffic on the worker never triggers a new placement, and each gateway replica counts its own requests. The `manual` policy has no such threshold.
 
 ### Idle Eviction
 
 Every `--eviction-interval` seconds (default `120`), SMG removes pins that have not been used for `--max-idle-secs` (default `14400`, four hours). Each request that reuses a pin refreshes it. A key whose pin was evicted is placed like a new key on its next request.
 
-The map has no size limit: it holds one entry per key used within the idle window (per model and PD leg under the override), and each entry remembers at most two workers. Setting `--eviction-interval` or `--max-idle-secs` to `0` disables eviction, and the map then grows without bound.
+The map has no size limit: it holds one entry per key used within the idle window (per model and PD leg under the override), and each entry remembers at most two workers. Setting `--max-idle-secs` to `0` disables eviction, and the map then grows without bound. `--eviction-interval 0` also disables it, but SMG refuses to start with that value when the policy is `cache_aware`, the default.
 
 ---
 
@@ -224,7 +224,7 @@ The map has no size limit: it holds one entry per key used within the idle windo
 
 - **By model (override):** a key used with several models keeps an independent pin for each, so a conversation that switches models cannot evict its own pins. The `manual` policy's map is not scoped by model.
 - **By PD leg:** prefill and decode pins are independent, under both `manual` and the override.
-- **By gateway replica:** pins live in each replica's memory. They are not shared through [mesh HA](../architecture/high-availability.md), and a restart clears them. With several replicas, send each conversation to the same replica upstream, or use `consistent_hashing`, which computes the same placement on every replica that sees the same workers.
+- **By gateway replica:** pins live in each replica's memory. They are not shared through [mesh HA](../architecture/high-availability.md), and a restart clears them. With several replicas, send each conversation to the same replica upstream, or use `consistent_hashing`, which computes the same placement on every replica that sees the same workers as available.
 - **Self-hosted workers only:** requests to external providers and to the Realtime API are placed by SMG's least-load selector and are never pinned.
 
 ---
@@ -244,7 +244,7 @@ The hint header format is in the [Request Headers reference](../../reference/api
 
 ### Routed Worker Header
 
-Responses from HTTP workers carry `x-smg-routed-worker-id`: the URL of the worker that served the request, as registered with the gateway, including the `@<rank>` suffix for data-parallel workers. In PD mode it names the decode worker. Compare it across turns to confirm that a conversation sticks. Responses from gRPC workers do not carry it.
+Inference responses from HTTP workers carry `x-smg-routed-worker-id`: the URL of the worker that served the request, as registered with the gateway, including the `@<rank>` suffix for data-parallel workers. For a prefill/decode pair it names the decode worker. Compare it across turns to confirm that a conversation sticks. Responses from gRPC workers do not carry it.
 
 ```bash
 curl -s -D - -o /dev/null http://localhost:30000/v1/chat/completions \
@@ -259,9 +259,9 @@ curl -s -D - -o /dev/null http://localhost:30000/v1/chat/completions \
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `smg_manual_policy_branch_total` | Counter | `branch` | Sticky decisions by outcome: `occupied_hit` (pin reused), `occupied_miss` (remembered workers unavailable, key placed again), `vacant` (new key), `cap_respill` (in-flight cap reached), `no_routing_id` (`manual` request without a key), `no_healthy_workers` |
+| `smg_manual_policy_branch_total` | Counter | `branch` | Sticky decisions by outcome: `occupied_hit` (pin reused), `occupied_miss` (remembered workers unavailable, key placed again), `vacant` (new key), `cap_respill` (in-flight threshold reached, request placed again), `no_routing_id` (`manual` request without a key), `no_healthy_workers` |
 | `smg_manual_policy_cache_entries` | Gauge | — | Entries in the sticky map, updated on each sticky decision |
-| `smg_routing_key_source_total` | Counter | `source` | Where the key came from for requests pinned by the override: `rid` or `header` |
+| `smg_routing_key_source_total` | Counter | `source` | Where the key came from for each keyed request the override routes: `rid` or `header` |
 | `smg_worker_routing_keys_active` | Gauge | `worker` | Distinct routing keys with requests in flight on each worker; the value `min_group` balances |
 | `smg_consistent_hashing_policy_branch_total` | Counter | `branch` | `consistent_hashing` outcomes: `target_worker_hit`, `target_worker_miss`, `routing_key_hit`, `random_fallback`, `no_healthy_workers` |
 | `smg_router_request_body_path_total` | Counter | `path`, `reason` | `reason="routing_key_override"` counts bodies buffered because the override is enabled |
@@ -281,7 +281,7 @@ At `--log-level debug`, every decision the override makes logs one `Sticky routi
 
     - **The override is off.** Without `--routing-key-override`, SMG ignores the body `rid`, and every policy except `manual`, `consistent_hashing`, and `prefix_hash` ignores routing-key headers.
     - **The `rid` does not match the suffix grammar.** `conv-t2`, `conv_turn2`, and `conv_T2` are each a key of their own. A high `vacant` rate in `smg_manual_policy_branch_total` under steady traffic points here.
-    - **The key is invalid.** A key longer than 128 bytes, or an empty or non-UTF-8 header value, is ignored.
+    - **The key is invalid.** A key longer than 128 bytes, or an empty or non-UTF-8 header value, is ignored. `manual` instead ignores an `X-SMG-Routing-Key` value that is empty or not ASCII.
     - **The header name is not configured.** The override reads only the names in `--routing-key-headers`; `manual` reads only `X-SMG-Routing-Key`.
     - **The pinned worker became unavailable.** Look for `occupied_miss`, then check worker health, circuit breakers, and overload vetoes.
     - **A key has more than two requests in flight.** The extra requests are placed again; look for `cap_respill`.

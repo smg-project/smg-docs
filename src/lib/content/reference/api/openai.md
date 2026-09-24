@@ -421,7 +421,7 @@ Header names are case-insensitive. SMG reads the following request headers:
 |--------|---------|---------------|
 | `Content-Type` | `application/json`, or `multipart/form-data` for `/v1/audio/transcriptions` | — |
 | `Authorization` | `Bearer <key>`; required when `--api-key` or `--tenant-api-key` is set | [Authentication](../../concepts/security/authentication.md) |
-| `x-api-key`, `x-goog-api-key` | The caller's own key for Anthropic (`x-api-key`) and Gemini (`x-goog-api-key`) provider workers, preferred over `Authorization` | [External Providers](../../getting-started/external-providers.md) |
+| `x-api-key`, `x-goog-api-key` | The caller's own key for Anthropic (`x-api-key`) and Gemini (`x-goog-api-key`) provider workers. `/v1/responses` and `/v1/interactions` prefer it over `Authorization`, and `/v1/messages` forwards `x-api-key` as sent; `/v1/chat/completions` uses only `Authorization` | [External Providers](../../getting-started/external-providers.md) |
 | `X-Request-ID` | Request ID for log correlation. SMG checks `x-request-id`, `x-correlation-id`, `x-trace-id`, and `request-id` in that order, and generates an ID when none is present. `--request-id-headers` replaces the list | [Logging](../../getting-started/logging.md) |
 | `traceparent`, `tracestate` | W3C trace context. With `--enable-trace`, SMG continues the caller's trace and propagates it to workers | [Monitoring](../../getting-started/monitoring.md) |
 | `X-SMG-Routing-Key` | Routing key for sticky sessions and the key-based policies (`manual`, `consistent_hashing`, `prefix_hash`). It is the default name in `--routing-key-headers` | [Sticky Sessions and Routing Keys](../../concepts/routing/sticky-sessions.md) |
@@ -440,7 +440,7 @@ A client, or a proxy in front of SMG that has already tokenized the prompt, can 
 
 | Header | Value | Limits | Effect |
 |--------|-------|--------|--------|
-| `X-SMG-Routing-Tokens` | The prompt's leading token IDs as comma-separated decimal integers from `0` to `4294967295`, with no spaces, signs, or empty items | At most 512 IDs and 4096 bytes | Replaces the token IDs and text SMG would take from the body when choosing a worker. `cache_aware` matches the hinted prefix against its token tree and records it there; `prefix_hash` hashes it. Read on the regular HTTP path only (not in PD mode or for gRPC workers), and never forwarded to workers |
+| `X-SMG-Routing-Tokens` | The prompt's leading token IDs as comma-separated decimal integers from `0` to `4294967295`, with no spaces, signs, or empty items | At most 512 IDs and 4096 bytes | Replaces the token IDs and text SMG would take from the body when choosing a worker. `cache_aware` matches the hinted prefix against its token tree (its placement index with `--cache-index hash`) and records it there; `prefix_hash` hashes it. Read on the regular HTTP path only (not in PD mode or for gRPC workers), and never forwarded to workers |
 | `X-SMG-Routing-Key` | An opaque key | Non-empty UTF-8, at most 128 bytes | Without `--routing-key-override`, `consistent_hashing` and `prefix_hash` hash the key instead of their other inputs, and `manual` pins it. With the override, every policy except `consistent_hashing` pins the key |
 
 ```bash
@@ -458,8 +458,8 @@ With a valid `X-SMG-Routing-Tokens` hint, the text-routing policies (`cache_awar
 | Header | When SMG sets it | Documented in |
 |--------|------------------|---------------|
 | `x-request-id` | On API responses: the request ID SMG used, whether received or generated | [Logging](../../getting-started/logging.md) |
-| `x-smg-routed-worker-id` | On responses from HTTP workers: the URL of the worker that served the request, with an `@<rank>` suffix for data-parallel workers. In PD mode it names the decode worker | [Sticky Sessions and Routing Keys](../../concepts/routing/sticky-sessions.md#routed-worker-header) |
-| `X-SMG-Error-Code` | On JSON errors the gateway generates, with the same value as `error.code`. SMG drops this header from worker responses, so it always marks a gateway decision | — |
+| `x-smg-routed-worker-id` | On inference responses from HTTP workers: the URL of the worker that served the request, with an `@<rank>` suffix for data-parallel workers. For a prefill/decode pair it names the decode worker | [Sticky Sessions and Routing Keys](../../concepts/routing/sticky-sessions.md#routed-worker-header) |
+| `X-SMG-Error-Code` | On errors the gateway generates in its standard error envelope, with the same value as `error.code`; request-validation `400` errors do not carry it. SMG drops this header from worker responses, so it always marks a gateway decision | — |
 | `X-SMG-Preempted` | `true` on the `503` returned to a request preempted by the priority scheduler | [Priority Scheduler](../priority-scheduler.md) |
 | `Retry-After` | On `429` and `503` responses that ask the client to back off: concurrency limits, worker overload, the priority scheduler, and tenant rate limits | [Rate Limiting](../../concepts/reliability/rate-limiting.md) |
 

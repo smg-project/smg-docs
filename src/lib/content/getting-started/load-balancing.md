@@ -141,7 +141,7 @@ Best for PD disaggregation where prefill workers handle different request sizes.
 Pins each routing key to a worker and keeps it there until that worker becomes unavailable or the key goes unused for `--max-idle-secs`. Keys come from the `X-SMG-Routing-Key` header, or from the request body's `rid` when `--routing-key-override` is also enabled. Requests without a key are placed by the assignment mode and not pinned.
 
 ```bash
-smg \
+smg launch \
   --policy manual \
   --worker-urls http://w1:8000 http://w2:8000 \
   --assignment-mode min_load \

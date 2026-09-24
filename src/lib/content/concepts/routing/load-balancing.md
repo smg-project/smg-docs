@@ -210,7 +210,7 @@ smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
 
 | Header | Description |
 |--------|-------------|
-| `X-SMG-Target-Worker` | Route to a worker by 0-based index into the model's available workers. An out-of-range index or an unavailable worker fails the request with `503` instead of falling back |
+| `X-SMG-Target-Worker` | Route to a worker by 0-based index into the model's currently available workers, so indices shift when a worker becomes unavailable. An index past the end of that list, or a value that is not a number, fails the request with `503` instead of falling back |
 | `X-SMG-Routing-Key` | Hash this key onto the ring for session affinity. Names listed in `--routing-key-headers` are read first. Values must be non-empty UTF-8 of at most 128 bytes |
 
 **Priority order:** `X-SMG-Target-Worker` → body `rid` (with `--routing-key-override`) → routing-key header → implicit keys (`Authorization`, `X-Forwarded-For`, `Cookie`) → random fallback
@@ -267,10 +267,10 @@ smg --policy prefix_hash --prefix-token-count 256 --worker-urls http://w1:8000 h
 
 ## Manual
 
-Pins each routing key to a worker in an explicit key-to-worker map. Keys come from the `X-SMG-Routing-Key` header, or from the request body's `rid` when `--routing-key-override` is also enabled. Unlike consistent hashing, adding workers never moves an existing key; a key moves only when its worker becomes unavailable.
+Pins each routing key to a worker in an explicit key-to-worker map. Keys come from the `X-SMG-Routing-Key` header, or from the request body's `rid` when `--routing-key-override` is also enabled. Unlike consistent hashing, adding workers never moves an existing key; a key moves only when its worker becomes unavailable or the key goes unused for `--max-idle-secs`.
 
 ```bash
-smg --policy manual --assignment-mode min_load --worker-urls http://w1:8000 http://w2:8000
+smg launch --policy manual --assignment-mode min_load --worker-urls http://w1:8000 http://w2:8000
 ```
 
 <div class="grid" markdown>

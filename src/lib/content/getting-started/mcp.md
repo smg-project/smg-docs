@@ -58,7 +58,7 @@ servers:
 ## 2. Start SMG with MCP config
 
 ```bash
-smg \
+smg launch \
   --worker-urls grpc://localhost:50051 \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --mcp-config-path /path/to/mcp.yaml
@@ -178,7 +178,7 @@ See [Approval](../concepts/extensibility/mcp.md#approval) for details.
 
 ## Messages API
 
-With an Anthropic provider (`--backend anthropic`, or an external worker registered with `provider: anthropic`), the Messages API can run MCP tools too. Send the `X-SMG-MCP: enabled` header, list the servers in `mcp_servers`, and add an `mcp_toolset` tool for each server. SMG then runs at most 10 rounds of tool calls per request.
+With an Anthropic provider (`--backend anthropic`, or an external worker in IGW mode whose discovered models are named `claude-*`), the Messages API can run MCP tools too. Send the `X-SMG-MCP: enabled` header, list the servers in `mcp_servers`, and add an `mcp_toolset` tool for each server. SMG then runs at most 10 rounds of tool calls per request.
 
 See the [Messages API reference](../reference/api/messages.md) for a full request and the response format, and [MCP in the Messages API](../concepts/extensibility/mcp.md#mcp-in-the-messages-api) for how this loop differs from the Responses API.
 

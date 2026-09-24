@@ -38,8 +38,8 @@ A client-declared function tool that has the same name as an internal tool stays
 |--------|----------|
 | Non-streaming Responses on gRPC workers, including gpt-oss (Harmony) models | Yes |
 | Non-streaming Responses on an OpenAI-compatible provider | Yes |
-| The stored copy of a streamed response on an OpenAI-compatible provider | Yes |
-| Live streaming events, on every path | No |
+| The final `response.completed` event and the stored copy of a streamed response on an OpenAI-compatible provider | Yes |
+| Other live streaming events, on every path | No |
 | Hosted-tool items from built-in routing (`web_search_call`, `code_interpreter_call`, `file_search_call`, `image_generation_call`) | No |
 
 If an internal server also sets `builtin_type`, its hosted-tool items stay visible. Its `mcp_list_tools` item is hidden either way, as it is for every server with `builtin_type` set.

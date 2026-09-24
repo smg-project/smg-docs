@@ -24,7 +24,7 @@ SMG runs each MCP call and calls the model again, so the client gets the final a
 
 ### :material-shield-check: Credential Isolation
 
-Server tokens and headers stay in the config file or the request. The model only sees tool names, schemas, and results.
+Server tokens and headers stay in the config file or the request. The model only sees tool names, descriptions, schemas, and results.
 
 </div>
 
@@ -54,11 +54,11 @@ SMG runs the MCP tool loop on these paths:
 
 | API | Backend | How a request opts in |
 |-----|---------|------------------------|
-| Responses (`POST /v1/responses`) | gRPC or ZMQ workers, including gpt-oss (Harmony) models | An `mcp` tool, or a built-in tool that is routed to MCP |
-| Responses (`POST /v1/responses`) | OpenAI-compatible provider (`--backend openai`, or an external worker registered with `provider: openai`) | Same as above |
-| Messages (`POST /v1/messages`) | Anthropic provider (`--backend anthropic`, or an external worker registered with `provider: anthropic`) | The `X-SMG-MCP: enabled` header plus `mcp_servers` and `mcp_toolset` tools (see [MCP in the Messages API](#mcp-in-the-messages-api)) |
+| Responses (`POST /v1/responses`) | gRPC or ZMQ workers (not with `--epd-disaggregation`), including gpt-oss (Harmony) models | An `mcp` tool, or a built-in tool that is routed to MCP |
+| Responses (`POST /v1/responses`) | OpenAI-compatible provider (`--backend openai`, or an external worker in IGW mode, which SMG routes by model name) | Same as above |
+| Messages (`POST /v1/messages`) | Anthropic provider (`--backend anthropic`, or an external worker in IGW mode whose discovered models are named `claude-*`) | The `X-SMG-MCP: enabled` header plus `mcp_servers` and `mcp_toolset` tools (see [MCP in the Messages API](#mcp-in-the-messages-api)) |
 
-No other path runs MCP tools. Chat Completions has no MCP loop, HTTP workers receive `/v1/responses` requests unchanged, and on gRPC workers the Messages API ignores `mcp_toolset` tools.
+No other path runs MCP tools. Chat Completions has no MCP loop, SMG forwards `/v1/responses` requests to HTTP workers with their `mcp` tools left in place, and on gRPC workers the Messages API ignores `mcp_toolset` tools.
 
 ---
 
@@ -102,7 +102,7 @@ A dynamic server comes from the request: `server_url` on a Responses `mcp` tool,
 
 - **Transport.** Only Streamable HTTP. Stdio is not available for dynamic servers.
 - **Pooling.** SMG keeps connections in a pool keyed by the URL plus a hash of the credentials (`authorization` and `headers`). A later request with the same URL and credentials reuses the connection and the tool list fetched when it was opened.
-- **Capacity.** The pool holds up to 100 connections. When it is full, the least recently used connection is dropped and its tools are removed. Idle connections are not closed.
+- **Capacity.** The pool holds up to 100 connections. When it is full, opening a new connection drops the oldest one and removes its tools. Reusing a connection does not refresh its place in the pool. Idle connections are not closed.
 - **Credential isolation.** Two different credentials for the same URL create two pooled connections, and calls to that URL then fail closed. See [Ambiguous Pooled Connections](#ambiguous-pooled-connections).
 - **Failures.** SMG skips a server it cannot connect to and logs a warning. If no MCP server is left for the request, gRPC workers return `424` with code `connect_mcp_server_failed`, and the Messages API returns `502` with code `mcp_connection_failed`.
 
@@ -159,7 +159,7 @@ If the connection to an MCP server drops while a call is in flight, SMG cannot t
 Tool call outcome unknown: server 'orders' disconnected while executing 'place_order'; the call was not retried because the tool is not marked idempotent or read-only
 ```
 
-Only a call to a tool that declares the MCP `idempotentHint` or `readOnlyHint` annotation is eligible to be re-issued on a new connection. SMG does not currently read these annotations from a server's tool list, so every interrupted call fails this way.
+Only a call to a tool that declares the MCP `idempotentHint` or `readOnlyHint` annotation is eligible to be re-issued on a new connection. SMG does not currently use these annotations from a server's tool list for this check, so every interrupted call fails this way.
 
 ### Ambiguous Pooled Connections
 
@@ -178,6 +178,7 @@ A failed call does not fail the request. SMG sends the error back to the model a
 ```json
 {
   "type": "mcp_call",
+  "id": "mcp_abc123",
   "status": "failed",
   "name": "search_docs",
   "server_label": "docs",
@@ -191,8 +192,8 @@ A failed call does not fail the request. SMG sends the error back to the model a
 ```
 
 - `error` follows OpenAI's `mcp_call.error` schema: `mcp_protocol_error` and `http_error` (each with `code` and `message`), or `mcp_tool_execution_error` (with `content`). SMG emits `mcp_tool_execution_error`.
-- A legacy item whose `error` is a plain string, such as one stored by an older SMG, is still accepted as input and converted to `mcp_tool_execution_error`.
-- In streaming mode SMG also sends a `response.mcp_call.failed` event. Its `error` field is the plain message, an SMG extension.
+- A legacy item whose `error` is a plain string, such as one stored by an older SMG, still parses, with its `error` converted to `mcp_tool_execution_error`.
+- For regular (non-Harmony) models in streaming mode, SMG also sends a `response.mcp_call.failed` event. Its `error` field is the plain message, an SMG extension.
 - Hosted-tool items such as `web_search_call` always end as `completed`. Failure details are in their content.
 - On the OpenAI-compatible provider, non-streaming responses currently report a failed call as a `completed` `mcp_call` with the error text in `output`.
 
@@ -209,7 +210,7 @@ Every MCP call passes through SMG's approval check before it runs, in one of two
 
 - `require_approval: "never"`, the object form (`{"always": ..., "never": ...}`), streaming requests, gRPC workers, and the Messages API all use policy-only mode.
 - SMG does not currently act on an `mcp_approval_response` input item, so a paused call cannot be approved through SMG.
-- Pending approvals are keyed by the model's call ID, so a second call to the same tool gets its own approval instead of being rejected as a duplicate.
+- The loop stops at the first call that needs approval, so a response carries at most one `mcp_approval_request` item.
 
 ---
 
@@ -263,7 +264,7 @@ See the [Messages API reference](../../reference/api/messages.md) for the reques
 ### CLI Option
 
 ```bash
-smg --worker-urls grpc://localhost:50051 --mcp-config-path /etc/smg/mcp.yaml
+smg launch --worker-urls grpc://localhost:50051 --mcp-config-path /etc/smg/mcp.yaml
 ```
 
 `--mcp-config-path` points at a YAML file. SMG reads and parses it at startup and refuses to start if the file can't be read or parsed. Unknown keys are ignored, but an invalid value, such as an unknown `protocol`, is a parse error.
@@ -383,7 +384,7 @@ Set `proxy` on each server that needs one. `http` and `https` are proxy URLs, `n
 
 ## Internal Servers
 
-Set `internal: true` on a static server when its tools support the model behind the scenes and should not show up in responses. The model can still call them, but SMG removes the server's `mcp_list_tools` item and its `mcp_call` items from non-streaming Responses output. Live streaming events are not filtered. See [Internal MCP Servers](../../reference/mcp-internal-servers.md) for the exact rules.
+Set `internal: true` on a static server when its tools support the model behind the scenes and should not show up in responses. The model can still call them, but SMG removes the server's `mcp_list_tools` item and its `mcp_call` items from non-streaming Responses output, and on an OpenAI-compatible provider also from a stream's final `response.completed` event. Other streaming events are not filtered. See [Internal MCP Servers](../../reference/mcp-internal-servers.md) for the exact rules.
 
 ---
 

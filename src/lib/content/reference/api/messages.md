@@ -41,7 +41,7 @@ SMG's own authentication is separate from the credentials it passes to backends:
 
 | Hop | Headers | Behavior |
 |-----|---------|----------|
-| Client to SMG | `Authorization: Bearer <key>` | Checked when `--api-key` or `--tenant-api-key` is set. SMG does not read `x-api-key`. A missing or unknown bearer token gets `401 Unauthorized`. |
+| Client to SMG | `Authorization: Bearer <key>` | Checked when `--api-key` or `--tenant-api-key` is set (`--tenant-api-key` is a Rust binary flag; the pip `smg launch` does not accept it). SMG does not read `x-api-key`. A missing or unknown bearer token gets `401 Unauthorized`. |
 | SMG to HTTP workers | `Authorization` | The client's header is forwarded with the other [allowlisted headers](#forwarded-headers); `x-api-key` is not. See [Authentication](../../concepts/security/authentication.md) for worker API keys. |
 | SMG to the Anthropic API | `x-api-key`, `Authorization` | Forwarded exactly as the client sent them. SMG adds no key of its own, so the client supplies the Anthropic key. |
 
@@ -309,8 +309,9 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 | Request field | Handling |
 |---------------|----------|
 | `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `system`-role message inside `messages` keeps its position. Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
-| `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences` | Sent to the engine as sampling parameters. |
-| `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |
+| `max_tokens`, `temperature`, `top_p`, `top_k` | Sent to the engine as sampling parameters. |
+| `stop_sequences` | Sent as stop strings to vLLM, TensorRT-LLM, and TokenSpeed gRPC workers. For SGLang gRPC workers and ZMQ workers, SMG matches them itself and sends only single-token stops to the engine, as stop token IDs. |
+| `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser; with a `tool_choice` of `tool`, only that tool is passed to the chat template. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |
 | `tool_choice` | Mapped to Chat Completions semantics: `auto` to `auto`, `any` to `required`, `tool` to that function, `none` to `none`. SMG enforces `any` and `tool` with constrained decoding. |
 | `thinking` | `enabled` and `adaptive` turn on the chat template's thinking mode and run the model's reasoning parser. `disabled` turns thinking mode off. Without `thinking`, the template default applies. `budget_tokens` and `display` are not used. |
 | `metadata`, `service_tier`, `container`, `mcp_servers`, extra fields such as `output_config` | Not sent to the engine. |
@@ -330,7 +331,7 @@ How the response is built:
 
 ## HTTP and PD Workers
 
-With HTTP workers, SMG forwards `/v1/messages` to the selected worker. It normally buffers the request, validates it, and re-serializes it: fields SMG does not model are kept, a [`--model-alias`](../configuration.md) name is replaced by the canonical model ID, and numbers keep the values the client sent (smg-project/smg#2637). When the HTTP router instead streams the body through (see [Request Streaming](../../concepts/performance/request-streaming.md)), it forwards the raw body and leaves validation to the worker. Either way, only the [allowlisted headers](#forwarded-headers) are forwarded, and the worker's response, including error responses and SSE streams, is relayed unchanged.
+With HTTP workers, SMG forwards `/v1/messages` to the selected worker. It normally buffers the request, validates it, and re-serializes it: fields SMG does not model are kept, a [`--model-alias`](../configuration.md) name is replaced by the canonical model ID, and numbers keep the values the client sent. When the HTTP router instead streams the body through (see [Request Streaming](../../concepts/performance/request-streaming.md)), it forwards the raw body and leaves validation to the worker. Either way, only the [allowlisted headers](#forwarded-headers) are forwarded, and the worker's response, including error responses and SSE streams, is relayed unchanged.
 
 With `--pd-disaggregation` and HTTP workers, `/v1/messages` uses the same prefill/decode dual dispatch as chat completions: SMG selects a prefill and decode pair and dispatches the request to both (smg-project/smg#2250). See [PD Disaggregation](../../concepts/routing/pd-disaggregation.md).
 
@@ -341,7 +342,7 @@ With `--pd-disaggregation` and HTTP workers, `/v1/messages` uses the same prefil
 Point SMG at the Anthropic API:
 
 ```bash
-smg --backend anthropic --worker-urls https://api.anthropic.com
+smg launch --backend anthropic --worker-urls https://api.anthropic.com
 ```
 
 Clients then call SMG as in the [Anthropic API example](#example-request).
@@ -394,7 +395,7 @@ What SMG does:
 
 1. Connects to the servers in `mcp_servers`. If none connects, it returns `502` with code `mcp_connection_failed`.
 2. Replaces `mcp_servers` and the `mcp_toolset` entries with the enabled MCP tools as regular tools, and sets `tool_choice` to `auto` if the request had none.
-3. Runs each tool the model calls, sends the results back to the model, and repeats until the model stops calling tools. If the model still calls tools after 10 rounds, a non-streaming request fails with `502` (`mcp_max_iterations`) and a stream ends with an `error` event.
+3. Runs each tool the model calls, sends the results back to the model, and repeats until the model stops calling tools, for at most 10 rounds of tool calls. If the model still calls tools after the 10th round, a non-streaming request fails with `502` (`mcp_max_iterations`). A stream ends with an `error` event right after the 10th round, without calling the model again.
 4. Returns each call as an `mcp_tool_use` block (id prefixed `mcptoolu_`) followed by its `mcp_tool_result` block, then the model's final content:
 
 ```json
@@ -421,7 +422,7 @@ What SMG does:
 
 In a stream, SMG forwards the upstream events, emits the model's tool calls as `mcp_tool_use` blocks and each result as an `mcp_tool_result` block, and ends with a single `message_delta` and `message_stop`. SMG does not accept `mcp_tool_use` or `mcp_tool_result` blocks in `messages` (see the accepted block types under [Request Body](#request-body)).
 
-Tool calls use policy-only approval: SMG never pauses the request to ask the client. A call that the approval policy denies is not run, and the model receives an error result instead. See [MCP](../../concepts/extensibility/mcp.md) for approval policies and server configuration.
+Tool calls use policy-only approval: SMG never pauses the request to ask the client. The gateway runs its built-in default policy, which allows every tool, because the `policy` section of the MCP configuration file is not applied in v1.11.0. See [MCP](../../concepts/extensibility/mcp.md) for server configuration.
 
 ---
 
@@ -450,9 +451,9 @@ The standard envelope names the HTTP status in `type` and repeats `code` in the 
 }
 ```
 
-A few gateway answers are plain text instead: the `404` when no router serves the request in IGW mode, and the `501` from backends without token counting.
+A few gateway answers are plain text instead: the `404` when no router serves the request in IGW mode, the `501` from a backend that does not serve the endpoint, and the `/v1/messages/count_tokens` answer to a body that does not parse (`400` for invalid JSON, `415` without `Content-Type: application/json`, `422` for a missing field or a field of the wrong type).
 
-Errors that SMG detects before the first event are returned as ordinary HTTP error responses, not as a stream, even when `stream` is `true`. After a stream has started, the gRPC path and SMG's MCP tool loop report a failure as an Anthropic `error` event and end the stream:
+Errors that SMG detects before the stream starts are returned as ordinary HTTP error responses, not as a stream, even when `stream` is `true`. After the stream has started, the gRPC path and SMG's MCP tool loop report a failure as an Anthropic `error` event and end the stream. The MCP tool loop starts its stream before it first calls the model, so even an upstream error on that first call arrives this way:
 
 ```text
 event: error

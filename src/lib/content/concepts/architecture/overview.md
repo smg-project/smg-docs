@@ -195,30 +195,31 @@ When the model requests tool execution:
 
 ## Load Balancing
 
-All paths use the same load balancing infrastructure with multiple policies.
+Self-hosted workers (HTTP, gRPC and ZMQ) are placed by the policy set with `--policy` (default `cache_aware`) through one shared policy registry, and PD mode can set a policy per leg. External providers and realtime sessions are placed on the least-loaded worker instead.
 
 | Policy | Algorithm | Best For |
 |--------|-----------|----------|
-| `cache_aware` | Radix tree prefix matching + load | **Production default** |
-| `bucket` | Request-length buckets | PD disaggregation |
-| `power_of_two` | Sample two, pick lighter | Load-aware routing |
+| `cache_aware` | Prefix-tree matching, then lowest expected wait | **Production default** |
+| `least_load` | Lowest expected wait: queued token work over throughput, plus KV-cache pressure | Load-aware routing on gRPC workers |
+| `power_of_two` | Sample two, pick the lower expected wait | Load balancing on large fleets |
+| `bucket` | Request-length buckets with adaptive boundaries | PD prefill leg |
 | `consistent_hashing` | Hash ring with virtual nodes | Session affinity |
-| `prefix_hash` | Prefix token hash | Lightweight cache locality |
+| `prefix_hash` | Prefix hash on a consistent ring, with a load check | Lightweight cache locality |
 | `manual` | Explicit routing key mapping | Stateful chat |
-| `round_robin` | Sequential cycling | Even distribution |
+| `round_robin` | Sequential cycling per candidate set | Even distribution |
 | `random` | Uniform random | Testing |
+| `passthrough` | First available worker | Single-worker gateways |
 
 ### Cache-Aware Routing
 
-The cache-aware policy optimizes for KV cache reuse:
+The default `cache_aware` policy balances KV cache reuse against load:
 
-1. Tokenize the request prefix
-2. Search radix tree for longest matching prefix per worker
-3. If match ratio ≥ threshold, route to matched worker
-4. Otherwise, route to worker with most cache capacity
-5. Falls back to least-loaded when system is imbalanced
+1. Match the request's prefix (text or token IDs) against a per-model tree of the prefixes routed to each worker, or against the engines' own KV-cache events when gRPC workers publish them
+2. If a worker holds enough of the prefix (above `--cache-threshold` in tree mode), the workers holding it are the candidates; otherwise every available worker is
+3. Skip a holder whose in-flight requests exceed the mean across available workers by more than `--balance-abs-threshold` and are also above `--balance-rel-threshold` × that mean; if every holder is skipped, the other available workers that pass the same check become the candidates
+4. Route to the candidate with the lowest expected wait (the `least_load` score), breaking exact ties at random
 
-This integrates with SGLang, vLLM, and TensorRT-LLM's native KV cache management.
+See [Cache-Aware Routing](../routing/cache-aware.md) for KV-event mode, the hash index, and KV-pressure tuning.
 
 ---
 

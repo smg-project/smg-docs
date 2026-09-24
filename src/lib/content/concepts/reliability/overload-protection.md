@@ -103,7 +103,7 @@ The gateway's load monitor collects one report per worker per poll. The source d
 
 ### Polling
 
-- Workers are polled in groups (same model, worker type, and connection mode) every `--load-monitor-interval` seconds (default `10`). A worker spec's `load_monitor_interval_secs` overrides the interval for its group; the smallest override in a group wins, with a floor of 1 second.
+- Workers are polled in groups (same model, worker type, and connection mode) every `--load-monitor-interval` seconds (default `10`), with a floor of 1 second. The worker spec also has a `load_monitor_interval_secs` field, but in v1.11.0 worker registration does not copy it onto the worker, so it has no effect; use `--load-monitor-interval`.
 - Only `Ready` workers are polled. HTTP load requests time out after 5 seconds.
 - The overload check runs once per received report, against that worker's own thresholds, and the verdict is stored on the worker. Selection only reads the stored flag, so the check adds nothing per request, and a verdict can only change when a new report arrives.
 - There is no hysteresis: the first report under every threshold clears the veto.

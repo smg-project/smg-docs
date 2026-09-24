@@ -101,6 +101,21 @@ Choose one of these startup paths.
       --port 30000
     ```
 
+=== "TokenSpeed (ZMQ)"
+
+    ```bash
+    smg serve \
+      --backend tokenspeed \
+      --connection-mode zmq \
+      --model meta-llama/Llama-3.1-8B-Instruct \
+      --router-model-path meta-llama/Llama-3.1-8B-Instruct \
+      --data-parallel-size 2 \
+      --host 0.0.0.0 \
+      --port 30000
+    ```
+
+    TokenSpeed runs headless, and SMG connects to its engine core over ZMQ. `--router-model-path` gives the gateway the model name and tokenizer, which the engine doesn't report over ZMQ.
+
 === "SGLang"
 
     ```bash
@@ -113,16 +128,26 @@ Choose one of these startup paths.
       --port 30000
     ```
 
-This starts `--data-parallel-size` worker replicas, waits for readiness, then starts the gateway.
+This starts `--data-parallel-size` worker replicas, waits for each to become healthy, then starts the gateway. With `--connection-mode zmq` there is no wait: the gateway starts at once, and `/readiness` returns 503 until a worker has completed its handshake and the tokenizer has loaded.
+
+To connect vLLM to its engine core directly instead of through gRPC, add `--connection-mode zmq` and `--router-model-path <model>`. See [ZMQ Direct Workers](zmq-workers.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--backend` | `sglang` | Inference backend: `vllm`, `trtllm`, or `sglang` |
-| `--connection-mode` | `grpc` | Worker connection mode: `grpc` or `http` (TensorRT-LLM only supports gRPC) |
-| `--data-parallel-size` | `1` | Number of worker replicas (one per GPU) |
-| `--worker-base-port` | `31000` | Base port for worker processes |
+| `--backend` | `sglang` | Inference backend: `sglang`, `vllm`, `trtllm`, or `tokenspeed`. The `SMG_DEFAULT_BACKEND` environment variable changes the default |
+| `--connection-mode` | `grpc` | Worker connection mode: `grpc`, `http`, or `zmq`. TensorRT-LLM supports only `grpc` and TokenSpeed only `zmq`; `zmq` also works with `vllm` |
 | `--host` | `127.0.0.1` | Router host |
-| `--port` | `8080` | Router port |
+| `--port` | `8080` | Router port (`30000` with `--backend sglang`; see below) |
+| `--data-parallel-size`, `--dp-size` | `1` | Number of worker replicas, each on its own GPU slice |
+| `--worker-host` | `127.0.0.1` | Host for worker processes |
+| `--worker-base-port` | `31000` | Base port for worker processes |
+| `--worker-startup-timeout` | `300` | Seconds to wait for each worker to become healthy |
+| `--enable-token-usage-details` | off | In `http` mode, start the engine with cached-token reporting (`--enable-cache-report` for SGLang, `--enable-prompt-tokens-details` for vLLM) |
+
+Gateway options take a `--router-` prefix (for example `--router-policy` or `--router-model-path`); other flags are passed to the engine. When the backend's own CLI also defines `--host` or `--port`, its definition replaces the one above: with `--backend sglang` the router defaults to `127.0.0.1:30000`, and with vLLM in `http` mode to `0.0.0.0:8000`. Pass both flags to be explicit.
+
+!!! note "Single-worker defaults"
+    With `--data-parallel-size 1`, `smg serve` disables gateway retries and the circuit breaker and forces the `passthrough` routing policy, overriding any `--router-policy`: with one worker there is nothing to fail over to or balance across.
 
 ### Option B: Launch gateway only with `smg launch`
 
@@ -186,6 +211,7 @@ curl http://localhost:30000/v1/responses \
 
 - [Multiple Workers](multiple-workers.md)
 - [gRPC Workers](grpc-workers.md)
+- [ZMQ Direct Workers](zmq-workers.md)
 - [PD Disaggregation](pd-disaggregation.md)
 - [Service Discovery](service-discovery.md)
 
@@ -511,6 +537,7 @@ curl http://localhost:30000/workers
 
 - [Multiple Workers](multiple-workers.md) — connect local or external worker endpoints
 - [gRPC Workers](grpc-workers.md) — gateway-side tokenization, parsing, and tool handling
+- [ZMQ Direct Workers](zmq-workers.md) — same-host engines with no engine API server in the path
 - [PD Disaggregation](pd-disaggregation.md) — split prefill and decode paths
 - [Service Discovery](service-discovery.md) — Kubernetes pod-based worker registration
 

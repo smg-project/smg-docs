@@ -30,7 +30,7 @@ curl http://localhost:30000/v1/chat/completions \
 Enable authentication with `--api-key`:
 
 ```bash
-smg --worker-urls http://worker:8000 --api-key "your-api-key"
+smg launch --worker-urls http://worker:8000 --api-key "your-api-key"
 ```
 
 For real multi-tenant separation (e.g. per-tenant rate limiting), configure one key per
@@ -39,7 +39,7 @@ its own tenant identity; `--api-key` remains available as a single shared fallba
 whose callers all share one identity.
 
 ```bash
-smg --worker-urls http://worker:8000 \
+smg launch --worker-urls http://worker:8000 \
   --tenant-api-key team-red:red-secret \
   --tenant-api-key team-blue:blue-secret
 ```
@@ -177,8 +177,10 @@ a typed object shared by the Kimi, MiniMax, z.ai, and DeepSeek dialects:
 
 The effective effort is `thinking.effort` when present, otherwise `reasoning_effort`.
 Leaving `thinking` out changes nothing: the chat template's own default applies (Kimi K3,
-for example, thinks by default), subject to `reasoning_effort`. A `thinking` object
-without `type` expresses no toggle, but its `effort` still counts.
+for example, thinks by default), subject to `reasoning_effort`. The exception is the
+DeepSeek V4 profile, which turns thinking on unless the request turns it off (see
+[Defaults and Rewrites](#defaults-and-rewrites)). A `thinking` object without `type`
+expresses no toggle, but its `effort` still counts.
 
 On gRPC workers SMG renders the chat template itself. The template receives the effective
 effort as its `reasoning_effort` variable, and SMG decides whether the model starts in
@@ -193,8 +195,8 @@ If none applies, the template default stands. The template and the reasoning par
 the same decision. On gpt-oss (Harmony) models SMG reads `reasoning_effort` and clamps it to
 the three levels Harmony knows: `none` and `minimal` become `low`, `xhigh` and `max`
 become `high`, and an unknown value becomes `medium`. HTTP workers receive both fields as
-sent. [Provider profiles](#provider-profiles) restrict the accepted values per model
-family.
+sent unless a [provider profile](#provider-profiles) rewrites them, and provider profiles
+restrict the accepted values per model family.
 
 #### Structured Output
 
@@ -206,7 +208,8 @@ family.
 
 For `json_schema`, `name` must not be empty and `schema` must be a JSON object (`{}` is
 allowed). A string, array, boolean, number, or `null` schema is rejected with `400` before
-the request reaches any worker, on every backend.
+the request reaches any worker, on every backend, unless the HTTP router streams the request
+to the worker unparsed (see [Request Streaming](../../concepts/performance/request-streaming.md)).
 
 #### Example Request
 
@@ -256,7 +259,7 @@ curl http://localhost:30000/v1/chat/completions \
 |-------|-------------|
 | `prompt_tokens`, `completion_tokens`, `total_tokens` | Token counts. With `n` > 1 the shared prompt is counted once and the choices' completions are summed |
 | `prompt_tokens_details.cached_tokens` | Prompt tokens served from the worker's prefix cache |
-| `completion_tokens_details.reasoning_tokens` | Reasoning tokens, when the engine reports a non-zero count |
+| `completion_tokens_details.reasoning_tokens` | Reasoning tokens, when the count is non-zero. On gRPC workers SGLang reports them, and SMG counts them itself for gpt-oss (Harmony) models |
 | `completion_tokens_details.accepted_prediction_tokens` | Speculative decoding: draft tokens the target model accepted |
 | `completion_tokens_details.rejected_prediction_tokens` | Speculative decoding: draft tokens rejected (drafted minus accepted) |
 
@@ -306,7 +309,7 @@ If generation fails after a gRPC stream has started, SMG sends
 | `stream_options` field | Default | Effect |
 |------------------------|---------|--------|
 | `include_usage` | `false` (Kimi: `true`) | Send the whole request's usage in a final chunk with an empty `choices` array |
-| `continuous_usage_stats` | `false` | gRPC workers: with `include_usage: true`, every chunk also carries a running `usage` snapshot (the prompt plus the tokens generated so far) |
+| `continuous_usage_stats` | `false` | gRPC workers, except for gpt-oss (Harmony) models: with `include_usage: true`, every chunk also carries a running `usage` snapshot (the prompt plus the tokens generated so far) |
 
 On HTTP workers `stream_options`, including keys SMG does not model, is forwarded to the
 engine, which produces the usage chunks. The Kimi profile turns `include_usage` on for
@@ -588,7 +591,7 @@ The rule code in the last column names the rule in SMG's source and tests; only
 | All except MiniMax | A `root` message | `invalid_role` |
 | Kimi | `tools` on a `user` or `assistant` message | `tools_role_restricted` |
 | Kimi | `tools` on a `system` or `developer` message that is not a list of tools | `tools_malformed` |
-| Kimi | Message `tools` together with non-empty content on that message | `tools_content_conflict` |
+| Kimi | A non-empty message `tools` list together with non-empty content on that message | `tools_content_conflict` |
 | Kimi | A message tool whose `type` is not `function` | `tool_type_unsupported` |
 | Kimi | A message tool name not matching `[A-Za-z_][A-Za-z0-9_]*`, or longer than 256 characters | `tool_name_invalid` |
 | Kimi | A message tool name already declared in `tools` or on another message | `tool_name_duplicate` |
@@ -673,7 +676,7 @@ relayed with the worker's status and body. SMG never forwards a worker's
 | 429 | `admission_queue_full`, `scheduler_queue_full`, `tenant_rate_limit_exceeded` | Admission control or rate limiting; see [Rate Limiting](#rate-limiting) |
 | 500 | `internal_error` and stage-specific codes | A failure inside SMG; the code names the failing step |
 | 502 | `upstream_response_too_large` | A worker's non-streaming response exceeded `--max-payload-size` |
-| 503 | `no_available_workers` | Workers serve the model, but every one is unhealthy or has an open circuit breaker (HTTP and gRPC paths) |
+| 503 | `no_available_workers` | Workers serve the model, but every one is unhealthy or has an open circuit breaker, or the routing policy selects none of them (HTTP and gRPC paths) |
 | 503 | `worker_overload_protection_shed`, `admission_queue_timeout`, `scheduler_queue_timeout`, `scheduler_preempted` | Overload and admission sheds; see [Rate Limiting](#rate-limiting) |
 
 On gRPC workers, an engine finish reason of `error` (outside the OpenAI set) becomes an

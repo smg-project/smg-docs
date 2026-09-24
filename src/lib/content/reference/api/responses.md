@@ -421,13 +421,19 @@ For a failed generation, `error` keeps the upstream error's `code` (or `type`) a
 `Upstream generation failed`. `stream_error` marks a failure to read the stream, and
 `max_tool_calls_exceeded` the internal cap.
 
+gpt-oss (Harmony) models report `completed` even when `max_output_tokens` cuts the output
+short; only the tool-call limit fails their non-streaming response (see
+[Tool Call Limits](#tool-call-limits)).
+
 ### Usage
 
 Usage uses the Responses field names: `input_tokens`, `output_tokens`, `total_tokens`,
 plus `input_tokens_details.cached_tokens` and `output_tokens_details.reasoning_tokens`
-when the worker reports them. With MCP tools, usage is summed over every model turn of the
-tool loop (input, output, total, cached, and reasoning tokens) in both streaming and
-non-streaming mode; a turn that reports no usage leaves the earlier totals intact.
+when the worker reports them; the usage in a streamed terminal event can leave out either
+details object. With MCP tools, usage is summed over every model turn of the tool loop
+(input, output, total, cached, and reasoning tokens) in both streaming and non-streaming
+mode; a turn that reports no usage leaves the earlier totals intact. gpt-oss (Harmony)
+models report only the last turn's usage.
 
 ### Streaming Response
 
@@ -494,7 +500,8 @@ them.
 Reasoning streams first, as its own item. A streamed `function_call` item opens with
 `"status": "in_progress"` and closes with its final status.
 
-**Terminal events.** Exactly one of these ends the stream:
+**Terminal events.** Exactly one of these ends the stream, unless an internal SMG error
+cuts it short with an error frame:
 
 | Event | `response.status` |
 |-------|-------------------|
@@ -504,7 +511,8 @@ Reasoning streams first, as its own item. A streamed `function_call` item opens 
 
 Before the terminal event, SMG closes every item that is still open, exactly once, even
 when generation fails. Partial output stays in the terminal response with its unfinished
-status.
+status. gpt-oss (Harmony) streams always end with `response.completed`, or with an `error`
+event when their pipeline fails.
 
 **MCP-specific streaming events:**
 

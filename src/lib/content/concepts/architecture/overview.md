@@ -16,6 +16,14 @@ SMG is a high-performance inference gateway that sits between your applications 
 
 </div>
 
+SMG reaches local inference engines over three worker paths, chosen per worker by the URL scheme. External provider APIs use the [third-party path](#third-party-path).
+
+| Path | Worker URL | Engine side | Gateway role |
+|------|------------|-------------|--------------|
+| [gRPC](#grpc-path-token-level-streaming) | `grpc://host:port` | Engine with a gRPC servicer (SGLang, vLLM, TensorRT-LLM, TokenSpeed, MLX) | Full pipeline: chat templates, tokenization, token-aware routing, reasoning and tool parsing |
+| [ZMQ](#zmq-path) | `ipc:///path` | Headless engine core on the same host (vLLM, TokenSpeed) | The same pipeline, plus the request handling the engine's frontend or gRPC servicer would otherwise do |
+| [HTTP](#http-path-openai-compatible) | `http://host:port` or `https://host:port` | Engine's OpenAI-compatible server | Proxy: routing, retries, and failover |
+
 ---
 
 ## Registries & State
@@ -100,7 +108,7 @@ The router layer handles LLM-specific request processing. It selects one of thre
 
 ## gRPC Path (Token-Level Streaming)
 
-The gRPC path provides maximum performance by handling all text processing at the gateway.
+The gRPC path handles all text processing at the gateway and exchanges token IDs with the engine through its gRPC servicer.
 
 ### Pipeline Stages
 
@@ -109,7 +117,7 @@ The gRPC path provides maximum performance by handling all text processing at th
 | **Chat Template** | Apply model-specific chat template (Jinja2) |
 | **Tokenization** | Convert text to token IDs using model tokenizer |
 | **Token Cache** | Cache tokenized prefixes for reuse |
-| **Load Balance** | Select worker using cache-aware policy |
+| **Load Balance** | Select a worker with the configured routing policy (`cache_aware` by default) |
 | **Detokenize** | Convert streaming tokens back to text |
 | **Reasoning Parser** | Extract thinking/reasoning from output (DeepSeek-R1, etc.) |
 | **Tool Parser** | Parse function/tool calls from output |
@@ -119,6 +127,39 @@ The gRPC path provides maximum performance by handling all text processing at th
 - SGLang (gRPC)
 - vLLM (gRPC)
 - TensorRT-LLM (gRPC)
+- TokenSpeed (gRPC)
+- MLX (gRPC, Apple Silicon)
+
+---
+
+## ZMQ Path
+
+The ZMQ path runs the same pipeline stages as the gRPC path, but talks to a headless engine core on the same host over local `ipc://` sockets, with no engine API server or gRPC servicer in between.
+
+### Connection
+
+| Step | Function |
+|------|----------|
+| **Bind** | SMG binds request and output sockets for the worker's `ipc://` path, plus a loopback TCP handshake port derived from that path |
+| **Handshake** | The engine dials in and reports its context length and data-parallel size |
+| **Promote** | The worker becomes routable as soon as the handshake completes |
+| **Dispatch** | Requests go out as token IDs; output batches return token IDs with the engine's scheduler load piggybacked |
+
+### Gateway-Side Request Handling
+
+Work that the engine's frontend or gRPC servicer does on the gRPC path moves into the gateway:
+
+- Resolve stop strings to stop token IDs, or match them on the decoded text
+- Attach EOS token IDs to each vLLM request
+- Fan out `n > 1` into single-sample engine requests
+- Pick the least-loaded engine inside a grouped data-parallel worker
+
+### Supported Backends
+
+- vLLM (headless EngineCore)
+- TokenSpeed (headless scheduler)
+
+ZMQ workers can't serve as prefill or decode workers and have no KV-event stream. See [ZMQ Direct Workers](../../getting-started/zmq-workers.md) for setup and limits.
 
 ---
 

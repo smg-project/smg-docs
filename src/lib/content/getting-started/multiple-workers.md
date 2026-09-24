@@ -16,19 +16,22 @@ SMG can route across many workers simultaneously — local inference servers, re
 
 ## Supported Worker Types
 
-SMG connects to workers over HTTP or gRPC, and supports both local inference servers and remote API providers:
+SMG connects to workers over HTTP, gRPC, or ZMQ, and supports both local inference servers and remote API providers:
 
 | Worker Type | Protocol | Example URL |
 |-------------|----------|-------------|
-| vLLM | gRPC | `grpc://worker:50051` |
+| vLLM | HTTP / gRPC / ZMQ | `http://worker:8000`, `grpc://worker:50051`, or `ipc:///tmp/smg-zmq/engine-0` |
 | TensorRT-LLM | gRPC | `grpc://worker:50051` |
-| TokenSpeed | gRPC | `grpc://worker:50051` |
+| TokenSpeed | gRPC / ZMQ | `grpc://worker:50051` or `ipc:///tmp/smg-zmq/engine-0` |
 | SGLang | HTTP / gRPC | `http://worker:8000` or `grpc://worker:50051` |
+| MLX (Apple Silicon) | gRPC | `grpc://worker:50051` |
 | OpenAI (GPT) | HTTP | `https://api.openai.com` |
 | Anthropic (Claude) | HTTP | `https://api.anthropic.com` |
 | xAI (Grok) | HTTP | `https://api.x.ai` |
 | Google (Gemini) | HTTP | `https://generativelanguage.googleapis.com` |
 | Any OpenAI-compatible API | HTTP | `https://your-provider.com` |
+
+ZMQ workers (`ipc://`) run on the same host as SMG, which connects directly to the engine core with no engine API server in between. See [ZMQ Direct Workers](zmq-workers.md).
 
 ## Static Workers via CLI
 

@@ -11,6 +11,7 @@ export const gettingStartedNav: GettingStartedNavSection[] = [
 		items: [
 			{ label: 'Multiple Workers', href: `${base}/getting-started/multiple-workers` },
 			{ label: 'gRPC Workers', href: `${base}/getting-started/grpc-workers` },
+			{ label: 'ZMQ Direct Workers', href: `${base}/getting-started/zmq-workers` },
 			{ label: 'PD Disaggregation', href: `${base}/getting-started/pd-disaggregation` },
 			{ label: 'Service Discovery', href: `${base}/getting-started/service-discovery` }
 		]

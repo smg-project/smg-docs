@@ -105,7 +105,7 @@ Multiple users with same instructions. Amortized prefill cost across sessions.
 | **KV-event index** | Requests with token IDs, once the model's KV-event index has data | Full blocks of token IDs | Blocks each engine reports it has stored or evicted |
 | **Token tree** | Requests with token IDs when the model has no KV-event data | Token IDs, in whole pages of `--block-size` tokens | Where the gateway sent earlier requests |
 | **String tree** | Requests that carry only text | Request text | Where the gateway sent earlier requests |
-| **Hash index** | Every request, when `--cache-index hash` is set | Token-ID heads cut at `--cache-boundaries` | Where the gateway sent each head within `--cache-ttl-secs` |
+| **Hash index** | Requests with token IDs, when `--cache-index hash` replaces the other three | Token-ID heads cut at `--cache-boundaries` | Where the gateway sent each head within `--cache-ttl-secs` |
 
 A request carries token IDs when:
 
@@ -139,7 +139,7 @@ The token tree counts only whole pages of `--block-size` tokens (default 16), be
 ### Tree Size and Eviction
 
 - `--max-tree-size` (default 67,108,864) is a per-model budget shared by all of that model's workers: characters for the string tree, tokens for the token tree. A prefix held by several workers counts once per worker, so total tree memory grows with the number of models times `--max-tree-size`.
-- Every `--eviction-interval` seconds (default 120), each tree that is over budget evicts leaf entries, least recently used first, until it is back within budget. A tree within budget skips the walk.
+- Every `--eviction-interval` seconds (default 120, or 60 under the Python launcher that `pip install smg` and the container image use), each tree that is over budget evicts leaf entries, least recently used first, until it is back within budget. A tree within budget skips the walk.
 - When a worker is removed, its entries are purged from every tree immediately instead of waiting for eviction.
 - After each eviction cycle, the `smg_cache_tree_chars`, `smg_cache_tree_tokens` and `smg_cache_tree_tenants` gauges report each model's tree size (see [Monitoring](#monitoring)).
 
@@ -148,7 +148,7 @@ The token tree counts only whole pages of `--block-size` tokens (default 16), be
 `--cache-index hash` replaces the trees with a TTL'd exact-match placement map. It suits engines that reuse cached prefix state only at fixed token positions, and only for a few minutes:
 
 ```bash
-smg \
+smg launch \
   --policy cache_aware \
   --cache-index hash \
   --cache-boundaries 2048,8192,32768 \
@@ -193,7 +193,7 @@ Every request goes through the same steps. Cache affinity comes first; load deci
 4. **Rank candidates** (tree and KV-event modes). With `--overlap-decay` above 0, a candidate's score shrinks with its waiting-prefill backlog. The top-scoring group is kept; with `--selection-temperature` above 0, a group is sampled instead, weighted toward higher scores. With both at their default of 0, the tree keeps every matched tenant and the KV-event index keeps the workers with the most cached blocks.
 5. **Apply the spill gate.** A candidate is *hot* when its in-flight request count exceeds both `--balance-rel-threshold` times the fleet mean (default 1.5) and the fleet mean plus `--balance-abs-threshold` (default 64). The request goes to the lowest-expected-wait candidate that is not hot. If every candidate is hot, the request spills to the lowest-expected-wait eligible worker that is not hot (or to the lowest-expected-wait eligible worker when every worker is hot).
 6. **Cache miss:** the request goes to the lowest-expected-wait eligible worker.
-7. **Record.** Tree and hash modes record the final worker as a holder of the request's prefix, so a spill makes the spill target an additional holder: a hot prefix replicates instead of queueing behind one worker. The gateway never writes the KV-event index; it changes only when engines report stored and evicted blocks.
+7. **Record.** Tree and hash modes record the final worker as a holder of the request's prefix, so a spill makes the spill target an additional holder: a hot prefix replicates instead of queueing behind one worker. The gateway never records its routing decisions in the KV-event index, which changes only through engine events, worker removal and the optional [pruning](../../getting-started/kv-events-cache-aware.md#bounding-the-index).
 
 !!! note "Changed in v1.10.0"
     `--balance-abs-threshold` and `--balance-rel-threshold` used to define a fleet-wide imbalance check that switched every request to shortest-queue routing. They now define the per-request spill gate in step 5 and compare a candidate against the fleet mean; the aliases `--spill-abs-threshold` and `--spill-rel-threshold` name that role. Only the KV-usage triggers in step 2 still act fleet-wide.
@@ -244,10 +244,9 @@ For the KV-event index, SMG uses the first of these that is available for the mo
 | Source | Notes |
 |--------|-------|
 | Block size reported in the model's KV events | Learned from each worker's first stored block after it subscribes; the most recent value wins |
-| `kv_block_size` in a worker spec | Set when the worker is registered through the admin API; the first worker of the model to set it wins |
 | `--block-size` | Router-wide fallback |
 
-Set `--block-size` to the engines' KV page size (SGLang `--page-size`, vLLM `--block-size`, TokenSpeed `--prefix-granularity`) and keep one page size per model. The token tree always uses `--block-size`; only the KV-event index learns from events.
+The worker spec's `kv_block_size` field is accepted but not applied in v1.11.0. Set `--block-size` to the engines' KV page size (SGLang `--page-size`, vLLM `--block-size`, TokenSpeed `--prefix-granularity`) and keep one page size per model. The token tree always uses `--block-size`; only the KV-event index learns from events.
 
 ---
 
@@ -466,14 +465,14 @@ If you do not enable mesh, you can keep each client on one gateway with session 
 
 ## Mesh State Synchronization
 
-With mesh HA enabled (`--enable-mesh`), gateways share their tree state:
+With mesh HA enabled (`--enable-mesh`), gateways share tree updates:
 
 - After each tree lookup, the gateway broadcasts a compact delta: the tree kind, a hash of the request's path, and the chosen worker. Deltas are batched per model and gossip round.
 - A peer that already knows the path adds the worker as a tenant. A peer that does not requests a repair from a random live peer, which sends that model's tree in pages.
 - Only the string and token trees are synchronized. The KV-event index (each gateway subscribes to the engines itself) and the hash index (`--cache-index hash`) stay local to each gateway.
 - Host-local ZMQ workers (`ipc://`) are never shared with peers, so they receive traffic only from the gateway on their own host. A prefix whose only holder is another gateway's ZMQ worker routes like a cache miss.
 
-Synchronization is best effort and eventually consistent. Inserts are shared but evictions are not: each gateway evicts its own trees against its own `--max-tree-size`. When the broadcast buffer is full, the oldest pending deltas are dropped, and only a later repair restores what they carried. A gateway can also route a few requests before a peer's delta arrives. For mesh setup and configuration, see [High Availability](../architecture/high-availability.md).
+Synchronization is best effort and approximate: trees on different gateways can differ. Inserts are shared but evictions are not: each gateway evicts its own trees against its own `--max-tree-size`. Each delta batch is sent once; a batch that cannot be delivered right away, for example because a peer's stream is backed up, is dropped and not resent. The peer catches up only through a repair, which starts the next time a delta names a path it does not know. A repair that makes no progress for 5 seconds is retried, preferably with another peer, up to three times, then abandoned until the next unknown path. A gateway can also route a few requests before a peer's delta arrives. For mesh setup and configuration, see [High Availability](../architecture/high-availability.md).
 
 ---
 

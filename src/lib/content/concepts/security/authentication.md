@@ -24,7 +24,7 @@ Support for JWT/OIDC, API keys, and worker authentication to fit your deployment
 
 ### :material-shield-account: Role-Based Access
 
-Admin and user roles control access to control plane vs. data plane APIs.
+Control plane APIs require the admin role. Data plane APIs use API keys, not roles.
 
 </div>
 
@@ -54,19 +54,23 @@ Track all control plane operations for security monitoring and compliance.
 |--------|----------|---------------|
 | **Control plane JWT/OIDC** | Enterprise SSO integration with identity providers (admin routes) | `--jwt-issuer`, `--jwt-audience` |
 | **Control plane API keys** | Service accounts and programmatic access (admin routes) | `--control-plane-api-keys` |
-| **Data plane API key** | Shared bearer token gating data plane routes and forwarded to workers | `--api-key` |
+| **Data plane API key** | Shared bearer token gating data plane routes; also the default API key of startup and discovered workers | `--api-key` |
+| **Data plane tenant keys** | Per-tenant bearer tokens for data plane routes, each resolving to its own tenant identity | `--tenant-api-key` |
 
 ### When to Use Each Method
 
 - **Control plane JWT/OIDC**: Use for enterprise deployments with existing identity providers (Keycloak, Auth0, Azure AD, Okta). Provides centralized user management and SSO for control plane operations.
 - **Control plane API keys**: Use for service-to-service automation against admin endpoints (CI/CD pipelines, tooling). Simpler to set up but requires manual key management.
-- **Data plane API key**: Use when you want a single shared secret that both clients (calling chat/completions/responses/etc.) and the gateway → worker hop must present.
+- **Data plane API key**: Use when you want a single shared secret that clients present on data plane routes (chat, completions, responses, and so on), and that workers started with the same key accept.
+- **Data plane tenant keys**: Use when each team or application needs its own data plane key, so that [tenant rate limits](../reliability/tenant-rate-limiting.md) and priority scheduling can tell callers apart. Each `--tenant-api-key tenant_id:key` resolves to the tenant `auth:<tenant_id>`. Tenant keys never unlock control plane routes, and the flag belongs to the Rust `smg` binary (the Python launcher does not accept it).
+
+JWTs and control plane API keys are checked only on control plane routes. Data plane routes accept only `--api-key` and `--tenant-api-key` credentials, and are open when neither is set.
 
 ---
 
 ## JWT/OIDC Authentication
 
-JWT (JSON Web Token) authentication allows integration with OIDC-compliant identity providers for enterprise single sign-on.
+JWT (JSON Web Token) authentication allows integration with OIDC-compliant identity providers for enterprise single sign-on on the control plane.
 
 ### Configuration Options
 
@@ -77,6 +81,8 @@ JWT (JSON Web Token) authentication allows integration with OIDC-compliant ident
 | `--jwt-jwks-uri` | `JWT_JWKS_URI` | Explicit JWKS URI (auto-discovered if not set) |
 | `--jwt-role-claim` | - | Claim name containing roles (default: `roles`) |
 | `--jwt-role-mapping` | - | Map IDP roles to gateway roles |
+
+The environment variables and `--jwt-role-claim` belong to the Rust `smg` binary. The Python launcher (`smg launch` from pip, and the container image) takes only the flags and always uses the default `roles` claim (with the fallbacks in [Supported Claims](#supported-claims)). See [Python Launcher Differences](../../reference/configuration.md#python-launcher-differences).
 
 ### Basic Setup
 
@@ -101,6 +107,11 @@ smg \
   --jwt-jwks-uri "https://auth.example.com/.well-known/jwks.json"
 ```
 
+Without `--jwt-jwks-uri`, SMG fetches the discovery document at startup. It fetches the key set on first use, caches it for an hour, and fetches it again when a token names a key it doesn't have. The discovery URL and the JWKS URI must use HTTPS (plain HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`), must not point at a private, loopback, link-local, or other internal IP address literal, and must not use a host name ending in `.internal` or `.local`. SMG does not follow redirects on these requests. Tokens must carry a `kid` header that names a key in the set.
+
+!!! warning "A failed JWT setup disables control plane authentication"
+    If SMG cannot set up JWT validation at startup (for example, OIDC discovery fails or a URL is rejected), it logs `Failed to initialize control plane auth` and starts without control plane authentication, including any `--control-plane-api-keys`. The admin routes then fall back to the `--api-key` check, and are open when no gateway key is configured at all.
+
 ### Role Mapping
 
 Map identity provider roles to SMG gateway roles:
@@ -119,17 +130,14 @@ smg \
 | Gateway Role | Permissions |
 |--------------|-------------|
 | `admin` | Full access to all control plane APIs (workers, WASM modules, tokenizers) |
-| `user` | Access to inference/data plane APIs only |
+| `user` | No control plane access: control plane routes answer `403` |
 
 ### Supported Claims
 
-SMG extracts roles from the following claims (in order of precedence):
+SMG reads role values from the configured `--jwt-role-claim` (default: `roles`). Only when the token has no such claim does it fall back to the `role`, `roles`, `groups`, and `group` claims, collecting the values of all of them in that order. Each claim may be a string or an array of strings.
 
-1. Configured `--jwt-role-claim` (default: `roles`)
-2. `role` claim
-3. `roles` claim
-4. `groups` claim
-5. `group` claim
+- Without `--jwt-role-mapping`, the first value equal to `admin` or `user` (ignoring case) sets the role.
+- With `--jwt-role-mapping`, the first value that has a mapping sets the role; unmapped values are ignored.
 
 If no role is found, the user defaults to the `user` role.
 
@@ -304,6 +312,8 @@ smg \
   --control-plane-api-keys "user1:Read Only Service:user:sk-readonly-key-67890"
 ```
 
+A `user` key authenticates, but every control plane route answers it with `403` (see [Role-Based Access Control](#role-based-access-control)).
+
 ### Environment Variable Configuration
 
 For security, pass API keys via environment variable:
@@ -312,6 +322,8 @@ For security, pass API keys via environment variable:
 export CONTROL_PLANE_API_KEYS="admin1:Admin Service:admin:sk-admin-key-12345"
 smg --worker-urls http://worker:8000
 ```
+
+The variable holds one key, and only the Rust `smg` binary reads it; the Python launcher (`smg launch` from pip, and the container image) takes keys only from `--control-plane-api-keys`.
 
 ### Using API Keys
 
@@ -343,11 +355,28 @@ smg \
 1. **Gates incoming data plane requests.** The gateway requires every client
    request to data plane routes (`/v1/chat/completions`, `/v1/completions`,
    `/v1/responses`, `/v1/embeddings`, `/v1/rerank`, `/v1/messages`,
-   `/v1/realtime/*`, etc.) to present `Authorization: Bearer <api-key>`.
-   Requests without a valid token receive `401 Unauthorized`.
-2. **Propagates to workers.** When a worker has no per-worker `api_key`, the
-   gateway forwards this same token to the worker as
-   `Authorization: Bearer <api-key>`.
+   `/v1/realtime/*`, etc.) to present `Authorization: Bearer <api-key>`
+   (or a `--tenant-api-key` key). Requests without a valid token receive
+   `401 Unauthorized`. Public routes such as `/health` and `/v1/models`
+   stay open.
+2. **Becomes the API key of startup and discovered workers.** Workers from
+   `--worker-urls` (and from `--prefill` and `--decode`) and workers that
+   Kubernetes service discovery registers get the `--api-key` value as
+   their worker API key. A worker added through `POST /workers` uses only
+   the `api_key` in its own spec; SMG logs a warning when one arrives
+   without a key while `--api-key` is set.
+
+What reaches a worker depends on the path:
+
+| Path | What the worker receives |
+|------|--------------------------|
+| HTTP regular router | The client's `Authorization` header, as sent. The worker's API key is sent (as `Authorization: Bearer <key>`) only when the client sent no `Authorization` header. With `--api-key` set, every accepted request carries one, so the worker sees the client's token: the shared key, or a tenant key when the client used one. |
+| HTTP PD router | The client's allowlisted headers, `Authorization` included, on both the prefill and the decode request. No worker API key is added. |
+| gRPC and ZMQ workers | No API key and no `Authorization` metadata. |
+| SMG's own calls to HTTP workers (health checks, metadata discovery, load polling) | The worker's API key, as `Authorization: Bearer <key>`. |
+| External providers | See [External Providers](../../getting-started/external-providers.md#api-key-handling). |
+
+Service discovery registers each pod as a bare `host:port`, so SMG reaches it over plain HTTP (or plaintext gRPC), and a worker API key crosses the network unencrypted.
 
 This is useful when:
 
@@ -361,7 +390,9 @@ their own middleware stack. When `--control-plane-api-keys` or
 `--jwt-*` are configured they take over as the admin auth backend
 (with role-based access control and audit logging); when neither is
 set, admin routes fall back to the same `--api-key` bearer check that
-guards the data plane. If you run with **only** `--api-key`, the same
+guards the data plane (tenant keys are never accepted there, and with
+only `--tenant-api-key` set, admin routes reject every request with
+`401`). If you run with **only** `--api-key`, the same
 shared secret therefore gates both the data plane and the control
 plane — which is rarely what you want in production. See
 [Control Plane Auth](../../getting-started/control-plane-auth.md) for
@@ -384,12 +415,9 @@ Full access to all control plane APIs:
 
 ### User Role
 
-Access to inference/data plane APIs only:
+No control plane access. Every control plane route answers a `user` credential with `403 Admin role required for control plane access`.
 
-- Chat completions (`/v1/chat/completions`)
-- Completions (`/v1/completions`)
-- Embeddings (`/v1/embeddings`)
-- Model listing (`/v1/models`)
+Roles don't apply to data plane routes (chat completions, completions, embeddings, and the rest): those accept only `--api-key` and `--tenant-api-key` credentials, never JWTs or control plane API keys. `/v1/models` is public.
 
 ### Role Assignment
 
@@ -408,7 +436,7 @@ SMG provides audit logging for control plane operations to support security moni
 
 ### Configuration
 
-Audit logging is **enabled by default** when authentication is configured. To disable:
+With control plane authentication configured (`--jwt-issuer` with `--jwt-audience`, or `--control-plane-api-keys`), the Rust `smg` binary logs audit events **by default**. To disable:
 
 ```bash
 smg \
@@ -418,37 +446,26 @@ smg \
   --disable-audit-logging
 ```
 
+The Python launcher (`smg launch` from pip, and the container image) works the other way around: audit logging is off unless you pass `--control-plane-audit-enabled`, and it has no `--disable-audit-logging` flag. Neither launcher audits admin requests checked by the `--api-key` fallback.
+
 ### Audit Log Format
 
-Audit events are logged with structured fields:
-
-```json
-{
-  "timestamp": "2024-01-15T10:30:00Z",
-  "principal": "user@example.com",
-  "auth_method": "jwt",
-  "role": "admin",
-  "method": "POST",
-  "path": "/workers",
-  "resource": "worker-123",
-  "outcome": "success",
-  "request_id": "req-abc-123"
-}
-```
+Each audit event is an `INFO` log record with target `smg::audit` and message `control_plane_audit`. SMG records every request that reaches the control plane authentication check: successes, `403` role denials, and `401` authentication failures. The layout of the record follows your log format (`--log-json` for JSON).
 
 ### Audit Event Fields
 
 | Field | Description |
 |-------|-------------|
-| `timestamp` | ISO 8601 timestamp of the event |
-| `principal` | User ID, email, or API key ID |
-| `auth_method` | Authentication method (`jwt`, `api_key`) |
+| `timestamp` | RFC 3339 timestamp of the event |
+| `principal` | JWT subject (or its `email`, then `preferred_username`, when `sub` is missing), the API key's `id`, or `unauthenticated` when authentication failed |
+| `auth_method` | Authentication method (`jwt`, `api_key`, or `none` when authentication failed) |
 | `role` | Role of the principal (`admin`, `user`) |
 | `method` | HTTP method (GET, POST, DELETE, etc.) |
 | `path` | Request path |
-| `resource` | Resource being accessed (if applicable) |
+| `resource` | Not filled in v1.11.0 |
 | `outcome` | Result (`success`, `denied`) |
 | `request_id` | Correlation ID for request tracing |
+| `details` | Why the request was denied or failed authentication |
 
 ### Viewing Audit Logs
 
@@ -478,8 +495,10 @@ smg \
   --jwt-role-mapping "Gateway.Admin=admin" \
   --jwt-role-mapping "Gateway.User=user" \
   --control-plane-api-keys "ci-cd:CI/CD Pipeline:admin:${CI_CD_API_KEY}" \
-  --control-plane-api-keys "monitoring:Prometheus:user:${MONITORING_API_KEY}"
+  --api-key "${DATA_PLANE_API_KEY}"
 ```
+
+JWT and the control plane key protect the control plane routes. `--api-key` protects the data plane routes, which are open without it.
 
 ---
 
@@ -524,7 +543,7 @@ spec:
     spec:
       containers:
         - name: smg
-          image: smg:latest
+          image: lightseekorg/smg:latest
           envFrom:
             - configMapRef:
                 name: smg-config
@@ -534,11 +553,20 @@ spec:
             - --service-discovery
             - --selector
             - app=sglang-worker
+            - --jwt-issuer
+            - $(JWT_ISSUER)
+            - --jwt-audience
+            - $(JWT_AUDIENCE)
+            - --control-plane-api-keys
+            - $(CONTROL_PLANE_API_KEYS)
             - --jwt-role-mapping
             - "Gateway.Admin=admin"
             - --jwt-role-mapping
             - "Gateway.User=user"
+            - --control-plane-audit-enabled
 ```
+
+The container image runs the Python launcher, which does not read `JWT_ISSUER`, `JWT_AUDIENCE`, or `CONTROL_PLANE_API_KEYS` itself, so the `args` pass them as flags; Kubernetes expands each `$(VAR)` reference from the container's environment. `--control-plane-audit-enabled` turns on audit logging, which the Python launcher leaves off by default.
 
 ---
 
@@ -560,7 +588,7 @@ spec:
    echo "YOUR_JWT" | cut -d. -f2 | base64 -d | jq .
    ```
 
-3. Check clock synchronization (JWT validation uses time-based claims)
+3. Check clock synchronization (JWT validation uses time-based claims and allows 30 seconds of clock skew)
 
 4. Verify JWKS endpoint is accessible from the SMG pod
 
@@ -654,7 +682,7 @@ Deploy SMG in a highly available configuration.
 
 ### :material-chart-box: Metrics Reference
 
-Monitor authentication metrics.
+Count `401` and `403` responses by path with `smg_http_responses_total`.
 
 [Metrics Reference →](../../reference/metrics.md)
 

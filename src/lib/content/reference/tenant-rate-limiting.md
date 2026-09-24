@@ -26,8 +26,10 @@ smg \
 | `--tenant-rate-limit-enabled` | `false` | Master switch. When unset, no rate limiter is constructed and every request skips reservation entirely. |
 | `--tenant-rate-limit-config` | unset | Path to the tenant-rate-limit YAML. Required when `--tenant-rate-limit-enabled` is set. |
 
-!!! warning "Fail-safe startup"
-    If the config path is missing, unreadable, or fails validation, the gateway logs the failure at `ERROR` and starts **without** a rate limiter rather than aborting — a broken policy file must never take the data plane down. Every request then behaves exactly as it did before this feature existed.
+Both flags belong to the Rust `smg` binary. The Python launcher (`smg launch` from pip, and the container image) does not accept them in v1.11.0.
+
+!!! warning "Fail-closed startup"
+    With `--tenant-rate-limit-enabled`, a missing config path, or a file that is unreadable, unparsable, or fails validation, stops the gateway at startup with an error. An operator who turned the limiter on never gets a gateway that silently runs unlimited.
 
 ---
 
@@ -61,7 +63,7 @@ tenants:
     requests_per_minute: 60
 ```
 
-A tenant not listed under `tenants` uses `default_policy`. Tenant keys are the same canonical keys SMG resolves elsewhere in the request path — `auth:<id>`, `header:<id>`, `ip:<address>`, or `anonymous` — there's no separate tenant-identity system for this feature.
+A tenant not listed under `tenants` uses `default_policy`, with its own buckets: tenants never share a bucket. Tenant keys are the same canonical keys SMG resolves elsewhere in the request path — `auth:<id>`, `header:<id>`, `ip:<address>`, or `anonymous` — there's no separate tenant-identity system for this feature. A `--tenant-api-key team-red:<key>` caller resolves to `auth:team-red`; a caller using the shared `--api-key` resolves to `auth:` followed by the hex SHA-256 of that key.
 
 ### `default_policy` / `tenants[]` fields
 
@@ -90,13 +92,14 @@ Checked once, at load, before the gateway ever serves traffic on this config:
 
 - `default_policy` must **not** set `tenant_key`; every entry under `tenants` **must**.
 - Tenant keys must be non-empty, have no surrounding whitespace, be unique across `tenants`, and be a canonical serving-path tenant key (`auth:`, `header:`, `ip:`-prefixed, or exactly `anonymous`) — a bare ID copy-pasted without its prefix is rejected rather than silently never matching.
+- A `header:` tenant key requires `--trust-tenant-header`, since without it no request resolves to a `header:` tenant.
 - `tokens_per_minute` and `requests_per_minute` must be `> 0`, on every scope (`default_policy`, each tenant, each model rule).
 - `rule_id` must match `[A-Za-z0-9._-]+`, and be unique within its tenant (or `default_policy`).
 - `matcher.value` must be non-empty and have no surrounding whitespace.
 - No two rules within the same tenant may share the same `exact` value, or the same `prefix` value (an `exact` and a `prefix` rule *may* share the same literal string — they're different match kinds).
 - Unknown YAML fields anywhere in the document are rejected rather than silently ignored (so a typo like `tenant:` instead of `tenants:` fails loudly instead of compiling to an empty override list).
 
-Any validation failure is the same as an unparsable file: logged at `ERROR`, gateway starts without a rate limiter.
+Any validation failure is the same as an unparsable file: the gateway refuses to start.
 
 ---
 
@@ -137,7 +140,7 @@ Each affected scope (tenant-global, and the matching model rule if any) is a con
 
 ## Observability
 
-There are currently **no Prometheus metrics** for tenant rate-limit decisions — admissions, denials, and settlement deltas are not exposed as counters or histograms today. Denials are visible only via the `429` responses themselves and standard request logging.
+There are currently **no dedicated Prometheus metrics** for tenant rate-limit decisions — admissions and settlement deltas are not exposed as counters or histograms today. Denials are visible as the `429` responses themselves, which the generic `smg_http_responses_total` counter records with `status_code="429"` and `error_code="tenant_rate_limit_exceeded"`.
 
 ---
 

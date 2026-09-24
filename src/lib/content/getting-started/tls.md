@@ -4,7 +4,7 @@ title: Configure TLS
 
 # Configure TLS
 
-This guide shows how to secure SMG communications with TLS and mTLS planning.
+This guide shows how to serve SMG over HTTPS, and how to present a client certificate to workers that require mutual TLS (mTLS).
 
 <div class="prerequisites" markdown>
 
@@ -24,16 +24,10 @@ SMG supports TLS configurations for securing communications:
 | Configuration | Purpose | Status |
 |---------------|---------|--------|
 | **Server TLS** | HTTPS for client → gateway communication | Available |
-| **Client mTLS** | Mutual TLS for gateway → worker communication | Planned |
-
-<div class="architecture-diagram" markdown>
-
-![TLS Configuration Architecture](../assets/images/tls-architecture.svg)
-
-</div>
+| **Client mTLS** | Mutual TLS for gateway → worker communication | Python launcher only |
 
 !!! info "Client mTLS"
-    Client mTLS for gateway-to-worker communication is planned but not yet implemented via CLI. See the [Client mTLS section](#client-mtls-planned) below for details.
+    The client certificate flags (`--client-cert-path`, `--client-key-path`, and `--ca-cert-paths`) exist only in the Python launcher: `smg launch` from pip, and the container image. The Rust `smg` binary has no client certificate flags in v1.11.0. See [Client mTLS to Workers](#client-mtls-to-workers).
 
 ---
 
@@ -68,10 +62,10 @@ openssl x509 -req -days 365 -in server.csr \
   -out server.crt
 ```
 
-### Step 3: Create client certificate (for future mTLS)
+### Step 3: Create client certificate (for mTLS to workers)
 
-!!! note "For future use"
-    Client certificates are not currently used by SMG CLI. This step is documented for when client mTLS support is added.
+!!! note "Only for workers that verify client certificates"
+    Skip this step unless your workers require a client certificate. The gateway presents it through the Python launcher's `--client-cert-path` and `--client-key-path` flags.
 
 ```bash
 # Generate client private key
@@ -104,6 +98,8 @@ smg \
   --port 443
 ```
 
+Set both flags or neither: SMG refuses to start with only one of them, or when it can't read one of the files. Both files are PEM. HTTPS covers the main listener only; the Prometheus metrics endpoint (`--prometheus-port`) stays plain HTTP.
+
 ### Verification
 
 ```bash
@@ -112,35 +108,56 @@ curl --cacert ca.crt https://smg.example.com/health
 
 ---
 
-## Client mTLS (Planned)
+## Client mTLS to Workers
 
-!!! note "Not yet implemented via CLI"
-    Client mTLS for gateway-to-worker communication is not yet available via CLI arguments. The `--client-cert-path`, `--client-key-path`, and `--ca-cert-path` flags are planned but not currently implemented.
-
-    For now, gateway-to-worker communication uses plain HTTP/HTTPS without mutual TLS. If your workers require mTLS, consider using a service mesh (like Istio) or a sidecar proxy to handle the mTLS termination.
-
-When implemented, client mTLS will secure communication between the gateway and workers:
+When your workers serve HTTPS and verify client certificates, give the gateway a client certificate and its key, plus the CA that signed the workers' server certificates:
 
 ```bash
-# Planned - not yet available
-smg \
+smg launch \
   --worker-urls https://worker1:8443 https://worker2:8443 \
   --client-cert-path /path/to/client.crt \
   --client-key-path /path/to/client.key \
-  --ca-cert-path /path/to/ca.crt
+  --ca-cert-paths /path/to/ca.crt
 ```
+
+| Flag | Description |
+|------|-------------|
+| `--client-cert-path` | Client certificate (PEM) that the gateway presents to workers. Set it together with `--client-key-path`. |
+| `--client-key-path` | Private key (PEM) for the client certificate. |
+| `--ca-cert-paths` | One or more CA certificates (PEM) that the gateway trusts, in addition to the system's trusted roots, when it verifies worker certificates. Takes several paths after one flag, and the flag can repeat. |
+
+- These flags belong to the Python launcher (`smg launch` from pip, and the container image). The Rust `smg` binary does not accept them.
+- SMG reads the files at startup. Setting only one of `--client-cert-path` and `--client-key-path`, or passing a file it can't read, stops startup.
+- The certificate and CAs apply to the gateway's HTTP connections: requests to HTTP workers and external providers, and worker health checks. gRPC workers (`grpc://`, `grpcs://`) don't use them.
+
+If you run the Rust binary, terminate mTLS toward the workers outside SMG, for example with a service mesh (such as Istio) or a sidecar proxy.
 
 ---
 
 ## Full TLS Configuration
 
-Currently, only server TLS is supported via CLI:
+With the Rust `smg` binary, TLS covers the gateway's own listener:
 
 ```bash
 smg \
   --worker-urls http://worker1:8000 http://worker2:8000 \
   --tls-cert-path /etc/certs/server.crt \
   --tls-key-path /etc/certs/server.key \
+  --api-key "${API_KEY}" \
+  --host 0.0.0.0 \
+  --port 443
+```
+
+With the Python launcher, one command can serve HTTPS and present a client certificate to HTTPS workers:
+
+```bash
+smg launch \
+  --worker-urls https://worker1:8443 https://worker2:8443 \
+  --tls-cert-path /etc/certs/server.crt \
+  --tls-key-path /etc/certs/server.key \
+  --client-cert-path /etc/certs/client.crt \
+  --client-key-path /etc/certs/client.key \
+  --ca-cert-paths /etc/certs/ca.crt \
   --api-key "${API_KEY}" \
   --host 0.0.0.0 \
   --port 443
@@ -217,7 +234,7 @@ openssl s_client -connect smg.example.com:443 -showcerts
 kubectl logs -n inference -l app=smg | grep -i worker
 
 # Verify worker connection via control plane API
-curl https://localhost:30000/workers
+curl --cacert ca.crt https://smg.example.com/workers
 ```
 
 ---

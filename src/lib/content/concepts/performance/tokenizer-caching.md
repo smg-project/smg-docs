@@ -4,7 +4,7 @@ title: Tokenizer Caching
 
 # Tokenizer Caching
 
-SMG implements a two-level tokenizer cache that dramatically reduces tokenization overhead for repeated content, achieving 60-90% cache hit rates in typical production workloads.
+SMG implements a two-level tokenizer cache that reduces tokenization overhead for repeated content. It applies where the gateway tokenizes prompts itself: requests to gRPC and ZMQ workers, and `/v1/tokenize`. HTTP workers tokenize on the engine, so the cache doesn't affect their requests.
 
 ---
 
@@ -16,7 +16,7 @@ SMG implements a two-level tokenizer cache that dramatically reduces tokenizatio
 
 ### :material-lightning-bolt: L0 Cache (Exact Match)
 
-Hash-based O(1) lookup for complete tokenization results. Achieves 60-90% hit rate for repeated prompts like system instructions.
+Hash-based O(1) lookup for complete tokenization results. Hits only when an entire input repeats exactly, such as identical prompts in a batch or a resent request.
 
 </div>
 
@@ -30,9 +30,9 @@ Boundary-aligned prefix matching that tokenizes only the suffix on hit. Ideal fo
 
 <div class="card" markdown>
 
-### :material-memory: Memory Efficient
+### :material-memory: Bounded Memory
 
-~2.2KB per L0 entry with configurable L1 memory bounds. Scale from 36MB (small) to 210MB (large) deployments.
+L0 is capped by entry count and L1 by an approximate byte budget. An L0 entry holds the whole input and its encoding, so its size grows with prompt length.
 
 </div>
 
@@ -40,7 +40,7 @@ Boundary-aligned prefix matching that tokenizes only the suffix on hit. Ideal fo
 
 ### :material-chart-line: Observable
 
-Full Prometheus metrics for hit rates, memory usage, and cache sizing. Monitor and tune in real-time.
+Prometheus counters for lookups (hits and misses), evictions, and reused input bytes, per layer. There are no memory or cache-size metrics.
 
 </div>
 
@@ -50,7 +50,7 @@ Full Prometheus metrics for hit rates, memory usage, and cache sizing. Monitor a
 
 ## Why Cache Tokenization?
 
-Tokenization—converting text to token IDs—happens on every request. While individual tokenization is fast (~1-5ms), it adds up at scale.
+The gateway tokenizes—converts text to token IDs—every request it sends to a gRPC or ZMQ worker. Each tokenization is fast, but the cost grows with prompt length and adds up at scale.
 
 <div class="grid" markdown>
 
@@ -58,7 +58,7 @@ Tokenization—converting text to token IDs—happens on every request. While in
 
 ### :material-robot: System Prompts
 
-Same instructions sent with every request. Perfect for L0 exact-match caching.
+Same instructions sent with every request. L1 reuses the tokens up to the last special token the prompts share; L0 helps only when the whole prompt repeats.
 
 </div>
 
@@ -74,7 +74,7 @@ Growing context with shared prefix. L1 cache tokenizes only new messages.
 
 ### :material-file-document-multiple: RAG Applications
 
-Common document snippets across queries. Both L0 and L1 provide benefits.
+Queries that share leading context (instructions or documents placed first) reuse it through L1, up to the last special token before the prompts differ.
 
 </div>
 
@@ -82,7 +82,7 @@ Common document snippets across queries. Both L0 and L1 provide benefits.
 
 ### :material-tray-full: Batch Processing
 
-Similar prompt templates with variable parts. High L0 hit rates.
+Identical prompts repeated across a batch hit L0. Prompts that share a template but vary inside it can hit L1 only up to the last special token before the first difference.
 
 </div>
 
@@ -92,26 +92,19 @@ Similar prompt templates with variable parts. High L0 hit rates.
 
 ## Cache Architecture
 
-<div class="architecture-diagram" markdown>
-
-![Tokenization Cache Architecture](../../assets/images/tokenization-cache.svg)
-
-</div>
-
 <div class="grid" markdown>
 
 <div class="card" markdown>
 
 ### :material-lightning-bolt: L0 Cache (Exact Match)
 
-**Router-level cache** storing complete tokenization results for exact string matches.
+**Gateway-side cache** storing complete tokenization results for exact string matches.
 
-- Hash-based O(1) lookup
-- ~2.2KB per entry
-- 60-90% hit rate for repeated prompts
-- LRU eviction when full
+- Hash-based O(1) lookup, keyed on the whole input text
+- Entry size grows with input length
+- Approximate LRU eviction when full (samples 8 entries and evicts the least recently used)
 
-**Best for**: Repeated system prompts, identical requests, batch inference
+**Best for**: Identical requests, repeated batch inputs
 
 </div>
 
@@ -119,7 +112,7 @@ Similar prompt templates with variable parts. High L0 hit rates.
 
 ### :material-layers: L1 Cache (Prefix Match)
 
-**Router-level cache** storing tokens at special token boundaries for prefix reuse.
+**Gateway-side cache** storing tokens at special token boundaries for prefix reuse.
 
 - Tokenize only the suffix on hit
 - Cross-request deduplication
@@ -132,11 +125,13 @@ Similar prompt templates with variable parts. High L0 hit rates.
 
 </div>
 
+Each tokenizer SMG loads (from `--model-path` or `--tokenizer-path`, or for a gRPC or ZMQ worker's model) gets its own L0 and L1 caches with the configured limits. Tokenizers added through `POST /v1/tokenizers` are not cached. Decoding is never cached.
+
 ---
 
 ## Special Token Boundaries (L1)
 
-L1 cache identifies boundaries at special tokens for efficient prefix matching:
+L1 splits inputs right after every special token the tokenizer declares: its BOS, EOS, UNK, SEP, PAD, CLS, and MASK tokens, and every added token marked special. An input without special tokens always misses L1. For example:
 
 | Model Family | Boundary Tokens | Example |
 |--------------|-----------------|---------|
@@ -161,7 +156,7 @@ System: You are a helpful assistant.
 User: What is Python?
 ```
 
-**L0**: Miss → Full tokenization (~3ms)
+**L0**: Miss → Full tokenization
 **L1**: Miss → Store at boundaries
 
 </div>
@@ -178,13 +173,13 @@ User: How do I install it?
 ```
 
 **L0**: Miss (text changed)
-**L1**: **Hit!** → Only tokenize new content (~0.5ms)
+**L1**: **Hit!** → Only tokenize the text after the longest cached boundary
 
 </div>
 
 </div>
 
-**Result**: Turn 2 tokenizes only ~20% of the content, saving ~2.5ms per request.
+**Result**: Turn 2 tokenizes only the new messages, not the shared history.
 
 ---
 
@@ -213,8 +208,9 @@ smg --model-path /models/llama-3.1-8b-instruct ...
 smg --model-path /models/llama-3.1-8b-instruct/tokenizer.json ...
 ```
 
-When pointing to a local directory, SMG looks for either a HuggingFace
-`tokenizer.json` or a tiktoken file (`tiktoken.model` or `*.tiktoken`). When
+When pointing to a local directory, SMG looks for a HuggingFace
+`tokenizer.json`, a `vocab.json` plus `merges.txt` pair, or a tiktoken file
+(`tiktoken.model` or `*.tiktoken`). When
 pulling from the HuggingFace Hub, SMG additionally falls back to
 `tokenizer_config.json` and `vocab.json` in the downloaded snapshot if a
 primary tokenizer file is not present.
@@ -234,7 +230,7 @@ Explicit path to a tokenizer file. Overrides `--model-path` for tokenizer loadin
 - When the model directory structure is non-standard
 
 ```bash
-# Use model for metadata but separate tokenizer
+# Load the tokenizer from its own file (--tokenizer-path wins over --model-path)
 smg \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --tokenizer-path /custom/tokenizers/llama3-tokenizer.json \
@@ -273,6 +269,9 @@ Chat templates use Jinja2 syntax with access to:
 | `add_generation_prompt` | Boolean to add assistant prompt prefix |
 | `tools` | Optional array of tool definitions |
 | `documents` | Optional array of document context |
+| `bos_token`, `eos_token`, `unk_token`, `pad_token` | The tokenizer's special tokens, when it defines them |
+
+Keys in a request's `chat_template_kwargs` are passed to the template as extra variables.
 
 #### Template Examples
 
@@ -385,18 +384,7 @@ Maximum memory for the L1 cache in bytes.
 
 ### L0 Cache Sizing
 
-Each L0 entry uses approximately **2.2 KB**:
-
-| Entries | Memory | Recommended For |
-|---------|--------|-----------------|
-| 1,000 | ~2.2 MB | Development, testing |
-| 10,000 | ~22 MB | Standard production |
-| 25,000 | ~55 MB | High-repetition workloads |
-| 50,000 | ~110 MB | Large-scale deployments |
-| 100,000 | ~220 MB | Enterprise with many prompt variants |
-
-!!! tip "Sizing Guideline"
-    Set L0 entries to **1-2x the number of unique system prompt variants** in your workload.
+L0 is capped by entry count, not bytes. Each entry keeps the full input text and its encoding, so its size grows with the input: small for a short prompt, and roughly 2 MB per entry was observed for large inputs (smg-project/smg#2603). Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that actually repeat in your traffic, and watch process memory when you raise it.
 
 ### L1 Cache Sizing
 
@@ -409,44 +397,7 @@ L1 cache is bounded by total memory:
 | 100 MB | Multi-turn conversation heavy |
 | 200 MB | Long context applications |
 
-!!! tip "Sizing Guideline"
-    Estimate **~1 KB per active conversation context** for L1 sizing.
-
-### Total Cache Budget
-
-<div class="grid" markdown>
-
-<div class="card" markdown>
-
-#### :material-server: Small Deployment
-
-- **L0**: 5,000 entries (~11 MB)
-- **L1**: 25 MB
-- **Total**: ~36 MB
-
-</div>
-
-<div class="card" markdown>
-
-#### :material-server-network: Medium Deployment
-
-- **L0**: 25,000 entries (~55 MB)
-- **L1**: 50 MB
-- **Total**: ~105 MB
-
-</div>
-
-<div class="card" markdown>
-
-#### :material-server-network-outline: Large Deployment
-
-- **L0**: 50,000 entries (~110 MB)
-- **L1**: 100 MB
-- **Total**: ~210 MB
-
-</div>
-
-</div>
+L1 keeps one entry per special-token boundary of each input it sees: the token IDs of the whole prefix up to that boundary. SMG charges each entry the prefix's length in bytes plus 4 bytes per token, so a long multi-turn prompt with many boundaries counts for many times its own length. When a new input's entries would exceed the budget, SMG evicts approximately least recently used entries (sampling 32 at a time) to make room. The budget is an estimate of cache contents, not a cap on process memory.
 
 ---
 
@@ -458,7 +409,7 @@ L1 cache is bounded by total memory:
 
 ### :material-flash: High-Throughput Chat
 
-For workloads with repeated system prompts.
+For workloads that resend identical prompts, such as batch jobs and client retries.
 
 ```bash
 smg \
@@ -467,7 +418,7 @@ smg \
   --tokenizer-cache-l0-max-entries 50000
 ```
 
-**Expected**: 60-90% cache hit rate
+**Expected**: hits on exact repeats of a whole prompt
 
 </div>
 
@@ -503,7 +454,7 @@ smg \
   --tokenizer-cache-l0-max-entries 5000
 ```
 
-**Expected**: Moderate benefit with minimal memory
+**Expected**: a lower entry cap bounds L0 memory; hits only on exact repeats
 
 </div>
 
@@ -533,7 +484,7 @@ Production configuration with tokenizer and caching:
 
 ```bash
 smg \
-  --worker-urls http://worker1:8000 http://worker2:8000 \
+  --worker-urls grpc://worker1:50051 grpc://worker2:50051 \
   --policy cache_aware \
   --model-path meta-llama/Llama-3.1-70B-Instruct \
   --chat-template /templates/llama3.jinja \
@@ -605,7 +556,7 @@ Tokenizer caching is part of SMG's **three-level caching strategy**:
 | **Worker KV cache** | Attention states | Skip prefill computation |
 
 !!! info "Synergy with Cache-Aware Routing"
-    When using the `cache_aware` routing policy, tokenizer cache results feed directly into the radix tree for routing decisions. This creates a powerful optimization chain where cached tokens determine worker selection for maximum KV cache reuse.
+    With gRPC or ZMQ workers, the `cache_aware` policy routes on the token IDs the gateway produced for the request, so a tokenizer cache hit also shortens the work before routing. HTTP requests route on text (or on an `x-smg-routing-tokens` hint) and don't use the tokenizer cache.
 
 ---
 

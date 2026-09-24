@@ -779,12 +779,12 @@ curl http://localhost:30000/workers
     **Solutions:**
 
     1. Check worker health: `curl http://localhost:30000/workers`
-    2. Increase timeout: `--request-timeout-secs 120`
+    2. Raise the gateway's per-request timeout if long generations exceed it: `--request-timeout-secs` (default `1800`)
     3. Check worker logs for errors
 
 ??? question "Model not found error"
 
-    **Symptoms:** `model not found` in response.
+    **Symptoms:** a `404` response with error code `model_not_found` and the message `No worker available for model '<model>'`.
 
     **Solutions:**
 

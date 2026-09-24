@@ -4,15 +4,15 @@ title: Tokenizer Caching
 
 # Tokenizer Caching
 
-SMG provides a two-level tokenizer cache that reduces tokenization overhead for repeated content. In typical production workloads, this achieves 60-90% cache hit rates.
+SMG provides a two-level tokenizer cache that reduces tokenization overhead for repeated content. It applies only where the gateway tokenizes: requests to gRPC and ZMQ workers, and `/v1/tokenize`.
 
 <div class="prerequisites" markdown>
 
 #### Before you begin
 
 - Completed the [Getting Started](index.md) guide
-- Using gRPC workers (tokenization happens at the gateway)
-- `--model-path` configured so SMG can load the tokenizer
+- Using gRPC or ZMQ workers (tokenization happens at the gateway)
+- A tokenizer the gateway can load: from `--model-path` or `--tokenizer-path`, or loaded automatically for each gRPC or ZMQ worker's model
 
 </div>
 
@@ -22,7 +22,7 @@ SMG provides a two-level tokenizer cache that reduces tokenization overhead for 
 
 | Cache Level | Strategy | Best For |
 |-------------|----------|----------|
-| **L0** (Exact Match) | Hash-based O(1) lookup for identical strings | Repeated system prompts, batch inference |
+| **L0** (Exact Match) | Hash-based O(1) lookup for identical whole inputs | Identical prompts, such as repeated batch inputs or resent requests |
 | **L1** (Prefix Match) | Boundary-aligned prefix matching, tokenizes only the suffix | Multi-turn conversations, growing contexts |
 
 On a multi-turn conversation, L1 avoids re-tokenizing the entire history — only new messages are tokenized.
@@ -35,7 +35,7 @@ Both cache levels are disabled by default. Enable them with CLI flags:
 
 ### L0 Only (Exact Match)
 
-Best for workloads with many identical prompts (system prompts, batch processing):
+Best for workloads that send the same whole prompt many times (batch processing, resent requests):
 
 ```bash
 smg \
@@ -70,7 +70,7 @@ smg \
 | `--tokenizer-cache-enable-l0` | `false` | Enable exact match cache |
 | `--tokenizer-cache-l0-max-entries` | `10000` | Maximum number of cached entries |
 
-Each entry uses ~2.2 KB of memory.
+Each entry keeps the full input text and its encoding, so its size grows with prompt length.
 
 ### L1 Cache
 
@@ -85,14 +85,7 @@ Each entry uses ~2.2 KB of memory.
 
 ### L0 Sizing
 
-| Entries | Memory | Recommended For |
-|---------|--------|-----------------|
-| 1,000 | ~2.2 MB | Development, testing |
-| 10,000 | ~22 MB | Standard production |
-| 25,000 | ~55 MB | High-repetition workloads |
-| 50,000 | ~110 MB | Large-scale deployments |
-
-Set L0 entries to 1-2x the number of unique system prompt variants in your workload.
+L0 caps the number of entries, not their bytes. An entry for a short prompt is small, but roughly 2 MB per entry was observed for large inputs (smg-project/smg#2603). Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that repeat in your traffic, and watch process memory as you raise it.
 
 ### L1 Sizing
 
@@ -103,7 +96,7 @@ Set L0 entries to 1-2x the number of unique system prompt variants in your workl
 | 100 MB | Multi-turn conversation heavy |
 | 200 MB | Long context applications |
 
-Estimate ~1 KB per active conversation context for L1 sizing.
+L1 keeps an entry for every special-token boundary of each input, holding the token IDs of the whole prefix up to that boundary, and charges it the prefix's length in bytes plus 4 bytes per token. A long multi-turn prompt with many boundaries therefore counts for many times its own length.
 
 ---
 
@@ -111,7 +104,7 @@ Estimate ~1 KB per active conversation context for L1 sizing.
 
 === "High-Throughput Chat"
 
-    For workloads with repeated system prompts:
+    For workloads that resend identical prompts:
 
     ```bash
     smg \

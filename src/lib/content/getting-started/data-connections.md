@@ -57,6 +57,8 @@ smg \
   --postgres-pool-max-size 16
 ```
 
+On a new database, also set `DB_AUTO_MIGRATE=true` for the first start; see [Schema migrations](#schema-migrations).
+
 ### Redis
 
 ```bash
@@ -68,7 +70,7 @@ smg \
   --redis-retention-days 30
 ```
 
-Set `--redis-retention-days -1` for persistent retention.
+Set `--redis-retention-days=-1` for persistent retention. Keep the `=`: the Rust CLI rejects `-1` as a separate argument.
 
 ### Oracle
 
@@ -81,6 +83,24 @@ smg \
   --oracle-user admin \
   --oracle-password "$ORACLE_PASSWORD"
 ```
+
+!!! note "Python launcher flag names"
+    These commands use the Rust `smg` binary's flag names. The Python launcher (`smg launch` from pip, and the container image) spells four of them differently: `--postgres-pool-max`, `--redis-pool-max`, `--oracle-username`, and `--oracle-connect-descriptor` (for `--oracle-dsn`). See [Python Launcher Differences](../reference/configuration.md#python-launcher-differences).
+
+---
+
+## Schema migrations
+
+PostgreSQL and Oracle track a schema version and refuse to start while migrations are pending, printing the SQL to apply by hand. A new database has pending migrations, so set `DB_AUTO_MIGRATE=true` (or `1`) to let SMG apply them at startup:
+
+```bash
+DB_AUTO_MIGRATE=true smg launch \
+  --worker-urls http://worker:8000 \
+  --history-backend postgres \
+  --postgres-db-url "postgres://user:password@localhost:5432/smg"
+```
+
+A `--schema-config` file can set `auto_migrate` instead. See [Chat History](../concepts/data/chat-history.md#schema-migrations).
 
 ---
 
@@ -98,7 +118,7 @@ smg \
 
 ## Environment Variables
 
-You can provide Oracle credentials via environment variables:
+You can provide Oracle credentials via environment variables (both the Rust binary and the Python launcher read them):
 
 - `ATP_WALLET_PATH`
 - `ATP_TNS_ALIAS`
@@ -110,6 +130,8 @@ You can provide Oracle credentials via environment variables:
 - `ATP_POOL_MAX`
 - `ATP_POOL_TIMEOUT_SECS`
 
+The Rust `smg` binary reads no environment variables for PostgreSQL or Redis. Only the Python launcher reads `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `REDIS_URL`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS`, as defaults for its flags.
+
 ---
 
 ## Verify
@@ -118,7 +140,7 @@ You can provide Oracle credentials via environment variables:
 curl http://localhost:30000/health
 ```
 
-If startup fails, SMG returns a config validation error (for example missing DB URL or Oracle credentials).
+If startup fails, SMG returns a config validation error (for example missing DB URL or Oracle credentials). PostgreSQL and Oracle also connect at startup to create tables and check migrations, so an unreachable database or pending migrations stop startup. Redis connects on first use, so a Redis problem shows up on the first request that stores or reads history.
 
 ---
 

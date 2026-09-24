@@ -58,13 +58,11 @@ See [gRPC Workers](grpc-workers.md) for details on what gRPC mode enables.
 
 ## Cloud API Workers
 
-Route to cloud providers by setting `--backend` and passing the provider URL. API keys are either passed by the caller through the `Authorization` header (BYOK) or stored on the worker record when registering via the admin API. SMG auto-detects the provider (OpenAI, Anthropic, xAI, Gemini) from the model name and applies the correct API transformations.
+Route to a cloud provider by setting `--backend` to its router and passing the provider's base URL, without a `/v1` suffix. Callers send their own provider key with each request, and SMG forwards it upstream (bring your own key). SMG does not read provider key variables such as `OPENAI_API_KEY`.
 
 === "OpenAI"
 
     ```bash
-    export OPENAI_API_KEY=sk-...
-
     smg \
       --backend openai \
       --worker-urls https://api.openai.com \
@@ -72,23 +70,23 @@ Route to cloud providers by setting `--backend` and passing the provider URL. AP
       --port 30000
     ```
 
+    Serves `/v1/chat/completions`, `/v1/responses`, and the Realtime API. Callers send `Authorization: Bearer <OpenAI key>`.
+
 === "Anthropic"
 
     ```bash
-    export ANTHROPIC_API_KEY=sk-ant-...
-
     smg \
-      --backend openai \
+      --backend anthropic \
       --worker-urls https://api.anthropic.com \
       --host 0.0.0.0 \
       --port 30000
     ```
 
+    Serves the Messages API (`/v1/messages`). SMG forwards the caller's `x-api-key` and `anthropic-version` headers as sent.
+
 === "xAI (Grok)"
 
     ```bash
-    export XAI_API_KEY=xai-...
-
     smg \
       --backend openai \
       --worker-urls https://api.x.ai \
@@ -96,21 +94,27 @@ Route to cloud providers by setting `--backend` and passing the provider URL. AP
       --port 30000
     ```
 
+    Serves the same endpoints as OpenAI. Callers send `Authorization: Bearer <xAI key>`.
+
 === "Gemini"
 
     ```bash
-    export GEMINI_API_KEY=...
-
     smg \
-      --backend openai \
+      --backend gemini \
       --worker-urls https://generativelanguage.googleapis.com \
       --host 0.0.0.0 \
       --port 30000
     ```
 
+    Serves the Interactions API (`/v1/interactions`): non-streaming requests with `"store": false` in v1.11.0. Callers send `x-goog-api-key` (or `Authorization: Bearer <key>`). `--backend gemini` belongs to the Rust `smg` binary; the Python launcher does not accept it.
+
+The OpenAI-compatible router (`--backend openai`) also adjusts each request for the provider that serves its model, detected from the model name (for example, xAI handling for `grok*` models).
+
+A worker can also carry a stored key: pass `api_key` when you [add a worker](#add-a-worker) through the API, or set `--api-key`, which the `--worker-urls` workers take as their key. With `--api-key` set, SMG lists the provider's models with that key when it registers the worker (unless the provider's admin key variable, such as `OPENAI_ADMIN_KEY`, is set), and callers must authenticate to the gateway with it, which puts it in the `Authorization` header that SMG forwards upstream. See [External Providers](external-providers.md#api-key-handling) for how stored and caller keys combine.
+
 ## Dynamic Workers with IGW Mode
 
-In Inference Gateway (IGW) mode, SMG starts with no workers and you add or remove them at runtime via the REST API:
+The worker API (`POST /workers`, `GET /workers`, `DELETE /workers/{worker_id}`) is available in every mode. Inference Gateway (IGW) mode (`--enable-igw`) also runs every router at once (HTTP and gRPC, regular and disaggregated, plus the provider routers) and picks one per request from the workers that serve the requested model, so one gateway can mix worker types. Start it without `--worker-urls` and add workers at runtime:
 
 ```bash
 smg --enable-igw --host 0.0.0.0 --port 30000
@@ -124,17 +128,19 @@ curl -X POST http://localhost:30000/workers \
   -d '{"url": "http://worker1:8000"}'
 ```
 
-Response:
+Response (`202 Accepted`, with a `Location` header):
 
 ```json
 {
   "status": "accepted",
-  "worker_id": "a1b2c3d4",
+  "worker_id": "0199a3c2-7f1e-7c52-9b1e-5d7c3a2f4e10",
   "url": "http://worker1:8000",
-  "location": "/workers/a1b2c3d4",
+  "location": "/workers/0199a3c2-7f1e-7c52-9b1e-5d7c3a2f4e10",
   "message": "Worker addition queued for background processing"
 }
 ```
+
+The `worker_id` is a UUID. SMG registers the worker in the background: `GET /workers` lists it once registration finishes, and until then `GET /workers/{worker_id}` (the `location`) shows the job's status.
 
 ### List workers
 

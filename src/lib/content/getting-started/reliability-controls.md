@@ -19,7 +19,7 @@ This guide provides command-first setup for request protection and failure handl
 
 ## 1. Concurrency and Queue Limits
 
-Start with bounded concurrency and queueing:
+Cap how many requests the gateway runs at once, and how many can wait:
 
 ```bash
 smg \
@@ -29,7 +29,11 @@ smg \
   --queue-timeout-secs 30
 ```
 
-Optional token refill rate:
+- Each admitted request holds a permit until its response finishes, streaming included, so at most 100 requests are in flight.
+- Up to 200 more wait in arrival order. A request that finds the queue full gets **429**; one that waits longer than 30 seconds gets **503**. Both carry `Retry-After: 2`.
+- Size `--max-concurrent-requests` from what your workers can run at once; see [Sizing Guidelines](../concepts/reliability/rate-limiting.md#sizing-guidelines).
+
+Leave `--rate-limit-tokens-per-second` unset. A positive rate also refills the bucket over time, so requests in flight can exceed the cap. Set it only to keep the pre-v1.10 burst-rate behavior:
 
 ```bash
 smg \
@@ -39,6 +43,8 @@ smg \
   --queue-size 200 \
   --queue-timeout-secs 30
 ```
+
+For per-worker load thresholds that take a saturated worker out of routing, see [Overload Protection](../concepts/reliability/overload-protection.md).
 
 ---
 
@@ -75,9 +81,10 @@ smg \
   --worker-urls http://w1:8000 http://w2:8000 \
   --cb-failure-threshold 10 \
   --cb-success-threshold 3 \
-  --cb-timeout-duration-secs 60 \
-  --cb-window-duration-secs 120
+  --cb-timeout-duration-secs 60
 ```
+
+A worker's circuit opens after 10 consecutive failures (`408`, `500`, `502`, `503`, `504`, or no response). A `429` from a worker is capacity pushback: it can still be retried, but it never opens or closes the circuit. See [What Counts as a Failure](../concepts/reliability/circuit-breakers.md#what-counts-as-a-failure). `--cb-window-duration-secs` is accepted but not used by the breaker.
 
 Disable only for controlled testing:
 
@@ -106,8 +113,7 @@ smg \
   --retry-jitter-factor 0.2 \
   --cb-failure-threshold 10 \
   --cb-success-threshold 3 \
-  --cb-timeout-duration-secs 60 \
-  --cb-window-duration-secs 120
+  --cb-timeout-duration-secs 60
 ```
 
 ---
@@ -117,15 +123,19 @@ smg \
 ```bash
 curl http://localhost:30000/health
 curl http://localhost:30000/workers
+
+# Admission and circuit breaker metrics (Prometheus port, default 29000)
+curl -s http://localhost:29000/metrics | grep -E '^smg_(admission|http_rate_limit|worker_cb)'
 ```
 
-With metrics enabled, inspect reliability metrics at `/metrics`.
+Admission metrics appear once requests start going through admission control.
 
 ---
 
 ## Next Steps
 
 - [Rate Limiting Concepts](../concepts/reliability/rate-limiting.md)
+- [Overload Protection Concepts](../concepts/reliability/overload-protection.md)
 - [Retries Concepts](../concepts/reliability/retries.md)
 - [Circuit Breakers Concepts](../concepts/reliability/circuit-breakers.md)
 - [Configuration Reference](../reference/configuration.md#rate-limiting-configuration)

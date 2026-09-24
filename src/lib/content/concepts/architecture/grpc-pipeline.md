@@ -112,7 +112,7 @@ Every request resolves one tool-call parser and one reasoning parser for its mod
 2. **Gateway flag**: `--tool-call-parser` / `--reasoning-parser`, which applies to every model.
 3. **Automatic detection** from the model name.
 
-The gateway checks the flag values when it starts. An unknown `--tool-call-parser` or `--reasoning-parser` value stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`. Names must match a registered parser exactly (`deepseek_r1`, not `deepseek-r1`).
+The gateway checks the flag values when it starts. An unknown `--tool-call-parser` or `--reasoning-parser` value stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; the pip `smg launch` rejects it earlier as an invalid choice. Names must match a registered parser exactly (`deepseek_r1`, not `deepseek-r1`).
 
 ### Per-Model Overrides
 
@@ -162,7 +162,7 @@ Some checkpoints ship a Python prompt encoder instead of a Jinja template. For t
 | DeepSeek-V3.2 | architecture `DeepseekV32ForCausalLM` | `thinking` (default off) | None | Tools are attached to the leading system or developer message |
 | DeepSeek-V4 | architecture `DeepseekV4ForCausalLM` | `thinking` (default off) | `high`, `max` (original checkpoints); `low`, `high`, `max` (0731 checkpoints) | A native effort value turns thinking on |
 | DeepSeek-V4.1 | architecture `DeepseekV41ForCausalLM` or `model_type: deepseek_v41` | `thinking`, or vLLM's `enable_thinking` alias (default on) | `low`, `high`, `xhigh`, `max`, or an integer budget from 1 to 100 | Continues a trailing assistant message natively with `continue_final_message`; reads tool-call `arguments` as written |
-| Kimi-K3 | architecture `KimiK3ForConditionalGeneration` or `model_type: kimi_k3` | `thinking` (default on) | None | Encodes the prompt piece by piece, so control-token text inside a message stays text; reads tool-call `arguments` as written |
+| Kimi-K3 | architecture `KimiK3ForConditionalGeneration` or `model_type: kimi_k3` | `thinking` (default on) | `low`, `high`, `max` (default `max`; rendered only while thinking is on) | Encodes the prompt piece by piece, so control-token text inside a message stays text; reads tool-call `arguments` as written |
 | Kimi-K2.5 | architecture `KimiK25ForConditionalGeneration` or `model_type: kimi_k25` | From the Jinja template | None | Keeps the Jinja template, but renders tool declarations as TypeScript with a port of the checkpoint's `tool_declaration_ts.py` |
 
 DeepSeek-V4 checkpoints share one `config.json`, but the 0731 refresh changed what the effort levels render. SMG tells the revisions apart from the checkpoint's `encoding/encoding_dsv4.py`. If that file is missing, it looks for a `0731` marker in the model path, and otherwise assumes the original encoding (smg-project/smg#2080). A request goes through SMG's DeepSeek request profile when a `/`-separated part of its model name is `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4.1-flash` or `deepseek-flash` (in any case), as in `deepseek-ai/DeepSeek-V4-Flash`. The profile turns thinking on unless the request turns it off, which overrides the V4 renderer's default (smg-project/smg#2671). Kimi-K3 appends a response-channel stub after the assistant header. The engine receives the stub, but the `prompt_tokens` that clients see leave it out, matching Moonshot's billing (smg-project/smg#2564).
@@ -173,7 +173,7 @@ Reasoning controls reach the template as template variables. The request fields 
 
 - **Template kwargs**: `reasoning_effort` (or `thinking.effort`, which takes precedence), `tool_choice` and `response_format` are passed to the template as kwargs of the same name. An entry in `chat_template_kwargs` overrides any of them.
 - **Thinking on or off**: `thinking.type` (`enabled` or `disabled`) sets the preference. Without it, a `reasoning_effort` of `"none"` or `"minimal"` means off. SMG writes the preference under the key the template actually reads: `enable_thinking` (Qwen3, GLM, Nemotron), `thinking` (DeepSeek, Kimi), or `thinking_mode` set to `"enabled"` or `"disabled"` (MiniMax-M3). A value you pass for that key in `chat_template_kwargs` wins.
-- **Native effort names**: the DeepSeek-V4 and V4.1 renderers turn the values in the table above into their own effort prompt text.
+- **Native effort names**: the DeepSeek-V4, V4.1 and Kimi-K3 renderers turn the values in the table above into their own effort prompt text.
 - **Parser arming**: the reasoning parser follows the same decision. When thinking is on, it starts in reasoning mode, so the prompt and the parser agree.
 
 ---
@@ -330,7 +330,7 @@ All 24 registered tool-call parsers. For auto-detection, the longest matching pa
 
 - **Schema-aware arguments**: the XML-style parsers (`qwen_xml` and its aliases, `glm45_moe`, `glm47_moe`, `minimax_m2`, `minimax_m3`) convert argument values to the types the tool's JSON schema declares. `minimax_m3` also resolves properties declared under `oneOf`, `anyOf` or `allOf`. It turns an empty container element into `[]` or `{}`, and recovers the missing closing tag of an empty nested container (smg-project/smg#2370, smg-project/smg#2422, smg-project/smg#2567).
 - **Special tokens**: when a request carries tools and `tool_choice` isn't `none`, the gateway decodes with special tokens kept, so the parser sees its trigger tokens. Under a JSON-schema constraint the output has no trigger tokens, so the request's own `skip_special_tokens` applies.
-- **Streaming**: arguments stream as deltas. If a parser buffers text as a possible tool call and it never becomes one, the text is sent as `content` instead of being dropped. The `json`, `llama`, `mistral`, `qwen`, `cohere`, DeepSeek DSML and `minimax_m3` parsers do this (smg-project/smg#2271). `minimax_m3` releases a false tool-call start as soon as it can no longer match (smg-project/smg#2423). `qwen_xml` keeps each call's arguments separate, even when several calls arrive in one chunk or a value contains `}` (smg-project/smg#2490).
+- **Streaming**: arguments stream as deltas. If a parser buffers text as a possible tool call and it never becomes one, the text is sent as `content` instead of being dropped. The `json`, `llama`, `mistral`, `qwen` and `cohere` parsers do this (smg-project/smg#2271), as do the DeepSeek DSML parsers (smg-project/smg#2525) and `minimax_m3`, which releases a false tool-call start as soon as it can no longer match (smg-project/smg#2423). `qwen_xml` keeps each call's arguments separate, even when several calls arrive in one chunk or a value contains `}` (smg-project/smg#2490).
 - **Tool call IDs**: `call_` plus 24 hex characters by default. For model names containing `kimi`, IDs follow the Kimi reference format instead: `functions.NAME:N`, or `NAME_N` when the name also contains `k3`. `N` counts tool calls across the whole conversation (smg-project/smg#2104).
 
 ### Tool Execution Flow
@@ -377,7 +377,7 @@ Two parsers add rules on top of their structural tag:
 
 ### Combining with Structured Output
 
-A request carries at most one constraint. `response_format` becomes a JSON schema (`json_object` is `{"type": "object"}`), and `text` adds nothing. The `regex` and `ebnf` request extensions each add a constraint of their own. SGLang, vLLM and TokenSpeed workers return 400 for a request that sets more than one of these. If a forced tool call applies as well, SGLang, TensorRT-LLM and TokenSpeed workers keep the output-format constraint and drop the tool one, while vLLM workers keep the tool constraint.
+A request carries at most one constraint. `response_format` becomes a JSON schema (`json_object` is `{"type": "object"}`), and `text` adds nothing. The `regex` and `ebnf` request extensions each add a constraint of their own. For SGLang, vLLM and TokenSpeed workers, the gateway rejects a request that sets more than one of these with 400 `invalid_request_parameters`. If a forced tool call applies as well, the gateway keeps the output-format constraint and drops the tool one for SGLang, TensorRT-LLM and TokenSpeed workers, and keeps only the tool constraint for vLLM workers.
 
 ### Enforcement
 
@@ -385,7 +385,7 @@ The constraint travels in the request's `SamplingParams.constraint` oneof (`crat
 
 - **TokenSpeed**: start it with `--grammar-backend xgrammar`. Its default is none.
 - **TensorRT-LLM**: set `guided_decoding_backend: xgrammar` in its `--extra_llm_api_options` file.
-- **MLX**: doesn't support constraints and rejects such requests.
+- **MLX**: doesn't support constraints. It rejects a chat request with a forced tool call or a `response_format` (400) and ignores the chat `regex` and `ebnf` extensions.
 
 See [gRPC Workers](../../getting-started/grpc-workers.md) for the launch commands.
 
@@ -480,7 +480,7 @@ smg launch \
 
 ### Pipeline Metrics
 
-Metrics recorded by this pipeline carry `router_type="grpc"`:
+This pipeline records the metrics below. The `smg_router_*` series carry `router_type="grpc"`; the MCP metrics have no `router_type` label:
 
 | Metric | Description |
 |--------|-------------|
@@ -516,7 +516,7 @@ RUST_LOG=warn,smg=info,llm_tokenizer=debug smg launch ...
 |---------|-------|----------|
 | Reasoning stays in `content` | No reasoning parser matched the model name, or the request set `separate_reasoning: false` | Set `--reasoning-parser` or a per-model override; compare the name with the patterns above |
 | Tool calls come back as text in `content` | No tool parser matched, or the parser doesn't fit the model's format | Set `--tool-call-parser` or a `tool_parser` override for that model |
-| Gateway exits at startup with `unknown tool-call parser` or `unknown reasoning parser` | The name isn't registered | Use a name from the reference tables above; names use underscores |
+| Gateway exits at startup with `unknown tool-call parser` or `unknown reasoning parser`, or the pip `smg launch` reports `invalid choice` | The name isn't registered | Use a name from the reference tables above; names use underscores |
 | Worker registration fails with `declares unknown tool_parser` | A label or model card names an unregistered parser | Fix the override name |
 | Forced tool calls or `response_format` not enforced | The engine runs without a grammar backend | Start TokenSpeed with `--grammar-backend xgrammar`; give TensorRT-LLM `guided_decoding_backend: xgrammar` |
 | MCP tools time out | Slow tool execution | Check MCP server configuration |

@@ -33,7 +33,7 @@ SMG exposes utility endpoints for tokenization, detokenization, function-call pa
 | `model` | string | Name of a loaded tokenizer (required) |
 | `prompt` | string or array of strings | Text to tokenize (required) |
 
-`model` is the name a tokenizer was loaded under: a worker's model ID, the `--model-path` or `--tokenizer-path` value the gateway started with, or the `name` given to `POST /v1/tokenizers`. A tokenizer ID also works, and an empty string or `"unknown"` picks the first loaded tokenizer. The endpoint doesn't add special tokens such as BOS.
+`model` is the name a tokenizer was loaded under: a worker's model ID, the `--model-path` or `--tokenizer-path` value the gateway started with, or the `name` given to `POST /v1/tokenizers`. A tokenizer ID also works, and an empty string or `"unknown"` picks the loaded tokenizer whose name sorts first. The endpoint doesn't add special tokens such as BOS.
 
 Single input:
 

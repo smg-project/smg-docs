@@ -132,12 +132,7 @@ Standard load balancing across HTTP workers running full inference.
 
 ### PD (Prefill-Decode) Mode
 
-Disaggregated inference with separate prefill and decode workers:
-
-1. **Find P/D Pair** - Select a prefill worker and decode worker pair
-2. **Mutate Headers** - Add routing headers for KV cache transfer
-3. **Prefill Worker** - Processes prompt, transfers KV cache
-4. **Decode Worker** - Generates tokens using transferred KV cache
+With `--pd-disaggregation`, SMG sends each request to a prefill worker and a decode worker chosen as a pair: each leg has its own routing policy (`--prefill-policy`, `--decode-policy`), and a prefill pairs only with decode workers that share its KV transfer protocol. For SGLang, SMG dispatches both legs at once and adds the same `bootstrap_host`, `bootstrap_port`, and `bootstrap_room` to each JSON body, so the engines can meet and transfer the KV cache. For vLLM, SMG first sends prefill a one-token request, then passes the `kv_transfer_params` it returns (or, for Mooncake, parameters that SMG mints) to the decode leg. The client receives the decode worker's response. The gRPC path offers the same disaggregation for SGLang, vLLM, and TokenSpeed, plus encode-prefill-decode (EPD); see [PD Disaggregation](../routing/pd-disaggregation.md).
 
 ### Supported Backends
 

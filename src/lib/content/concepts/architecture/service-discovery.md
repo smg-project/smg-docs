@@ -117,59 +117,96 @@ Matches pods with both `app=sglang` AND `environment=production`.
 
 ## PD Disaggregation Discovery
 
-For prefill-decode disaggregated deployments, use separate selectors for each worker type.
+For prefill-decode disaggregated deployments, use a separate selector for each worker role. SMG gives each pod the role of the first selector it matches (encode, then prefill, then decode) and ignores pods that match none.
 
 ### Configuration
 
 ```bash
-smg \
+smg launch \
   --service-discovery \
   --pd-disaggregation \
-  --prefill-selector app=sglang role=prefill \
-  --decode-selector app=sglang role=decode \
-  --service-discovery-namespace inference
+  --prefill-selector app=vllm role=prefill \
+  --decode-selector app=vllm role=decode \
+  --service-discovery-namespace inference \
+  --service-discovery-port 8000
 ```
+
+Service discovery turns on IGW mode automatically; the PD (or EPD) routing mode and the per-role policies stay in effect. `/readiness` reports ready once at least one prefill worker and one decode worker are healthy. See [PD Disaggregation](../routing/pd-disaggregation.md) for how the legs are paired and dispatched.
 
 ### Parameters
 
-| Parameter | Description |
-|-----------|-------------|
-| `--prefill-selector` | Label selector for prefill workers |
-| `--decode-selector` | Label selector for decode workers |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--prefill-selector` | — | Label selector for prefill pods |
+| `--decode-selector` | — | Label selector for decode pods |
+| `--encode-selector` | — | Label selector for encode pods (EPD mode) |
+| `--kv-connector-annotation` | `smg.ai/kv-connector` | Pod annotation that names the vLLM KV connector |
+| `--kv-engine-id-annotation` | `smg.ai/kv-engine-id` | Pod annotation that lists the vLLM KV engine ids |
+
+PD mode needs at least one of `--prefill-selector` and `--decode-selector`. EPD mode (`--epd-disaggregation`) needs all three role selectors. Annotation names must not be empty or padded with whitespace.
+
+### Pod Annotations
+
+| Annotation | Pods | Value |
+|------------|------|-------|
+| `sglang.ai/bootstrap-port` | Prefill, encode | The worker's bootstrap port: SGLang and TokenSpeed `--disaggregation-bootstrap-port`, or vLLM Mooncake `VLLM_MOONCAKE_BOOTSTRAP_PORT`. A single value applies to every worker port of the pod; a comma-separated list needs one port per worker port, or it is ignored |
+| `smg.ai/kv-connector` | vLLM prefill and decode | `NixlConnector` or `MooncakeConnector`, shared by every worker in the pod. Any other value is kept but handled as passthrough, with a warning |
+| `smg.ai/kv-engine-id` | vLLM Mooncake prefill | The engine's `kv_transfer_config.engine_id`. One id for a single-port pod, or a comma-separated list of distinct ids in the order of `smg.ai/worker-ports`. A list of the wrong length, or with an empty or duplicate id, is ignored with a warning |
+
+SGLang and TokenSpeed pods need only their role labels and, on prefill (and encode) pods, the bootstrap-port annotation. vLLM workers served over HTTP need `smg.ai/kv-connector` for a KV handoff, because the vLLM HTTP server does not report its connector. vLLM gRPC workers report their connector and engine id themselves, and the annotations override what they report. To pin a [pairing protocol](../routing/pd-disaggregation.md#explicit-pairing-protocol), set `SMG_PAIRING_PROTOCOL` in the engine container of gRPC workers; there is no annotation for it.
+
+SMG reads the annotations when it registers a pod. After changing them, replace the pod so that SMG registers it again under its new UID.
 
 ### Worker Labels
 
-Label your pods appropriately:
+Label and annotate your pods. This example runs vLLM over HTTP with Mooncake:
 
 ```yaml
 # Prefill worker
 apiVersion: v1
 kind: Pod
 metadata:
-  name: sglang-prefill-0
+  name: vllm-prefill-0
+  namespace: inference
   labels:
-    app: sglang
+    app: vllm
     role: prefill
+  annotations:
+    sglang.ai/bootstrap-port: "8998"
+    smg.ai/kv-connector: MooncakeConnector
+    smg.ai/kv-engine-id: prefill-0
 spec:
   containers:
-    - name: sglang
-      image: lmsysorg/sglang:latest
-      args: ["--dp-size", "1", "--prefill-only"]
+    - name: vllm
+      image: vllm/vllm-openai:latest
+      command: ["vllm", "serve", "meta-llama/Llama-3.1-8B-Instruct"]
+      args:
+        - --port=8000
+        - '--kv-transfer-config={"kv_connector":"MooncakeConnector","kv_role":"kv_producer","engine_id":"prefill-0"}'
+      env:
+        - name: VLLM_MOONCAKE_BOOTSTRAP_PORT
+          value: "8998"
 
 ---
 # Decode worker
 apiVersion: v1
 kind: Pod
 metadata:
-  name: sglang-decode-0
+  name: vllm-decode-0
+  namespace: inference
   labels:
-    app: sglang
+    app: vllm
     role: decode
+  annotations:
+    smg.ai/kv-connector: MooncakeConnector
 spec:
   containers:
-    - name: sglang
-      image: lmsysorg/sglang:latest
-      args: ["--dp-size", "1", "--decode-only"]
+    - name: vllm
+      image: vllm/vllm-openai:latest
+      command: ["vllm", "serve", "meta-llama/Llama-3.1-8B-Instruct"]
+      args:
+        - --port=8000
+        - '--kv-transfer-config={"kv_connector":"MooncakeConnector","kv_role":"kv_consumer"}'
 ```
 
 ---

@@ -70,29 +70,45 @@ Matches pods that carry every listed label.
 For prefill-decode deployments, use separate selectors:
 
 ```bash
-smg \
+smg launch \
   --service-discovery \
   --pd-disaggregation \
-  --prefill-selector app=sglang role=prefill \
-  --decode-selector app=sglang role=decode \
-  --service-discovery-namespace inference
+  --prefill-selector app=vllm role=prefill \
+  --decode-selector app=vllm role=decode \
+  --service-discovery-namespace inference \
+  --service-discovery-port 8000
 ```
 
-Label your pods accordingly:
+Label your pods accordingly, and annotate prefill pods with their bootstrap port. vLLM pods also declare their KV connector, and Mooncake prefill pods their KV engine id:
 
 ```yaml
 # Prefill worker pod
 metadata:
   labels:
-    app: sglang
+    app: vllm
     role: prefill
+  annotations:
+    sglang.ai/bootstrap-port: "8998"         # SGLang, TokenSpeed, vLLM Mooncake
+    smg.ai/kv-connector: MooncakeConnector   # vLLM: NixlConnector or MooncakeConnector
+    smg.ai/kv-engine-id: prefill-0           # vLLM Mooncake: engine_id from --kv-transfer-config
 
 # Decode worker pod
 metadata:
   labels:
-    app: sglang
+    app: vllm
     role: decode
+  annotations:
+    smg.ai/kv-connector: MooncakeConnector   # vLLM only
 ```
+
+- vLLM's HTTP server does not report its KV connector, so HTTP vLLM workers need `smg.ai/kv-connector` for a KV handoff. gRPC workers report it themselves.
+- On a pod that runs several workers (`smg.ai/worker-ports`), `smg.ai/kv-engine-id` needs a comma-separated list with one distinct id per port, in order. `sglang.ai/bootstrap-port` takes either one port for all of them or one port per worker port.
+- `--kv-connector-annotation` and `--kv-engine-id-annotation` rename the two `smg.ai/kv-*` annotations.
+- SMG reads annotations when it registers a pod; replace the pod after changing them.
+- Service discovery turns on IGW mode automatically; PD mode and the per-role policies are kept.
+- For EPD, use `--epd-disaggregation` and add an `--encode-selector`; encode pods take the bootstrap-port annotation too.
+
+See [PD Disaggregation Discovery](../concepts/architecture/service-discovery.md#pd-disaggregation-discovery) for the annotation formats and a full pod example.
 
 ---
 

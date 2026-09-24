@@ -120,7 +120,7 @@ smg launch \
 ```
 
 !!! warning "Parallel sampling over HTTP"
-    The HTTP PD router does not split an `n>1` request into one rendezvous per sample, so SGLang `n>1` completions can stall over HTTP. Serve `n>1` traffic through gRPC workers, where SMG sends each sample as its own prefill/decode dispatch with its own bootstrap room.
+    The HTTP PD router gives a `/v1/completions` request with one prompt and `n>1` a single rendezvous for all of its samples, so on SGLang the extra samples can stall. Serve `n>1` traffic through gRPC workers, where SMG sends each sample of a text-only request as its own prefill/decode dispatch with its own bootstrap room.
 
 ---
 
@@ -379,13 +379,13 @@ Prefill pods advertise their bootstrap port with the `sglang.ai/bootstrap-port` 
 
 ## Check Pairing
 
-SMG pairs a prefill worker only with decode workers that share its KV transfer protocol: the same runtime, the same transport (NIXL or Mooncake), and a matching KV cache layout. Each prefill and decode worker shows its pairing key in `/workers`:
+SMG pairs a prefill worker only with decode workers that share its KV transfer protocol: the same runtime, the same transport (NIXL or Mooncake), and a matching KV cache layout, as far as the workers report them. Each prefill and decode worker shows its pairing key in `/workers`:
 
 ```bash
 curl -s http://localhost:30000/workers | jq '.workers[] | {url, worker_type, pd_pairing}'
 ```
 
-When no prefill shares a key with any decode, requests fail with 503 `no_compatible_pd_pair`. The Rust `smg` binary's `--pd-pairing-mode` flag (`off`, `lenient`, or `strict`; default `lenient`) sets how strictly the legs are compared. See [Prefill/Decode Pairing](../concepts/routing/pd-disaggregation.md#prefilldecode-pairing).
+When no prefill is compatible with any decode, requests fail with 503 `no_compatible_pd_pair`. The Rust `smg` binary's `--pd-pairing-mode` flag (`off`, `lenient`, or `strict`; default `lenient`) sets how strictly the legs are compared. See [Prefill/Decode Pairing](../concepts/routing/pd-disaggregation.md#prefilldecode-pairing).
 
 ---
 
@@ -395,7 +395,7 @@ When no prefill shares a key with any decode, requests fail with 503 `no_compati
 # Check workers and their roles
 curl -s http://localhost:30000/workers | jq '.workers[] | {url, worker_type, is_healthy}'
 
-# Ready once at least one prefill and one decode worker are healthy
+# Not ready until at least one prefill and one decode worker are healthy
 curl -i http://localhost:30000/readiness
 
 # Send a request

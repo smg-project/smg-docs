@@ -110,7 +110,7 @@ Register every prefill worker with its bootstrap port (`--prefill <url> <port>`)
 1. **Send prefill a one-token request.** The prefill leg carries the prompt with the output capped at one token, streaming off, and `n` set to 1. Over HTTP, SMG sets the endpoint's own cap field (`max_tokens`, `max_completion_tokens` when the chat request used it, or `max_output_tokens` on `/v1/responses`) and drops `min_tokens` and `stream_options`. It also tags the leg with the connector's `kv_transfer_params` (see below).
 2. **Wait for prefill to finish.** The prefill engine computes the KV cache and holds it for the handoff.
 3. **Relay the handoff.** SMG adds `kv_transfer_params` to the original request and sends it to decode.
-4. **Decode** pulls the KV cache from prefill and streams tokens back to the client.
+4. **Decode** receives the KV cache from prefill and streams tokens back to the client.
 
 #### Connector Modes
 
@@ -119,14 +119,14 @@ The prefill worker's KV connector decides how SMG tags the prefill leg and what 
 | Prefill connector | Prefill leg | Decode leg `kv_transfer_params` |
 |-------------------|-------------|---------------------------------|
 | `NixlConnector` | `{"do_remote_decode": true, "do_remote_prefill": false}` | The params the prefill response returns (for example `remote_engine_id`, `remote_request_id`, `remote_block_ids`, `remote_host`/`remote_port`, `tp_size`), forwarded verbatim |
-| `MooncakeConnector` | The same tag plus a `transfer_id` that SMG mints | Synthesized by SMG, because Mooncake pushes the KV and returns nothing: `transfer_id`, `remote_engine_id` (the prefill's KV engine id), and `remote_bootstrap_addr` = `http://<bootstrap_host>:<bootstrap_port>` (port 8998 when the worker has none) |
+| `MooncakeConnector` | The same tag plus a `transfer_id` that SMG mints | Synthesized by SMG, because Mooncake pushes the KV and returns nothing: `{"do_remote_decode": false, "do_remote_prefill": true}` plus `transfer_id`, `remote_engine_id` (the prefill's KV engine id), and `remote_bootstrap_addr` = `http://<bootstrap_host>:<bootstrap_port>` (port 8998 when the worker has none) |
 | None or another connector | No tag ("passthrough") | Whatever `kv_transfer_params` the prefill response returns, if any |
 
 The handoff falls back to a local recompute in these cases:
 
 - **NIXL prefill returns nothing.** SMG increments `smg_pd_kv_transfer_failures_total` and decode recomputes the prompt. The usual causes are an outdated servicer or a worker without `--kv-transfer-config`.
 - **Mooncake without an engine id.** Minting needs the prefill's KV engine id. Without it, gRPC falls back to injecting the bootstrap host and port, and over HTTP decode recomputes the prompt.
-- **`n>1`.** The handoff is single-consumer, so SMG relays nothing and decode computes the prompt itself. Over HTTP, SMG skips the prefill leg entirely.
+- **`n>1`.** The handoff is single-consumer, so no KV is handed off and decode computes the prompt itself. Over HTTP, SMG skips the prefill leg entirely. Over gRPC, the prefill leg still runs, untagged, and a Mooncake decode leg still receives the legacy bootstrap host and port.
 
 #### Where the Connector Comes From
 
@@ -135,25 +135,25 @@ The handoff falls back to a local recompute in these cases:
 | gRPC | The vLLM servicer reports `kv_connector`, `kv_role`, and `kv_engine_id` from the engine's `--kv-transfer-config`. A `MultiConnector` that wraps exactly one `NixlConnector` or `MooncakeConnector` is reported as that connector, with the child's engine id (or the parent's when the child sets none). Any other `MultiConnector` stays passthrough. |
 | HTTP | The vLLM OpenAI server reports no connector, so set it when you register the worker: the `kv_connector` field of `POST /workers` (plus `kv_engine_id` and `bootstrap_port` for Mooncake), or the `smg.ai/kv-connector` and `smg.ai/kv-engine-id` pod annotations under [service discovery](../architecture/service-discovery.md#pd-disaggregation-discovery). A vLLM HTTP worker registered by URL alone runs passthrough, and decode recomputes every prompt. |
 
-A restarted vLLM process comes back with a new KV engine id. When a gRPC prefill worker recovers from the failed or not-ready state, SMG re-reads its engine id before routing to it again. Workers registered over HTTP keep the engine id they were registered with.
+A restarted vLLM process without a pinned `engine_id` comes back with a new KV engine id. When a gRPC prefill worker recovers from the failed or not-ready state, SMG re-reads its engine id before routing to it again. Workers registered over HTTP keep the engine id they were registered with.
 
 ### Failures, Cancellation, and Streaming
 
 - **Retries re-select both legs.** Each attempt picks a new pair under the router's [retry](../reliability/retries.md) settings.
 - **A failed leg fails fast (gRPC, parallel dispatch).** The first leg that fails to start answers the client right away. SMG drops the other leg as soon as its dispatch lands, which aborts its bootstrap room instead of leaving it to the engine's deadline. Over HTTP, a transport error on either leg cancels the other.
 - **Prefill failures stay on the prefill worker (sequential dispatch).** A failed prefill leg never reaches the decode worker's circuit breaker, because decode was never contacted.
-- **Decode aborts wait for the handoff (gRPC).** When the client disconnects, a prefill leg still running is aborted at once. The decode leg's abort waits for the leg's first response, a terminal event, or 30 seconds, so a decode engine is never torn down mid-transfer.
+- **Decode aborts wait for the handoff (gRPC).** When the client disconnects, a prefill leg still running is aborted at once. The decode leg's abort waits for the leg's first response or a terminal event, for at most 30 seconds, to avoid tearing a decode engine down mid-transfer.
 - **HTTP streams start on the response heads (parallel dispatch).** For a streamed request that does not ask for logprobs, SMG starts streaming decode output as soon as both legs return a 2xx response head. It drains the prefill body in the background, because closing it early would abort the KV transfer, and records the prefill worker's outcome when the drain ends. Requests with logprobs wait for the prefill body.
 
 ### Parallel Sampling (`n>1`)
 
-On the gRPC path, a text-only `n>1` request to SGLang or TokenSpeed fans out into `n` single-sample PD dispatches. Each sample gets its own bootstrap room and request id (`<id>-<i>`), and a pinned `seed` is offset by the sample index. The dispatches fail fast together, and their responses merge back into one response with one choice per sample. Multimodal requests keep a single dispatch.
+On the gRPC path, a text-only `n>1` request to SGLang or TokenSpeed fans out into `n` single-sample PD dispatches. Each sample gets its own bootstrap room and request id (`<id>-<i>`); on TokenSpeed, a pinned `seed` is also offset by the sample index. The dispatches fail fast together, and their responses merge back into one response with one choice per sample. Multimodal requests keep a single dispatch.
 
 The HTTP PD router has no per-sample fan-out: a `/v1/completions` request with one prompt and `n>1` sends every sample to the same rendezvous, and on SGLang the extra samples stall. Serve `n>1` SGLang traffic through gRPC workers. vLLM needs no fan-out, because `n>1` skips the KV handoff (see above).
 
 ### Multimodal Requests
 
-Over HTTP, both legs receive the request body as sent. On the gRPC path:
+Over HTTP, both legs receive the request's media as sent. On the gRPC path:
 
 - The decode leg is a copy of the request without pixel tensors, so pixels travel only to prefill. TokenSpeed decode keeps the per-item metadata it needs.
 - vLLM decode keeps each image's identity and its M-RoPE grid tensors (`image_grid_thw`, `video_grid_thw`, and the video timing tensor), so it computes the same positions as prefill.
@@ -277,7 +277,7 @@ The prefill and decode legs each run their own policy instance, so a stateful po
 |--------|---------|--------|-------|
 | `cache_aware` | :material-check: | :material-check: | Prompt-prefix affinity; the prompt's KV cache is computed on prefill |
 | `prefix_hash`, `consistent_hashing` | :material-check: | :material-check: | Hash-based affinity |
-| `power_of_two`, `least_load` | :material-check: | :material-check: | Load-based; with static workers, `power_of_two` needs at least two workers on its leg |
+| `power_of_two`, `least_load` | :material-check: | :material-check: | Load-based. At startup, `--prefill-policy power_of_two` or `--decode-policy power_of_two` needs at least two workers on that leg (not checked with service discovery or `--enable-igw`) |
 | `round_robin`, `random` | :material-check: | :material-check: | Even or random spread |
 | `manual` | :material-check: | :material-check: | Sticky keys are tracked per leg |
 | `bucket` | :material-check: | :material-close: | Rejected as a decode policy at startup |
@@ -304,7 +304,7 @@ A prefill worker can hand its KV cache only to a decode worker that speaks the s
 | Component | Source |
 |-----------|--------|
 | Runtime | The detected engine: `sglang`, `vllm`, or `tokenspeed` |
-| Transport | vLLM: the worker's KV connector, reduced to `nixl` or `mooncake`. SGLang: the `disaggregation_transfer_backend` label. TokenSpeed: the same label, `mooncake` when absent |
+| Transport | vLLM: the worker's KV connector, reduced to `nixl` or `mooncake` (any other connector name is compared as is, lower-cased). SGLang: the `disaggregation_transfer_backend` label. TokenSpeed: the same label, `mooncake` when absent |
 | KV layout | The `kv_cache_dtype`, `page_size` (vLLM's `block_size`), `attention_backend`, and `model_dtype` labels, each compared on its own |
 | Engine version | The `version` label. Compared only in `strict` mode, and only when both legs report one |
 
@@ -329,9 +329,10 @@ gRPC workers report these facts at registration. SGLang reports its transfer bac
 
 Set a pairing protocol to declare compatibility yourself. Two legs that both carry one pair only when the values are equal, and nothing except the runtime is compared. When only one leg carries one, `lenient` falls back to the derived facts and `strict` refuses the pair. SMG reads it from these sources, highest precedence first:
 
-1. The `pairing_protocol` field of the worker spec (`POST /workers`).
-2. A `pairing_protocol` worker label.
-3. The `SMG_PAIRING_PROTOCOL` environment variable of the engine process. The vLLM, SGLang, and TokenSpeed gRPC servicers report it in their server info.
+1. A `pairing_protocol` worker label, for example in the `labels` of `POST /workers`.
+2. The `SMG_PAIRING_PROTOCOL` environment variable of the engine process. The vLLM, SGLang, and TokenSpeed gRPC servicers report it in their server info.
+
+The worker spec also has a `pairing_protocol` field, but v1.11.0 does not apply it when it registers the worker; use the label instead.
 
 On Kubernetes, set `SMG_PAIRING_PROTOCOL` in the engine container; there is no pod annotation for it.
 
@@ -343,7 +344,7 @@ When no prefill shares a protocol with any decode, requests fail with 503 `no_co
 
 ### Decode Admission Window (gRPC)
 
-Before a gRPC PD or EPD dispatch goes out, SMG claims one room for each backend request on the decode worker, within the running window that engine reports: SGLang's `max_running_requests` or TokenSpeed's `max_num_seqs` (the engines' `--max-running-requests` and `--max-num-seqs` flags). When the window is full, the request waits up to `--pd-admission-wait-secs` (default `30`) and is then shed with 503 `worker_overload_protection_shed` and a `Retry-After` header. `0` sheds immediately. Keep the wait well under the engine's bootstrap deadline (120 seconds on TokenSpeed). Decode workers that report no window, such as vLLM, are not gated. `smg_pd_admission_waits_total` and `smg_pd_admission_sheds_total` count the waits and sheds. See [Overload Protection](../reliability/overload-protection.md).
+Before a gRPC PD or EPD dispatch goes out, SMG claims one room for each backend request on the decode worker, within the running window that engine reports: SGLang's `max_running_requests` or TokenSpeed's `max_num_seqs` (the engines' `--max-running-requests` and `--max-num-seqs` flags). When the window is full, the request waits up to `--pd-admission-wait-secs` (default `30`) and is then shed with 503 `worker_overload_protection_shed` and a `Retry-After` header. `0` sheds immediately. Keep the wait well under the engine's bootstrap deadline (120 seconds on TokenSpeed). Decode workers that report no window, such as vLLM, are not gated. `smg_pd_admission_waits_total` counts dispatches admitted after a wait, and `smg_pd_admission_sheds_total` counts the sheds. See [Overload Protection](../reliability/overload-protection.md).
 
 ### Context Length (gRPC)
 
@@ -353,13 +354,13 @@ On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longe
 
 | Status | Code | Meaning |
 |--------|------|---------|
-| 503 | `no_available_workers` | A leg has no available worker (unhealthy or circuit open). The message names the leg. Same code as the regular HTTP and gRPC routers |
+| 503 | `no_available_workers` | A leg has no available worker (unhealthy or circuit open). Over HTTP, the message names the leg. Same code as the regular HTTP and gRPC routers |
 | 503 | `no_compatible_pd_pair` | No prefill shares a KV transfer protocol with any decode |
 | 503 | `worker_overload_protection_shed` | The decode admission window stayed full, or [overload protection](../reliability/overload-protection.md) vetoed a leg. Sent with `Retry-After` |
 | 400 | `context_length_exceeded` | gRPC: the prompt exceeds the smaller context window of the two legs |
 | 400 | `runtime_pd_not_supported` | gRPC: the selected runtime has no PD protocol |
 | Engine status | `prefill_worker_failed_to_start`, `decode_worker_failed_to_start` | gRPC: the engine refused that leg |
-| Upstream status | `prefill_upstream_error` | vLLM over HTTP: the prefill leg failed; the status is the one the worker returned |
+| Upstream status | `prefill_upstream_error` | vLLM over HTTP: the prefill worker returned an error status, which SMG passes through |
 
 `/readiness` reports ready only when at least one prefill worker and one decode worker are healthy (and an encode worker in EPD mode).
 
@@ -442,8 +443,8 @@ Long prompts with short outputs need relatively more prefill capacity. Short pro
 | `smg_pd_kv_connector_mode_total` | Counter | `mode` (`nixl`, `mooncake`, `passthrough`) | vLLM sequential dispatches |
 | `smg_pd_kv_transfer_failures_total` | Counter | — | A NIXL prefill returned no `kv_transfer_params`, so decode recomputed the prompt |
 | `smg_pd_bootstrap_failures_total` | Counter | — | HTTP bootstrap injection failed |
-| `smg_pd_admission_waits_total` | Counter | — | gRPC dispatches that waited for a decode slot |
-| `smg_pd_admission_sheds_total` | Counter | — | gRPC dispatches shed because no decode slot freed |
+| `smg_pd_admission_waits_total` | Counter | — | gRPC dispatches admitted after waiting for a decode slot |
+| `smg_pd_admission_sheds_total` | Counter | — | gRPC dispatches shed at the decode admission window |
 
 Related series:
 
@@ -512,7 +513,7 @@ smg_worker_requests_active
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| 503 `no_available_workers` naming a leg | That leg has no healthy worker with a closed circuit | Check `/workers`; restore or add workers on that leg |
+| 503 `no_available_workers` | A leg has no healthy worker with a closed circuit (over HTTP, the message names it) | Check `/workers`; restore or add workers on that leg |
 | 503 `no_compatible_pd_pair` | No prefill shares a KV transfer protocol with any decode | Compare the `pd_pairing` keys in `/workers`; align the engines or set a shared [pairing protocol](#explicit-pairing-protocol) |
 | 503 `worker_overload_protection_shed` | The decode admission window stayed full, or a leg is overloaded | Add decode workers or raise the engine's running window |
 | 400 `context_length_exceeded` (gRPC) | The prompt exceeds the smaller context window of the two legs | Shorten the prompt or give both legs the same context length |

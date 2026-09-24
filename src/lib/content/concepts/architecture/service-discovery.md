@@ -131,7 +131,7 @@ smg launch \
   --service-discovery-port 8000
 ```
 
-Service discovery turns on IGW mode automatically; the PD (or EPD) routing mode and the per-role policies stay in effect. `/readiness` reports ready once at least one prefill worker and one decode worker are healthy. See [PD Disaggregation](../routing/pd-disaggregation.md) for how the legs are paired and dispatched.
+Service discovery turns on IGW mode automatically; the PD (or EPD) routing mode and the per-role policies stay in effect. `/readiness` reports ready only when at least one prefill worker and one decode worker are healthy (and an encode worker in EPD mode). See [PD Disaggregation](../routing/pd-disaggregation.md) for how the legs are paired and dispatched.
 
 ### Parameters
 

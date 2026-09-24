@@ -136,15 +136,15 @@ To connect vLLM to its engine core directly instead of through gRPC, add `--conn
 |--------|---------|-------------|
 | `--backend` | `sglang` | Inference backend: `sglang`, `vllm`, `trtllm`, or `tokenspeed`. The `SMG_DEFAULT_BACKEND` environment variable changes the default |
 | `--connection-mode` | `grpc` | Worker connection mode: `grpc`, `http`, or `zmq`. TensorRT-LLM supports only `grpc` and TokenSpeed only `zmq`; `zmq` also works with `vllm` |
+| `--host` | `127.0.0.1` | Router host |
+| `--port` | `8080` | Router port (`30000` with `--backend sglang`; see below) |
 | `--data-parallel-size`, `--dp-size` | `1` | Number of worker replicas, each on its own GPU slice |
 | `--worker-host` | `127.0.0.1` | Host for worker processes |
 | `--worker-base-port` | `31000` | Base port for worker processes |
 | `--worker-startup-timeout` | `300` | Seconds to wait for each worker to become healthy |
 | `--enable-token-usage-details` | off | In `http` mode, start the engine with cached-token reporting (`--enable-cache-report` for SGLang, `--enable-prompt-tokens-details` for vLLM) |
-| `--host` | `127.0.0.1` | Router host |
-| `--port` | `8080` | Router port |
 
-Gateway options take a `--router-` prefix (for example `--router-policy` or `--router-model-path`); other flags are passed to the engine. When the backend's own CLI also defines `--host` or `--port` (SGLang does, and so does vLLM in `http` mode), the defaults above don't apply, so pass both explicitly.
+Gateway options take a `--router-` prefix (for example `--router-policy` or `--router-model-path`); other flags are passed to the engine. When the backend's own CLI also defines `--host` or `--port`, its definition replaces the one above: with `--backend sglang` the router defaults to `127.0.0.1:30000`, and with vLLM in `http` mode to `0.0.0.0:8000`. Pass both flags to be explicit.
 
 !!! note "Single-worker defaults"
     With `--data-parallel-size 1`, `smg serve` disables gateway retries and the circuit breaker and forces the `passthrough` routing policy, overriding any `--router-policy`: with one worker there is nothing to fail over to or balance across.

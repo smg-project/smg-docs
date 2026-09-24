@@ -73,7 +73,7 @@ smg launch \
 | `--enable-trace` | `false` | Enable OpenTelemetry tracing |
 | `--otlp-traces-endpoint` | `localhost:4317` | OTLP gRPC collector endpoint, as `host:port` (`http://` is added when no scheme is given) |
 
-Spans are batched and exported over OTLP gRPC with the service name `smg`. The gateway exports its own request spans: `http_request` for each HTTP request (method, URI, request ID, status code, and latency in microseconds) and `grpc_execute` for each dispatch through the gRPC pipeline (request type, request ID, model, and mode).
+Spans are batched and exported over OTLP gRPC with the service name `smg`. The gateway exports its own request spans: `http_request` for each HTTP request that matches a route (method, URI, request ID, status code, and latency in microseconds) and `grpc_execute` for each dispatch through the gRPC pipeline (request type, request ID, model, and mode).
 
 ### Trace propagation
 
@@ -203,7 +203,7 @@ If you deploy with the SMG Helm chart, set `router.metrics.serviceMonitor.enable
 | `smg_mcp_tool_duration_seconds` | Histogram | Tool execution time |
 | `smg_mcp_servers_active` | Gauge | Connected MCP servers |
 
-Several of these exist only when their feature is on: admission metrics need `--max-concurrent-requests`, overload metrics need worker overload protection, and PD metrics need PD mode.
+Several of these exist only when their feature is on: admission metrics need `--max-concurrent-requests` (the multimodal rejection reasons need `--multimodal-max-inflight-bytes` instead), overload metrics need worker overload protection (except PD admission sheds), and PD metrics need PD mode.
 
 [View all metrics →](../reference/metrics.md)
 
@@ -430,7 +430,7 @@ sum(rate(smg_router_tokens_total{token_type="output"}[5m]))
 
 ```promql
 # Load distribution
-smg_worker_requests_active / ignoring(worker) group_left sum(smg_worker_requests_active)
+smg_worker_requests_active / ignoring(worker) group_left sum without (worker) (smg_worker_requests_active)
 
 # Unhealthy workers
 count(smg_worker_health == 0)
@@ -438,7 +438,7 @@ count(smg_worker_health == 0)
 # Circuit breaker states
 count by (worker) (smg_worker_cb_state == 1)
 
-# Engine KV-cache usage per worker (removed workers report -1)
+# Engine KV-cache usage per worker (removed and non-Ready workers report -1)
 max by (worker) (smg_engine_token_usage >= 0)
 ```
 
@@ -480,7 +480,7 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
 ??? question "Metrics endpoint not responding"
 
-    1. Check the startup log for `Metrics server listening on <address> (/metrics)`, which shows the address actually bound. A `failed to bind metrics server` error means the port is already in use.
+    1. Check the startup log for `Metrics server listening on <address> (/metrics)`, which shows the address actually bound. A `failed to bind metrics server` error usually means the port is already in use.
 
     2. Check the port is listening:
     ```bash

@@ -48,7 +48,7 @@ Labels whose values a client can influence are bounded, so unexpected input cann
 
 | Label | Bound |
 |-------|-------|
-| `path` (HTTP metrics) | The matched route template, for example `/v1/responses/{response_id}`. Requests that match no route are labeled `other`. |
+| `path` (HTTP metrics) | The matched route template, for example `/v1/responses/{response_id}`. Requests that match no route get a bare `404` from a fallback outside the metrics layer and are not recorded. |
 | `method` (HTTP metrics) | `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`; any other method is `OTHER`. |
 | `model` | The first 1,024 distinct values keep their own series; every later new value is reported as `other` (smg-project/smg#2093). |
 | `tool_name` (MCP metrics) | Same rule as `model`: 1,024 distinct values, then `other`. |
@@ -58,7 +58,7 @@ The `model` and `tool_name` caps never evict a value once it is admitted, so the
 
 ### Removed workers
 
-The exporter cannot delete a series, so when a worker is removed SMG overwrites its per-worker gauges instead: `smg_worker_health` and `smg_worker_cb_state` become `-1`, `smg_worker_requests_active` and the circuit-breaker streak gauges become `0`, and the worker's `smg_engine_*` gauges become `-1`. Filter on the value (for example `== 1` or `>= 0`) when you aggregate these gauges.
+The exporter cannot delete a series, so when a worker is removed SMG overwrites its per-worker gauges instead: `smg_worker_health` and `smg_worker_cb_state` become `-1`, `smg_worker_requests_active` and the circuit-breaker streak gauges become `0`, and the worker's `smg_engine_*` gauges become `-1`, as they also do while a worker is out of Ready. `smg_worker_http2` keeps its last value. Filter on the value (for example `== 1` or `>= 0`) when you aggregate these gauges.
 
 ---
 
@@ -76,7 +76,7 @@ A background task started with the metrics server observes the runtime that serv
 | `smg_tokio_event_loop_stalls_total` | Counter | None | Canary wake-ups more than 5 ms late |
 | `smg_tokio_global_queue_depth` | Gauge | None | Tasks waiting in the runtime's global queue |
 | `smg_tokio_alive_tasks` | Gauge | None | Tasks spawned and not yet completed |
-| `smg_tokio_workers` | Gauge | None | Runtime worker threads (see `--runtime-worker-threads`) |
+| `smg_tokio_workers` | Gauge | None | Runtime worker threads (see `--runtime-worker-threads`, a Rust-binary flag the pip `smg launch` does not accept) |
 | `smg_tokio_worker_busy_ratio` | Gauge | `worker` | Fraction of the last sampling interval each worker thread was busy (0.0-1.0) |
 | `smg_tokio_worker_parks_total` | Counter | `worker` | Times each worker thread parked (went idle) |
 
@@ -282,14 +282,14 @@ Metrics for request routing and processing.
 
 ### `smg_router_requests_total`
 
-Requests processed by the router.
+Requests processed by the router. The gRPC router records every retry attempt as another request, and each failed attempt in `smg_router_request_errors_total`.
 
 | Type | Labels |
 |------|--------|
 | Counter | `router_type`, `backend_type`, `connection_mode`, `model`, `endpoint`, `streaming` |
 
 - `router_type`: `http`, `grpc`, `openai`
-- `backend_type`: `regular`, `pd` (prefill-decode and encode-prefill-decode), `external`, `harmony`
+- `backend_type`: `regular`, `pd` (prefill-decode and encode-prefill-decode), `external`. The streaming metrics below also use `harmony`, for Harmony-mode (gpt-oss) streaming chat on the gRPC router.
 - `connection_mode`: `http`, `grpc`, `websocket`, `webrtc`. Requests to ZMQ workers run through the gRPC pipeline and are counted with `router_type="grpc"` and `connection_mode="grpc"`.
 - `endpoint`: `chat`, `generate`, `completions`, `responses`, `messages`, `embeddings`, `classify`, `rerank`, `audio_transcriptions`, `realtime`, `realtime_sessions`, `realtime_client_secrets`, `realtime_transcription`, or `other` for routes without a dedicated label
 - `streaming`: `true`, `false`
@@ -363,7 +363,7 @@ sum(rate(smg_router_tpot_seconds_sum[5m])) / sum(rate(smg_router_tpot_seconds_co
 
 ### `smg_router_tokens_total`
 
-Token counts by type. Recorded for streaming responses on the gRPC router, and for responses from the Anthropic Messages provider.
+Token counts by type. Recorded for streaming responses on the gRPC router, and for non-streaming responses from the Anthropic Messages provider.
 
 | Type | Labels |
 |------|--------|
@@ -637,7 +637,7 @@ Requests the gateway currently has in flight to each worker.
 
 ```promql
 # Load distribution across workers
-smg_worker_requests_active / ignoring(worker) group_left sum(smg_worker_requests_active)
+smg_worker_requests_active / ignoring(worker) group_left sum without (worker) (smg_worker_requests_active)
 ```
 
 ---
@@ -696,7 +696,7 @@ Worker selection events by load balancer.
 
 ### `smg_worker_errors_total`
 
-Worker-level errors by type, recorded when a request to a worker ends in a server error (a 5xx status from the worker or a failed send).
+Worker-level errors by type, recorded by the HTTP routers when a request to a worker ends in a server error (a 5xx status from the worker or a failed send), and by gRPC prefill-decode dispatch when a leg fails. Regular-mode (non-PD) requests on the gRPC pipeline, which also serves ZMQ workers, are not counted.
 
 | Type | Labels |
 |------|--------|
@@ -829,14 +829,14 @@ Requests that exhausted all retries.
 
 #### `smg_worker_retry_backoff_seconds`
 
-Retry backoff durations by attempt number. No buckets are configured for this metric, so it is exported as a Prometheus summary: `quantile` series (`0`, `0.5`, `0.9`, `0.95`, `0.99`, `0.999`, `1`) over a rolling one-minute window, plus `_sum` and `_count`.
+Backoff before each retry, by retry number: `attempt="1"` is the wait before the first retry, which is the second attempt. No buckets are configured for this metric, so it is exported as a Prometheus summary: `quantile` series (`0`, `0.5`, `0.9`, `0.95`, `0.99`, `0.999`, `1`) over a rolling one-minute window, plus `_sum` and `_count`.
 
 | Type | Labels |
 |------|--------|
 | Summary | `attempt` |
 
 ```promql
-# P99 backoff for second attempts
+# P99 backoff before the second retry (the third attempt)
 smg_worker_retry_backoff_seconds{attempt="2", quantile="0.99"}
 ```
 
@@ -844,7 +844,7 @@ smg_worker_retry_backoff_seconds{attempt="2", quantile="0.99"}
 
 ### Engine Load Metrics
 
-SMG re-exports every worker load report it receives as `smg_engine_*` gauges (smg-project/smg#2226). By default the load monitor polls every Ready worker every `--load-monitor-interval` seconds (default `10`), so these gauges exist for any worker that reports load. With `--disable-load-monitoring`, a worker group is polled only when a load-aware routing policy, worker overload protection, or `--engine-metrics` needs the data; `--engine-metrics` forces polling for these gauges alone (see [Load Monitoring Configuration](configuration.md#load-monitoring-configuration)). gRPC and ZMQ workers answer the `GetLoads` load query; HTTP workers are read through their loads endpoint, falling back to parsing vLLM or SGLang `/metrics`.
+SMG re-exports every worker load report it receives as `smg_engine_*` gauges (smg-project/smg#2226). By default the load monitor polls every Ready worker every `--load-monitor-interval` seconds (default `10`), so these gauges exist for any worker that reports load. With `--disable-load-monitoring`, a worker group is polled only when a load-aware routing policy, worker overload protection, or `--engine-metrics` needs the data; `--engine-metrics`, a Rust-binary flag the pip `smg launch` does not accept, forces polling for these gauges alone (see [Load Monitoring Configuration](configuration.md#load-monitoring-configuration)). gRPC and ZMQ workers answer the `GetLoads` load query; HTTP workers are read through their loads endpoint, falling back to parsing vLLM or SGLang `/metrics`.
 
 Core gauges, one series per DP rank:
 
@@ -865,10 +865,10 @@ PD gauges, emitted only for ranks whose report carries a disaggregation section:
 | `smg_engine_pd_prefill_queue_reqs` | Gauge | `worker`, `role`, `dp_rank` | Requests in the prefill queue |
 | `smg_engine_pd_decode_queue_reqs` | Gauge | `worker`, `role`, `dp_rank` | Requests in the decode queue |
 
-`role` is the engine-reported role: `prefill`, `decode`, or `null`. Values are whatever the engine reports, so which fields are meaningful depends on the engine. When a worker is removed its gauges are set to `-1`. The same load snapshot is available as JSON from `GET /loads` on the main port.
+`role` is the engine-reported role: `prefill`, `decode`, or `null`. Values are whatever the engine reports, so which fields are meaningful depends on the engine. When a worker is removed or leaves Ready, its gauges are set to `-1`. The same load snapshot is available as JSON from `GET /loads` on the main port.
 
 ```promql
-# KV-cache usage per worker (removed workers report -1)
+# KV-cache usage per worker (removed and non-Ready workers report -1)
 max by (worker) (smg_engine_token_usage >= 0)
 
 # Requests waiting in engines, per model
@@ -985,7 +985,7 @@ Decision counters and state gauges of the routing policies. See [Load Balancing]
 
 ### Cache-Aware Policy Metrics
 
-The branch counter and the match-ratio histogram are recorded for each decision made from the approximate prefix trees (`--cache-index tree`, the default). Decisions made from KV events, in hash mode, or while KV-cache imbalance suspends affinity are not counted. The tree gauges are refreshed after each eviction pass (`--eviction-interval`, default `120` seconds). See [Cache-Aware Routing](../concepts/routing/cache-aware.md).
+The branch counter and the match-ratio histogram are recorded for each decision made from the approximate prefix trees (`--cache-index tree`, the default). Decisions made from KV events, in hash mode, or while KV-cache imbalance suspends affinity are not counted. The tree gauges are refreshed after each eviction pass (`--eviction-interval`, default `120` seconds; the pip `smg launch` names it `--eviction-interval-secs` and defaults to `60`). See [Cache-Aware Routing](../concepts/routing/cache-aware.md).
 
 #### `smg_cache_aware_policy_branch_total`
 
@@ -1144,7 +1144,7 @@ Decision branch of the `prefix_hash` policy.
 
 ## Priority Scheduler Metrics
 
-With `--priority-scheduler-enabled`, the priority scheduler replaces the concurrency limiter and exports its own metrics: `smg_scheduler_admit_total`, `smg_scheduler_queue_wait_seconds`, `smg_scheduler_preemption_total`, `smg_scheduler_clamp_total`, `smg_scheduler_unknown_priority_value_total`, `smg_scheduler_starvation_promotion_total`, `smg_scheduler_inflight`, `smg_scheduler_queue_depth`, `smg_scheduler_queue_size_limit`, `smg_scheduler_utilization`, and `smg_scheduler_class_capacity_pressure`. Their types, labels, and values are listed in the [Priority Scheduler Reference](priority-scheduler.md#metrics).
+With `--priority-scheduler-enabled` (a Rust-binary flag the pip `smg launch` does not accept), the priority scheduler replaces the concurrency limiter and exports its own metrics: `smg_scheduler_admit_total`, `smg_scheduler_queue_wait_seconds`, `smg_scheduler_preemption_total`, `smg_scheduler_clamp_total`, `smg_scheduler_unknown_priority_value_total`, `smg_scheduler_starvation_promotion_total`, `smg_scheduler_inflight`, `smg_scheduler_queue_depth`, `smg_scheduler_queue_size_limit`, `smg_scheduler_utilization`, and `smg_scheduler_class_capacity_pressure`. Their types, labels, and values are listed in the [Priority Scheduler Reference](priority-scheduler.md#metrics).
 
 `smg_scheduler_queue_wait_seconds` has no configured buckets, so like `smg_worker_retry_backoff_seconds` it is exported as a summary (`quantile` series plus `_sum` and `_count`).
 

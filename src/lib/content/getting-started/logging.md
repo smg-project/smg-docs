@@ -33,7 +33,7 @@ SMG supports flexible logging configuration via CLI flags or environment variabl
 
 ### Environment Variable
 
-Without `RUST_LOG`, SMG builds its log filter from `--log-level`: SMG's own crates log at that level and every dependency (hyper, tonic, and so on) at `warn`. Setting `RUST_LOG` replaces that filter entirely, and `--log-level` is then ignored. A target that matches no `RUST_LOG` directive is not logged at all, so start the value with a base level:
+Without `RUST_LOG`, SMG builds its log filter from `--log-level`: SMG's own crates log at that level and every dependency (hyper, tonic, and so on) at `warn`. Setting `RUST_LOG` replaces that filter entirely, and `--log-level` is then ignored; a `RUST_LOG` value that fails to parse is itself ignored, and `--log-level` applies. A target that matches no `RUST_LOG` directive is not logged at all, so start the value with a base level:
 
 ```bash
 # Everything at debug, dependencies included
@@ -56,7 +56,7 @@ A directive matches every target that starts with it, so `smg` covers the gatewa
 | `info` | Informational messages, including a line for each request and response | Production (verbose) |
 | `debug` | Debug information, including routing decisions | Development, troubleshooting |
 
-`trace` is not accepted by `--log-level`; set it through `RUST_LOG`. With OpenTelemetry tracing enabled, keep SMG at `info` or more verbose: the request spans are INFO-level, and the same filter applies to them.
+`trace` is not accepted by `--log-level`; set it through `RUST_LOG`. With OpenTelemetry tracing enabled, keep SMG at `info` or more verbose: the request spans are INFO-level, and the same filter applies to them. At `warn` and `error` the request span is filtered out, so log lines also carry no span fields such as `request_id`.
 
 ### Set Log Level
 
@@ -129,7 +129,7 @@ The event's own fields (`message` and any structured fields) sit at the top leve
 
 ## Request and Response Logs
 
-Every request on the main listener is logged inside an `http_request` span that carries `method`, `uri`, `version`, and `request_id`, plus `status_code` and `latency` (microseconds) once the response is ready:
+Every request that matches a route on the main listener is logged inside an `http_request` span that carries `method`, `uri`, `version`, and `request_id`, plus `status_code` and `latency` (microseconds) once the response is ready:
 
 | Target | Level | Message | When |
 |--------|-------|---------|------|
@@ -139,18 +139,18 @@ Every request on the main listener is logged inside an `http_request` span that 
 | `smg::response` | ERROR | `request failed with server error` | A 5xx response |
 | `smg::response` | ERROR | `response stream failed after the head was sent` | The response body failed after streaming began |
 
-The logging layer writes one ERROR line per 5xx response; releases before v1.10.0 also logged a duplicate `tower_http` failure line for it (smg-project/smg#2124).
+The logging layer writes one ERROR line per 5xx response; releases before v1.10.0 also logged a duplicate `tower_http` failure line for it (smg-project/smg#2124). A request to an unknown path gets a bare `404` and is not logged.
 
 ### Health Probe Logs
 
-Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, whatever the status (smg-project/smg#2124). A `503` from `/readiness` while workers are still loading is an expected state, so polling probes no longer fill the log with ERROR lines. Probes served on the dedicated `--health-check-port` listener bypass the logging layer entirely.
+Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, whatever the status; the response line reads `finished probe request` (smg-project/smg#2124). A `503` from `/readiness` while workers are still loading is an expected state, so polling probes no longer fill the log with ERROR lines. Probes served on the dedicated `--health-check-port` listener bypass the logging layer entirely.
 
 ### Other Structured Logs
 
 | Target | Level | Message | When |
 |--------|-------|---------|------|
 | `smg::policies::*` | DEBUG | Routing decisions | See [Routing Decision Logs](#routing-decision-logs) |
-| `smg::audit` | INFO | `control_plane_audit` | Control-plane requests, when control-plane authentication is configured (turn off with `--disable-audit-logging`) |
+| `smg::audit` | INFO | `control_plane_audit` | Control-plane requests, when control-plane authentication is configured. The Rust binary logs them by default (turn off with `--disable-audit-logging`); the pip `smg launch` logs them only with `--control-plane-audit-enabled` |
 | `smg_rl` | INFO | `rl.proxy`, `rl.fanout` | RL control plane calls, with `--enable-rl` |
 
 ---
@@ -192,7 +192,7 @@ See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for 
 | `smg_mm_timing process_multimodal_plan` | Media counts (`image_count`, `audio_count`, `video_count`, `video_frame_count`), per-phase times (`media_fetch_decode_ms`, `config_lookup_ms`, `preprocess_ms`, `token_expand_ms`, `total_ms`), and token counts before and after placeholder expansion (`original_tokens`, `expanded_tokens`) |
 | `smg_mm_timing mm_tensor_payload_inline`, `smg_mm_timing mm_shm_write` | Tensor transport: inline sends and shared-memory writes |
 | `smg_mm_timing assemble_tokenspeed`, `smg_mm_timing assemble_tokenspeed_item`, `smg_mm_timing tokenspeed_shm_write_direct` | TokenSpeed request assembly |
-| `smg_mm_timing video_decode_backend`, `smg_mm_timing video_tempfile_write` | Video decoding (target `llm_multimodal`) |
+| `smg_mm_timing video_decode_backend`, `smg_mm_timing video_tempfile_write` | Video decoding (target `llm_multimodal::media`) |
 
 ```bash
 smg launch --worker-urls grpc://worker:50051 --model-path Qwen/Qwen2.5-VL-7B-Instruct --log-mm-timing
@@ -275,6 +275,8 @@ services:
 volumes:
   smg-logs:
 ```
+
+The image runs as the non-root user `smg` (UID 65532), so `--log-dir` must be writable by that user. `/var/log/smg` does not exist in the image, so Docker creates the new named volume owned by root; change its owner to UID 65532 before the first start, or SMG fails at startup with `initializing rolling file appender failed`.
 
 ---
 
@@ -460,11 +462,12 @@ smg launch \
 
 ### Request ID Propagation
 
-Every request gets an ID. SMG takes it from the first of these request headers that is present: `x-request-id`, `x-correlation-id`, `x-trace-id`, `request-id` (replace the list with `--request-id-headers`). Otherwise it generates one with an OpenAI-style prefix (`chatcmpl-`, `cmpl-`, `gnt-`, `resp-`, `msg_`, or `req-`) followed by 24 random letters and digits. The ID is returned in the `x-request-id` response header and recorded as `request_id` on the request's `http_request` span, so it appears on the lines logged while the request is handled.
+Every request that matches a route gets an ID. SMG takes it from the first of these request headers that is present: `x-request-id`, `x-correlation-id`, `x-trace-id`, `request-id` (replace the list with `--request-id-headers`). Otherwise it generates one with an OpenAI-style prefix (`chatcmpl-`, `cmpl-`, `gnt-`, `resp-`, `msg_`, or `req-`) followed by 24 random letters and digits. The ID is returned in the `x-request-id` response header and recorded as `request_id` on the request's `http_request` span, so it appears on the lines logged while the request is handled, as long as SMG logs at `info` or more verbose.
 
 ```bash
 # Send request with custom ID
 curl -H "X-Request-ID: my-trace-123" \
+  -H "Content-Type: application/json" \
   http://localhost:30000/v1/chat/completions \
   -d '{"model": "llama", "messages": [{"role": "user", "content": "Hi"}]}'
 ```
@@ -517,12 +520,11 @@ logging:
 # Check log output
 smg launch --worker-urls http://worker:8000 --log-level debug | head -20
 
-# Verify JSON format
-smg launch --worker-urls http://worker:8000 --log-json | jq .
+# Verify JSON format (the startup banner before the logs is plain text, so skip non-JSON lines)
+smg launch --worker-urls http://worker:8000 --log-json | jq -R 'fromjson?'
 
-# Test log level filtering
-smg launch --worker-urls http://worker:8000 --log-level warn | grep -c INFO
-# Should output: 0
+# Test log level filtering: no INFO lines should appear (stop with Ctrl-C)
+smg launch --worker-urls http://worker:8000 --log-level warn | grep INFO
 
 # Check file logging
 smg launch --worker-urls http://worker:8000 --log-dir /tmp/smg-logs &
@@ -551,7 +553,7 @@ ls -la /tmp/smg-logs/
     smg launch --log-level info ...
     ```
 
-    4. If `--log-dir` names a directory SMG cannot create, SMG prints `Failed to create log directory: <error>` to stderr and runs with logging disabled, stdout included.
+    4. If `--log-dir` names a directory SMG cannot create, SMG prints `Failed to create log directory: <error>` to stderr and runs with logging disabled, stdout included. If the directory exists but SMG cannot create its log file there, startup fails with `initializing rolling file appender failed`.
 
 ??? question "Logs not in JSON format"
 
@@ -560,7 +562,7 @@ ls -la /tmp/smg-logs/
     smg launch --log-json --worker-urls http://worker:8000
     ```
 
-    2. Lines printed before logging is set up, such as `Failed to create log directory`, go to stderr as plain text; read stdout for the JSON logs
+    2. Lines printed before logging is set up are plain text: the startup banner goes to stdout ahead of the JSON logs, and errors such as `Failed to create log directory` go to stderr
 
 ??? question "File logs not appearing"
 

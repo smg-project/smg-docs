@@ -22,7 +22,7 @@ This guide covers setting up a development environment, building and testing SMG
 | Docker | optional | Running the Postgres storage tests locally |
 | Go | 1.24 (optional) | The Go bindings in `bindings/golang` |
 
-The Python bindings themselves support Python 3.9 and later, but ruff and mypy target 3.12 and the e2e harness requires it. smg needs no Node.js; only the [documentation site](#documentation) does.
+The Python bindings themselves support Python 3.9 and later, but ruff and mypy target 3.12 and the e2e harness requires it. Building and testing smg needs no Node.js; only `make generate-java-types`, which runs the OpenAPI generator through `npx`, and the [documentation site](#documentation) do.
 
 ---
 
@@ -116,7 +116,7 @@ The gateway is the `smg` package in `model_gateway/`. It builds two binaries fro
 | Profile | Select with | Settings | Notes |
 |---------|-------------|----------|-------|
 | `dev` | default | `opt-level = 0` for workspace crates, `opt-level = 2` for dependencies | Day-to-day development |
-| `release` | `--release` | `opt-level = "z"`, fat LTO, `codegen-units = 1`, symbols kept | Slow to compile; symbols stay so CPU profiles are readable (smg-project/smg#1575) |
+| `release` | `--release` | `opt-level = "z"`, fat LTO, `codegen-units = 1`, symbols kept | Slow to compile; symbols stay so CPU profiles are readable (smg-project/smg#1582) |
 | `ci` | `--profile ci` | `opt-level = 2`, thin LTO, 16 codegen units, stripped | What CI builds wheels with; a faster optimized build |
 | `bench` | `cargo bench` | `opt-level = 3`, thin LTO | Benchmarks |
 
@@ -252,7 +252,7 @@ You don't need a GPU to exercise the gateway: `crates/mock_worker` serves canned
 cargo run --locked -p mock-worker -- --http-count 2
 
 # Terminal 2: the gateway, round-robin across them
-cargo run --locked --bin smg -- \
+cargo run --locked --bin smg -- launch \
   --worker-urls http://127.0.0.1:9000 http://127.0.0.1:9001 \
   --policy round_robin --log-level debug
 
@@ -307,7 +307,7 @@ Clippy runs with `-D warnings`, so every workspace lint set to `warn` fails CI t
 
 ### Python
 
-Python code in `e2e_test/`, `bindings/python/`, and `scripts/` is linted and formatted with [ruff](https://docs.astral.sh/ruff/) and type-checked with [mypy](https://mypy-lang.org/). CI's `python-lint` job runs:
+Python code in `e2e_test/`, `bindings/python/`, and `scripts/` is linted and formatted with [ruff](https://docs.astral.sh/ruff/); `e2e_test/` and `bindings/python/` are also type-checked with [mypy](https://mypy-lang.org/). CI's `python-lint` job runs:
 
 ```bash
 ruff check e2e_test/ bindings/python/ scripts/
@@ -404,7 +404,7 @@ async fn test_round_robin_distribution() {
 }
 ```
 
-These tests bind fixed local ports (this one uses 3100 and 19001 to 19003), so run one test process at a time on a machine.
+These tests bind fixed local ports for their mock workers (this one uses 19001 to 19003; the router itself runs in-process through `app`), so run one test process at a time on a machine.
 
 ### Postgres Storage Tests
 
@@ -461,7 +461,7 @@ E2E_RUNTIME=vllm E2E_ENGINE=vllm E2E_GPU_TIER=1 ROUTER_LOCAL_MODEL_PATH=$HOME/mo
 
 | Variable | Effect |
 |----------|--------|
-| `E2E_RUNTIME` | Engine for local workers: `sglang` (default), `vllm`, `trtllm`, or `tokenspeed` |
+| `E2E_RUNTIME` | Engine for local workers: `sglang` (default), `vllm`, `trtllm`, `tokenspeed`, or `mlx` (Apple silicon) |
 | `E2E_ENGINE` | Keep only the tests marked for this engine |
 | `E2E_GPU_TIER` | Keep only the tests for this GPU count (`1`, `2`, `4`, ...); unmarked tests count as 1 |
 | `E2E_CONNECTION_MODE` | Run the local cases over `http`, `grpc`, or `zmq`; PD and EPD cases keep their own transport |
@@ -517,7 +517,7 @@ Routing policies implement the `LoadBalancingPolicy` trait from `model_gateway/s
 | 3 | `model_gateway/src/config/types.rs` | A `PolicyConfig` variant with its serialized name and options |
 | 4 | `model_gateway/src/policies/factory.rs` | Construct it in `PolicyFactory::create_from_config` and `create_by_name` |
 | 5 | `model_gateway/src/main.rs` | Add the name to the `--policy` value list (and to `--prefill-policy`/`--decode-policy` if it applies to PD) and map it in `parse_policy` |
-| 6 | `bindings/python/src/lib.rs`, `bindings/python/src/smg/router_args.py` | Mirror it in `PolicyType`, its config conversion, and the CLI choices, then run `make python-dev` |
+| 6 | `bindings/python/src/lib.rs`, `bindings/python/src/smg/router.py`, `bindings/python/src/smg/router_args.py` | Mirror it in `PolicyType` and its config conversion, the `policy_from_str` map, and the CLI choices, then run `make python-dev` |
 | 7 | `model_gateway/tests/routing/` | An integration test through the router |
 | 8 | smg-docs | The [configuration reference](../reference/configuration.md) and [load balancing](../concepts/routing/load-balancing.md) pages |
 
@@ -563,11 +563,11 @@ impl LoadBalancingPolicy for MyPolicy {
 
 ```bash
 # --log-level takes debug, info (default), warn, or error
-cargo run --locked --bin smg -- --worker-urls http://127.0.0.1:9000 --log-level debug
+cargo run --locked --bin smg -- launch --worker-urls http://127.0.0.1:9000 --log-level debug
 
 # RUST_LOG replaces the whole filter, which allows per-module and trace levels
 RUST_LOG=info,smg::policies=trace \
-  cargo run --locked --bin smg -- --worker-urls http://127.0.0.1:9000
+  cargo run --locked --bin smg -- launch --worker-urls http://127.0.0.1:9000
 ```
 
 Without `RUST_LOG`, `--log-level` applies to the crates listed in `WORKSPACE_CRATES` in `model_gateway/src/observability/logging.rs`, and everything else logs at `warn`. Add a new workspace crate to that list.
@@ -576,18 +576,18 @@ Without `RUST_LOG`, `--log-level` applies to the crates listed in `WORKSPACE_CRA
 
 ```bash
 cargo build --locked --bin smg
-lldb target/debug/smg -- --worker-urls http://127.0.0.1:9000
+lldb target/debug/smg -- launch --worker-urls http://127.0.0.1:9000
 ```
 
 The `dev` profile builds workspace crates with limited debug info (`debug = 1`) and dependencies without it.
 
 ### Profiling
 
-Release builds keep their symbols (`strip = false`, smg-project/smg#1575), so CPU profiles of a release binary are readable:
+Release builds keep their symbols (`strip = false`, smg-project/smg#1582), so CPU profiles of a release binary are readable:
 
 ```bash
 cargo install flamegraph
-cargo flamegraph --bin smg -- --worker-urls http://127.0.0.1:9000
+cargo flamegraph --bin smg -- launch --worker-urls http://127.0.0.1:9000
 ```
 
 For memory, the gateway uses jemalloc as its global allocator (except on MSVC and musl targets). Default builds export the `smg_allocator_*_bytes` gauges on the metrics endpoint. `--features jemalloc-profiling` compiles in jemalloc's heap profiler, which reads its options from the `_RJEM_MALLOC_CONF` environment variable because SMG's jemalloc uses prefixed symbols.
@@ -626,7 +626,7 @@ Releases are cut by the core maintainers:
 1. A `chore(release): bump versions for vX.Y.Z` PR bumps the versions. `make bump-version VERSION=X.Y.Z` updates the gateway and binding versions (`model_gateway/Cargo.toml`, both binding `Cargo.toml` files, `bindings/python/pyproject.toml`, and `bindings/python/src/smg/version.py`), and `make check-versions` checks that every workspace crate changed since the last tag has a version bump.
 2. Merging the PR to `main` starts the release workflows: `release-crates` publishes each crate whose version is newer than the one on crates.io, and `release-pypi`, `release-docker`, and `release-helm` run when `bindings/python/pyproject.toml` changes.
 
-Crate versions follow [Semantic Versioning](https://semver.org/). `make check-versions` derives the bump level from conventional commits: `feat!` or `BREAKING CHANGE` for major, `feat` for minor, anything else for patch.
+Crate versions follow [Semantic Versioning](https://semver.org/). `make check-versions` derives the bump level from conventional commits: a `!` after any type (such as `feat!` or `fix!`) or `BREAKING CHANGE` in the message for major, `feat` for minor, anything else for patch.
 
 ---
 
@@ -638,7 +638,7 @@ Crate versions follow [Semantic Versioning](https://semver.org/). `make check-ve
 | `python-lint` | ruff and mypy | [Python](#python) |
 | `unit-tests` | Clippy (all features, self-hosted-only, and Anthropic-only builds), `cargo +nightly fmt -- --check`, `cargo test`, and the Postgres tests | [Rust tests](#rust-unit-and-integration-tests) |
 | `build-wheel`, `python-unit-tests` | The Python wheel and Go FFI library; binding, servicer, and e2e-harness unit tests | [Python Bindings](#python-bindings) |
-| `e2e-*` | GPU lanes against real engines | [End-to-End Tests](#end-to-end-tests) |
+| `e2e-*` | GPU lanes against real engines, and CPU lanes against third-party providers | [End-to-End Tests](#end-to-end-tests) |
 | `go-unit-tests`, `go-bindings-e2e` | The Go bindings | [Go Bindings](#go-bindings) |
 | `finish` | Fails if any job above failed; required for merge | — |
 | `benchmark-*`, `benchmarks` | Performance; advisory | [Benchmarks](#benchmarks) |

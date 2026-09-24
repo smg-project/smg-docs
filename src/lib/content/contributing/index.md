@@ -219,7 +219,7 @@ These docs are not in the smg repository: its old `docs/` folder was removed whe
 
 ## Reporting Security Issues
 
-Do not open a public issue for a security vulnerability. Report it privately through a [GitHub security advisory](https://github.com/smg-project/smg/security/advisories/new), contact a maintainer listed in [CODEOWNERS](https://github.com/smg-project/smg/blob/main/.github/CODEOWNERS), or reach out in the `#security` channel of the [Lightseek Slack](https://slack.lightseek.org).
+Do not open a public issue for a security vulnerability. Report it privately instead: contact a maintainer listed in [CODEOWNERS](https://github.com/smg-project/smg/blob/main/.github/CODEOWNERS), or reach out in the `#security` channel of the [Lightseek Slack](https://slack.lightseek.org).
 
 ---
 

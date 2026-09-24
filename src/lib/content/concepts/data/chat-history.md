@@ -4,7 +4,7 @@ title: Chat History
 
 # Chat History
 
-SMG supports multiple storage backends for persisting conversation history, responses, and feedback data for analytics, debugging, and compliance.
+SMG supports multiple storage backends for persisting the conversations, conversation items, and stored responses behind the Responses and Conversations APIs, for analytics, debugging, and compliance.
 
 ---
 
@@ -30,17 +30,9 @@ Store complete conversation history including messages, tool calls, and reasonin
 
 <div class="card" markdown>
 
-### :material-thumb-up: Feedback Collection
-
-Collect user feedback on responses for quality monitoring and fine-tuning.
-
-</div>
-
-<div class="card" markdown>
-
 ### :material-tune: Configurable Retention
 
-Control data retention with TTL settings for compliance and storage management.
+Redis entries expire after `--redis-retention-days` (default 30 days). The other backends keep data until it's deleted (the in-memory backend, until the gateway restarts).
 
 </div>
 
@@ -134,8 +126,10 @@ Production-ready storage with PostgreSQL.
 ### Connection URL Format
 
 ```
-postgres://[user[:password]@][host][:port][/database][?param=value]
+postgres://[user[:password]@]host[:port]/database[?param=value]
 ```
+
+The scheme can also be `postgresql://`. SMG requires a host and a database name.
 
 ### Examples
 
@@ -154,27 +148,19 @@ smg --history-backend postgres \
 
 <div class="card" markdown>
 
-#### With SSL
+#### With a Connect Timeout
 
 ```bash
 smg --history-backend postgres \
-  --postgres-db-url "postgres://user:password@db.example.com:5432/smg?sslmode=require"
+  --postgres-db-url "postgres://user:password@db.example.com:5432/smg?connect_timeout=30"
 ```
 
 </div>
 
 </div>
 
-### SSL Modes
-
-| Mode | Description |
-|------|-------------|
-| `disable` | No SSL |
-| `allow` | Try non-SSL first, then SSL |
-| `prefer` | Try SSL first, then non-SSL (default) |
-| `require` | Require SSL, skip verification |
-| `verify-ca` | Require SSL, verify CA |
-| `verify-full` | Require SSL, verify CA and hostname |
+!!! warning "No TLS to PostgreSQL"
+    In v1.11.0, SMG connects to PostgreSQL without TLS, so the connection is unencrypted. `sslmode=disable` and `sslmode=prefer` (the default) both connect in plaintext, `sslmode=require` fails to connect, and any other `sslmode` value (such as `verify-full`) is rejected as an invalid URL. To encrypt traffic to the database, put a TLS tunnel between SMG and PostgreSQL, such as a sidecar proxy that connects to the database over TLS.
 
 ---
 
@@ -188,14 +174,16 @@ High-performance caching with optional persistence and TTL-based retention.
 |--------|---------|-------------|
 | `--redis-url` | - | Redis connection URL |
 | `--redis-pool-max-size` | `16` | Maximum connection pool size |
-| `--redis-retention-days` | `30` | Data retention in days (-1 for persistent) |
+| `--redis-retention-days` | `30` | Data retention in days (-1 for persistent; write it as `--redis-retention-days=-1`, since the Rust CLI rejects a separate `-1` argument) |
 
 ### Connection URL Format
 
 ```
 redis://[:password@]host[:port][/db]
-rediss://[:password@]host[:port][/db]  # TLS
 ```
+
+!!! warning "No TLS to Redis"
+    SMG v1.11.0 is built without Redis TLS support. A `rediss://` URL passes validation, but SMG fails to start because it cannot create the connection pool.
 
 ### Examples
 
@@ -214,11 +202,11 @@ smg --history-backend redis \
 
 <div class="card" markdown>
 
-#### With TLS and Auth
+#### With a Password
 
 ```bash
 smg --history-backend redis \
-  --redis-url "rediss://:password@redis.example.com:6379"
+  --redis-url "redis://:password@redis.example.com:6379"
 ```
 
 </div>
@@ -230,7 +218,7 @@ smg --history-backend redis \
 ```bash
 smg --history-backend redis \
   --redis-url "redis://localhost:6379" \
-  --redis-retention-days -1
+  --redis-retention-days=-1
 ```
 
 </div>
@@ -252,10 +240,12 @@ Enterprise-grade storage using Oracle Autonomous Database.
 | `--oracle-dsn` | `ATP_DSN` | - | Direct connection descriptor |
 | `--oracle-user` | `ATP_USER` | - | Database username |
 | `--oracle-password` | `ATP_PASSWORD` | - | Database password |
-| `--oracle-external-auth` | `ATP_EXTERNAL_AUTH` | `false` | Use external (OS) authentication instead of username/password |
-| `--oracle-pool-min` | `ATP_POOL_MIN` | `1` | Minimum connection pool size |
+| `--oracle-external-auth` | `ATP_EXTERNAL_AUTH` | `false` | Use external (OS) authentication instead of username/password; leave `--oracle-user` and `--oracle-password` unset |
+| `--oracle-pool-min` | `ATP_POOL_MIN` | `1` | Must be at least 1 and at most `--oracle-pool-max`. The pool opens connections on demand and doesn't hold a minimum open |
 | `--oracle-pool-max` | `ATP_POOL_MAX` | `16` | Maximum connection pool size |
-| `--oracle-pool-timeout-secs` | `ATP_POOL_TIMEOUT_SECS` | `30` | Connection timeout in seconds |
+| `--oracle-pool-timeout-secs` | `ATP_POOL_TIMEOUT_SECS` | `30` | How long a request waits for a free pooled connection, in seconds. Must be greater than 0 |
+
+`--oracle-dsn` takes precedence: with a DSN, SMG ignores the wallet and TNS alias. The Python launcher (`smg launch` from pip, and the container image) names two of these flags differently, `--oracle-username` and `--oracle-connect-descriptor`, and uses the TNS alias when both an alias and a DSN are given. See [Python Launcher Differences](../../reference/configuration.md#python-launcher-differences).
 
 ### Examples
 
@@ -292,6 +282,19 @@ smg --history-backend oracle \
 
 ---
 
+## Schema Migrations
+
+At startup, the PostgreSQL and Oracle backends create their tables if they don't exist, then compare the database's recorded schema version (the `_schema_versions` table) with the migrations SMG ships. SMG applies pending migrations only when auto-migration is on. Otherwise it refuses to start and prints the SQL to apply by hand. A new, empty database has pending migrations too, so turn auto-migration on for the first start:
+
+```bash
+DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
+  --postgres-db-url "postgres://user:password@localhost:5432/smg"
+```
+
+`DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
+
+---
+
 ## What Gets Stored
 
 ### Conversations
@@ -300,7 +303,7 @@ Container for a sequence of interactions:
 
 - Conversation ID
 - Creation timestamp
-- Metadata (model, user, session info)
+- Metadata (the key-value object the client attaches)
 
 ### Conversation Items
 
@@ -318,21 +321,12 @@ Individual items within a conversation:
 
 Complete response records including:
 
-- Input (original request)
+- Input items
 - Output (model response)
 - Tool calls executed
 - Model information
 - Timestamps and metadata
 - Token usage
-
-### Feedback
-
-User feedback on responses for quality tracking:
-
-- Rating (positive/negative)
-- Comments
-- Timestamp
-- Response reference
 
 ---
 
@@ -360,7 +354,7 @@ PostgreSQL for durable storage.
 
 ```bash
 smg --history-backend postgres \
-  --postgres-db-url "postgres://smg:$DB_PASSWORD@postgres:5432/smg?sslmode=require" \
+  --postgres-db-url "postgres://smg:$DB_PASSWORD@postgres:5432/smg" \
   --postgres-pool-max-size 32
 ```
 
@@ -391,7 +385,7 @@ Redis for high-performance ephemeral storage.
 
 ```bash
 smg --history-backend redis \
-  --redis-url "rediss://:$REDIS_PASSWORD@redis.example.com:6379" \
+  --redis-url "redis://:$REDIS_PASSWORD@redis.example.com:6379" \
   --redis-retention-days 7 \
   --redis-pool-max-size 64
 ```

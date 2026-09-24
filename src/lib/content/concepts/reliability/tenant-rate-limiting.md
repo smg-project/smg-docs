@@ -6,7 +6,7 @@ title: Tenant Rate Limiting
 
 [Rate Limiting](rate-limiting.md) protects **workers** from too much concurrent traffic. Tenant rate limiting protects **budgets**: it caps how many LLM tokens and requests a given tenant can consume per minute, independent of how busy the workers are. The two are orthogonal and can run together — a request can be admitted by the concurrency limiter and still be denied because its tenant is over budget, or vice versa.
 
-Think of it like reserving a hotel room online: the site holds the room — and an estimated price — the moment you book, before you have stayed a single night. When you check out, the front desk settles the bill against what you actually used: extra nights cost more, an early checkout refunds the difference. If you never check in at all, the hold quietly expires without ever being charged. Tenant rate limiting works the same way: SMG reserves an estimated number of tokens against a tenant's budget *before* it ever contacts a worker, then settles that reservation against the real, backend-reported token count once the response is known.
+Think of it like reserving a hotel room online: the site holds the room — and an estimated price — the moment you book, before you have stayed a single night. When you check out, the front desk settles the bill against what you actually used: extra nights cost more, an early checkout refunds the difference. If you never check in at all, the hotel keeps the deposit: the estimated price stays charged. Tenant rate limiting works the same way: SMG reserves an estimated number of tokens against a tenant's budget *before* it ever contacts a worker, then settles that reservation against the real, backend-reported token count once the response is known.
 
 ---
 
@@ -43,11 +43,11 @@ In every case, resolution is idempotent: whichever of settle, close, or abandon 
 
 ## Reserved once, even across retries
 
-SMG's gRPC pipeline retries a failed dispatch (a worker timeout, a `5xx`) by rerunning the *entire* pipeline for that attempt — including tokenization and worker selection. Naively, that would mean re-reserving tokens on every retry attempt for what is, from the tenant's point of view, a single logical request.
+SMG's gRPC pipeline runs its ingress stages once per logical request: preparation (which tokenizes the input), the rate-limit reservation, worker selection, and request building. When a dispatch fails with a retryable error (for example a worker timeout or a `5xx`), a retry selects workers again and re-sends the request that was already built. It never re-tokenizes and never reaches the reserve step again.
 
-Instead, the reservation is made **once**, by whichever attempt reaches the reserve step first, and cached for the lifetime of that logical request. Every later retry attempt sees the cached outcome and skips straight through — no repeat reservation, no repeat denial check against the backend. A rate-limit denial is also never itself treated as retryable: retrying immediately against the same exhausted budget would just defeat the wait time the gateway already told the client about.
+So the reservation is made **once**, before the first attempt, and the same reservation is settled or closed after the last one: no repeat reservation, no repeat denial check against the backend. A rate-limit denial happens during ingress, before the retry loop, so it is never retried: retrying immediately against the same exhausted budget would just defeat the wait time the gateway already told the client about.
 
-The model a reservation is scoped to is pinned the same way, for the same reason: retries dispatch against the exact canonical model the first attempt resolved, even if the underlying alias mapping changes mid-retry. Without that, a request could be reserved against one model's budget and settled against another's.
+The model a reservation is scoped to is pinned the same way: the router resolves the request's model to its canonical ID once, up front, and both the reservation and every dispatch attempt use that ID, even if the alias mapping changes mid-request. Without that, a request could be reserved against one model's budget and settled against another's.
 
 ---
 
@@ -70,17 +70,15 @@ See the [reference page](../../reference/tenant-rate-limiting.md) for the exact 
 
 A few accounting details that were specifically fixed to avoid over- or under-charging a tenant:
 
-- **A shared prompt is charged once, not per choice.** When a request asks for `n>1` completions, every choice shares the same input prompt. The reservation — and the settled usage — uses the *maximum* reported prompt (and cached-token) count across choices, not the sum; only completion tokens, which really are distinct per choice, are summed.
+- **A shared prompt is charged once, not per choice.** When a request asks for `n>1` completions, every choice shares the same input prompt. The reservation counts the prompt once, and settlement takes a single prompt count from the reported usage (for chat, the *maximum* across choices), not the sum; only completion tokens, which really are distinct per choice, are summed.
 - **A streaming response settles only once every expected choice has actually finished.** A clean end-of-stream partway through an `n>1` request (some choices completed, others didn't) is not treated as full, trustworthy usage — it closes the reservation at the estimate instead of settling with an understated real count.
 
 ---
 
-## Fail-open by design
+## Failure handling
 
-Two situations are deliberately handled by *not* enforcing the limit, rather than by blocking traffic:
-
-- **Startup:** an unparsable or invalid rate-limit YAML is logged at `ERROR` and the gateway starts anyway, without a rate limiter — a broken config file must never take the data plane down.
-- **Missing tenant identity:** if a request somehow reaches the reserve stage without a resolved tenant identity (it shouldn't, once tenant-resolution middleware is wired), the gateway logs a warning and skips reservation rather than blocking the request on missing context.
+- **Startup fails closed:** with `--tenant-rate-limit-enabled`, a missing `--tenant-rate-limit-config`, a file that can't be read or parsed, or a policy that fails validation stops the gateway at startup. An operator who turned rate limiting on never gets a gateway that silently runs unlimited.
+- **Missing tenant identity fails open:** if a request somehow reaches the reserve stage without a resolved tenant identity (it shouldn't, since the tenant-resolution middleware runs on every serving route), the gateway logs a warning and skips reservation rather than blocking the request on missing context.
 
 ---
 
@@ -94,9 +92,11 @@ A denied reservation returns **429** with the gateway's standard JSON error enve
 
 Tenant rate limiting is wired into SMG's **gRPC router only**, covering the Chat, Generate, Completion, and Messages endpoints (Harmony-mode chat is covered too — it shares the same entry point as regular chat). It is **not yet wired into**: the Responses endpoint, embeddings, classify, audio transcriptions, or any of the HTTP-passthrough / external-provider routers.
 
+The `--tenant-rate-limit-*` flags belong to the Rust `smg` binary. The Python launcher (`smg launch` from pip, and the container image) does not accept them in v1.11.0.
+
 Enforcement is also **per gateway instance**: a tenant's true limit across several independent SMG instances is roughly the configured value multiplied by the instance count. A distributed backend for exact cluster-wide enforcement is a possible future extension behind the same interface, not something this version provides.
 
-There are no Prometheus metrics for tenant rate-limit decisions yet — admissions, denials, and settlement deltas aren't currently observable beyond request-level logging and the `429` responses themselves.
+There are no dedicated Prometheus metrics for tenant rate-limit decisions yet. Denials show up only as `429` responses, which the generic `smg_http_responses_total` counter records with `error_code="tenant_rate_limit_exceeded"`; admissions and settlement deltas aren't observable.
 
 ---
 

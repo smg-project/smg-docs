@@ -1,9 +1,9 @@
 # Admin API Reference
 
-SMG provides administrative endpoints for managing tokenizers, workers, cache, and cluster operations.
+SMG provides administrative endpoints for managing tokenizers, workers, WASM modules, and engine caches, plus read-only model and server information.
 
 !!! tip "Related Documentation"
-    For health checks, worker status, and monitoring endpoints, see [Gateway Extensions](extensions.md).
+    For health probes, the full route list, and each route's auth tier, see [Gateway Extensions](extensions.md).
 
 ---
 
@@ -12,7 +12,7 @@ SMG provides administrative endpoints for managing tokenizers, workers, cache, a
 Manage tokenizers for text processing and tokenization.
 
 !!! note "Authentication Required"
-    These endpoints require admin authentication via API key or control plane credentials.
+    These are control-plane routes. They need an admin control-plane credential when control-plane auth is configured, and the shared `--api-key` otherwise. See [Authentication](#authentication).
 
 ### Add Tokenizer
 
@@ -43,6 +43,17 @@ Adds a new tokenizer from a local path or HuggingFace model ID.
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "pending",
   "message": "Tokenizer 'llama3-tokenizer' registration job submitted. Loading from: meta-llama/Meta-Llama-3-8B"
+}
+```
+
+Loading runs in the background. Poll [Get Tokenizer Status](#get-tokenizer-status) with the returned `id`.
+
+**Response:** `409 Conflict` when a tokenizer with this `name` is already registered. The `id` is the existing tokenizer's:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "failed",
+  "message": "Tokenizer 'llama3-tokenizer' already exists"
 }
 ```
 
@@ -78,7 +89,7 @@ Returns all registered tokenizers.
 GET /v1/tokenizers/{tokenizer_id}
 ```
 
-Returns details for a specific tokenizer.
+Returns details for a specific tokenizer. `{tokenizer_id}` is the tokenizer's ID or its name.
 
 **Response:** `200 OK`
 ```json
@@ -108,7 +119,7 @@ Returns details for a specific tokenizer.
 GET /v1/tokenizers/{tokenizer_id}/status
 ```
 
-Returns the loading status of a tokenizer.
+Returns the loading status of a tokenizer. A loaded tokenizer can be looked up by ID or name; a job that is still queued, loading, or failed only by the ID that [Add Tokenizer](#add-tokenizer) returned.
 
 **Response:** `200 OK`
 ```json
@@ -127,6 +138,18 @@ Returns the loading status of a tokenizer.
 | `completed` | Tokenizer ready for use |
 | `failed` | Loading failed (see message) |
 
+`vocab_size` is present only for `completed`. A `failed` status is kept for about five minutes. After that, and for an ID that SMG does not know:
+
+**Response:** `404 Not Found`
+```json
+{
+  "error": {
+    "message": "Tokenizer '550e8400-e29b-41d4-a716-446655440000' not found and no pending job",
+    "type": "not_found"
+  }
+}
+```
+
 ---
 
 ### Remove Tokenizer
@@ -135,13 +158,21 @@ Returns the loading status of a tokenizer.
 DELETE /v1/tokenizers/{tokenizer_id}
 ```
 
-Removes a tokenizer.
+Removes a tokenizer. `{tokenizer_id}` is the tokenizer's ID or its name.
 
 **Response:** `200 OK`
 ```json
 {
   "success": true,
   "message": "Tokenizer 'llama3-tokenizer' removed successfully"
+}
+```
+
+**Response:** `404 Not Found`
+```json
+{
+  "success": false,
+  "message": "Tokenizer 'llama3-tokenizer' not found"
 }
 ```
 
@@ -772,7 +803,7 @@ The same per-worker report appears as `engine_load` on `GET /workers` and `GET /
 
 ## Model Information
 
-Query model and server information.
+Query model and server information. These are public routes and need no authentication.
 
 ### List Models
 
@@ -780,7 +811,7 @@ Query model and server information.
 GET /v1/models
 ```
 
-Returns available models (proxied to workers).
+Returns the models that the registered self-hosted workers serve, read from the gateway's worker registry rather than from the workers. A caller that sends its own provider key gets the external providers' model list instead, fetched with that key. See [List Models](openai.md#list-models) for the details.
 
 **Response:** `200 OK`
 ```json
@@ -788,14 +819,16 @@ Returns available models (proxied to workers).
   "object": "list",
   "data": [
     {
-      "id": "llama3-70b",
+      "id": "meta-llama/Llama-3.1-8B-Instruct",
       "object": "model",
-      "created": 1700000000,
-      "owned_by": "meta"
+      "created": 0,
+      "owned_by": "self_hosted"
     }
   ]
 }
 ```
+
+`created` is always `0`. With no self-hosted model to list, the route answers `503` with the plain-text body `No models available`.
 
 ---
 
@@ -805,23 +838,15 @@ Returns available models (proxied to workers).
 GET /get_model_info
 ```
 
-Returns detailed model information (proxied to HTTP workers).
+Forwards the request to the first healthy regular HTTP worker (the first healthy prefill worker in HTTP PD mode) and returns that worker's answer. SGLang serves this route, and its answer includes fields such as `model_path`, `tokenizer_path`, and `is_generation`. An engine without the route, such as vLLM, answers `404`. In regular mode the worker's status and body pass through unchanged; in HTTP PD mode an error status comes back in the gateway's [error envelope](#error-responses). With no healthy worker to ask, the route answers `503`.
 
-**Response:** `200 OK`
-```json
-{
-  "model_name": "llama3-70b",
-  "max_tokens": 8192,
-  "vocab_size": 128256
-}
-```
-
-!!! note "gRPC workers"
-    This endpoint is not proxied for gRPC-connected workers. The gateway calls
-    the backend's `GetModelInfo` RPC once at worker registration and surfaces
-    the result as worker labels (`model_path`, `served_model_name`,
+!!! note "gRPC and ZMQ workers"
+    The gRPC router, which also serves ZMQ workers, does not implement this
+    route and answers `501 Not Implemented`. For gRPC workers, the gateway
+    calls the backend's `GetModelInfo` RPC once at worker registration and
+    surfaces the result as worker labels (`model_path`, `served_model_name`,
     `vocab_size`, `max_context_length`, ...) in
-    [`GET /workers`](extensions.md#worker-management).
+    [`GET /workers`](#list-workers).
 
 ---
 
@@ -831,31 +856,24 @@ Returns detailed model information (proxied to HTTP workers).
 GET /get_server_info
 ```
 
-Returns server information (proxied to HTTP workers).
+Forwards the request the same way as [Get Model Info](#get-model-info) and returns the worker's answer. SGLang returns its server arguments together with scheduler state and its `version`.
 
-**Response:** `200 OK`
-```json
-{
-  "version": "0.1.0",
-  "backend": "vllm",
-  "gpu_count": 8
-}
-```
-
-!!! note "gRPC workers"
-    This endpoint is not proxied for gRPC-connected workers. The gateway calls
-    the backend's `GetServerInfo` RPC once at worker registration and surfaces
-    a curated subset of `server_args` (`tp_size`, `dp_size`,
-    `max_total_tokens`, `version`, ...) as worker labels in
-    [`GET /workers`](extensions.md#worker-management). Live scheduler state
-    (running/waiting requests, KV utilization) is served by
-    [`GET /get_loads`](#get-loads) instead.
+!!! note "gRPC and ZMQ workers"
+    The gRPC router answers `501 Not Implemented`. For gRPC workers, the
+    gateway calls the backend's `GetServerInfo` RPC once at worker
+    registration and surfaces a curated subset of `server_args` (`tp_size`,
+    `dp_size`, `max_total_tokens`, `version`, ...) as worker labels in
+    [`GET /workers`](#list-workers). Live scheduler state (running and
+    waiting requests, KV utilization) is served by [`GET /loads`](#get-loads)
+    instead.
 
 ---
 
 ## WASM Module Management
 
 Manage WebAssembly plugins. Modules are registered from files accessible to the gateway process; the request body contains descriptors with paths, not binary payloads.
+
+These routes need `--enable-wasm`. Without it, each answers `500 Internal Server Error` with an empty body.
 
 ### Add WASM Module
 
@@ -882,7 +900,7 @@ Registers one or more WASM modules.
 }
 ```
 
-The only supported `module_type` today is `Middleware`. Valid `Middleware` attach points are `OnRequest`, `OnResponse`, and `OnError`.
+The only supported `module_type` today is `Middleware`. Valid `Middleware` attach points are `OnRequest`, `OnResponse`, and `OnError`, but `OnError` modules never run in v1.11.0: the middleware calls only `OnRequest` and `OnResponse` modules, and skips `OnResponse` for streaming responses.
 
 **Response:** `200 OK` on full success, `400 Bad Request` if any module failed to register. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message).
 
@@ -928,7 +946,7 @@ Returns all registered WASM modules together with aggregate execution metrics.
         "size_bytes": 65536,
         "created_at": "2024-01-15T12:00:00.000000000Z",
         "last_accessed_at": "2024-01-15T12:05:00.000000000Z",
-        "access_count": 42,
+        "access_count": 40,
         "attach_points": [
           {"Middleware": "OnRequest"}
         ]
@@ -936,15 +954,17 @@ Returns all registered WASM modules together with aggregate execution metrics.
     }
   ],
   "metrics": {
-    "total_executions": 42,
-    "successful_executions": 42,
+    "total_executions": 40,
+    "successful_executions": 40,
     "failed_executions": 0,
-    "total_execution_time_ms": 125,
+    "total_execution_time_ms": 120,
     "max_execution_time_ms": 8,
-    "average_execution_time_ms": 2.97
+    "average_execution_time_ms": 3.0
   }
 }
 ```
+
+`metrics` covers every module. `average_execution_time_ms` is `total_execution_time_ms` divided by `total_executions`, and is left out until a module has run.
 
 ---
 
@@ -961,39 +981,50 @@ Removes a WASM module. The body is a plain text status message, not JSON.
 Module removed successfully
 ```
 
-On failure returns `400 Bad Request` with the error text as the body.
+On failure returns `400 Bad Request` with the error text as the body. A `module_uuid` that is not a UUID gets `400` with an empty body.
 
 ---
 
 ## Error Responses
 
-All endpoints return errors in a consistent format:
+The admin endpoints do not share one error format. The body depends on the part of SMG that rejects the request:
+
+| Source | Status | Body |
+|--------|--------|------|
+| Control-plane auth | `401`, `403` | Plain text, such as `Missing or invalid Authorization header`, `Invalid authentication token`, or `Admin role required for control plane access`. A `401` carries `WWW-Authenticate: Bearer realm="control-plane"` |
+| `--api-key` auth, when control-plane auth is not configured | `401` | Empty |
+| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor |
+| [Worker endpoints](#worker-errors) | `400`, `404`, `409`, `500` | `{"error": "<message>", "code": "<CODE>"}` |
+| [Get Tokenizer](#get-tokenizer), [Get Tokenizer Status](#get-tokenizer-status) | `404` | `{"error": {"message": "<message>", "type": "tokenizer_not_found"}}`, with `"type": "not_found"` from Get Tokenizer Status |
+| [Add Tokenizer](#add-tokenizer) | `409`, `503` | The `202` body shape with `"status": "failed"` |
+| [Remove Tokenizer](#remove-tokenizer) | `404` | `{"success": false, "message": "<message>"}` |
+| `/parse/function_call`, `/parse/reasoning` | `400`, `503` | `{"error": "<message>", "success": false}` |
+| [Add WASM Module](#add-wasm-module) | `400` | The module list, with `"add_result": {"Error": "<message>"}` on each module that failed |
+| [Remove WASM Module](#remove-wasm-module), and every WASM route without `--enable-wasm` | `400`, `500` | Plain text or empty |
+| The gateway, on forwarded routes such as `/get_model_info` | `503` and others | The gateway error envelope below |
+
+Errors that the gateway generates itself, for example when no worker is available, use this envelope and repeat `code` in the `X-SMG-Error-Code` response header:
 
 ```json
 {
   "error": {
-    "message": "Detailed error description",
-    "type": "error_type"
+    "type": "Service Unavailable",
+    "code": "no_workers",
+    "message": "No workers are available",
+    "param": null
   }
 }
 ```
 
-| HTTP Status | Error Type | Description |
-|-------------|------------|-------------|
-| `400` | `bad_request` | Invalid request format or parameters |
-| `401` | `unauthorized` | Missing or invalid authentication |
-| `403` | `forbidden` | Insufficient permissions |
-| `404` | `not_found` | Resource not found |
-| `409` | `conflict` | Resource already exists |
-| `503` | `service_unavailable` | No healthy workers available |
+`type` is the reason phrase of the HTTP status (`Not Found`, `Service Unavailable`, ...), and `param` is always `null`. The inference endpoints use the same envelope; see [Error Responses](openai.md#error-responses) in the OpenAI-compatible API reference.
 
 ---
 
 ## Authentication
 
-Admin endpoints require authentication via one of:
+The tokenizer, worker, WASM, cache flush, and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
 
-1. **API Key**: Pass via `Authorization: Bearer <api-key>` header
-2. **Control Plane Key**: For cluster management operations
+1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT whose role is `admin`. A missing or invalid credential gets `401`, and one with another role gets `403`. The shared `--api-key` is not accepted.
+2. **Without it**: the shared `--api-key`. Per-tenant `--tenant-api-key` keys are rejected, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
 
-Public endpoints (health checks, model info) do not require authentication.
+Public endpoints need no authentication: the health probes, `/loads`, `/engine_metrics`, and the [Model Information](#model-information) routes. See [Auth Model](extensions.md#auth-model) for every route's tier.

@@ -26,7 +26,7 @@ Use the same header for all control-plane calls:
 -H "Authorization: Bearer ${ADMIN_TOKEN}"
 ```
 
-Control-plane middleware requires admin role for these operations.
+Control-plane middleware requires admin role for these operations. Without control-plane auth configured, use the shared `--api-key` as `ADMIN_TOKEN`; see [Without Control Plane Auth](control-plane-auth.md#without-control-plane-auth).
 
 ---
 
@@ -193,12 +193,13 @@ curl -X POST http://localhost:30000/flush_cache \
   -H "Authorization: Bearer ${ADMIN_TOKEN}"
 ```
 
-Inspect worker loads:
+Inspect engine load. `/loads` is a public route, so it needs no auth header. Add `?model=<model_id>` to limit it to one model's workers:
 
 ```bash
-curl http://localhost:30000/get_loads \
-  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+curl http://localhost:30000/loads
 ```
+
+The answer comes from the gateway's cached load snapshot, so no request reaches a worker. `/get_loads` is a deprecated alias that still requires control-plane auth. See [Get Loads](../reference/api/admin.md#get-loads) for the response fields.
 
 ---
 

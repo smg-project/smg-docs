@@ -549,25 +549,48 @@ smg \
 
 ## Monitoring & Observability
 
-The cache implementation tracks per-level hit/miss counters and L1 memory
-usage internally (`CacheStats` and `L1CacheStats` in the `tokenizer` crate).
-These statistics are not currently exported to the gateway's Prometheus
-`/metrics` endpoint, so hit-rate monitoring must rely on application-level
-logging or benchmark runs until dedicated metrics are wired up.
+The gateway exports cache activity on its Prometheus `/metrics` endpoint
+(smg-project/smg#2603):
+
+| Metric | Labels | Meaning |
+|--------|--------|---------|
+| `smg_tokenizer_cache_lookups_total` | `layer` (`l0`, `l1`), `result` (`hit`, `miss`) | One outcome per lookup |
+| `smg_tokenizer_cache_evictions_total` | `layer` | Entries removed to make room (clears and replacements excluded) |
+| `smg_tokenizer_cache_reused_bytes_total` | `layer` | Input bytes served by hits: whole inputs for L0, matched prefixes for L1 |
+
+The counters are totals across all tokenizers in the process, with no model
+label, and a disabled layer reports zeros. An L0 hit never reaches L1, and L1
+counts inputs without special-token boundaries as misses, so compute each
+layer's hit ratio against its own lookups:
+
+```promql
+sum by (layer) (rate(smg_tokenizer_cache_lookups_total{result="hit"}[5m]))
+/
+sum by (layer) (rate(smg_tokenizer_cache_lookups_total[5m]))
+```
+
+See the [Metrics Reference](../../reference/metrics.md#tokenizer-cache-metrics)
+for details.
 
 ### Sizing Signals to Watch
 
-Without dedicated cache metrics, use these indirect signals when tuning
-`--tokenizer-cache-l0-max-entries` and `--tokenizer-cache-l1-max-memory`:
+Use these signals when tuning `--tokenizer-cache-l0-max-entries` and
+`--tokenizer-cache-l1-max-memory`:
 
-- Rising tokenization latency at steady request rate suggests more unique
-  prompts than L0 can retain — increase `max-entries`.
-- Multi-turn chat traffic with growing context benefits from larger L1
-  memory budgets; set L1 based on the estimate of ~1 KB per active
-  conversation described in [L1 Cache Sizing](#l1-cache-sizing).
-- Resident process memory approaching the sum of L0 (~2.2 KB per entry)
-  plus L1 (`max-memory`) bounds indicates you are near the configured
-  cache budget.
+- A low L0 hit ratio with a steady L0 eviction rate
+  (`rate(smg_tokenizer_cache_evictions_total{layer="l0"}[5m])`) means more
+  distinct inputs arrive than L0 holds; raise `max-entries` if the workload
+  repeats inputs at all.
+- L1 evictions mean the prefix cache is at its memory bound. Multi-turn chat
+  traffic with growing context benefits from a larger L1 budget; see
+  [L1 Cache Sizing](#l1-cache-sizing).
+- `smg_tokenizer_cache_reused_bytes_total` separates many small prefix hits
+  from reuse of large prompts: a high hit ratio with little reused volume
+  saves little tokenization work.
+- Each L0 entry keeps the full input text and its encoding, so entry size
+  grows with prompt length; the out-of-memory investigation that led to these
+  metrics (smg-project/smg#2603) observed entries of roughly 2 MB for large
+  inputs. Watch `smg_allocator_allocated_bytes` when raising `max-entries`.
 
 ---
 

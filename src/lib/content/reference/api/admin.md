@@ -270,7 +270,7 @@ Flush the engines' KV caches, and read the engine load the gateway has polled fr
 POST /flush_cache
 ```
 
-Asks every registered worker to drop its KV prefix cache. The calls go out in parallel, and the response reports the outcome per worker. Requires admin [authentication](#authentication).
+Asks every registered HTTP and gRPC worker to drop its KV prefix cache. The calls go out in parallel, and the response reports the outcome per worker. Requires admin [authentication](#authentication).
 
 | Worker | How it is flushed |
 |--------|-------------------|
@@ -311,7 +311,7 @@ On a partial failure, `status` is `"partial_success"` and two more fields list t
   "failed": [
     {
       "worker": "http://gpu2:8000",
-      "error": "flush_cache failed for worker http://gpu2:8000: HTTP 500 Internal Server Error"
+      "error": "flush_cache failed for worker http://gpu2:8000/flush_cache: HTTP 500 Internal Server Error"
     }
   ]
 }

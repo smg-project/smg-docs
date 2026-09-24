@@ -86,7 +86,7 @@ Each load report is scored on two signals:
 | Waiting requests | `num_waiting_reqs`, summed across the worker's DP ranks | `--worker-overload-waiting-requests` |
 | KV token usage | `token_usage` (0.0–1.0), averaged across the worker's DP ranks | `--worker-overload-token-usage` |
 
-A worker is **overloaded** when either signal is at or above its threshold. Because token usage is a mean, one saturated DP rank does not veto a worker whose other ranks still have room. It is the same signal `--balance-token-usage-threshold` reads, applied as an absolute ceiling instead of a fleet-wide spread.
+A worker is **overloaded** when either signal is at or above its threshold. Token usage is compared as a mean, not rank by rank: a saturated DP rank vetoes the worker only if it lifts the mean to the threshold, and the mean can reach the threshold while some ranks are still below it. The mean is the same signal `--balance-token-usage-threshold` reads, applied as an absolute ceiling instead of a fleet-wide spread.
 
 ### Where the Signals Come From
 
@@ -105,12 +105,12 @@ The gateway's load monitor collects one report per worker per poll. The source d
 
 - Workers are polled in groups (same model, worker type, and connection mode) every `--load-monitor-interval` seconds (default `10`), with a floor of 1 second. The worker spec also has a `load_monitor_interval_secs` field, but in v1.11.0 worker registration does not copy it onto the worker, so it has no effect; use `--load-monitor-interval`.
 - Only `Ready` workers are polled. HTTP load requests time out after 5 seconds.
-- The overload check runs once per received report, against that worker's own thresholds, and the verdict is stored on the worker. Selection only reads the stored flag, so the check adds nothing per request, and a verdict can only change when a new report arrives.
+- The overload check runs once per poll of each worker, against that worker's own thresholds, and the verdict is stored on the worker. Selection only reads the stored flag, so the check adds nothing per request. Only a poll can set the flag. A poll can also clear it, and so can the events listed under [When a Worker Does Not Report](#when-a-worker-does-not-report).
 - There is no hysteresis: the first report under every threshold clears the veto.
 
 ### When a Worker Does Not Report
 
-Overload protection **fails open**. A poll that produces no report (an unsupported backend, a timeout, an error, or an empty report) clears the worker's veto: no fresh signal means no opinion, and the worker stays routable. The veto is also cleared when a worker leaves `Ready` or is removed, and for every worker when the monitor has to rebuild its state (logged as a warning).
+Overload protection **fails open**. A poll that produces no report (an unsupported backend, a timeout, an error, or an empty report) clears the worker's veto: no fresh signal means no opinion, and the worker stays routable. The veto is also cleared when a worker leaves `Ready`, is removed, or is replaced (`PUT` or `PATCH` on `/workers/{worker_id}`), and for every worker when the monitor has to rebuild its state (logged as a warning).
 
 A field the backend leaves out reads as `0`, so that signal never trips. `--worker-overload-token-usage` only works for backends that report KV usage.
 
@@ -119,7 +119,7 @@ A field the backend leaves out reads as `0`, so that signal never trips. `--work
 ## Configuration
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --worker-overload-protection \
   --worker-overload-waiting-requests 16
@@ -136,7 +136,7 @@ smg \
 Either threshold on its own enables protection; `--worker-overload-protection` is not required. An explicit `--worker-overload-token-usage` overrides the `0.9` default. With all three unset (and no per-worker blocks), protection is off and routing is unchanged.
 
 !!! note "Validation"
-    Both comparisons are inclusive (`>=`), so the values that would veto every worker unconditionally are rejected at startup: `--worker-overload-waiting-requests 0`, and any `--worker-overload-token-usage` outside `(0.0, 1.0]`, including `0`. A token usage threshold of `1.0` is accepted and vetoes a worker only when its KV cache is full.
+    Both comparisons are inclusive (`>=`), so a threshold of `0` would veto every worker unconditionally. Startup rejects `--worker-overload-waiting-requests 0` and any `--worker-overload-token-usage` outside `(0.0, 1.0]`, including `0`. A token usage threshold of `1.0` is accepted and vetoes a worker only when its KV cache is full.
 
 The Python launchers accept the same flags; under `smg serve` they take the `--router-` prefix (for example `--router-worker-overload-protection`). See the [Configuration Reference](../../reference/configuration.md#worker-overload-protection) for every flag.
 
@@ -204,10 +204,10 @@ X-SMG-Error-Code: worker_overload_protection_shed
 }
 ```
 
-- **`Retry-After`** is the gateway's `--load-monitor-interval` in whole seconds (at least `1`): a veto cannot clear before the next poll. Clients should wait that long before retrying.
+- **`Retry-After`** is the gateway's `--load-monitor-interval` in whole seconds (at least `1`), because a vetoed worker's load is not re-checked before the next poll. Clients should wait that long before retrying.
 - **Not retried internally**: the gateway's retry layer never retries a shed, so the answer comes back immediately rather than after rounds of backoff against the same verdict.
 - **Trustworthy code**: `X-SMG-Error-Code` is set only by the gateway and is stripped from responses forwarded from workers, so it always marks a decision this gateway made.
-- **Dispatch-time re-check**: if the chosen worker is flagged between selection and dispatch, the request is shed with the message `Worker '<url>' for model '<model>' became overloaded before dispatch`. The gateway sheds instead of re-selecting; the flag only moves at poll cadence, so this window is rare.
+- **Dispatch-time re-check**: if the chosen worker is flagged between selection and dispatch, the request is shed with the message `Worker '<url>' for model '<model>' became overloaded before dispatch`. The gateway sheds instead of re-selecting; the flag is only set at poll cadence, so this window is rare.
 - **Mixed causes are not a shed**: if some candidates are out for another reason (unhealthy, or circuit breaker open) and the rest are overloaded, the request gets the ordinary `503 no_available_workers`.
 
 !!! note "Changed in v1.11.0"
@@ -223,7 +223,7 @@ The load monitor feeds overload protection, the load-aware routing policies (`ca
 |-----------|---------|-------------|
 | `--load-monitor-interval` | `10` | Seconds between polls of each worker group. Must be `> 0`. Also the `Retry-After` value on overload sheds. |
 | `--disable-load-monitoring` | off | Restores the conditional gate used before v1.10.0: a group is polled only when a load-aware policy (or `--dp-minimum-tokens-scheduler`), `--engine-metrics`, or overload protection on one of its workers needs the data. It never stops polling that routing or protection depends on; with the default `cache_aware` policy, groups are still polled. |
-| `--engine-metrics` | off | Forces polling so the `smg_engine_*` gauges are populated when nothing else needs the data. Only matters together with `--disable-load-monitoring`: by default every successful poll is already exported. |
+| `--engine-metrics` | off | Forces polling so the `smg_engine_*` gauges are populated when nothing else needs the data. Only matters together with `--disable-load-monitoring`: by default every successful poll is already exported. The Python launchers do not accept this flag. |
 
 See [Load Monitoring Configuration](../../reference/configuration.md#load-monitoring-configuration) for the full reference.
 
@@ -316,7 +316,7 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "SMG is shedding requests because every candidate worker is overloaded"
+          summary: "SMG is shedding requests with worker_overload_protection_shed"
 ```
 
 ---
@@ -334,7 +334,7 @@ groups:
 The engine-agnostic default: exclude a worker at 90% KV usage.
 
 ```bash
-smg \
+smg launch \
   --worker-overload-protection
 ```
 
@@ -349,7 +349,7 @@ smg \
 Also cap the waiting queue, sized from your own traffic.
 
 ```bash
-smg \
+smg launch \
   --worker-overload-protection \
   --worker-overload-waiting-requests 16
 ```
@@ -365,7 +365,7 @@ smg \
 Gateway defaults plus `overload` blocks on the workers that saturate earlier.
 
 ```bash
-smg --worker-overload-protection
+smg launch --worker-overload-protection
 # then register small workers with
 # "overload": {"waiting_requests": 8}
 ```
@@ -381,7 +381,7 @@ smg --worker-overload-protection
 Poll more often, so vetoes set and clear sooner and `Retry-After` is shorter.
 
 ```bash
-smg \
+smg launch \
   --worker-overload-protection \
   --load-monitor-interval 5
 ```

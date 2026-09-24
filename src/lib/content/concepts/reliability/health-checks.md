@@ -85,7 +85,7 @@ SMG probes each registered worker on its own schedule. A newly registered worker
 
 The ZMQ probe is also what reconnects a restarted engine, so health checks stay on for ZMQ workers even when they are disabled in configuration. Under `--upstream-http2`, HTTP probes use the same protocol as request traffic: HTTP/2 for workers that negotiated it at registration, HTTP/1.1 for the rest (see [Request Streaming](../performance/request-streaming.md)).
 
-The HTTP probe sends the API key in the `Authorization` header, as request traffic does, so on a plain `http://` worker URL the key crosses the network unencrypted.
+The HTTP probe sends the API key in the `Authorization` header, as regular-mode HTTP requests do, so on a plain `http://` worker URL the key crosses the network unencrypted.
 
 ### Worker States
 

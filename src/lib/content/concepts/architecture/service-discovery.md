@@ -431,7 +431,7 @@ A removal job matches every registration at the address: the `http://` or `grpc:
 When the pod becomes Ready again, the next pass registers it again. If readiness returns while the removal is still inside its settle window, re-registration can wait for the next periodic pass.
 
 !!! note "Drain settle window"
-    `--drain-settle-secs` applies to every removal: pod changes seen by discovery, [worker auto-recovery](../reliability/health-checks.md#worker-auto-recovery), and `DELETE /workers/{worker_id}`. Set it to `0` to remove workers without draining. The flag belongs to the `smg` binary; the Python launcher (`smg launch` from pip, and the container image) does not accept it yet, so those deployments use the 5-second default.
+    `--drain-settle-secs` applies whenever a `Ready` worker is removed: by pod changes seen by discovery or by `DELETE /workers/{worker_id}`. [Worker auto-recovery](../reliability/health-checks.md#worker-auto-recovery) removes only `Failed` workers, so it never waits. Set the flag to `0` to remove `Ready` workers immediately. The flag belongs to the `smg` binary; the Python launcher (`smg launch` from pip, and the container image) does not accept it yet, so those deployments use the 5-second default.
 
 ### Worker States
 

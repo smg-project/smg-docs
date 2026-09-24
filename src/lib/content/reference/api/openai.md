@@ -44,6 +44,9 @@ smg launch --worker-urls http://worker:8000 \
   --tenant-api-key team-blue:blue-secret
 ```
 
+!!! note "Rust binary only"
+    `--tenant-api-key` is a flag of the Rust `smg` binary (`cargo install smg` or a source build). The Python launcher behind `pip install smg` and the container images does not accept it.
+
 Callers authenticate the same way as with `--api-key` — a `Bearer` token in the
 `Authorization` header — just using their own tenant's key instead of the shared one:
 

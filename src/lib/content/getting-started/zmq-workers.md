@@ -113,7 +113,7 @@ What `smg serve` sets up in ZMQ mode:
 | Gateway runtime | `--backend` is forwarded so the gateway speaks the engine's wire protocol |
 | Replicas | `--data-parallel-size N` starts `N` independent single-engine workers, each with its own socket path and GPU slice. The launch stops early if two replicas' paths derive the same handshake port (`ZMQ handshake port collision on ...`); change `--worker-base-port` |
 
-The launcher builds these engine commands; if you pass one of the flags it sets, your copy is dropped:
+The launcher builds these engine commands. If you pass a flag the launcher sets, your copy is dropped, except for the two TokenSpeed defaults above, where your value is used:
 
 ```text
 # vLLM
@@ -203,7 +203,7 @@ smg launch \
   --port 30000
 ```
 
-Use `--backend tokenspeed` for a TokenSpeed engine. `--model-path` is required: it names the model and loads the tokenizer. SMG binds the sockets as soon as it registers the worker, then waits up to 600 seconds for the handshake; the engine loads the model and profiles its KV cache inside that window. If the handshake fails, the next health probe starts a new attempt.
+Use `--backend tokenspeed` for a TokenSpeed engine. `--model-path` is required: it names the model and loads the tokenizer. SMG binds the sockets as soon as it registers the worker, then waits up to 600 seconds for each handshake message, which gives the engine time to load the model and profile its KV cache. If the handshake fails, the next health probe starts a new attempt.
 
 To serve several engines, list one `ipc://` URL per engine. They are independent workers balanced by `--policy`.
 
@@ -299,7 +299,7 @@ Start the engine group with its data-parallel size, then tell the gateway how ma
 
 - `--zmq-engine-count` applies to every `ipc://` URL in `--worker-urls` and must be a positive integer. For a worker added through the API, set `"dp_size"` on the worker instead.
 - The engine process needs `N` times its tensor-parallel size in GPUs.
-- The gateway must wait for exactly as many engines as dial in. An extra engine fails the handshake with `duplicate HELLO ... after INIT phase`; a missing one leaves the handshake waiting until it times out.
+- The gateway must wait for exactly as many engines as dial in. An extra engine can fail the handshake with `duplicate HELLO ... after INIT phase`; a missing one leaves the handshake waiting until it times out.
 - Grouped workers can't be combined with `--dp-aware`, which tries to expand the group into one worker per rank and fails with `cannot be dp-aware expanded`. Single-engine ZMQ workers register normally under `--dp-aware`.
 
 ### Rank Selection
@@ -330,7 +330,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | Registered | The worker starts as `pending`. SMG binds its sockets and starts the handshake right away |
 | Connected | SMG promotes the worker to `ready` the moment the handshake completes, without waiting for the health-check success threshold |
 | Serving | Health probes read a local liveness flag; the engine has no health RPC. `/readiness` stays at 503 with `tokenizer not yet registered` until the model's tokenizer has loaded |
-| Engine lost | SMG marks the connection dead when the engine reports its own shutdown, the socket fails, a request send blocks for 10 seconds, three outputs in a row can't be decoded, or no output arrives for 300 seconds while requests are in flight. In-flight requests fail. The next health probe drops the dead connection, and a later probe binds the sockets again so a restarted engine can reconnect |
+| Engine lost | SMG marks the connection dead when the engine signals that it died (vLLM does so on a fatal error, TokenSpeed also on shutdown), the socket fails, a request send blocks for 10 seconds, three outputs in a row can't be decoded, or no output arrives for 300 seconds while requests are in flight. In-flight requests fail. The next health probe drops the dead connection, and a later probe binds the sockets again so a restarted engine can reconnect |
 | Removed | `DELETE /workers/{worker_id}` drains the worker, then removes it; a handshake still in progress is cancelled and its sockets are released |
 
 - Health checks stay on for ZMQ workers even with `--disable-health-check` or a per-worker `disable_health_check`, because the probe is what reconnects a restarted engine. SMG logs `Ignoring disabled health checks for ZMQ worker ...`.
@@ -353,7 +353,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | Harmony (gpt-oss) stop strings | Yes | Yes |
 | Multimodal inputs | Yes, one modality per request | Yes, except models whose processor emits `image_grid_thw` or `video_grid_thw` (MRoPE) |
 | Output logprobs | Yes, including `top_logprobs` | Sampled-token logprobs, with `--enable-output-logprobs`; `top_logprobs` above 1 is rejected |
-| Prompt logprobs | Forwarded to the engine, but no API field requests them in v1.11.0 | Rejected |
+| Prompt logprobs | Forwarded to the engine, but no API field requests them in v1.11.0 | Not supported; `token_ids_logprob` is rejected |
 | `n > 1` and sampling `seed` | Yes | Yes |
 
 ### Limits

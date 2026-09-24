@@ -262,69 +262,159 @@ Removes a worker from the pool.
 
 ## Cache Management
 
-Manage the routing cache and load information.
+Flush the engines' KV caches, and read the engine load the gateway has polled from its workers.
 
 ### Flush Cache
 
-```
+```text
 POST /flush_cache
 ```
 
-Flushes the KV cache on all HTTP workers. gRPC workers are skipped. The response status is `200 OK` on full success and `206 Partial Content` when some workers fail.
+Asks every registered HTTP and gRPC worker to drop its KV prefix cache. The calls go out in parallel, and the response reports the outcome per worker. Requires admin [authentication](#authentication).
 
-**Response:** `200 OK`
+| Worker | How it is flushed |
+|--------|-------------------|
+| HTTP | `POST {worker_url}/flush_cache`, with the worker's API key (if it has one) as a bearer token and a 45-second timeout. Any non-2xx answer counts as a failure, so the engine must serve this route (SGLang's HTTP server does). |
+| gRPC SGLang, TokenSpeed | `FlushCache` RPC. |
+| gRPC vLLM | `FlushCache` RPC, new in v1.11.0. Needs `smg-grpc-servicer` 0.12.0 or later; older servicers answer `UNIMPLEMENTED`. Resets vLLM's local prefix cache without preempting running requests or clearing connector caches. The gateway makes a single attempt, so a reset that vLLM refuses while requests are in flight is reported under `failed`. |
+| gRPC TRT-LLM, MLX | Not supported: reported under `failed` (`UNIMPLEMENTED`). |
+| ZMQ (`ipc://`) | Skipped, because the transport has no cache-flush RPC. Counted in `total_zmq_workers_skipped`. |
+
+The fan-out does not filter by runtime: external-provider workers registered over HTTP receive the `POST` too, and appear under `failed` if they reject it. The endpoint only calls the workers; it does not reset the gateway's own cache-aware routing state.
+
+**Response:** `200 OK` when every worker that was called succeeds (or there was nothing to call), `206 Partial Content` when at least one fails, including when all of them fail.
+
 ```json
 {
   "status": "success",
-  "message": "Successfully flushed cache on all 3 HTTP workers",
+  "message": "Successfully flushed cache on all 3 workers",
   "workers_flushed": 3,
-  "total_http_workers": 3,
+  "total_http_workers": 2,
+  "total_grpc_workers": 1,
+  "total_zmq_workers_skipped": 0,
   "total_workers": 3
 }
 ```
 
-On partial failure, the response additionally includes `successful` (list of worker URLs) and `failed` (list of `{worker, error}` entries), and `status` becomes `"partial_success"`.
+On a partial failure, `status` is `"partial_success"` and two more fields list the outcome, `successful` (worker URLs) and `failed` (`{worker, error}` entries):
+
+```json
+{
+  "status": "partial_success",
+  "message": "Cache flush: 2 succeeded, 1 failed (1 ZMQ workers skipped: no cache-flush RPC)",
+  "workers_flushed": 2,
+  "total_http_workers": 2,
+  "total_grpc_workers": 1,
+  "total_zmq_workers_skipped": 1,
+  "total_workers": 4,
+  "successful": ["http://gpu1:8000", "grpc://gpu3:50051"],
+  "failed": [
+    {
+      "worker": "http://gpu2:8000",
+      "error": "flush_cache failed for worker http://gpu2:8000/flush_cache: HTTP 500 Internal Server Error"
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `status` | `success` or `partial_success` |
+| `message` | Human-readable summary |
+| `workers_flushed` | Workers that confirmed the flush |
+| `total_http_workers`, `total_grpc_workers` | Registered workers by transport |
+| `total_zmq_workers_skipped` | ZMQ workers that were not called |
+| `total_workers` | All registered workers (HTTP + gRPC + ZMQ) |
+| `successful`, `failed` | Present only when at least one worker failed |
 
 ---
 
 ### Get Loads
 
-```
+```text
+GET /loads
 GET /get_loads
 ```
 
-Returns the current load distribution across workers. The gateway fans out to every registered worker (HTTP and gRPC) and returns whatever each backend reports. The `load` field is the total number of KV-cache tokens in use across all data-parallel ranks for that worker; `-1` indicates the worker failed to respond.
+Returns the engine load the gateway's load monitor last collected: one entry per worker per DP rank, plus a fleet-wide `aggregate`. The body uses the same schema engines report on `/v1/loads`, with every entry tagged by `worker` and `worker_type`.
+
+The response is built from the monitor's cached snapshot, the same numbers the routing policies act on, so no request reaches a worker. Values can be up to one poll interval old (`--load-monitor-interval`, 10 seconds by default). Serving from the cache is also what makes the route safe to poll from another SMG gateway that registers this one as a worker.
+
+- **Auth**: `/loads` is a public route, served without auth like `/health`. `/get_loads` is a deprecated alias that stays on the admin tier and requires admin [authentication](#authentication).
+- **Filter**: `?model=<model_id>` limits the response to workers serving that model.
+- **Missing workers**: workers without a current report (not `Ready` yet, no load source, or a failed last poll) are left out rather than reported as idle. Before the first poll, `loads` is empty and `aggregate` is absent.
 
 **Response:** `200 OK`
 ```json
 {
-  "workers": [
+  "timestamp": "2026-09-24T18:20:11.482913+00:00",
+  "version": "smg-1.11.0",
+  "dp_rank_count": 2,
+  "loads": [
     {
       "worker": "http://gpu1:8000",
-      "load": 1234,
-      "details": {
-        "timestamp": "2024-01-15T12:00:00Z",
-        "dp_rank_count": 1,
-        "loads": [
-          {
-            "dp_rank": 0,
-            "num_running_reqs": 5,
-            "num_waiting_reqs": 2,
-            "num_total_reqs": 7,
-            "num_used_tokens": 1234,
-            "max_total_num_tokens": 16384,
-            "token_usage": 0.075,
-            "gen_throughput": 45.2,
-            "cache_hit_rate": 0.82,
-            "utilization": 0.31,
-            "max_running_requests": 256
-          }
-        ]
-      }
+      "worker_type": "regular",
+      "dp_rank": 0,
+      "num_running_reqs": 12,
+      "num_waiting_reqs": 3,
+      "num_waiting_uncached_tokens": 5120,
+      "num_total_reqs": 15,
+      "num_used_tokens": 48000,
+      "max_total_num_tokens": 131072,
+      "token_usage": 0.37,
+      "gen_throughput": 1850.5,
+      "cache_hit_rate": 0.62,
+      "utilization": 0.41,
+      "max_running_requests": 256
+    },
+    {
+      "worker": "http://gpu2:8000",
+      "worker_type": "regular",
+      "dp_rank": 0,
+      "num_running_reqs": 9,
+      "num_waiting_reqs": 0,
+      "num_waiting_uncached_tokens": 0,
+      "num_total_reqs": 9,
+      "num_used_tokens": 30000,
+      "max_total_num_tokens": 131072,
+      "token_usage": 0.23,
+      "gen_throughput": 1420.0,
+      "cache_hit_rate": 0.55,
+      "utilization": 0.3,
+      "max_running_requests": 256
     }
-  ]
+  ],
+  "aggregate": {
+    "total_running_reqs": 21,
+    "total_waiting_reqs": 3,
+    "total_reqs": 24,
+    "avg_token_usage": 0.3,
+    "avg_throughput": 1635.25,
+    "avg_utilization": 0.355
+  }
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `timestamp` | When the gateway built this response (RFC 3339) |
+| `version` | `smg-` followed by the gateway version |
+| `dp_rank_count` | Number of entries in `loads`, across the whole fleet |
+| `loads[].worker`, `loads[].worker_type` | Worker URL and type (`regular`, `prefill`, `decode`, or `encode`) |
+| `loads[].dp_rank` | DP rank within that worker |
+| `loads[].num_running_reqs`, `num_waiting_reqs`, `num_total_reqs` | Requests running, queued, and both |
+| `loads[].num_waiting_uncached_tokens` | Queued tokens not served from the prefix cache (`0` when the engine does not report it) |
+| `loads[].num_used_tokens`, `max_total_num_tokens` | KV tokens in use and KV capacity (`0` for workers read from Prometheus `/metrics`) |
+| `loads[].token_usage` | KV token usage ratio, 0.0 to 1.0 |
+| `loads[].gen_throughput`, `cache_hit_rate`, `utilization`, `max_running_requests` | As reported by the engine |
+| `loads[].memory`, `loads[].queues` | Optional sections, present when the engine reports them: `memory` (`weight_gb`, `kv_cache_gb`, `graph_gb`, `token_capacity`) and `queues` (`waiting`, `grammar`, `paused`, `retracted`) |
+| `loads[].kv_transfer_latency_ms`, `kv_transfer_speed_gb_s`, `prefill_queue_reqs`, `decode_queue_reqs`, `disagg_mode` | Optional prefill/decode disaggregation fields, present when the engine reports them |
+| `aggregate` | Fleet roll-up across all entries: `total_running_reqs`, `total_waiting_reqs`, and `total_reqs` are sums; `avg_token_usage`, `avg_throughput`, and `avg_utilization` are means |
+
+The same per-worker report appears as `engine_load` on `GET /workers` and `GET /workers/{worker_id}`. It is unrelated to their `load` field, which counts requests the gateway has in flight to the worker. [Overload Protection](../../concepts/reliability/overload-protection.md) explains where each backend's report comes from.
+
+!!! warning "Changed in v1.11.0"
+    `GET /get_loads` used to call every worker on each request and return `{"workers": [{"worker", "load", "details"}]}`. It now returns the `/loads` body above. Callers that read `.workers[].load` must switch to `.loads[]` or `.aggregate`.
 
 ---
 

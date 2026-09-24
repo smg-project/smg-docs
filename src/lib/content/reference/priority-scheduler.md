@@ -56,10 +56,10 @@ The scheduler surfaces admission and preemption outcomes as HTTP status codes. E
 
 ## Enabling the scheduler
 
-The scheduler is controlled by CLI flags (also settable in the config file). Per-class tuning and per-tenant policy live in a separate optional YAML file.
+The scheduler is controlled by CLI flags. Only the Rust `smg` binary accepts them; the Python launcher (the `smg` command from `pip install smg`, also the container image's entrypoint) does not. Per-class tuning and per-tenant policy live in a separate optional YAML file.
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --priority-scheduler-enabled \
   --priority-scheduler-default-max-class interactive \
@@ -174,7 +174,7 @@ The scheduler exposes these Prometheus metrics (see the [Metrics Reference](metr
 | Metric | Type | Key labels | Use |
 |--------|------|------------|-----|
 | `smg_scheduler_admit_total` | Counter | `class`, `outcome` | Admission outcomes (`admitted`, `rejected_queue_full`, `rejected_queue_timeout`, `preempted`, `client_cancelled`). |
-| `smg_scheduler_queue_wait_seconds` | Histogram | `class` | Time spent queued before admission, timeout, or cancel. |
+| `smg_scheduler_queue_wait_seconds` | Summary | `class` | Time spent queued before admission, timeout, or cancel. |
 | `smg_scheduler_preemption_total` | Counter | `victim_class`, `by_class` | Successful preemptions. Authoritative preemption count. |
 | `smg_scheduler_clamp_total` | Counter | `tenant`, `requested_class`, `effective_class` | Requests clamped below the class they asked for. |
 | `smg_scheduler_unknown_priority_value_total` | Counter | `tenant` | Requests with an unrecognized `x-smg-priority` value. |

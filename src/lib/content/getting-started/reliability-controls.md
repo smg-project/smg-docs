@@ -22,7 +22,7 @@ This guide provides command-first setup for request protection and failure handl
 Cap how many requests the gateway runs at once, and how many can wait:
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --max-concurrent-requests 100 \
   --queue-size 200 \
@@ -36,7 +36,7 @@ smg \
 Leave `--rate-limit-tokens-per-second` unset. A positive rate also refills the bucket over time, so requests in flight can exceed the cap. Set it only to keep the pre-v1.10 burst-rate behavior:
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --max-concurrent-requests 100 \
   --rate-limit-tokens-per-second 100 \
@@ -53,7 +53,7 @@ For per-worker load thresholds that take a saturated worker out of routing, see 
 Enable retries with explicit backoff settings:
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --retry-max-retries 5 \
   --retry-initial-backoff-ms 50 \
@@ -65,7 +65,7 @@ smg \
 Disable retries when client handles them:
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --disable-retries
 ```
@@ -77,7 +77,7 @@ smg \
 Protect traffic from repeatedly failing workers:
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --cb-failure-threshold 10 \
   --cb-success-threshold 3 \
@@ -89,7 +89,7 @@ A worker's circuit opens after 10 consecutive failures (`408`, `500`, `502`, `50
 Disable only for controlled testing:
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --disable-circuit-breaker
 ```
@@ -101,7 +101,7 @@ smg \
 A practical starting profile:
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 \
   --max-concurrent-requests 150 \
   --queue-size 300 \

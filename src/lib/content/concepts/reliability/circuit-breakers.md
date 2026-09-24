@@ -179,7 +179,7 @@ A status list you set replaces the default instead of adding to it, so keep `429
 ## Configuration
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --cb-failure-threshold 5 \
   --cb-success-threshold 2 \
@@ -209,7 +209,7 @@ The thresholds must be at least `1`, and the durations must be greater than `0`.
 Sensitive to failures—isolate workers quickly.
 
 ```bash
-smg \
+smg launch \
   --cb-failure-threshold 3 \
   --cb-timeout-duration-secs 30
 ```
@@ -225,7 +225,7 @@ smg \
 Allow occasional failures before tripping.
 
 ```bash
-smg \
+smg launch \
   --cb-failure-threshold 20 \
   --cb-success-threshold 5 \
   --cb-timeout-duration-secs 120
@@ -267,7 +267,7 @@ smg \
 
 </div>
 
-Once every worker for the model has an open circuit, requests get 503 `no_available_workers`.
+Once every worker for the model has an open circuit, requests get 503 `no_available_workers`. For external provider workers the code is `service_unavailable`.
 
 ### Recovery
 
@@ -367,7 +367,7 @@ groups:
 
 ### Retries
 
-- Each retry attempt runs worker selection again, so a worker whose circuit is open is skipped.
+- For local workers, each retry attempt runs worker selection again, so a worker whose circuit is open is skipped.
 - If every worker is unavailable, the attempt gets 503 `no_available_workers`.
 - A half-open worker is selected like any other; its outcomes decide whether the circuit closes or reopens.
 - A 429 from a worker is retried when retries are enabled, but leaves that worker's breaker untouched.
@@ -389,7 +389,7 @@ Circuit breakers and health checks are independent gates: health checks probe wo
 In some cases, you may want to disable circuit breakers:
 
 ```bash
-smg --worker-urls http://w1:8000 --disable-circuit-breaker
+smg launch --worker-urls http://w1:8000 --disable-circuit-breaker
 ```
 
 The breakers keep recording outcomes, so the metrics still move, but no circuit opens unless a worker sets its own `cb_failure_threshold` in its `resilience` block.

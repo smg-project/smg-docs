@@ -4,7 +4,7 @@ title: Rate Limiting
 
 # Rate Limiting
 
-Rate limiting in SMG is gateway admission control. The gateway caps how many requests it runs at once, keeps a bounded number of extra requests waiting in a first-in, first-out queue, and turns the rest away with a status code and a `Retry-After` header that tell clients to back off. It is off by default; setting `--max-concurrent-requests` turns it on.
+Rate limiting in SMG is gateway admission control. The gateway caps how many requests it runs at once, keeps a bounded number of extra requests waiting in a first-in, first-out queue, and turns the rest away with a status code and a `Retry-After` header that tell clients to back off. It is off by default; setting `--max-concurrent-requests` above `0` turns it on.
 
 !!! warning "Behavior changed in v1.10"
     - A permit is held for the full response lifetime, including streaming bodies.
@@ -60,7 +60,7 @@ Without a cap, the gateway forwards every request it receives straight to the wo
 
 With a cap, the amount of work in the fleet stays bounded. Excess requests wait briefly in the gateway's queue, or are turned away with a clear signal to retry later.
 
-Admission control is gateway-wide: it limits how many requests run at once across all workers, before any worker is chosen. [Overload protection](overload-protection.md) works per worker: it stops routing to a worker whose own load signal (queued requests or KV-cache usage) crosses a threshold, and sheds a request only when no eligible worker is left.
+Admission control is gateway-wide: it limits how many requests run at once across all workers, before any worker is chosen. [Overload protection](overload-protection.md) works per worker: it stops routing to a worker whose own load signal (queued requests or KV-cache usage) crosses a threshold, and sheds a request with 503 when every candidate worker is over its threshold.
 
 ---
 
@@ -71,7 +71,7 @@ Admission control covers the inference routes, such as `/v1/chat/completions`, `
 For each request:
 
 1. **Take a permit.** If a permit is free, the request is admitted at once.
-2. **Wait in the queue.** Otherwise, if a queue slot is free, the request waits there for a permit. Its body is not read until it is admitted.
+2. **Wait in the queue.** Otherwise, if a queue slot is free, the request waits there for a permit. Its body is not read until it is admitted, unless a WASM `OnRequest` module is attached, which reads the body first.
 3. **Shed.** If the queue is full, or queueing is disabled, the request is rejected at once with **429**. If it waits longer than `--queue-timeout-secs`, it is rejected with **503**.
 
 ### Permit Lifetime
@@ -84,7 +84,7 @@ A permit is held from admission until the response finishes:
 | Non-streaming response | The response body has been sent |
 | Client disconnects before the response starts | The gateway drops the request |
 
-A request that is still waiting in the queue gives up its queue slot when its client disconnects.
+A request that is still waiting in the queue gives up its queue slot once the gateway notices that its client disconnected. With a small request body that is immediate, but a larger HTTP/1.1 request body that the gateway has not read yet can hide the disconnect until the request is admitted or times out.
 
 Because a stream keeps its permit for as long as it streams, `--max-concurrent-requests` bounds *standing* concurrency: the number of requests in flight at any moment, long streams included.
 
@@ -125,7 +125,7 @@ If the scheduler fails to start, the gateway logs an error and falls back to the
 ## Configuration
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --max-concurrent-requests 100 \
   --queue-size 200 \
@@ -173,9 +173,9 @@ Other layers also answer 429 or 503. The error code tells them apart:
 | Error code | Status | Source |
 |------------|--------|--------|
 | `scheduler_queue_full`, `scheduler_queue_timeout`, `scheduler_preempted` | 429, 503 | The [priority scheduler](../../reference/priority-scheduler.md#response-codes), when enabled |
-| `worker_overload_protection_shed` | 503 | [Overload protection](overload-protection.md) found no eligible worker; see that page for its `Retry-After` |
+| `worker_overload_protection_shed` | 503 | [Overload protection](overload-protection.md) shed the request, for example because every candidate worker is overloaded; see that page for its `Retry-After` |
 | `tenant_rate_limit_exceeded` | 429 | [Tenant rate limiting](tenant-rate-limiting.md) |
-| `no_available_workers` | 503 | Every worker for the model is unhealthy or has an open [circuit breaker](circuit-breakers.md) |
+| `no_available_workers` | 503 | No worker for the model can take the request, for example because each one is unhealthy or has an open [circuit breaker](circuit-breakers.md) |
 
 ---
 
@@ -280,7 +280,7 @@ Leave `--rate-limit-tokens-per-second` unset. Set it only to reproduce the pre-v
     Short queue and timeout, so excess traffic gets a quick answer:
 
     ```bash
-    smg \
+    smg launch \
       --worker-urls http://w1:8000 http://w2:8000 \
       --max-concurrent-requests 50 \
       --queue-size 25 \
@@ -292,7 +292,7 @@ Leave `--rate-limit-tokens-per-second` unset. Set it only to reproduce the pre-v
     Deeper queue and longer timeout, so requests wait their turn:
 
     ```bash
-    smg \
+    smg launch \
       --worker-urls http://w1:8000 http://w2:8000 \
       --max-concurrent-requests 200 \
       --queue-size 500 \
@@ -304,7 +304,7 @@ Leave `--rate-limit-tokens-per-second` unset. Set it only to reproduce the pre-v
     Refill 100 tokens per second on top of finished responses, as an unset rate did before v1.10. Requests in flight can exceed 100:
 
     ```bash
-    smg \
+    smg launch \
       --worker-urls http://w1:8000 http://w2:8000 \
       --max-concurrent-requests 100 \
       --rate-limit-tokens-per-second 100
@@ -315,9 +315,9 @@ Leave `--rate-limit-tokens-per-second` unset. Set it only to reproduce the pre-v
     The default. Requests are forwarded without an admission cap:
 
     ```bash
-    smg \
+    smg launch \
       --worker-urls http://w1:8000 http://w2:8000 \
-      --max-concurrent-requests -1
+      --max-concurrent-requests=-1
     ```
 
 ---

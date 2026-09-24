@@ -248,7 +248,7 @@ spec:
             command: ["/bin/sh", "-c", "sleep 5"]
 ```
 
-The sleep allows the load balancer to stop sending new traffic before SMG begins its graceful shutdown.
+The sleep allows the load balancer to stop sending new traffic before SMG begins its graceful shutdown. Kubernetes starts the `terminationGracePeriodSeconds` countdown before it runs the hook, so set `terminationGracePeriodSeconds` higher than the sleep plus `--shutdown-grace-period-secs`.
 
 ### Health Check Coordination
 
@@ -262,7 +262,7 @@ curl http://gateway:30000/readiness
 # 200 while serving; 503 {"status":"not ready","reason":"draining"} once shutdown begins
 ```
 
-`/readiness` also returns `503` independent of the shutdown signal when SMG cannot serve: when no healthy workers remain (in prefill/decode mode, when either side has no healthy worker), or while a healthy gRPC or ZMQ worker's tokenizer is still loading. See [Gateway Probe Endpoints](health-checks.md#gateway-probe-endpoints) for every reason. The readiness decision is maintained event-driven from worker registry state and served from cached memory, so probes stay O(1) regardless of fleet size.
+`/readiness` also returns `503` independent of the shutdown signal when SMG cannot serve: when no healthy workers remain (in prefill/decode mode, when either side has no healthy worker), or while a healthy gRPC or ZMQ worker's tokenizer is not registered yet. See [Gateway Probe Endpoints](health-checks.md#gateway-probe-endpoints) for every reason. The readiness decision is maintained event-driven from worker registry state and served from cached memory, so probes stay O(1) regardless of fleet size.
 
 ### Dedicated Probe Port
 
@@ -293,7 +293,7 @@ Graceful shutdown drains the gateway itself. Removing a worker from a running ga
 | **Effect** | `/readiness` reports `503`; the listener stops accepting after the settle window | The worker moves to `Draining` and receives no new requests |
 | **Wait** | Until in-flight requests finish, up to `--shutdown-grace-period-secs` | A fixed `--drain-settle-secs` (default `5`, per worker `health.drain_settle_secs`), then the worker is removed |
 
-The worker settle window is a fixed delay: SMG does not wait for the worker's in-flight request count to reach zero. Only workers that were `Ready` are drained; `Pending`, `NotReady`, and `Failed` workers are removed immediately. Set `--drain-settle-secs 0` to skip draining. The flag belongs to the `smg` binary; the Python launcher does not accept it yet.
+The worker settle window is a fixed delay: SMG does not wait for the worker's in-flight request count to reach zero. Only workers that were `Ready` are drained; `Pending`, `NotReady`, and `Failed` workers are not, and a removal that finds no `Ready` worker skips the wait. Set `--drain-settle-secs 0` to skip draining. The flag belongs to the `smg` binary; the Python launcher does not accept it yet.
 
 ---
 
@@ -343,7 +343,7 @@ INFO Cleanup complete. Process exiting.
 | Slow scaling down | Decrease `--shutdown-grace-period-secs` |
 | Kubernetes force-killing pods | Increase `terminationGracePeriodSeconds` |
 | Streaming responses truncated | Match grace period to max stream duration |
-| Connections refused right after the signal | Add a `preStop` sleep so load balancers stop routing first |
+| Connections refused right after the signal | Add a `preStop` sleep so load balancers stop routing first, and add the sleep to `terminationGracePeriodSeconds` |
 
 ---
 

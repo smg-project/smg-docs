@@ -238,6 +238,9 @@ With service discovery on, worker auto-recovery (`--remove-unhealthy-workers`) i
 ## Verify
 
 ```bash
+# If SMG runs in the cluster, forward its port first
+kubectl -n inference port-forward deployment/smg 30000:30000 &
+
 # Check discovered workers, their state, and the pod behind each one
 curl -s http://localhost:30000/workers | jq '.workers[] | {url, status, pod: .labels["smg.ai/pod-name"]}'
 

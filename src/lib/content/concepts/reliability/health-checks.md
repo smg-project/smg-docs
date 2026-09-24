@@ -4,7 +4,7 @@ title: Health Checks
 
 # Health Checks
 
-Background health checks continuously probe every worker, take unhealthy workers out of the selection pool before they can cause request failures, and return them when they recover.
+Background health checks continuously probe every worker, take unhealthy workers out of the selection pool without waiting for requests to fail, and return them when they recover.
 
 ---
 
@@ -58,9 +58,9 @@ Without proactive health checks:
 
 With health checks:
 
-- **Proactive detection**: Unhealthy workers removed before they cause failures
+- **Proactive detection**: Unhealthy workers leave the pool without waiting for requests to fail
 - **Fast recovery**: Workers rejoin the pool as soon as they're healthy
-- **No wasted requests**: Real requests only go to verified healthy workers
+- **Fewer wasted requests**: Real requests only go to verified healthy workers
 
 ---
 
@@ -85,6 +85,8 @@ SMG probes each registered worker on its own schedule. A newly registered worker
 
 The ZMQ probe is also what reconnects a restarted engine, so health checks stay on for ZMQ workers even when they are disabled in configuration. Under `--upstream-http2`, HTTP probes use the same protocol as request traffic: HTTP/2 for workers that negotiated it at registration, HTTP/1.1 for the rest (see [Request Streaming](../performance/request-streaming.md)).
 
+The HTTP probe sends the API key in the `Authorization` header, as request traffic does, so on a plain `http://` worker URL the key crosses the network unencrypted.
+
 ### Worker States
 
 | State | Meaning | Traffic |
@@ -93,7 +95,7 @@ The ZMQ probe is also what reconnects a restarted engine, so health checks stay 
 | **Ready** | Passing health checks | Receives requests |
 | **NotReady** | Consecutive probe failures reached the readiness threshold | No requests; still probed |
 | **Failed** | Failures continued to the liveness threshold, or `Pending` ran out of probe attempts | No requests; removed when [auto-recovery](#worker-auto-recovery) is on, otherwise still probed |
-| **Draining** | Being removed (by service discovery, auto-recovery, or the worker API) | No new requests; not probed |
+| **Draining** | A `Ready` worker being removed (by service discovery or the worker API) | No new requests; not probed |
 
 HTTP and gRPC workers become `Ready` as soon as their registration completes, because registration has already reached the worker. ZMQ workers stay `Pending` until the engine completes its handshake, then become `Ready` immediately.
 
@@ -103,7 +105,7 @@ The `smg_worker_health` gauge collapses these to `1` (Ready) and `0` (anything e
 
 | Transition | Condition | At the defaults |
 |------------|-----------|-----------------|
-| Pending → Ready | `--health-success-threshold` consecutive successful probes | 2 probes |
+| Pending → Ready | `--health-success-threshold` consecutive successful probes, if registration or the ZMQ handshake has not already made the worker `Ready` (see above) | 2 probes |
 | Pending → Failed | `10 × --health-failure-threshold` probes without reaching the success threshold (keeps misconfigured URLs from lingering) | 30 probes |
 | Ready → NotReady | `--health-failure-threshold` consecutive failed probes | 3 probes |
 | NotReady → Ready | `--health-success-threshold` consecutive successful probes | 2 probes |
@@ -129,12 +131,12 @@ The default follows `--service-discovery`. With discovery on, removal is followe
 
 | Command | Auto-recovery |
 |---------|---------------|
-| `smg --service-discovery ...` | On |
-| `smg --worker-urls ...` | Off |
-| `smg --worker-urls ... --remove-unhealthy-workers` | On (bare flag) |
-| `smg --service-discovery ... --remove-unhealthy-workers=false` | Off |
+| `smg launch --service-discovery ...` | On |
+| `smg launch --worker-urls ...` | Off |
+| `smg launch --worker-urls ... --remove-unhealthy-workers` | On (bare flag) |
+| `smg launch --service-discovery ... --no-remove-unhealthy-workers` | Off |
 
-The Python launcher (`smg launch` from pip, and the container image) accepts the same flag and alias; turn it off with `--no-remove-unhealthy-workers` (or `--no-worker-auto-recovery`).
+`smg launch` (the Python launcher from pip, and the container image) also accepts the alias, as `--worker-auto-recovery` and `--no-worker-auto-recovery`. The `smg` binary has no `--no-` form; turn auto-recovery off there with `--remove-unhealthy-workers=false`.
 
 Removal targets are resolved from registered worker URLs and pinned to the failed worker's own revision, so only that registration is removed: sibling DP ranks behind the same address stay registered. Workers imported from mesh peers are never removed locally; the gateway that owns them manages them.
 
@@ -188,7 +190,7 @@ Workers registered through the [worker API](../../reference/api/admin.md) can ov
 | `timeout_secs` | `--health-check-timeout-secs` |
 | `failure_threshold` | `--health-failure-threshold` |
 | `success_threshold` | `--health-success-threshold` |
-| `disable_health_check` | `--disable-health-check` (ignored for ZMQ workers) |
+| `disable_health_check` | `--disable-health-check` (ignored when a ZMQ worker registers) |
 | `drain_settle_secs` | `--drain-settle-secs` |
 
 The probe endpoint and the auto-recovery setting apply gateway-wide. Workers created by service discovery use the gateway defaults.
@@ -321,7 +323,7 @@ The probes above are how SMG checks its workers. For Kubernetes, load balancers,
 | `reason` | Meaning |
 |----------|---------|
 | `insufficient healthy workers` | No `Ready` worker. In PD mode, no `Ready` prefill or no `Ready` decode worker; EPD mode also needs a `Ready` encode worker |
-| `tokenizer not yet registered` | A `Ready` gRPC or ZMQ worker's tokenizer is still loading (skipped with `--disable-tokenizer-autoload`) |
+| `tokenizer not yet registered` | A `Ready` gRPC or ZMQ worker's tokenizer is not registered: it is still loading, or loading failed (skipped with `--disable-tokenizer-autoload`) |
 | `draining` | [Graceful shutdown](graceful-shutdown.md) has started |
 
 The readiness decision is recomputed from worker registry events (and at least once per second) and served from memory, so probes answer in constant time regardless of fleet size. Probe responses, including the expected `503`s, are logged at DEBUG level, so polling does not flood the log with errors.
@@ -344,7 +346,7 @@ Health checks and circuit breakers are independent gates, and a worker is select
 - **Health checks**: Proactive background monitoring (no request impact)
 - **Circuit breakers**: Reactive detection based on real request failures
 
-Both are recommended for production deployments. The hash-based policies (`consistent_hashing` and `prefix_hash`) select on health alone and do not consult the circuit breaker.
+Both are recommended for production deployments. The hash-based policies (`consistent_hashing` and `prefix_hash`) also skip a worker whose circuit breaker is open, because the router removes unavailable workers before the policy runs.
 
 ---
 
@@ -434,7 +436,7 @@ groups:
 | Health checks timing out | Increase `--health-check-timeout-secs` |
 | Workers slow to rejoin | Decrease `--health-success-threshold` |
 | Too many health check requests | Increase `--health-check-interval-secs` |
-| Workers vanish for good after an outage in a static fleet | Turn auto-recovery off (`--remove-unhealthy-workers=false`) so failed workers rejoin in place |
+| Workers vanish for good after an outage in a static fleet | Turn auto-recovery off (`--remove-unhealthy-workers=false`; Python launcher: `--no-remove-unhealthy-workers`) so failed workers rejoin in place |
 | Removed workers stay `Draining` too long | Decrease `--drain-settle-secs` |
 
 ---

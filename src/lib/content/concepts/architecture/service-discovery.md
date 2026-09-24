@@ -52,7 +52,7 @@ Separate discovery for prefill and decode workers in disaggregated deployments.
 
 ### Informer and Reconcile Loop
 
-SMG runs a Kubernetes informer for pods. An initial LIST fills a local cache and a WATCH keeps it current; if the watch fails or expires, the informer reconnects with backoff and lists again. SMG passes the label selector to the API server, so the cache holds only candidate pods.
+SMG runs a Kubernetes informer for pods. An initial LIST fills a local cache and a WATCH keeps it current. If the watch drops, the informer reconnects (with backoff after errors) and resumes from the last version it saw; it lists again only when the API server no longer has that version (HTTP 410 Gone). SMG passes the label selector to the API server, so the cache holds only candidate pods.
 
 A reconcile pass turns the cache into the set of desired workers, compares it with the workers that discovery registered earlier, and submits `AddWorker` and `RemoveWorker` jobs to the control-plane job queue for the difference.
 
@@ -63,11 +63,11 @@ A reconcile pass turns the cache into the set of desired workers, compares it wi
 
 Because every pass compares complete state instead of replaying individual events, discovery converges even when events are missed:
 
-- A pod deleted while the watch was disconnected drops out of the cache on the re-list, and its workers are removed on the next pass.
+- A pod deleted while the watch was disconnected drops out of the cache once the watch recovers, from the replayed delete event or a fresh list, and its workers are removed on the next pass.
 - A registration that failed is submitted again on a later pass, because the worker is still missing from the registry.
 - A worker registered for a pod that no longer exists, for example a registration that finished after its pod was deleted, is removed on the next pass.
 
-SMG keeps at most one job in flight per worker address. While an add or remove job for an address is pending or running, later passes skip that address; completed and failed jobs do not block, so failures are retried.
+While an add or remove job for an address is pending or running, later passes skip that address; completed and failed jobs do not block, so failures are retried.
 
 ### Which Pods Become Workers
 
@@ -361,7 +361,7 @@ spec:
 ```
 
 !!! tip "Engine images"
-    `ghcr.io/smg-project/smg:latest` is the gateway-only image; pin a release tag in production. For all-in-one deployments where each pod runs both gateway and engine, use an engine image tag of the form `ghcr.io/smg-project/smg:{smg_version}-{engine}-{engine_version}` (for example, `ghcr.io/smg-project/smg:1.10.1-vllm-v0.27.1`). See [Getting Started](../../getting-started/index.md#install) for available tags.
+    `ghcr.io/smg-project/smg:latest` is the gateway-only image; pin a release tag in production. For all-in-one deployments where each pod runs both gateway and engine, use an engine image tag of the form `ghcr.io/smg-project/smg:{smg_version}-{engine}-{engine_version}` (for example, `ghcr.io/smg-project/smg:1.11.0-vllm-v0.27.1`). See [Getting Started](../../getting-started/index.md#install) for available tags.
 
 ### Worker StatefulSet
 
@@ -423,7 +423,7 @@ Each removal runs as a workflow:
 
 1. **RemoveWorker job**: The reconcile pass submits one job per address, pinned to each registration's revision. A worker that was replaced in the meantime is skipped and re-evaluated on the next pass.
 2. **Drain**: `Ready` workers move to `Draining`. They receive no new requests; requests already in flight continue.
-3. **Settle**: SMG waits `--drain-settle-secs` (default `5`). A worker's `health.drain_settle_secs` overrides it, and a job that drains several workers waits for the longest window. Workers that were not `Ready` skip the wait.
+3. **Settle**: SMG waits `--drain-settle-secs` (default `5`). A worker's `health.drain_settle_secs` overrides it, and a job that drains several workers waits for the longest window. Workers that were not `Ready` are not drained, and a job with no `Ready` worker skips the wait.
 4. **Remove**: The workers leave the worker registry and the routing policies.
 
 A removal job matches every registration at the address: the `http://` or `grpc://` worker and each DP rank registered there (`<address>@<rank>`).
@@ -477,7 +477,7 @@ With `--service-discovery`, worker auto-recovery (`--remove-unhealthy-workers`, 
 
 ```bash
 # Enable discovery debug logging
-RUST_LOG=info,smg::service_discovery=debug smg --service-discovery ...
+RUST_LOG=info,smg::service_discovery=debug smg launch --service-discovery ...
 ```
 
 Example log output:
@@ -507,7 +507,7 @@ INFO Draining 1 worker(s) for 5s before removal
 |---------|-------|----------|
 | No workers discovered | Selector does not match, or pods are not Ready | Check `kubectl get pods -l <selector>` and the pods' `READY` column |
 | `Failed to start service discovery`, then `Continuing without service discovery` | No in-cluster or kubeconfig credentials | Run SMG with a ServiceAccount or a valid kubeconfig |
-| `K8s worker watcher error (auto-retrying with backoff)` | RBAC denies the request, or the API server is unreachable | Apply the Role and RoleBinding and check API connectivity; the informer re-lists and converges once the watch recovers |
+| `K8s worker watcher error (auto-retrying with backoff)` | RBAC denies the request, or the API server is unreachable | Apply the Role and RoleBinding and check API connectivity; the informer retries with backoff, and discovery converges once the watch recovers |
 | One worker per pod instead of several | `smg.ai/worker-ports` is missing or invalid | Check the pod's annotations and the gateway log for `invalid smg.ai/worker-ports annotation` |
 | Workers drop out during a rollout before their pods are gone | Expected: terminating and unready pods are drained | Tune the pods' readiness probes and `--drain-settle-secs` |
 | Workers registered but not receiving traffic | Health checks failing | Check the worker health endpoint and [Health Checks](../reliability/health-checks.md) |
@@ -516,8 +516,11 @@ INFO Draining 1 worker(s) for 5s before removal
 ### Verify Discovery
 
 ```bash
+# Reach the gateway from your machine
+kubectl -n inference port-forward deployment/smg 30000:30000 &
+
 # List discovered workers with their state and owning pod
-curl -s http://smg:30000/workers | jq '.workers[] | {url, status, pod: .labels["smg.ai/pod-name"]}'
+curl -s http://localhost:30000/workers | jq '.workers[] | {url, status, pod: .labels["smg.ai/pod-name"]}'
 
 # Check pod labels match selector
 kubectl get pods -n inference -l app=sglang-worker

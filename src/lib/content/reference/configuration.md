@@ -361,7 +361,7 @@ Watches Kubernetes pods and registers the matching ones as workers. Enabling ser
 | `--encode-selector` | none | Label selector for encode pods in EPD mode. EPD mode needs all three of the encode, prefill, and decode selectors. |
 | `--kv-connector-annotation` | `smg.ai/kv-connector` | Pod annotation that holds the vLLM KV connector name. |
 | `--kv-engine-id-annotation` | `smg.ai/kv-engine-id` | Pod annotation that holds per-worker KV engine IDs. |
-| `--router-selector` | none | Label selector for peer gateway pods in HA mesh mode (format: `key=value`). Takes effect only together with `--service-discovery` and `--enable-mesh`. Each peer's mesh port comes from its `sglang.ai/mesh-port` annotation, or this gateway's `--mesh-port` when the annotation is missing. |
+| `--router-selector` | none | Label selector for peer gateway pods in HA mesh mode (format: `key=value`). Takes effect only together with `--service-discovery` and `--enable-mesh`. Each peer's mesh port comes from its `sglang.ai/mesh-port` annotation, or this gateway's `--mesh-port` when the annotation is missing or invalid (an invalid value, including `0`, logs a warning). |
 | `--model-id-from` | unset | Override each discovered worker's model ID from pod metadata: `namespace`, `label:<key>`, or `annotation:<key>`. |
 | `--model-alias` | none | Extra client-facing model name, `<alias>=<canonical>`, one per flag. See [Model Aliases](#model-aliases). |
 
@@ -751,7 +751,7 @@ High-availability mesh networking for multi-router coordination. See [High Avail
 | `--mesh-host` | `0.0.0.0` | Bind address for the mesh listener, as an IP address (brackets for IPv6). |
 | `--mesh-advertise-host` | the `--mesh-host` value | Routable address advertised to other mesh peers. Required when `--mesh-host` is an unspecified bind address such as `0.0.0.0`. |
 | `--mesh-port` | `39527` | Port for the mesh server. `0` is rejected because peers dial the advertised port. |
-| `--mesh-peer-urls` | none | Peer address to join at startup, as `IP:port`; hostnames are rejected. Only the first entry is used as the initial peer. |
+| `--mesh-peer-urls` | none | Peer address to join at startup, as `IP:port`. Only the first entry is used as the initial peer, and it must be an IP address and port: a hostname fails startup. Later entries are ignored without being checked. |
 
 Router pods can also discover each other through `--router-selector` (see [Service Discovery (Kubernetes)](#service-discovery-kubernetes)).
 

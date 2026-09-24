@@ -38,9 +38,9 @@ Control how long to wait for in-flight requests.
 
 <div class="card" markdown>
 
-### :material-api: API Control
+### :material-traffic-light: Readiness Signaling
 
-Trigger shutdown programmatically via HTTP API.
+`/readiness` reports `503` from the start of shutdown, so load balancers stop routing to the gateway before it stops accepting connections.
 
 </div>
 
@@ -68,19 +68,16 @@ With graceful shutdown:
 
 ## How It Works
 
-<div class="architecture-diagram" markdown>
-
-![Graceful Shutdown Sequence](../../assets/images/graceful-shutdown.svg)
-
-</div>
-
 ### Shutdown Sequence
 
-1. **Shutdown signal received** (SIGTERM or SIGINT). The mesh-only `/ha/shutdown` API triggers a separate mesh-level broadcast path and is not part of this signal-driven sequence.
-2. **Stop accepting new connections** — `axum_server`'s handle stops the TCP accept loop and marks the in-flight tracker as draining; new connections are refused at the socket level rather than receiving a 503 response. From this moment `/readiness` reports `503` (reason `"draining"`) while `/health` and `/liveness` stay `200`, so load balancers de-list the pod without restarting it.
-3. **Drain in-flight requests** — existing requests continue processing while the server waits on the in-flight tracker.
-4. **Grace period timer starts** — after `--shutdown-grace-period-secs`, the drain wait times out and the server forces shutdown with any remaining requests still in-flight.
-5. **Clean exit** — once all requests complete (or the grace period expires), background components (MCP orchestrator, etc.) are cleaned up and the process exits.
+1. **Shutdown signal received** — SIGTERM or SIGINT (Ctrl+C) starts graceful shutdown. There is no HTTP endpoint that triggers it.
+2. **Readiness flips to draining** — `/readiness` starts returning `503` with reason `"draining"`, on the main port and on the [dedicated probe port](#dedicated-probe-port), while `/health` and `/liveness` stay `200`. Load balancers de-list the gateway without restarting it.
+3. **Settle window** — the listener keeps accepting connections for half the grace period, capped at 5 seconds, so requests still routed to the gateway while load balancers and EndpointSlices catch up are served instead of refused.
+4. **Stop accepting new connections** — `axum_server`'s handle stops the TCP accept loop; new connections are refused at the socket level rather than receiving a `503` response.
+5. **Drain in-flight requests** — existing requests, including streaming responses, continue while SMG waits for them for the rest of the grace period. When that runs out, SMG shuts down with any remaining requests still in flight.
+6. **Clean exit** — once all requests complete (or the grace period expires), background components are cleaned up (worker and mesh discovery tasks, the MCP orchestrator) and the process exits.
+
+The settle window is carved out of the grace period, so the whole sequence stays within `--shutdown-grace-period-secs`. At the default of 180 seconds, the settle window is 5 seconds and in-flight requests get up to 175 seconds.
 
 ---
 
@@ -96,7 +93,7 @@ smg \
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--shutdown-grace-period-secs` | `180` (3 min) | Time to wait for in-flight requests |
+| `--shutdown-grace-period-secs` | `180` (3 min) | Total shutdown budget: the settle window (half of it, at most 5 seconds) plus the wait for in-flight requests |
 
 ---
 
@@ -179,15 +176,6 @@ kill -TERM <pid>
 kill -INT <pid>
 ```
 
-### Via API
-
-```bash
-# Trigger graceful shutdown via HTTP (mesh mode only)
-curl -X POST http://gateway:30000/ha/shutdown
-```
-
-The `/ha/shutdown` endpoint lives on the main gateway port (default `30000`) and requires mesh mode (`--mesh-*` flags). Without mesh enabled the endpoint returns `503 Service Unavailable`. The mesh handler broadcasts a `LEAVING` status to peer nodes and stops the mesh rate-limit task — it does not share the same in-flight drain path used by the signal handler.
-
 ### Kubernetes Integration
 
 Kubernetes sends SIGTERM by default when terminating pods. Configure `terminationGracePeriodSeconds` to match or exceed your SMG grace period:
@@ -248,7 +236,7 @@ For zero-downtime deployments, coordinate with your load balancer:
 
 ### Pre-Stop Hook (Kubernetes)
 
-Remove the pod from the load balancer before shutdown:
+SMG already keeps accepting connections for up to 5 seconds after the signal while `/readiness` reports `503`. If your load balancer needs longer to stop sending traffic, add a pre-stop hook that delays the signal:
 
 ```yaml
 spec:
@@ -274,7 +262,7 @@ curl http://gateway:30000/readiness
 # 200 while serving; 503 {"status":"not ready","reason":"draining"} once shutdown begins
 ```
 
-`/readiness` also returns `503` when no healthy workers remain (or, in prefill/decode mode, when either side has no healthy worker), independent of the shutdown signal. The readiness decision is maintained event-driven from worker registry state and served from cached memory, so probes stay O(1) regardless of fleet size.
+`/readiness` also returns `503` independent of the shutdown signal when SMG cannot serve: when no healthy workers remain (in prefill/decode mode, when either side has no healthy worker), or while a healthy gRPC or ZMQ worker's tokenizer is still loading. See [Gateway Probe Endpoints](health-checks.md#gateway-probe-endpoints) for every reason. The readiness decision is maintained event-driven from worker registry state and served from cached memory, so probes stay O(1) regardless of fleet size.
 
 ### Dedicated Probe Port
 
@@ -295,6 +283,20 @@ When `--health-check-port` is unset no extra listener is started. The probe rout
 
 ---
 
+## Worker Draining
+
+Graceful shutdown drains the gateway itself. Removing a worker from a running gateway is a separate drain, controlled by `--drain-settle-secs`:
+
+| | Gateway shutdown | Worker removal |
+|---|------------------|----------------|
+| **Trigger** | SIGTERM or SIGINT to SMG | [Service discovery](../architecture/service-discovery.md) sees the pod terminate or turn unready, [worker auto-recovery](health-checks.md#worker-auto-recovery), or `DELETE /workers/{worker_id}` |
+| **Effect** | `/readiness` reports `503`; the listener stops accepting after the settle window | The worker moves to `Draining` and receives no new requests |
+| **Wait** | Until in-flight requests finish, up to `--shutdown-grace-period-secs` | A fixed `--drain-settle-secs` (default `5`, per worker `health.drain_settle_secs`), then the worker is removed |
+
+The worker settle window is a fixed delay: SMG does not wait for the worker's in-flight request count to reach zero. Only workers that were `Ready` are drained; `Pending`, `NotReady`, and `Failed` workers are removed immediately. Set `--drain-settle-secs 0` to skip draining. The flag belongs to the `smg` binary; the Python launcher does not accept it yet.
+
+---
+
 ## Monitoring
 
 ### Shutdown Events
@@ -307,14 +309,17 @@ INFO Received Ctrl+C, starting graceful shutdown
 # or
 INFO Received terminate signal, starting graceful shutdown
 
-# Gate — in-flight tracker is marked draining and the accept loop stops
-INFO Beginning graceful shutdown: gating new connections in_flight=5
+# Readiness flips to 503 "draining"
+INFO Beginning graceful shutdown: readiness draining in_flight=5
+
+# Settle window before the accept loop stops
+INFO Keeping listener open during load-balancer propagation window settle_secs=5
 
 # Drain completes within the grace period
 INFO All in-flight requests drained
 
 # Or the grace period expires with requests still running
-WARN Drain timed out, forcing shutdown with requests still in-flight remaining=2 timeout_secs=180
+WARN Drain timed out, forcing shutdown with requests still in-flight remaining=2 timeout_secs=175
 
 # Component teardown
 INFO HTTP server stopped. Starting component cleanup...
@@ -338,6 +343,7 @@ INFO Cleanup complete. Process exiting.
 | Slow scaling down | Decrease `--shutdown-grace-period-secs` |
 | Kubernetes force-killing pods | Increase `terminationGracePeriodSeconds` |
 | Streaming responses truncated | Match grace period to max stream duration |
+| Connections refused right after the signal | Add a `preStop` sleep so load balancers stop routing first |
 
 ---
 

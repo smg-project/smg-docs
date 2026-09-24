@@ -65,10 +65,10 @@ This is why `system` and `interactive` ship with reservations by default while `
 
 When no slot is immediately available, a request does not fail right away — it joins a **per-class FIFO queue**. Each class has its own queue with its own depth limit and its own wait timeout:
 
-- If the queue is already at its configured depth, the request is rejected immediately (**429**).
-- If the request waits longer than the class's timeout, it is rejected (**408**).
+- If the queue is already at its configured depth, the request is rejected immediately (**429**, `Retry-After: 2`).
+- If the request waits longer than the class's timeout, it is rejected (**503**, `Retry-After: 2`). Before v1.10 this was a 408.
 
-A client that disconnects *while queued* is not currently detected — its place is held until that timeout fires, because the cancel signal isn't yet wired to client disconnect at this stage. (The **499** code exists for this case but isn't emitted today.)
+A client that disconnects *while queued* is not detected by the scheduler, because its cancel signal isn't yet wired to client disconnect at this stage. If the server notices the disconnect (usually right away when the request body is small), the waiting request is dropped, but its queue entry keeps its place, and counts toward the queue depth, until the dispatcher reaches it and skips it. If the disconnect goes unnoticed (for example, behind a larger HTTP/1.1 request body that has not been read yet), the request stays queued until it is admitted or its timeout fires. (The **499** code exists for this case but isn't emitted today.)
 
 Higher classes have shorter queues and shorter timeouts (fail fast, the latency matters); lower classes have deeper queues and longer timeouts (wait patiently, throughput matters). The dispatcher drains queues in **strict priority order** — `system` first, then `interactive`, `default`, and `bulk`, fully draining a higher tier before serving a lower one. A sustained higher-priority flood *will* hold off a lower tier; the [starvation guard](#starvation-promotion) below is what keeps that from lasting forever.
 

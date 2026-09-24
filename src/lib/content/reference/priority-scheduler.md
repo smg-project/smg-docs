@@ -45,21 +45,21 @@ The scheduler surfaces admission and preemption outcomes as HTTP status codes. E
 | Status | Condition | `X-SMG-Error-Code` | Extra headers |
 |--------|-----------|--------------------|---------------|
 | **503** Service Unavailable | **Preempted** — admitted, then canceled before its first byte to make room for a higher-priority request | `scheduler_preempted` | `X-SMG-Preempted: true`, `Retry-After: 1` |
-| **429** Too Many Requests | **Queue full** — the request's per-class queue is at its configured depth | `scheduler_queue_full` | — |
-| **408** Request Timeout | **Queue timeout** — the request waited longer than its class's `queue_timeout` | `scheduler_queue_timeout` | — |
+| **429** Too Many Requests | **Queue full** — the request's per-class queue is at its configured depth, or the request-rate check rejected it (only when `--rate-limit-tokens-per-second` is set; see below) | `scheduler_queue_full` | `Retry-After: 2` |
+| **503** Service Unavailable | **Queue timeout** — the request waited longer than its class's `queue_timeout` (a 408 before v1.10) | `scheduler_queue_timeout` | `Retry-After: 2` |
 | **499** Client Closed Request | **Client gone** — the client disconnected before admission completed (nginx convention; never actually read) | `scheduler_client_cancelled` | — |
 
 !!! tip "Telling a preemption apart from an overload"
-    Both preemption and a genuinely overloaded backend can return `503`. The `X-SMG-Preempted: true` header is what distinguishes a preemption. A preempted request is safe to retry immediately, which is why it carries `Retry-After: 1`.
+    A preemption, a queue timeout, and a genuinely overloaded backend can all return `503`. The `X-SMG-Preempted: true` header is what distinguishes a preemption, and `X-SMG-Error-Code` names the cause (`scheduler_preempted`, `scheduler_queue_timeout`, and so on). A preempted request is safe to retry immediately, which is why it carries `Retry-After: 1`; queue sheds ask clients to wait 2 seconds.
 
 ---
 
 ## Enabling the scheduler
 
-The scheduler is controlled by CLI flags (also settable in the config file). Per-class tuning and per-tenant policy live in a separate optional YAML file.
+The scheduler is controlled by CLI flags. Only the Rust `smg` binary accepts them; the Python launcher (the `smg` command from `pip install smg`, also the container image's entrypoint) does not. Per-class tuning and per-tenant policy live in a separate optional YAML file.
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --priority-scheduler-enabled \
   --priority-scheduler-default-max-class interactive \
@@ -74,6 +74,8 @@ smg \
 | `--priority-scheduler-default-max-class` | `default` | Maximum class for tenants not listed in the YAML (`system` \| `interactive` \| `default` \| `bulk`). Parsed with the same rules as the header — an unknown value falls back to `default`. |
 | `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class overrides + per-tenant policy). Absent → built-in defaults and an empty tenant policy map. |
 | `--priority-scheduler-tenant-metric-top-n` | `32` | Intended cap on per-tenant metric label cardinality. **Not yet enforced** — the value is stored but no top-N bucketing is applied today; per-tenant counters currently intern the raw tenant. |
+
+While the scheduler is active, the legacy admission flags change meaning: `--queue-size` and `--queue-timeout-secs` are not used, `--max-concurrent-requests` only sets the fallback capacity while no healthy worker is registered, and a positive `--rate-limit-tokens-per-second` (with `--max-concurrent-requests` above `0`) adds a request-rate check before admission that sheds with 429 `scheduler_queue_full`. See [Rate Limiting](../concepts/reliability/rate-limiting.md#with-the-priority-scheduler).
 
 !!! warning "Fail-safe startup"
     If the scheduler is enabled but cannot start — unparsable YAML, or class reservation floors + shares that sum to more than the live backend capacity — the gateway logs at `ERROR` and **falls back to legacy admission** instead of aborting. It does not take the data plane down.
@@ -121,7 +123,7 @@ Each entry under `classes` accepts the following fields. All are per-class.
 | `reserved_floor` | integer (slots) | Minimum slots reserved for this class — the value the effective reservation never drops below. A higher class's *unused* reservation is held back from lower classes; a class's own reservation never reduces its own headroom. |
 | `reserved_per_slot` | float (0.0–1.0+) | Share of live capacity reserved for this class, on top of the floor: `effective = max(reserved_floor, ceil(reserved_per_slot × capacity))`, recomputed as capacity changes so the reservation tracks the fleet. `0.0` (the default) means purely absolute (just the floor). Must be finite and ≥ 0. At startup, if the floors + shares exceed capacity the scheduler fails safe to legacy admission; at runtime a capacity dip is absorbed by clamping the lowest classes first. |
 | `queue_size` | integer | Per-class queue depth limit. A request that arrives when the queue is full is rejected with **429**. |
-| `queue_timeout_secs` | integer (seconds) | How long a queued request waits before it is rejected with **408**. Must be `> 0`. |
+| `queue_timeout_secs` | integer (seconds) | How long a queued request waits before it is rejected with **503** and `Retry-After: 2`. Must be `> 0`. |
 | `starvation_threshold_secs` | integer (seconds) | Head-of-queue age past which the dispatcher promotes a waiter out of normal priority order (and lets it use a reserved-but-unused slot) to avoid starvation. Must be `> 0`. |
 | `can_preempt` | boolean | Whether admissions in this class may preempt a lower-class in-flight request that has not yet emitted its first byte. |
 
@@ -172,7 +174,7 @@ The scheduler exposes these Prometheus metrics (see the [Metrics Reference](metr
 | Metric | Type | Key labels | Use |
 |--------|------|------------|-----|
 | `smg_scheduler_admit_total` | Counter | `class`, `outcome` | Admission outcomes (`admitted`, `rejected_queue_full`, `rejected_queue_timeout`, `preempted`, `client_cancelled`). |
-| `smg_scheduler_queue_wait_seconds` | Histogram | `class` | Time spent queued before admission, timeout, or cancel. |
+| `smg_scheduler_queue_wait_seconds` | Summary | `class` | Time spent queued before admission, timeout, or cancel. |
 | `smg_scheduler_preemption_total` | Counter | `victim_class`, `by_class` | Successful preemptions. Authoritative preemption count. |
 | `smg_scheduler_clamp_total` | Counter | `tenant`, `requested_class`, `effective_class` | Requests clamped below the class they asked for. |
 | `smg_scheduler_unknown_priority_value_total` | Counter | `tenant` | Requests with an unrecognized `x-smg-priority` value. |

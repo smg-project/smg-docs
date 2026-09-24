@@ -650,7 +650,7 @@ The connection uses `--oracle-dsn` when it is set; otherwise `--oracle-wallet-pa
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--redis-url` | unset | Connection URL (`redis://` or `rediss://`, with a host). Required with `--history-backend redis`. |
+| `--redis-url` | unset | Connection URL (`redis://`, with a host). Required with `--history-backend redis`. A `rediss://` URL passes validation, but v1.11.0 is built without Redis TLS support, so startup fails. |
 | `--redis-pool-max-size` | `16` | Maximum connection pool size. Must be greater than 0. |
 | `--redis-retention-days` | `30` | Data retention in days. `-1` (any negative value) keeps data persistently. |
 

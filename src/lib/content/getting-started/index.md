@@ -296,7 +296,7 @@ Use these when workers are not started via `smg serve`.
 
 ### PD Disaggregation Workers
 
-For prefill-decode disaggregation, start separate prefill and decode workers:
+For prefill-decode disaggregation, start separate prefill and decode workers, each on its own GPUs (on one host, pin them with `CUDA_VISIBLE_DEVICES`):
 
 === "SGLang PD (gRPC)"
 
@@ -306,7 +306,7 @@ For prefill-decode disaggregation, start separate prefill and decode workers:
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --grpc-mode \
+      --smg-grpc-mode \
       --disaggregation-mode prefill \
       --disaggregation-bootstrap-port 8998
 
@@ -314,19 +314,20 @@ For prefill-decode disaggregation, start separate prefill and decode workers:
     python -m sglang.launch_server \
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
-      --port 50052 \
-      --grpc-mode \
-      --disaggregation-mode decode \
-      --disaggregation-bootstrap-port 8999
+      --port 50061 \
+      --smg-grpc-mode \
+      --disaggregation-mode decode
     ```
 
-    Start SMG with bootstrap ports for SGLang coordination:
+    `--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, which is now a deprecated alias. In this mode SGLang also opens an HTTP sidecar on `--port + 1`, so the decode worker uses `50061` rather than `50052`.
+
+    Start SMG with the prefill worker's bootstrap port after its URL:
 
     ```bash
     smg launch \
       --pd-disaggregation \
       --prefill grpc://localhost:50051 8998 \
-      --decode grpc://localhost:50052 \
+      --decode grpc://localhost:50061 \
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 30000
@@ -348,11 +349,10 @@ For prefill-decode disaggregation, start separate prefill and decode workers:
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 8001 \
-      --disaggregation-mode decode \
-      --disaggregation-bootstrap-port 8999
+      --disaggregation-mode decode
     ```
 
-    Start SMG with bootstrap ports for SGLang coordination:
+    Start SMG with the prefill worker's bootstrap port after its URL:
 
     ```bash
     smg launch \
@@ -388,7 +388,7 @@ For prefill-decode disaggregation, start separate prefill and decode workers:
     Start SMG (no bootstrap ports needed — NIXL handles KV transfer):
 
     ```bash
-    smg \
+    smg launch \
       --pd-disaggregation \
       --prefill grpc://localhost:50051 \
       --decode grpc://localhost:50052 \
@@ -397,7 +397,45 @@ For prefill-decode disaggregation, start separate prefill and decode workers:
       --port 30000
     ```
 
-See [PD Disaggregation](pd-disaggregation.md) for full details including Mooncake backend and scaling.
+=== "vLLM PD (HTTP + NIXL)"
+
+    SMG drives vLLM disaggregation over the OpenAI-compatible HTTP server too, with no gRPC servicer:
+
+    ```bash
+    # Prefill worker
+    VLLM_NIXL_SIDE_CHANNEL_PORT=5600 \
+    vllm serve meta-llama/Llama-3.1-8B-Instruct \
+      --host 0.0.0.0 \
+      --port 8000 \
+      --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}'
+
+    # Decode worker
+    VLLM_NIXL_SIDE_CHANNEL_PORT=5601 \
+    vllm serve meta-llama/Llama-3.1-8B-Instruct \
+      --host 0.0.0.0 \
+      --port 8001 \
+      --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}'
+    ```
+
+    Start SMG in PD mode without startup workers:
+
+    ```bash
+    smg launch --pd-disaggregation --host 0.0.0.0 --port 30000
+    ```
+
+    The vLLM HTTP server does not report its KV connector, so register both workers with it. Without `kv_connector`, requests still succeed but decode recomputes every prompt:
+
+    ```bash
+    curl -X POST http://localhost:30000/workers \
+      -H "Content-Type: application/json" \
+      -d '{"url": "http://localhost:8000", "worker_type": "prefill", "kv_connector": "NixlConnector"}'
+
+    curl -X POST http://localhost:30000/workers \
+      -H "Content-Type: application/json" \
+      -d '{"url": "http://localhost:8001", "worker_type": "decode", "kv_connector": "NixlConnector"}'
+    ```
+
+See [PD Disaggregation](pd-disaggregation.md) for the Mooncake backend, TokenSpeed and EPD, Kubernetes discovery, and scaling.
 
 ## Send a Request
 

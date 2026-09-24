@@ -467,7 +467,7 @@ If you do not enable mesh, you can keep each client on one gateway with session 
 
 With mesh HA enabled (`--enable-mesh`), gateways share tree updates:
 
-- After each tree lookup, the gateway broadcasts a compact delta: the tree kind, a hash of the request's path, and the chosen worker. Deltas are batched per model and gossip round.
+- When a tree lookup records the chosen worker, the gateway broadcasts a compact delta: the tree kind, a hash of the request's path, and the chosen worker. Deltas are batched per model and gossip round. In v1.11, inserts made by the KV-pressure fallback and by the prefill, decode, and encode policies of disaggregated mode are not broadcast.
 - A peer that already knows the path adds the worker as a tenant. A peer that does not requests a repair from a random live peer, which sends that model's tree in pages.
 - Only the string and token trees are synchronized. The KV-event index (each gateway subscribes to the engines itself) and the hash index (`--cache-index hash`) stay local to each gateway.
 - Host-local ZMQ workers (`ipc://`) are never shared with peers, so they receive traffic only from the gateway on their own host. A prefix whose only holder is another gateway's ZMQ worker routes like a cache miss.

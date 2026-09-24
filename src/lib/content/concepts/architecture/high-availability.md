@@ -345,7 +345,7 @@ The default policy and per-model cache-aware policies take part, with no flag be
 
 What consistency to expect:
 
-- **Eventual and approximate.** Trees converge toward each other but are not guaranteed to be identical. Each router still evicts its own tree on its own schedule (`--eviction-interval`, `--max-tree-size`); evictions are not shared.
+- **Approximate.** Deltas and repairs move the trees toward each other, but they are not guaranteed to match: a dropped delta is not resent, and a repair starts only when a later delta names a path the peer does not know. Each router still evicts its own tree on its own schedule (`--eviction-interval`, `--max-tree-size`); evictions are not shared.
 - **Best effort.** A delta batch that a peer's stream cannot accept is dropped, not resent. The peer catches up through repair the next time it sees a prefix it does not know.
 - **Survives a router failure.** Routing decisions that a failed router already shared stay in its peers' trees, so traffic that moves to them keeps that cache affinity.
 

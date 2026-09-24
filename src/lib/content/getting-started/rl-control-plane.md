@@ -80,6 +80,8 @@ smg serve \
   --router-enable-rl
 ```
 
+Both examples run without auth and listen on all interfaces, so anyone who can reach the gateway can call engine routes through `/v1/rl/*`; set up [auth](#security) outside local development.
+
 See the [Configuration Reference](../reference/configuration.md#rl-control-plane-configuration) for all gateway settings.
 
 ---
@@ -92,10 +94,10 @@ See the [Configuration Reference](../reference/configuration.md#rl-control-plane
 |---|---|
 | Control-plane auth (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`) | A control-plane API key or JWT with the `admin` role, as `Authorization: Bearer <token>`. A missing or unknown token gets `401`; a valid token without the admin role gets `403`. |
 | `--api-key` without control-plane auth | `Authorization: Bearer <api-key>`; anything else gets `401` |
-| `--tenant-api-keys` without `--api-key` or control-plane auth | Nothing: every request gets `401` |
+| `--tenant-api-key` without `--api-key` or control-plane auth | Nothing: every request gets `401` |
 | No keys | Every request; use this only for local development |
 
-Per-tenant keys (`--tenant-api-keys`) are never accepted on these routes. When control-plane auth is on, its audit log (enabled by default) records these calls like any other control-plane operation.
+Per-tenant keys (`--tenant-api-key`) are never accepted on these routes. When control-plane auth is on, its audit log (enabled by default) records these calls like any other control-plane operation.
 
 When SMG calls an engine, it sends:
 
@@ -256,7 +258,7 @@ The per-worker and fan-out routes accept the same `{path}`:
 
 - 1 to 4 segments separated by `/`, such as `flush_cache` or `inference/v1/generate`. A leading `/` is ignored.
 - Each segment uses only `A-Z`, `a-z`, `0-9`, `.`, `_`, and `-`. Empty, `.`, and `..` segments are rejected.
-- Only `GET` and `POST` are accepted; other methods get `405`.
+- Only `GET` and `POST` are accepted (a `HEAD` request is served by the `GET` route and forwarded as `HEAD`); other methods get `405`.
 - The query string is forwarded as-is, except that `selector` parameters are removed.
 - The request body is forwarded byte for byte, up to `--max-payload-size`.
 
@@ -290,7 +292,7 @@ curl -X POST "$SMG/v1/rl/engine/continue_generation?$SEL" \
 How a fan-out runs:
 
 1. SMG parses the selector and validates the path. A missing or empty `selector` gets `400 selector_required`, and a malformed one gets `400 invalid_selector`.
-2. It resolves the targets: every registered worker whose labels match, with DP-aware ranks that share an engine address counted once. Worker health is not considered; add `health=ready` to the selector to skip unhealthy workers. If nothing matches, the answer is `400 no_workers_match`.
+2. It resolves the targets: every registered worker whose labels match, with DP-aware ranks that share an engine address counted once. The ranks collapse into their lowest rank before matching, so the selector sees only that rank's `id`, `url`, and `health`. Worker health is not considered; add `health=ready` to the selector to skip unhealthy workers. If nothing matches, the answer is `400 no_workers_match`.
 3. It calls the targets with at most `--rl-fanout-concurrency` calls in flight. Each call has its own `--rl-control-timeout-secs` deadline.
 4. It waits for every call, then answers once: `200` when every target returned 2xx, and `207 Multi-Status` otherwise, even when every target failed.
 
@@ -335,7 +337,7 @@ Each `failed[]` entry has `worker_id`, `url`, `error`, and `message`, plus `stat
 |---|---|---|
 | `upstream_error` | The engine answered with a non-2xx status; `message` is `HTTP <status>` | Yes |
 | `upstream_unreachable` | SMG could not connect to the engine or read its response | No |
-| `upstream_timeout` | No complete answer within `--rl-control-timeout-secs` | No |
+| `upstream_timeout` | Connecting timed out, or the engine sent no response within `--rl-control-timeout-secs` | No |
 | `unsupported_connection_mode` | The worker is gRPC or ZMQ | No |
 
 SMG does not retry or roll back. Engines that succeeded keep the change; use `failed[]` to decide what to do for the others.
@@ -384,7 +386,7 @@ A failure on the SMG side returns JSON `{"error": "<code>", "message": "<text>"}
 | `404` | `worker_not_found` | Worker lookup, per-worker call | Unknown worker ID | `id` |
 | `422` | `unsupported_connection_mode` | Per-worker call | The worker is gRPC or ZMQ | `worker_id`, `url`, `connection_mode` |
 | `502` | `upstream_unreachable` | Per-worker call | SMG could not connect to the engine or read its response | `worker_id`, `url` |
-| `504` | `upstream_timeout` | Per-worker call | No complete answer within `--rl-control-timeout-secs` | `worker_id`, `url` |
+| `504` | `upstream_timeout` | Per-worker call | Connecting timed out, or the engine sent no response within `--rl-control-timeout-secs` | `worker_id`, `url` |
 
 In a fan-out, a failed target never changes the status beyond `207`; it is reported in `failed[]`. Auth failures (`401`, `403`) and the `404` for a disabled control plane come from the gateway and do not use this format.
 
@@ -453,6 +455,8 @@ The results are dataclasses:
 - If the block raises, the workers are resumed and the block's exception propagates. A resume failure is attached to it as `__context__`.
 - If only the resume fails, its error is raised.
 
+The resume is a new fan-out with the same selector, so it reaches the workers that match when it runs. A worker that stopped matching during the block, for example one whose `health` changed under a `health=ready` term, stays paused.
+
 For other engines, call `fanout` with their own route names.
 
 This example is adapted from `examples/rl/refit_from_disk.py` in the smg repository:
@@ -505,7 +509,7 @@ The full example then sends a `/generate` request through SMG and checks that `m
 - `op` is the engine path when it is one of the control operations SMG recognizes, and `other` for any other path, so arbitrary paths cannot create new label values. The recognized operations are `pause_generation`, `continue_generation`, `update_weights_from_disk`, `update_weights_from_tensor`, `update_weights_from_distributed`, `init_weights_update_group`, `destroy_weights_update_group`, `update_weight_version`, `flush_cache`, `abort_request`, `release_memory_occupation`, `resume_memory_occupation`, `pause`, `resume`, `sleep`, `wake_up`, `collective_rpc`, `server_info`, `get_server_info`, and `health`.
 - A worker skipped as `unsupported_connection_mode` is not counted in `smg_rl_control_calls_total`. A fan-out rejected before target resolution (`selector_required`, `invalid_selector`, or `invalid_engine_path`) is not counted in `smg_rl_fanout_total`.
 - Both histograms use SMG's duration buckets, which `--prometheus-duration-buckets` overrides.
-- The series appear after the first control call. Without `--enable-rl`, there are none.
+- Each series appears the first time SMG records it. Without `--enable-rl`, there are none.
 
 ```promql
 # Fan-outs where at least one engine failed
@@ -525,10 +529,10 @@ See [Monitoring](monitoring.md) for scraping SMG metrics.
 
 Every engine call that gets a response logs an `rl.proxy` event with `worker_id`, `url`, `method`, `path`, `status`, and `latency_ms`. Every fan-out that reaches its targets logs an `rl.fanout` event with `path`, `selector`, `total`, `succeeded`, `failed`, and `latency_ms`.
 
-Both are INFO events on the `smg_rl` log target, which SMG's default log filter leaves out. To see them, set `RUST_LOG`. It replaces the default filter, so list every target you want to keep:
+Both are INFO events on the `smg_rl` log target. SMG's default log filter includes them at the default `--log-level info`, because its `smg=info` entry matches every target that starts with `smg`. `RUST_LOG` replaces the default filter; to see only these events and warnings:
 
 ```bash
-RUST_LOG=warn,smg=info,smg_rl=info smg launch \
+RUST_LOG=warn,smg_rl=info smg launch \
   --worker-urls http://rollout-0:30000 \
   --enable-rl
 ```
@@ -545,7 +549,7 @@ RUST_LOG=warn,smg=info,smg_rl=info smg launch \
 
 ??? question "401 or 403 from /v1/rl/*"
 
-    `401` means the bearer token is missing or not accepted. With control-plane auth, use an admin control-plane API key or JWT; the shared `--api-key` is not accepted. Without control-plane auth, use the `--api-key` value. Per-tenant keys are never accepted, and a gateway configured with only `--tenant-api-keys` rejects every control-plane request.
+    `401` means the bearer token is missing or not accepted. With control-plane auth, use an admin control-plane API key or JWT; the shared `--api-key` is not accepted. Without control-plane auth, use the `--api-key` value. Per-tenant keys are never accepted, and a gateway configured with only `--tenant-api-key` rejects every control-plane request.
 
     `403` means the token is valid but its role is not `admin`.
 
@@ -554,7 +558,7 @@ RUST_LOG=warn,smg=info,smg_rl=info smg launch \
     At least one target failed; the others completed. Check each `failed[]` entry:
 
     - `upstream_unreachable`: the engine is down or unreachable. Once it is back, the next call reaches it; control calls do not use circuit breakers.
-    - `upstream_timeout`: the call took longer than `--rl-control-timeout-secs`. Raise it for long refits.
+    - `upstream_timeout`: the call took longer than `--rl-control-timeout-secs`, or connecting to the engine timed out. Raise the flag for long refits.
     - `upstream_error`: the engine rejected the call. Its answer is in `results[<worker_id>].body`.
     - `unsupported_connection_mode`: the selector matched a gRPC or ZMQ worker. Add `connection_mode=http` to the selector.
 
@@ -564,7 +568,7 @@ RUST_LOG=warn,smg=info,smg_rl=info smg launch \
 
 ??? question "400 no_workers_match"
 
-    No worker's labels match the selector. List the workers with `GET /v1/rl/workers` and compare their `labels`, `engine`, `model`, and `health` with your terms. Matching is exact and case-sensitive, and the selector must be URL-encoded in the query string.
+    No worker's labels match the selector. List the workers with `GET /v1/rl/workers` and compare their `labels`, `engine`, `model_id` (the `model` key), and `health` with your terms. Matching is exact and case-sensitive, and the selector must be URL-encoded in the query string.
 
 ??? question "weight_version in discovery does not change after a refit"
 

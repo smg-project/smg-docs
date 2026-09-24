@@ -279,7 +279,7 @@ For prefill-decode disaggregation, start separate prefill and decode workers, ea
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --grpc-mode \
+      --smg-grpc-mode \
       --disaggregation-mode prefill \
       --disaggregation-bootstrap-port 8998
 
@@ -288,11 +288,11 @@ For prefill-decode disaggregation, start separate prefill and decode workers, ea
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50061 \
-      --grpc-mode \
+      --smg-grpc-mode \
       --disaggregation-mode decode
     ```
 
-    In gRPC mode SGLang also opens an HTTP sidecar on `--port + 1`, so the decode worker uses `50061` rather than `50052`.
+    `--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, which is now a deprecated alias. In this mode SGLang also opens an HTTP sidecar on `--port + 1`, so the decode worker uses `50061` rather than `50052`.
 
     Start SMG with the prefill worker's bootstrap port after its URL:
 

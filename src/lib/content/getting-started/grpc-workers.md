@@ -115,7 +115,7 @@ smg launch \
 ```
 
 !!! note "How the gateway finds the tokenizer"
-    The gateway needs each model's tokenizer to apply chat templates, count tokens, and parse tool calls. When a worker registers, SMG loads the tokenizer from the `tokenizer_path` or `model_path` the worker reports (vLLM, SGLang and MLX report one), and falls back to `--tokenizer-path` or `--model-path`. If that path doesn't load on the gateway host, for example because it's a directory on the worker's machine, SMG fetches the tokenizer files from the worker over gRPC. TensorRT-LLM and TokenSpeed workers report no path, so pass `--model-path` for them. `--disable-tokenizer-autoload` turns all of this off; tokenizers then come only from the [tokenizer API](../reference/api/admin.md).
+    The gateway needs each model's tokenizer to apply chat templates, count tokens, and parse tool calls. When a worker registers, SMG loads the tokenizer from the `tokenizer_path` or `model_path` the worker reports (vLLM, SGLang, TokenSpeed and MLX report one), and falls back to `--tokenizer-path` or `--model-path`. If that path doesn't load on the gateway host, for example because it's a directory on the worker's machine, SMG fetches the tokenizer files from the worker over gRPC. TensorRT-LLM workers report no path, so pass `--model-path` or `--tokenizer-path` for them. `--disable-tokenizer-autoload` turns all of this off; tokenizers then come only from the [tokenizer API](../reference/api/admin.md).
 
 The API is still OpenAI-compatible, so clients send the same requests as with HTTP workers:
 

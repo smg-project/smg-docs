@@ -22,7 +22,10 @@ export const conceptsNav: DocsNavSection[] = [
 	},
 	{
 		label: 'Performance',
-		items: [{ label: 'Tokenizer Caching', href: `${base}/concepts/performance/tokenizer-caching` }]
+		items: [
+			{ label: 'Tokenizer Caching', href: `${base}/concepts/performance/tokenizer-caching` },
+			{ label: 'Request Streaming', href: `${base}/concepts/performance/request-streaming` }
+		]
 	},
 	{
 		label: 'Extensibility',

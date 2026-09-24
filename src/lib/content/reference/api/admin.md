@@ -228,7 +228,7 @@ curl -X POST http://localhost:30000/workers \
     }
     ```
 
-    The gateway binds the sockets and the engine dials in. For this path the handshake listens on `tcp://127.0.0.1:22714`, a port derived from the `ipc://` path. An engine core does not report a model name, so a ZMQ worker needs `models`, a `model_path` label (which also locates the tokenizer), or a gateway started with `--model-path`. For a group of data-parallel engines or a fixed handshake address, see the ZMQ fields under [Worker Spec](#worker-spec).
+    The gateway binds the sockets and the engine dials in. For this path the handshake listens on `tcp://127.0.0.1:22714`, a port derived from the `ipc://` path. An engine core does not report a model name, so a ZMQ worker needs `models`, a model label such as `model_path` (which also locates the tokenizer), or a gateway started with `--model-path`. For a group of data-parallel engines or a fixed handshake address, see the ZMQ fields under [Worker Spec](#worker-spec).
 
 === "Overload and HTTP/2 overrides"
 
@@ -342,7 +342,7 @@ Either field turns overload protection on for this worker, even when the gateway
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `http2` | boolean | negotiated | `true`: always speak HTTP/2 with prior knowledge (h2c on `http://`); registration fails if the worker only speaks HTTP/1.1. `false`: no HTTP/2 prior knowledge, so an `http://` worker stays on HTTP/1.1. Unset: under `--upstream-http2`, the gateway probes an `http://` worker with both versions and prefers HTTP/2. Responses report the result as `http2`. |
+| `http2` | boolean | `--upstream-http2` (off) | `true`: always speak HTTP/2 with prior knowledge (h2c on `http://`); registration fails if the worker only speaks HTTP/1.1. `false`: no HTTP/2 prior knowledge, so an `http://` worker stays on HTTP/1.1. Unset: under `--upstream-http2`, the gateway probes an `http://` worker with both versions and prefers HTTP/2; without the flag, an `http://` worker uses HTTP/1.1. Responses report the result as `http2`. |
 | `pool_max_idle_per_host` | integer | `500` | Idle connections kept per host. |
 | `pool_idle_timeout_secs` | integer | `--upstream-pool-idle-timeout-secs` (3) | How long an idle connection is kept. Keep it below the engine's keep-alive timeout; `0` keeps idle connections forever. |
 | `timeout_secs` | integer | `--request-timeout-secs` (1800) | Default request timeout. |
@@ -355,7 +355,7 @@ Either field turns overload protection on for this worker, even when the gateway
 | `cb_failure_threshold` | integer | `--cb-failure-threshold` (10) | Failures that open this worker's circuit. |
 | `cb_success_threshold` | integer | `--cb-success-threshold` (3) | Successes in the half-open state that close it. |
 | `cb_timeout_secs` | integer | `--cb-timeout-duration-secs` (60) | Seconds before an open circuit tries half-open. |
-| `cb_window_secs` | integer | `--cb-window-duration-secs` (120) | Accepted and validated, but the circuit breaker does not use it: failures are counted consecutively, not in a window. |
+| `cb_window_secs` | integer | `--cb-window-duration-secs` (120) | Accepted but unused: the circuit breaker counts consecutive failures, not failures in a window. |
 | `retryable_status_codes` | integer array | `[408, 429, 500, 502, 503, 504]` | Statuses counted as circuit-breaker failures. Replaces the default set; it does not change which responses are retried. |
 | `capacity_status_codes` | integer array | `[429]` | Capacity-pushback statuses, which the circuit breaker never counts, as either failure or success. Replaces the default set. |
 
@@ -366,7 +366,7 @@ Either field turns overload protection on for this worker, even when the gateway
 | `dp_size` | integer | none | On an `ipc://` worker, the number of data-parallel engines that dial into its one socket set. A value above 1 makes a grouped worker, and the gateway spreads requests across the group's engines. On other workers the gateway sets this field itself during data-parallel discovery. |
 | `zmq_handshake_address` | string | derived | `tcp://` address the gateway binds for the engine handshake. The default is `tcp://127.0.0.1:<port>`, with the port (20000 to 29999) derived from the `ipc://` path. Set it for an engine that dials a fixed address, such as `tcp://127.0.0.1:30500`, TokenSpeed's default. |
 
-Registration of a ZMQ worker fails when the runtime is not `vllm` or `tokenspeed`, when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
+Registration of a ZMQ worker fails when the runtime is not `vllm` or `tokenspeed`, when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, when `dp_size` is above 1 on a gateway running with `--dp-aware`, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
 
 **PD disaggregation and KV transfer**: see [PD Disaggregation](../../concepts/routing/pd-disaggregation.md).
 
@@ -388,7 +388,7 @@ Registration of a ZMQ worker fails when the runtime is not `vllm` or `tokenspeed
     - `multimodal_tensor_transport` and `multimodal_shm_min_bytes`: use the gateway-wide `--multimodal-tensor-transport` and `--multimodal-shm-min-bytes` (see [Multimodal](../../concepts/architecture/multimodal.md)).
     - `load_monitor_interval_secs`: use `--load-monitor-interval`.
     - `kv_block_size`: the engine's KV event stream reports the block size.
-    - `max_connection_attempts`: returned in responses but unused; registration keeps probing until `--worker-startup-timeout-secs`.
+    - `max_connection_attempts`: unused, and responses always show the default `20`; registration keeps probing until `--worker-startup-timeout-secs`.
     - The `resilience` retry fields (`max_retries`, `initial_backoff_ms`, `max_backoff_ms`, `backoff_multiplier`, `jitter_factor`, `disable_retry`) and `disable_circuit_breaker`: use the gateway-wide `--retry-*`, `--disable-retries`, and `--disable-circuit-breaker` flags.
     - `dp_base_url`, `dp_rank`, and `dp_size` (except on ZMQ workers): the gateway sets them on data-parallel workers under `--dp-aware`.
 
@@ -407,7 +407,7 @@ Worker endpoints report errors as `{"error": "<message>", "code": "<CODE>"}`, no
 
 | Status | `code` | When |
 |--------|--------|------|
-| `400` | `BAD_REQUEST` | `worker_id` is not a UUID. The `url` is empty, does not start with a lowercase `http://`, `https://`, `grpc://`, `grpcs://`, or `ipc://` scheme, has no host, or is an `ipc://` URL without a path. A `PUT` changes the URL, or the gateway runs with `--dp-aware`. |
+| `400` | `BAD_REQUEST` | `worker_id` is not a UUID. The `url` is empty, does not start with a lowercase `http://`, `https://`, `grpc://`, `grpcs://`, or `ipc://` scheme, is not a valid URL or has no host, or is an `ipc://` URL without a path. A `PUT` changes the URL or is sent to a gateway running with `--dp-aware`. |
 | `400` | `PROVIDER_NOT_COMPILED` | The spec targets a provider whose router is not compiled into this build. |
 | `404` | `WORKER_NOT_FOUND` | No worker has this ID. |
 | `409` | `WORKER_ALREADY_EXISTS` | `POST` for a URL that is already registered. The message names the existing ID. |
@@ -565,6 +565,8 @@ Changes a few fields in place. Omitted fields keep their current values. The wor
 | `health` | object | Partial health overrides, merged into the worker's current settings: `timeout_secs`, `check_interval_secs`, `success_threshold`, `failure_threshold`, `disable_health_check`, `drain_settle_secs`. Setting `disable_health_check` to `true` makes the worker routable immediately. |
 
 Any other field, such as `overload`, `http_pool`, `resilience`, or `models`, is ignored. Use `PUT` to change those.
+
+In v1.11.0, a `PATCH` also rebuilds the worker's circuit breaker with built-in thresholds (5 failures, 2 successes, 30 seconds), ignoring the gateway's circuit-breaker flags and any `resilience` overrides until a `PUT` re-registers the worker.
 
 **Response:** `202 Accepted`
 ```json

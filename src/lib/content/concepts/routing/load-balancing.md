@@ -210,10 +210,12 @@ smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
 
 | Header | Description |
 |--------|-------------|
-| `X-SMG-Target-Worker` | Direct routing by worker index (0-based) |
-| `X-SMG-Routing-Key` | Consistent hash routing for session affinity |
+| `X-SMG-Target-Worker` | Route to a worker by 0-based index into the model's available workers. An out-of-range index or an unavailable worker fails the request with `503` instead of falling back |
+| `X-SMG-Routing-Key` | Hash this key onto the ring for session affinity. Names listed in `--routing-key-headers` are read first. Values must be non-empty UTF-8 of at most 128 bytes |
 
-**Priority order:** `X-SMG-Target-Worker` → `X-SMG-Routing-Key` → Implicit keys (`Authorization`, `X-Forwarded-For`, `Cookie`) → Random fallback
+**Priority order:** `X-SMG-Target-Worker` → body `rid` (with `--routing-key-override`) → routing-key header → implicit keys (`Authorization`, `X-Forwarded-For`, `Cookie`) → random fallback
+
+See [Sticky Sessions and Routing Keys](sticky-sessions.md) for how routing keys are derived and validated.
 
 **Use when:** Session affinity needed, user-to-worker pinning, or consistent routing for stateful applications.
 
@@ -265,7 +267,7 @@ smg --policy prefix_hash --prefix-token-count 256 --worker-urls http://w1:8000 h
 
 ## Manual
 
-Provides sticky session routing with explicit routing key mapping. Unlike consistent hashing, sessions stay with their assigned worker even when new workers are added.
+Pins each routing key to a worker in an explicit key-to-worker map. Keys come from the `X-SMG-Routing-Key` header, or from the request body's `rid` when `--routing-key-override` is also enabled. Unlike consistent hashing, adding workers never moves an existing key; a key moves only when its worker becomes unavailable.
 
 ```bash
 smg --policy manual --assignment-mode min_load --worker-urls http://w1:8000 http://w2:8000
@@ -278,8 +280,8 @@ smg --policy manual --assignment-mode min_load --worker-urls http://w1:8000 http
 #### :material-check-circle: Advantages
 
 - Strong session stickiness
-- Automatic failover with recovery
-- TTL-based eviction prevents memory growth
+- Failover to a second worker, and back once the original recovers
+- Keys idle longer than `--max-idle-secs` are evicted
 
 </div>
 
@@ -287,9 +289,9 @@ smg --policy manual --assignment-mode min_load --worker-urls http://w1:8000 http
 
 #### :material-close-circle: Limitations
 
-- No load balancing for existing sessions
-- Requires `X-SMG-Routing-Key` header
-- Memory grows with active sessions
+- No load balancing for keys already pinned
+- Requests without a key are spread by the assignment mode and never pinned
+- Pins live in each gateway replica's memory
 
 </div>
 
@@ -299,9 +301,12 @@ smg --policy manual --assignment-mode min_load --worker-urls http://w1:8000 http
 
 | Mode | Description |
 |------|-------------|
-| `random` | Randomly select from healthy workers |
-| `min_load` | Select worker with fewest active requests |
-| `min_group` | Select worker with fewest routing keys assigned |
+| `random` | Randomly select from available workers (default) |
+| `min_load` | Select the worker with the fewest in-flight requests |
+| `min_group` | Select the worker with the fewest active routing keys |
+| `delegate` | Same as `min_load` under this policy |
+
+To pin conversations while another policy such as `cache_aware` decides where each one starts, use `--routing-key-override` instead. See [Sticky Sessions and Routing Keys](sticky-sessions.md).
 
 **Use when:** Stateful chat sessions where context is stored on workers, or when session continuity is critical.
 

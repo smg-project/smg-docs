@@ -112,6 +112,8 @@ Learn how SMG selects workers for requests:
 
 - [Load Balancing](routing/load-balancing.md) — Available routing policies
 - [Cache-Aware Routing](routing/cache-aware.md) — Prefix-based worker affinity
+- [Sticky Sessions and Routing Keys](routing/sticky-sessions.md) — Pin every request of a conversation to one worker
+- [PD Disaggregation](routing/pd-disaggregation.md) — Separate prefill and decode workers
 
 ### Performance
 

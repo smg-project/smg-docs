@@ -130,11 +130,11 @@ Start the first router, then point the next one at it with `--mesh-peer-urls`:
 
 ```bash
 # Router 1 (bootstrap)
-smg --enable-mesh --mesh-advertise-host 10.0.0.1 --mesh-port 39527 \
+smg launch --enable-mesh --mesh-advertise-host 10.0.0.1 --mesh-port 39527 \
     --worker-urls http://10.0.1.1:8000 http://10.0.1.2:8000
 
 # Router 2, joining router 1
-smg --enable-mesh --mesh-advertise-host 10.0.0.2 --mesh-port 39527 \
+smg launch --enable-mesh --mesh-advertise-host 10.0.0.2 --mesh-port 39527 \
     --mesh-peer-urls 10.0.0.1:39527
 ```
 
@@ -153,10 +153,10 @@ Router 2 has no workers of its own; it imports router 1's workers through the me
 | `--router-selector` | (none) | Label selector for [Kubernetes router discovery](#kubernetes-router-discovery). Takes effect only with `--service-discovery` |
 
 !!! note "Mesh addresses must be IP addresses"
-    `--mesh-host`, `--mesh-advertise-host`, and `--mesh-peer-urls` are parsed as socket addresses and never resolved through DNS. A hostname such as `smg-0.smg-mesh:39527` fails at startup with `Invalid value for field 'mesh_peer_urls'`. With the default `--mesh-host 0.0.0.0`, the router also refuses to start until `--mesh-advertise-host` names a routable IP, so peers never try to dial an unspecified address. On Kubernetes, use [router discovery](#kubernetes-router-discovery) instead of peer URLs.
+    `--mesh-host`, `--mesh-advertise-host`, and `--mesh-peer-urls` are parsed as socket addresses and never resolved through DNS. A hostname such as `smg-0.smg-mesh:39527` fails at startup: the Python CLI reports `Invalid mesh peer URL`, the Rust binary `Invalid value for field 'mesh_peer_urls'`. With the default `--mesh-host 0.0.0.0`, the router also refuses to start until `--mesh-advertise-host` names a routable IP, so peers never try to dial an unspecified address. On Kubernetes, use [router discovery](#kubernetes-router-discovery) instead of peer URLs.
 
 !!! warning "The mesh port is not authenticated"
-    Mesh traffic is plaintext gRPC and peers are not authenticated: the mesh library supports mTLS, but no v1.11 flag enables it. Anything that can reach the mesh port can join the cluster and publish workers to every router, so expose the port only to other routers (for example with a firewall rule or a Kubernetes NetworkPolicy).
+    Mesh traffic is plaintext gRPC and peers are not authenticated: v1.11 has no option to enable TLS on the mesh port. Anything that can reach the mesh port can join the cluster and publish workers to every router, so expose the port only to other routers (for example with a firewall rule or a Kubernetes NetworkPolicy).
 
 ### Python Entrypoint
 
@@ -177,7 +177,7 @@ smg launch --enable-mesh --mesh-host 0.0.0.0 --mesh-advertise-host 10.0.0.11 --m
 **Node 1** (Bootstrap)
 
 ```bash
-smg --enable-mesh \
+smg launch --enable-mesh \
     --mesh-server-name node1 \
     --mesh-host 0.0.0.0 \
     --mesh-advertise-host 10.0.0.11 \
@@ -192,7 +192,7 @@ smg --enable-mesh \
 **Node 2** (Join)
 
 ```bash
-smg --enable-mesh \
+smg launch --enable-mesh \
     --mesh-server-name node2 \
     --mesh-host 0.0.0.0 \
     --mesh-advertise-host 10.0.0.12 \
@@ -208,7 +208,7 @@ smg --enable-mesh \
 **Node 3** (Join)
 
 ```bash
-smg --enable-mesh \
+smg launch --enable-mesh \
     --mesh-server-name node3 \
     --mesh-host 0.0.0.0 \
     --mesh-advertise-host 10.0.0.13 \
@@ -240,7 +240,7 @@ smg --enable-mesh \
 | Status | Description |
 |--------|-------------|
 | `ALIVE` | Reachable. Every router starts in this state |
-| `SUSPECTED` | A probe failed: neither the direct ping nor any indirect ping reached the router. Still probed. Router discovery also sets it for a known pod that is not Ready |
+| `SUSPECTED` | A probe failed: neither the direct ping nor any indirect ping reached the router. Still probed. Router discovery also sets it for a known pod that is not Ready, unless that router is already `DOWN` |
 | `DOWN` | A probe failed again while `SUSPECTED`, or the router's pod was deleted or is terminating. Peers stop probing it |
 | `LEAVING` | The node announced a graceful leave. Peers stop probing it. The v1.11 gateway does not announce it during shutdown |
 | `INIT` | Defined in the protocol but not used |
@@ -326,7 +326,7 @@ Each router publishes the workers it registered itself, whether from `--worker-u
 
 - **Imports are health-checked locally.** A peer rebuilds the worker from its published spec and probes it itself. The owner's health flag sets the import's initial state and afterwards only nudges it: healthy promotes a pending or not-ready import to ready, and unhealthy demotes a ready one.
 - **Workers are matched by URL.** A router that registered a URL itself keeps its own worker and ignores peers' copies. Give a worker the same URL on every router, and never a loopback address: a peer that imports `http://127.0.0.1:8000` routes to its own host.
-- **Only the owner removes a worker.** Removing a worker on the router that registered it removes it everywhere. Deleting an imported worker through another router's API lasts only until that router's next reconcile pass (every 30 seconds) imports it again.
+- **Only the owner removes a worker.** Removing a worker on the router that registered it removes it everywhere. Deleting an imported worker through another router's API lasts at most until that router's next reconcile pass (every 30 seconds) imports it again.
 - **A departed router's workers stay.** If a router leaves for good, its peers keep its workers registered and keep health-checking them.
 - **API keys stay local.** The published spec leaves out the worker's `api_key`.
 
@@ -337,15 +337,15 @@ Each router publishes the workers it registered itself, whether from `--worker-u
 
 The `cache_aware` policy keeps an approximate prefix tree per model: a string tree for HTTP requests and a token tree for gRPC requests. With the mesh on, every routing decision made through these trees is shared:
 
-1. **Publish**: After choosing a worker, the router records it in its own tree and queues a delta: a hash of the request's prefix path plus the worker URL. Once per gossip round, each model's queued deltas go to every peer as one batch.
+1. **Publish**: After choosing a worker, the router records it in its own tree and queues a delta: a hash of the request's prefix path plus the worker URL. Once per gossip round, each model's queued deltas go to every connected peer as one batch.
 2. **Apply**: A peer that already knows that prefix path adds the worker to it in its own tree.
-3. **Repair**: A peer that does not know the path, such as a router that just started, asks a random `ALIVE` peer for its whole tree for that model and tree type and replays it. The tree arrives in pages of roughly 2 MiB; a repair that makes no progress for 5 seconds is retried, preferably with another peer, up to 3 times. Unknown prefixes for the same model and tree type that arrive meanwhile are folded into the repair in flight.
+3. **Repair**: A peer that does not know the path, such as a router that just started, asks a random `ALIVE` peer for its whole tree for that model and tree type and replays it. The tree arrives in pages of up to about 2 MiB; a repair that makes no progress for 5 seconds is retried, preferably with another peer, up to 3 times. Unknown prefixes for the same model and tree type that arrive meanwhile are folded into the repair in flight.
 
-Every cache-aware policy takes part: the default policy, per-model policies, and the prefill, decode, and encode policies in disaggregated mode. No flag beyond `--enable-mesh` is needed.
+The default policy and per-model cache-aware policies take part, with no flag beyond `--enable-mesh`. In v1.11 the prefill, decode, and encode policies of disaggregated mode do not publish their inserts: the router creates them after the mesh attaches its sync adapter.
 
 What consistency to expect:
 
-- **Eventual and approximate.** Trees converge toward each other but are never identical. Each router still evicts its own tree on its own schedule (`--eviction-interval`, `--max-tree-size`); evictions are not shared.
+- **Eventual and approximate.** Trees converge toward each other but are not guaranteed to be identical. Each router still evicts its own tree on its own schedule (`--eviction-interval`, `--max-tree-size`); evictions are not shared.
 - **Best effort.** A delta batch that a peer's stream cannot accept is dropped, not resent. The peer catches up through repair the next time it sees a prefix it does not know.
 - **Survives a router failure.** Routing decisions that a failed router already shared stay in its peers' trees, so traffic that moves to them keeps that cache affinity.
 
@@ -459,7 +459,7 @@ spec:
 Each router discovers the `sglang-worker` pods itself and finds its peers through the `app=smg` label. The stable pod names of a StatefulSet double as mesh names, and the `smg` service account needs the same Pod permissions as [worker discovery](service-discovery.md).
 
 !!! tip "Engine images"
-    For all-in-one deployments where each pod runs both gateway and engine, use an engine image tag (for example `ghcr.io/smg-project/smg:1.10.1-vllm-v0.27.1`, following `{smg_version}-{engine}-{engine_version}`). See [Getting Started](../../getting-started/index.md#install) for available tags. Workers are shared by URL, so a co-located engine reaches other routers only through an address other pods can dial: ZMQ (`ipc://`) workers stay with their router, and a loopback URL names each router's own host.
+    For all-in-one deployments where each pod runs both gateway and engine, use an engine image tag (for example `ghcr.io/smg-project/smg:1.11.0-vllm-v0.27.1`, following `{smg_version}-{engine}-{engine_version}`). See [Getting Started](../../getting-started/index.md#install) for available tags. Workers are shared by URL, so a co-located engine reaches other routers only through an address other pods can dial: ZMQ (`ipc://`) workers stay with their router, and a loopback URL names each router's own host.
 
 ### Headless Service
 
@@ -485,7 +485,7 @@ This is the StatefulSet's governing Service. Router discovery dials Pod IPs, so 
 Router discovery watches Pods that match `--router-selector` and writes them straight into the mesh membership table, replacing `--mesh-peer-urls`. It runs as its own task alongside worker discovery.
 
 ```bash
-smg --enable-mesh \
+smg launch --enable-mesh \
     --mesh-server-name "$POD_NAME" \
     --mesh-advertise-host "$POD_IP" \
     --service-discovery \
@@ -507,7 +507,7 @@ smg --enable-mesh \
 How Pods map to node status:
 
 - **Running and Ready**: `ALIVE` at the Pod IP and mesh port
-- **Not Ready** (already known): `SUSPECTED`
+- **Not Ready** (already known and not `DOWN`): `SUSPECTED`
 - **Deleted or terminating**: `DOWN`
 
 !!! tip "Label selectors"
@@ -530,7 +530,7 @@ Mesh metrics are served with the other gateway metrics on the Prometheus port (d
 | `router_mesh_peer_reconnects_total` | Counter | `peer` | Sync streams from `peer` into this router that ended |
 | `router_mesh_sync_round_duration_seconds` | Histogram | `peer` | Time to queue one round of updates on the stream to `peer` |
 
-Each sync stream is opened by the router whose name sorts first and counted by the router that accepts it, so a router reports `router_mesh_peer_connections` only for peers whose names sort before its own, and `router_mesh_sync_round_duration_seconds` only for peers whose names sort after it. Scrape every router and sum: a fully connected mesh of N routers has N×(N−1)/2 streams. Accepting a stream also sets an empty-`peer` series to `1` that is never reset, so filter with `peer!=""`. After you remove a router for good, its series stays at `0` on the routers that accepted its streams until they restart.
+Each sync stream is opened by the router whose name sorts first and counted by the router that accepts it, so a router reports `router_mesh_peer_connections` only for peers whose names sort before its own, and `router_mesh_sync_round_duration_seconds` only for peers whose names sort after it. Scrape every router and sum: a fully connected mesh of N routers has N×(N−1)/2 streams. Accepting a stream also sets an empty-`peer` series to `1` that normally stays at `1`, so filter with `peer!=""`. After you remove a router for good, its series stays at `0` on the routers that accepted its streams until they restart.
 
 ### Alerting Rules
 
@@ -605,7 +605,7 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| Startup fails with `Invalid value for field 'mesh_peer_urls'` | A peer address is a hostname | Pass `IP:port`; on Kubernetes, use router discovery |
+| Startup fails with `Invalid mesh peer URL` (Python CLI) or `Invalid value for field 'mesh_peer_urls'` (Rust binary) | A peer address is a hostname | Pass `IP:port`; on Kubernetes, use router discovery |
 | Startup fails with `mesh advertise address cannot be unspecified` | `--mesh-host` is `0.0.0.0` and `--mesh-advertise-host` is unset | Set `--mesh-advertise-host` to the node's IP |
 | Startup fails with `mesh port cannot be 0` | `--mesh-port 0` | Use a fixed port |
 | A joining router logs `No peer address available to connect` every round | Its bootstrap peer was unreachable in the first gossip round and is not retried | Start the bootstrap router, then restart this one |
@@ -620,7 +620,7 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 
 ```bash
 RUST_LOG=warn,smg=info,smg_mesh=debug,smg::mesh=debug,smg::mesh_discovery=debug \
-    smg --enable-mesh ...
+    smg launch --enable-mesh ...
 ```
 
 Gossip, sync streams, and CRDT merges log under `smg_mesh`; the worker and cache-tree sync adapters under `smg::mesh`; router discovery under `smg::mesh_discovery`. `RUST_LOG` replaces the filter built from `--log-level`, so keep a base level in it.

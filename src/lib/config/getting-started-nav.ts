@@ -49,7 +49,8 @@ export const gettingStartedNav: GettingStartedNavSection[] = [
 			},
 			{ label: 'Tokenizer Caching', href: `${base}/getting-started/tokenizer-caching` },
 			{ label: 'MCP in Responses API', href: `${base}/getting-started/mcp-in-responses-api` },
-			{ label: 'External Providers', href: `${base}/getting-started/external-providers` }
+			{ label: 'External Providers', href: `${base}/getting-started/external-providers` },
+			{ label: 'RL Control Plane', href: `${base}/getting-started/rl-control-plane` }
 		]
 	}
 ];

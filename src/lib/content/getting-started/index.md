@@ -210,6 +210,7 @@ curl http://localhost:30000/v1/responses \
 - [Tokenizer Caching](tokenizer-caching.md)
 - [MCP in Responses API](mcp.md)
 - [External Providers](external-providers.md)
+- [RL Control Plane](rl-control-plane.md)
 
 ---
 
@@ -533,6 +534,7 @@ curl http://localhost:30000/workers
 - [Tokenizer Caching](tokenizer-caching.md) — L0/L1 cache setup for gRPC mode
 - [MCP in Responses API](mcp.md) — configure and execute MCP tools through `/v1/responses`
 - [External Providers](external-providers.md) — route to OpenAI, Anthropic, Gemini, and xAI backends
+- [RL Control Plane](rl-control-plane.md) — pause, refit, and resume inference engines from an RL training loop
 
 ## Troubleshooting
 

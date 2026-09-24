@@ -96,7 +96,7 @@ base  = min(initial_backoff_ms * backoff_multiplier ^ n, max_backoff_ms)
 delay = base * (1 + uniform(-jitter_factor, +jitter_factor))
 ```
 
-`n` is `0` before the first retry, `1` before the second, and so on. `jitter_factor` is clamped to `0.0`–`1.0`, and the cap applies before jitter.
+`n` is `0` before the first retry, `1` before the second, and so on. The cap applies before jitter, and SMG refuses to start if `--retry-jitter-factor` is outside `0.0`–`1.0`.
 
 ### Example Progression
 
@@ -128,7 +128,7 @@ SMG retries responses with these status codes. The list is global: per-worker `r
 | `503` | Service Unavailable | Service temporarily down |
 | `504` | Gateway Timeout | Upstream timeout |
 
-SMG's own errors use these codes too. On the HTTP router, a failed connection to the worker is a `500` and an upstream timeout is a `504`; on the HTTP and gRPC routers, "no available workers" (every candidate unhealthy or circuit-open) is a `503`.
+SMG's own errors use these codes too. In regular HTTP mode, a failed connection to the worker and an upstream timeout are both a `500`, and in PD mode a transport failure on either leg is a `502`; on the HTTP and gRPC routers, "no available workers" (every candidate unhealthy or circuit-open) is a `503`.
 
 Requests with other status codes (e.g., 400 Bad Request, 401 Unauthorized) are **not retried** because they would likely fail again.
 
@@ -146,7 +146,7 @@ Some responses carry a retryable status but go straight back to the client, beca
 ## Configuration
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --retry-max-retries 5 \
   --retry-initial-backoff-ms 50 \
@@ -168,7 +168,7 @@ smg \
 
 ### Per-Worker Overrides
 
-The worker spec's `resilience` block accepts retry fields (`max_retries`, `initial_backoff_ms`, `max_backoff_ms`, `backoff_multiplier`, `jitter_factor`, and `disable_retry`), but in v1.11.0 they have no effect. Worker registration resolves them but does not store them on the worker, so no per-model retry policy is created and every request uses the router flags above. Use `--retry-*` and `--disable-retries` instead.
+The worker spec's `resilience` block accepts retry fields (`max_retries`, `initial_backoff_ms`, `max_backoff_ms`, `backoff_multiplier`, `jitter_factor`, and `disable_retry`), but in v1.11.0 they have no effect. Worker registration leaves them out of the spec it stores on the worker, and a per-model retry policy is only created from retry fields in that stored spec, so none is created and every request uses the router flags above. Use `--retry-*` and `--disable-retries` instead.
 
 The same block's circuit-breaker settings do apply, including two status-code lists that affect the circuit breaker, not retries: `retryable_status_codes` (statuses counted as circuit-breaker failures) and `capacity_status_codes` (statuses treated as capacity pushback). Narrowing either list never makes a status non-retryable. See [Interaction with Circuit Breakers](#interaction-with-circuit-breakers).
 
@@ -185,7 +185,7 @@ The same block's circuit-breaker settings do apply, including two status-code li
 At most one retry, after a short delay.
 
 ```bash
-smg \
+smg launch \
   --retry-max-retries 2 \
   --retry-initial-backoff-ms 10 \
   --retry-max-backoff-ms 100
@@ -202,7 +202,7 @@ smg \
 Up to two retries with doubling delays.
 
 ```bash
-smg \
+smg launch \
   --retry-max-retries 3 \
   --retry-initial-backoff-ms 100 \
   --retry-backoff-multiplier 2.0
@@ -219,7 +219,7 @@ smg \
 Up to nine retries for offline workloads.
 
 ```bash
-smg \
+smg launch \
   --retry-max-retries 10 \
   --retry-initial-backoff-ms 100 \
   --retry-max-backoff-ms 60000 \
@@ -237,7 +237,7 @@ smg \
 Disable retries entirely.
 
 ```bash
-smg --disable-retries
+smg launch --disable-retries
 ```
 
 **Use when**: Client handles retries, testing failure scenarios
@@ -256,7 +256,7 @@ The HTTP router can only retry a request whose body it buffered. For each reques
 - Requests the router must parse anyway, for example under the default `cache_aware` policy, always buffer and keep their retries.
 - With retries disabled, eligible bodies stream at any size.
 
-Raise `--max-buffered-request-bytes` to keep larger requests retryable, at the cost of router memory. `smg_router_request_body_path_total{reason="retry_forfeited"}` counts requests that streamed without retries. See [Request Streaming and Upstream Connections](../performance/request-streaming.md#how-the-router-decides) for the full decision.
+Raise `--max-buffered-request-bytes` to keep larger requests retryable, at the cost of router memory. `smg_router_request_body_path_total{reason="retry_forfeited"}` counts requests that gave up their retries to stream. See [Request Streaming and Upstream Connections](../performance/request-streaming.md#how-the-router-decides) for the full decision.
 
 ### Pre-Response Resends
 
@@ -286,7 +286,7 @@ See [Circuit Breakers](circuit-breakers.md) for thresholds and state transitions
 |--------|------|--------|-------------|
 | `smg_worker_retries_total` | Counter | `worker_type`, `endpoint` | Retries performed, one per backoff. PD mode counts each retry under both `prefill` and `decode` |
 | `smg_worker_retries_exhausted_total` | Counter | `worker_type`, `endpoint` | Requests whose last attempt still returned a retryable status; also counted when retries are disabled |
-| `smg_worker_retry_backoff_seconds` | Histogram | `attempt` | Backoff delay before each retry; `attempt` is the retry number, `1` for the first retry |
+| `smg_worker_retry_backoff_seconds` | Summary | `attempt` | Backoff delay before each retry; `attempt` is the retry number, `1` for the first retry. Exported as `quantile` series over a rolling one-minute window, plus `_sum` and `_count` |
 | `smg_router_upstream_send_retries_total` | Counter | `router_type` | Immediate resends after a pre-response transport failure |
 
 `worker_type` is `regular`, `prefill`, or `decode` for local workers and `external` for the OpenAI provider router.
@@ -318,9 +318,9 @@ sum(rate(smg_worker_retries_exhausted_total[5m]))
 sum(rate(smg_worker_retry_backoff_seconds_sum[5m]))
   / sum(rate(smg_worker_retry_backoff_seconds_count[5m]))
 
-# 99th percentile backoff
-histogram_quantile(0.99,
-  sum by (le) (rate(smg_worker_retry_backoff_seconds_bucket[5m])))
+# 99th percentile backoff per retry number, over the last minute
+# (a summary: SMG exports precomputed quantiles, not _bucket series)
+max by (attempt) (smg_worker_retry_backoff_seconds{quantile="0.99"})
 ```
 
 </div>
@@ -333,7 +333,7 @@ histogram_quantile(0.99,
 |--------|-------|------------------|
 | Retry rate rising | `sum(rate(smg_worker_retries_total[5m]))` | Workers are returning retryable errors; check worker health and circuit breaker state |
 | Exhausted retries | `sum(rate(smg_worker_retries_exhausted_total[5m]))` | Failures are reaching clients despite retries |
-| Long backoffs | 99th percentile of `smg_worker_retry_backoff_seconds` | Requests spend noticeable time waiting between attempts |
+| Long backoffs | `max(smg_worker_retry_backoff_seconds{quantile="0.99"})` | Requests spend noticeable time waiting between attempts |
 | Retries forfeited | `sum(rate(smg_router_request_body_path_total{reason="retry_forfeited"}[5m]))` | Large bodies are streaming with a single attempt |
 | Pre-response resends | `sum(rate(smg_router_upstream_send_retries_total[5m]))` | Pooled connections are going stale; check `--upstream-pool-idle-timeout-secs` |
 

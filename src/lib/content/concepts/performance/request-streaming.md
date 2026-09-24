@@ -116,7 +116,7 @@ The clock runs only while SMG is waiting on the client. While the worker applies
 | Status | `X-SMG-Error-Code` | Cause |
 |--------|--------------------|-------|
 | `408` | `request_body_stalled` | The client sent nothing for `--stream-body-stall-timeout-secs` while the worker was ready for more |
-| `413` | `request_body_too_large` | The streamed body grew past `--max-payload-size`; the upstream send is aborted |
+| `413` | `request_body_too_large` | The streamed body grew past `--max-payload-size` mid-upload; the upstream send is aborted |
 | `400` | `request_body_aborted` | The client's upload failed (disconnect or reset) before the body was fully forwarded |
 
 These aborts are caused by the client, so none of them is recorded against the worker's [circuit breaker](../reliability/circuit-breakers.md).
@@ -136,7 +136,7 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 
 ## Memory Bounds
 
-**Request bodies.** A body larger than `--max-payload-size` (default `536870912`, 512 MiB) is rejected with `413`, whether it is buffered or streamed.
+**Request bodies.** A body larger than `--max-payload-size` (default `536870912`, 512 MiB) is rejected with `413`, whether it is buffered or streamed. A request whose `Content-Length` header already exceeds the limit is refused before routing, with a plain-text `413` and no `X-SMG-Error-Code` header.
 
 **Early release.** When router retries are disabled for a request's model, the HTTP routers free the parsed request and its routing inputs (prompt text, token IDs) as soon as the upstream body is serialized, before the send. A serialized body of 1 MiB or more is then handed to the connection as a one-shot stream, still with a `Content-Length` header, so it is freed when the upload finishes rather than when the worker's response headers arrive, which for a non-streaming generation is when generation ends. With retries enabled, the request stays in memory until the router has its final response, so it can be replayed. The gRPC pipeline always frees the parsed request once it has built the worker request, and keeps only that built request for retries. `smg_router_request_buffers_released_early_bytes_total` counts the bytes freed early.
 
@@ -144,7 +144,7 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 
 **Exact numbers.** Floating-point fields such as `temperature` and `top_p` are forwarded in their shortest form: `0.95` reaches the worker as `0.95`, not `0.949999988079071`. This holds on the buffered HTTP and PD paths and on the external-provider paths; streamed bodies are forwarded unchanged anyway.
 
-**Worker responses.** A non-streaming worker response is read into memory up to `--max-payload-size`. A larger response fails with **502** `upstream_response_too_large`, which counts as a worker fault for circuit breakers and retries. Streaming responses are never buffered whole.
+**Worker responses.** In regular HTTP mode, a non-streaming worker response to an inference request is read into memory up to `--max-payload-size`. A larger response fails with **502** `upstream_response_too_large`, which counts as a worker fault for circuit breakers and retries. Streaming responses are never buffered whole.
 
 **Error-code labels.** Metric `error_code` labels only take codes SMG itself generates. An `X-SMG-Error-Code` header sent by a worker is dropped from the forwarded response and never becomes a label, so a misbehaving backend cannot inflate label cardinality.
 
@@ -153,7 +153,7 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 ## Response Streaming
 
 - **Backpressure.** Streaming responses pass through a bounded channel of 32 chunks between the upstream reader and the client connection. When a client reads slowly, SMG stops reading from the worker instead of buffering the rest of the response.
-- **Client disconnects.** In regular HTTP mode, when the client goes away the relay stops at once, even during a long prefill before the first token, and closes the upstream connection so the engine can abort the generation.
+- **Client disconnects.** In regular HTTP mode, when the client goes away the relay stops at once, even during a long prefill before the first token, and cancels the upstream request so the engine can abort the generation.
 - **Empty chunks.** In regular HTTP mode, SMG drops zero-length chunks from the worker instead of relaying them. Over HTTP/2 each one would become an empty DATA frame, and current h2 clients close the connection with `ENHANCE_YOUR_CALM` after about 100 of them. This matters for any HTTP/2 client of SMG, including another gateway in front of it.
 - **No Nagle delay.** `TCP_NODELAY` is set on accepted plain-HTTP client connections, so small SSE events go out immediately instead of waiting for earlier data to be acknowledged. Connections to workers set `TCP_NODELAY` too.
 - **Load accounting.** A streaming response keeps its worker's in-flight load count until the body finishes or the client disconnects, so load-aware policies see the request for its whole duration.
@@ -192,18 +192,18 @@ It does not apply to:
 By default SMG speaks HTTP/1.1 to cleartext workers, which needs one TCP connection per in-flight request. `--upstream-http2` multiplexes every request to a worker over one HTTP/2 connection, using prior knowledge (h2c) on cleartext `http://` URLs.
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://worker1:8000 http://worker2:8000 \
   --upstream-http2
 ```
 
-**Negotiation at registration.** With the flag on, SMG probes each new `http://` worker with HTTP/2 and HTTP/1.1 in parallel. The worker is marked HTTP/2 only if the HTTP/2 probe succeeds; otherwise it stays on HTTP/1.1. `https://` workers are not probed, since TLS negotiates the version. gRPC and ZMQ workers are unaffected. With the flag off, nothing is probed and workers that are not pinned use HTTP/1.1.
+**Negotiation at registration.** With the flag on, SMG probes each new `http://` worker with HTTP/2 and HTTP/1.1 in parallel. The worker is marked HTTP/2 only if the HTTP/2 probe succeeds; otherwise it stays on HTTP/1.1. `https://` workers skip this probe, since TLS negotiates the version. gRPC and ZMQ workers are unaffected. With the flag off, no version probe runs, and cleartext workers that are not pinned use HTTP/1.1.
 
 **What uses it.** Everything SMG sends to a worker goes through that worker's client: request dispatch, health checks, load polling, worker management calls, and registration probes. Calls to external providers and IGW model discovery use a separate shared client, which never forces HTTP/2.
 
 **Connection tuning.** Under the flag, worker clients use adaptive HTTP/2 flow-control windows and send HTTP/2 PING keep-alives every 30 seconds (20-second timeout), including while idle, to detect dead peers on long-lived connections.
 
-**Pinning a worker.** `http_pool.http2` on a worker spec skips the probe, with or without the flag: `true` forces HTTP/2 with prior knowledge, `false` forces HTTP/1.1. A worker pinned to `true` that only speaks HTTP/1.1 fails registration.
+**Pinning a worker.** `http_pool.http2` on a worker spec skips negotiation, with or without the flag: `true` forces HTTP/2 with prior knowledge, and `false` keeps a cleartext worker on HTTP/1.1. A worker pinned to `true` that only speaks HTTP/1.1 fails registration.
 
 ```bash
 curl -X POST http://localhost:30000/workers \
@@ -211,7 +211,7 @@ curl -X POST http://localhost:30000/workers \
   -d '{"url": "http://legacy-worker:8000", "http_pool": {"http2": false}}'
 ```
 
-**Checking the result.** Each worker in `GET /workers` reports an `http2` field. The `smg_worker_http2` gauge is `1` when SMG speaks HTTP/2 to the worker and `0` otherwise. With the flag on, SMG also logs `resolved worker HTTP version` for each worker as it registers.
+**Checking the result.** Each worker in `GET /workers` reports an `http2` field, and the `smg_worker_http2` gauge is `1` when SMG chose HTTP/2 for the worker and `0` otherwise. Both reflect the choice made at registration, so an `https://` worker that negotiates HTTP/2 through TLS still reports `false` and `0`. With the flag on, SMG also logs `resolved worker HTTP version` for each worker as it registers.
 
 **Rolling out on a mixed fleet.** Because the version is chosen per worker, the flag can be turned on before, during, or after an engine upgrade: workers that answer HTTP/2 use it, and the rest stay on HTTP/1.1. The choice is made once, at registration, so a worker that gains HTTP/2 support in place keeps HTTP/1.1 until it registers again, for example when its pod is replaced or after it is removed and re-added. Turning the flag off returns every worker that is not pinned to HTTP/2 to HTTP/1.1 at the next restart.
 
@@ -221,7 +221,7 @@ curl -X POST http://localhost:30000/workers \
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--max-payload-size` | `536870912` (512 MiB) | Largest accepted request body; also caps buffered worker responses |
+| `--max-payload-size` | `536870912` (512 MiB) | Largest accepted request body; in regular HTTP mode, also caps buffered worker responses |
 | `--max-buffered-request-bytes` | `1048576` (1 MiB) | Largest eligible body buffered only to keep it retryable; `0` never buffers for retries |
 | `--stream-body-stall-timeout-secs` | `300` | Abort a streamed body after a single client wait this long (`408`); `0` disables |
 | `--request-timeout-secs` | `1800` | Total time for one upstream request, including a streamed response |
@@ -239,7 +239,7 @@ See the [Configuration Reference](../../reference/configuration.md#request-handl
 | `smg_router_request_body_path_total` | Counter | `path`, `reason` | One per request on an eligible route. `path` is `buffered` or `streamed`; `reason` is the deciding rule, or for routers that always buffer, the router type (such as `pd`, `grpc`, or `openai`) or `model_selection` in IGW mode |
 | `smg_router_request_buffers_released_early_bytes_total` | Counter | — | Bytes of request buffers freed at dispatch instead of at response completion |
 | `smg_router_upstream_send_retries_total` | Counter | `router_type` | One-shot resends after a pre-response transport failure |
-| `smg_worker_http2` | Gauge | `worker` | `1` if SMG speaks HTTP/2 to the worker, `0` otherwise |
+| `smg_worker_http2` | Gauge | `worker` | `1` if SMG chose HTTP/2 for the worker at registration, `0` otherwise |
 
 ```promql
 # Share of eligible requests whose body streamed

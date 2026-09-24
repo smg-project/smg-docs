@@ -95,10 +95,13 @@ These endpoints are for gateway operations and administration.
 
 ### Cache and Load Utilities
 
-| Method | Path |
-|---|---|
-| `POST` | `/flush_cache` |
-| `GET` | `/get_loads` |
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/flush_cache` | Flush the KV prefix cache on every worker that supports it |
+| `GET` | `/loads` | Fleet engine load from the gateway's cached load snapshot (optional `?model=` filter) |
+| `GET` | `/get_loads` | Deprecated alias of `/loads` |
+
+`/loads` is registered with the public routes and needs no auth; `/flush_cache` and the deprecated `/get_loads` alias are control-plane routes. See [Cache Management](admin.md#cache-management) for request and response details.
 
 ---
 
@@ -119,6 +122,21 @@ SMG also exposes mesh control routes under `/ha/*`:
 | `GET`, `POST` | `/ha/rate-limit` |
 | `GET` | `/ha/rate-limit/stats` |
 | `POST` | `/ha/shutdown` |
+
+---
+
+## RL Control Plane Endpoints
+
+Mounted only when SMG starts with `--enable-rl`; without it, every `/v1/rl/*` path returns `404`. These routes use the same auth as the other control-plane routes (see [Auth Model](#auth-model)).
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/rl/workers` | List workers with engine, parallelism, health, weight version, and capabilities |
+| `GET` | `/v1/rl/workers/{id}` | One worker (`404 worker_not_found` for an unknown ID) |
+| `GET`, `POST` | `/v1/rl/workers/{id}/engine/{path}` | Forward one engine-native request to one HTTP worker; the response status mirrors the engine's |
+| `GET`, `POST` | `/v1/rl/engine/{path}?selector=...` | Send the same request to every worker matching a label selector; `200` when every target succeeds, `207` with per-worker `failed[]` otherwise |
+
+See [RL Control Plane](../../getting-started/rl-control-plane.md) for request and response shapes, selectors, errors, timeouts, metrics, and the `smg.rl` Python client.
 
 ---
 

@@ -16,6 +16,14 @@ SMG is a high-performance inference gateway that sits between your applications 
 
 </div>
 
+SMG reaches local inference engines over three worker paths, chosen per worker by the URL scheme. External provider APIs use the [third-party path](#third-party-path).
+
+| Path | Worker URL | Engine side | Gateway role |
+|------|------------|-------------|--------------|
+| [gRPC](#grpc-path-token-level-streaming) | `grpc://host:port` | Engine with a gRPC servicer (SGLang, vLLM, TensorRT-LLM, TokenSpeed, MLX) | Full pipeline: chat templates, tokenization, token-aware routing, reasoning and tool parsing |
+| [ZMQ](#zmq-path) | `ipc:///path` | Headless engine core on the same host (vLLM, TokenSpeed) | The same pipeline, plus the request handling the engine's frontend or gRPC servicer would otherwise do |
+| [HTTP](#http-path-openai-compatible) | `http://host:port` or `https://host:port` | Engine's OpenAI-compatible server | Proxy: routing, retries, and failover |
+
 ---
 
 ## Registries & State
@@ -100,7 +108,7 @@ The router layer handles LLM-specific request processing. It selects one of thre
 
 ## gRPC Path (Token-Level Streaming)
 
-The gRPC path provides maximum performance by handling all text processing at the gateway.
+The gRPC path handles all text processing at the gateway and exchanges token IDs with the engine through its gRPC servicer.
 
 ### Pipeline Stages
 
@@ -109,7 +117,7 @@ The gRPC path provides maximum performance by handling all text processing at th
 | **Chat Template** | Apply model-specific chat template (Jinja2) |
 | **Tokenization** | Convert text to token IDs using model tokenizer |
 | **Token Cache** | Cache tokenized prefixes for reuse |
-| **Load Balance** | Select worker using cache-aware policy |
+| **Load Balance** | Select a worker with the configured routing policy (`cache_aware` by default) |
 | **Detokenize** | Convert streaming tokens back to text |
 | **Reasoning Parser** | Extract thinking/reasoning from output (DeepSeek-R1, etc.) |
 | **Tool Parser** | Parse function/tool calls from output |
@@ -119,6 +127,39 @@ The gRPC path provides maximum performance by handling all text processing at th
 - SGLang (gRPC)
 - vLLM (gRPC)
 - TensorRT-LLM (gRPC)
+- TokenSpeed (gRPC)
+- MLX (gRPC, Apple Silicon)
+
+---
+
+## ZMQ Path
+
+The ZMQ path runs the same pipeline stages as the gRPC path, but talks to a headless engine core on the same host over local `ipc://` sockets, with no engine API server or gRPC servicer in between.
+
+### Connection
+
+| Step | Function |
+|------|----------|
+| **Bind** | SMG binds request and output sockets for the worker's `ipc://` path, plus a loopback TCP handshake port derived from that path |
+| **Handshake** | The engine dials in and reports its context length and data-parallel size |
+| **Promote** | The worker becomes routable as soon as the handshake completes |
+| **Dispatch** | Requests go out as token IDs; output batches return token IDs with the engine's scheduler load piggybacked |
+
+### Gateway-Side Request Handling
+
+Work that the engine's frontend or gRPC servicer does on the gRPC path moves into the gateway:
+
+- Resolve stop strings to stop token IDs, or match them on the decoded text
+- Attach EOS token IDs to each vLLM request
+- Fan out `n > 1` into single-sample engine requests
+- Pick the least-loaded engine inside a grouped data-parallel worker
+
+### Supported Backends
+
+- vLLM (headless EngineCore)
+- TokenSpeed (headless scheduler)
+
+ZMQ workers can't serve as prefill or decode workers and have no KV-event stream. See [ZMQ Direct Workers](../../getting-started/zmq-workers.md) for setup and limits.
 
 ---
 
@@ -132,12 +173,7 @@ Standard load balancing across HTTP workers running full inference.
 
 ### PD (Prefill-Decode) Mode
 
-Disaggregated inference with separate prefill and decode workers:
-
-1. **Find P/D Pair** - Select a prefill worker and decode worker pair
-2. **Mutate Headers** - Add routing headers for KV cache transfer
-3. **Prefill Worker** - Processes prompt, transfers KV cache
-4. **Decode Worker** - Generates tokens using transferred KV cache
+With `--pd-disaggregation`, SMG sends each request to a prefill worker and a decode worker chosen as a pair: each leg has its own routing policy (`--prefill-policy`, `--decode-policy`), and a prefill pairs only with decode workers that share its KV transfer protocol. For SGLang, SMG dispatches both legs at once and adds the same `bootstrap_host`, `bootstrap_port`, and `bootstrap_room` to each JSON body, so the engines can meet and transfer the KV cache. For vLLM, SMG first sends prefill a one-token request, then passes the `kv_transfer_params` it returns (or, for Mooncake, parameters that SMG mints) to the decode leg. The client receives the decode worker's response. The gRPC path offers the same disaggregation for SGLang, vLLM, and TokenSpeed, plus encode-prefill-decode (EPD); see [PD Disaggregation](../routing/pd-disaggregation.md).
 
 ### Supported Backends
 
@@ -195,30 +231,31 @@ When the model requests tool execution:
 
 ## Load Balancing
 
-All paths use the same load balancing infrastructure with multiple policies.
+Self-hosted workers (HTTP, gRPC and ZMQ) are placed by the policy set with `--policy` (default `cache_aware`) through one shared policy registry, and PD mode can set a policy per leg. External providers and realtime sessions are placed on the least-loaded worker instead.
 
 | Policy | Algorithm | Best For |
 |--------|-----------|----------|
-| `cache_aware` | Radix tree prefix matching + load | **Production default** |
-| `bucket` | Request-length buckets | PD disaggregation |
-| `power_of_two` | Sample two, pick lighter | Load-aware routing |
+| `cache_aware` | Prefix-tree matching, then lowest expected wait | **Production default** |
+| `least_load` | Lowest expected wait: queued token work over throughput, plus KV-cache pressure | Load-aware routing on gRPC workers |
+| `power_of_two` | Sample two, pick the lower expected wait | Load balancing on large fleets |
+| `bucket` | Request-length buckets with adaptive boundaries | PD prefill leg |
 | `consistent_hashing` | Hash ring with virtual nodes | Session affinity |
-| `prefix_hash` | Prefix token hash | Lightweight cache locality |
+| `prefix_hash` | Prefix hash on a consistent ring, with a load check | Lightweight cache locality |
 | `manual` | Explicit routing key mapping | Stateful chat |
-| `round_robin` | Sequential cycling | Even distribution |
+| `round_robin` | Sequential cycling per candidate set | Even distribution |
 | `random` | Uniform random | Testing |
+| `passthrough` | First available worker | Single-worker gateways |
 
 ### Cache-Aware Routing
 
-The cache-aware policy optimizes for KV cache reuse:
+The default `cache_aware` policy balances KV cache reuse against load:
 
-1. Tokenize the request prefix
-2. Search radix tree for longest matching prefix per worker
-3. If match ratio ≥ threshold, route to matched worker
-4. Otherwise, route to worker with most cache capacity
-5. Falls back to least-loaded when system is imbalanced
+1. Match the request's prefix (text or token IDs) against a per-model tree of the prefixes routed to each worker, or against the engines' own KV-cache events when gRPC workers publish them
+2. If a worker holds enough of the prefix (above `--cache-threshold` in tree mode), the workers holding it are the candidates; otherwise every available worker is
+3. Skip a holder whose in-flight requests exceed the mean across available workers by more than `--balance-abs-threshold` and are also above `--balance-rel-threshold` × that mean; if every holder is skipped, the other available workers that pass the same check become the candidates
+4. Route to the candidate with the lowest expected wait (the `least_load` score), breaking exact ties at random
 
-This integrates with SGLang, vLLM, and TensorRT-LLM's native KV cache management.
+See [Cache-Aware Routing](../routing/cache-aware.md) for KV-event mode, the hash index, and KV-pressure tuning.
 
 ---
 

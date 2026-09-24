@@ -11,6 +11,7 @@ export const gettingStartedNav: GettingStartedNavSection[] = [
 		items: [
 			{ label: 'Multiple Workers', href: `${base}/getting-started/multiple-workers` },
 			{ label: 'gRPC Workers', href: `${base}/getting-started/grpc-workers` },
+			{ label: 'ZMQ Direct Workers', href: `${base}/getting-started/zmq-workers` },
 			{ label: 'PD Disaggregation', href: `${base}/getting-started/pd-disaggregation` },
 			{ label: 'Service Discovery', href: `${base}/getting-started/service-discovery` }
 		]
@@ -49,7 +50,8 @@ export const gettingStartedNav: GettingStartedNavSection[] = [
 			},
 			{ label: 'Tokenizer Caching', href: `${base}/getting-started/tokenizer-caching` },
 			{ label: 'MCP in Responses API', href: `${base}/getting-started/mcp-in-responses-api` },
-			{ label: 'External Providers', href: `${base}/getting-started/external-providers` }
+			{ label: 'External Providers', href: `${base}/getting-started/external-providers` },
+			{ label: 'RL Control Plane', href: `${base}/getting-started/rl-control-plane` }
 		]
 	}
 ];

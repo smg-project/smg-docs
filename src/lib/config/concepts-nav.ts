@@ -9,6 +9,7 @@ export const conceptsNav: DocsNavSection[] = [
 			{ label: 'Overview', href: `${base}/concepts/architecture/overview` },
 			{ label: 'Service Discovery', href: `${base}/concepts/architecture/service-discovery` },
 			{ label: 'gRPC Pipeline', href: `${base}/concepts/architecture/grpc-pipeline` },
+			{ label: 'Multimodal Pipeline', href: `${base}/concepts/architecture/multimodal` },
 			{ label: 'High Availability', href: `${base}/concepts/architecture/high-availability` }
 		]
 	},
@@ -26,7 +27,10 @@ export const conceptsNav: DocsNavSection[] = [
 	},
 	{
 		label: 'Performance',
-		items: [{ label: 'Tokenizer Caching', href: `${base}/concepts/performance/tokenizer-caching` }]
+		items: [
+			{ label: 'Tokenizer Caching', href: `${base}/concepts/performance/tokenizer-caching` },
+			{ label: 'Request Streaming', href: `${base}/concepts/performance/request-streaming` }
+		]
 	},
 	{
 		label: 'Extensibility',
@@ -45,6 +49,7 @@ export const conceptsNav: DocsNavSection[] = [
 				href: `${base}/concepts/reliability/tenant-rate-limiting`
 			},
 			{ label: 'Priority Scheduling', href: `${base}/concepts/reliability/priority-scheduling` },
+			{ label: 'Overload Protection', href: `${base}/concepts/reliability/overload-protection` },
 			{ label: 'Retries', href: `${base}/concepts/reliability/retries` },
 			{ label: 'Health Checks', href: `${base}/concepts/reliability/health-checks` },
 			{ label: 'Graceful Shutdown', href: `${base}/concepts/reliability/graceful-shutdown` }

@@ -11,8 +11,8 @@ Prefill-Decode (PD) disaggregation separates the two phases of LLM inference —
 #### Before you begin
 
 - Completed the [Getting Started](index.md) guide
-- At least one prefill worker and one decode worker
-- For vLLM PD: workers started with gRPC entrypoint and KV transfer backend
+- At least one prefill worker and one decode worker, each on its own GPUs
+- For vLLM PD: workers started with a `--kv-transfer-config` for NIXL or Mooncake
 
 </div>
 
@@ -29,60 +29,109 @@ Running both on the same worker creates contention — prefill batches wait for 
 
 ---
 
+## Choose a Setup
+
+| Engine | HTTP workers | gRPC workers | Section |
+|--------|--------------|--------------|---------|
+| SGLang | :material-check: | :material-check: | [SGLang PD](#sglang-pd) |
+| vLLM | :material-check: | :material-check: | [vLLM PD over gRPC](#vllm-pd-over-grpc), [vLLM PD over HTTP](#vllm-pd-over-http) |
+| TokenSpeed | :material-close: | :material-check: | [TokenSpeed PD and EPD](#tokenspeed-pd-and-epd-grpc) |
+
+With HTTP workers, SMG forwards the request body to both legs and adds the handoff fields. With gRPC workers, SMG tokenizes the prompt and parses the output itself (see [gRPC Workers](grpc-workers.md)).
+
+---
+
 ## SGLang PD
 
-SMG sends the request to both prefill and decode workers simultaneously, and they coordinate KV cache transfer through a bootstrap mechanism.
+SMG sends the request to the prefill and decode workers at the same time. The two workers find each other through the prefill worker's bootstrap server, then move the KV cache with their transfer backend.
 
 ### Start SGLang Workers
 
-```bash
-# Prefill worker
-python -m sglang.launch_server \
-  --model-path meta-llama/Llama-3.1-70B-Instruct \
-  --port 8000 \
-  --prefill-only
+=== "HTTP"
 
-# Decode worker
-python -m sglang.launch_server \
-  --model-path meta-llama/Llama-3.1-70B-Instruct \
-  --port 8001 \
-  --decode-only
-```
+    ```bash
+    # Prefill worker
+    python -m sglang.launch_server \
+      --model-path meta-llama/Llama-3.1-8B-Instruct \
+      --host 0.0.0.0 \
+      --port 8000 \
+      --disaggregation-mode prefill \
+      --disaggregation-bootstrap-port 8998
+
+    # Decode worker
+    python -m sglang.launch_server \
+      --model-path meta-llama/Llama-3.1-8B-Instruct \
+      --host 0.0.0.0 \
+      --port 8001 \
+      --disaggregation-mode decode
+    ```
+
+=== "gRPC"
+
+    ```bash
+    # Prefill worker
+    python -m sglang.launch_server \
+      --model-path meta-llama/Llama-3.1-8B-Instruct \
+      --host 0.0.0.0 \
+      --port 50051 \
+      --smg-grpc-mode \
+      --disaggregation-mode prefill \
+      --disaggregation-bootstrap-port 8998
+
+    # Decode worker
+    python -m sglang.launch_server \
+      --model-path meta-llama/Llama-3.1-8B-Instruct \
+      --host 0.0.0.0 \
+      --port 50061 \
+      --smg-grpc-mode \
+      --disaggregation-mode decode
+    ```
+
+Both workers must use the same KV transfer backend (`--disaggregation-transfer-backend`, for example `mooncake` or `nixl`).
+
+`--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, which is now a deprecated alias. In this mode SGLang also opens an HTTP sidecar (metrics and profiling) on `--port + 1` (move it with `--smg-http-sidecar-port`), so leave a gap between the ports of workers on the same host.
 
 ### Start SMG
 
-Each prefill worker needs a bootstrap port for coordination:
+Pass each prefill worker's bootstrap port after its URL. It must match the worker's `--disaggregation-bootstrap-port`:
 
 ```bash
-smg \
+smg launch \
   --pd-disaggregation \
-  --prefill http://prefill:8000 9001 \
+  --prefill http://prefill:8000 8998 \
   --decode http://decode:8001 \
   --host 0.0.0.0 \
   --port 30000
 ```
 
+For gRPC workers, use `grpc://` URLs and add `--model-path meta-llama/Llama-3.1-8B-Instruct` so SMG can load the tokenizer.
+
 ### Multiple Workers
 
 ```bash
-smg \
+smg launch \
   --pd-disaggregation \
-  --prefill http://prefill1:8000 9001 \
-  --prefill http://prefill2:8000 9002 \
+  --prefill http://prefill1:8000 8998 \
+  --prefill http://prefill2:8000 8998 \
   --decode http://decode1:8001 \
   --decode http://decode2:8001 \
   --prefill-policy cache_aware \
   --decode-policy power_of_two
 ```
 
+!!! warning "Parallel sampling over HTTP"
+    The HTTP PD router gives a `/v1/completions` request with one prompt and `n>1` a single rendezvous for all of its samples, so on SGLang the extra samples can stall. Serve `n>1` traffic through gRPC workers, where SMG sends each sample of a text-only request as its own prefill/decode dispatch with its own bootstrap room.
+
 ---
 
-## vLLM PD
+## vLLM PD over gRPC
 
-SMG sends to prefill first with `max_tokens=1`, then sends the original request to decode, relaying KV-transfer metadata between the two legs:
+SMG sends to prefill first, capped at one output token, then sends the original request to decode, relaying KV-transfer metadata between the two legs:
 
 - **NIXL**: SMG tags the prefill request with `do_remote_decode=true`, harvests the `kv_transfer_params` the prefill engine returns (engine id, request id, block ids, side-channel address, TP size), and forwards them verbatim with the decode request so decode pulls the KV cache over NIXL.
-- **Mooncake**: the connector is push-based and returns nothing, so SMG mints a shared `transfer_id`, tags the prefill request with it, and synthesizes the decode params (`remote_engine_id` discovered from the worker at registration, `remote_bootstrap_addr` from the worker's bootstrap host/port). With an older servicer that doesn't report `kv_engine_id`, SMG falls back to legacy host/port injection.
+- **Mooncake**: the connector is push-based and returns nothing, so SMG mints a shared `transfer_id`, tags the prefill request with it, and synthesizes the decode params (`remote_engine_id` discovered from the worker, `remote_bootstrap_addr` from the worker's bootstrap host and port). With an older servicer that doesn't report `kv_engine_id`, SMG falls back to legacy host/port injection.
+
+The servicer reports each worker's connector, so gRPC workers need no extra registration. A `MultiConnector` that wraps exactly one NIXL or Mooncake connector is reported as that connector.
 
 ### Start vLLM Workers with NIXL
 
@@ -116,10 +165,10 @@ in the decode worker log (vLLM >= 0.20). If the router logs
 
 ### Start SMG
 
-vLLM workers use `grpc://` URLs and require `--model-path` for tokenizer loading:
+vLLM gRPC workers use `grpc://` URLs:
 
 ```bash
-smg \
+smg launch \
   --pd-disaggregation \
   --prefill grpc://prefill:50051 \
   --decode grpc://decode:50052 \
@@ -127,6 +176,8 @@ smg \
   --host 0.0.0.0 \
   --port 30000
 ```
+
+On the gRPC path SMG tokenizes the prompt itself, so it must be able to load the model's tokenizer: from the path each worker reports, or from `--model-path` (a Hugging Face ID or a local path).
 
 ### Alternative: Mooncake Backend
 
@@ -147,10 +198,11 @@ python -m vllm.entrypoints.grpc_server \
   --kv-transfer-config '{"kv_connector":"MooncakeConnector","kv_role":"kv_consumer"}'
 ```
 
-Set an explicit `engine_id` on each prefill worker in production. SMG discovers
-the id once at worker registration; without a pinned id, vLLM generates a new
-one per process, so a restarted prefill container would invalidate the
-registered id until the worker is re-registered.
+Set an explicit `engine_id` on each prefill worker in production. SMG reads
+the id at registration and reads it again when a failed or not-ready prefill
+worker recovers. Without a pinned id, vLLM generates a new one per process, so
+a prefill restart that no health check notices leaves SMG minting handoffs for
+the old id.
 
 With vLLM data parallelism (`data_parallel_size > 1`), run SMG with
 `--dp-aware`: SMG pins each request to a DP rank and mints the decode params
@@ -162,7 +214,7 @@ minting: every pod's engine core is `{engine_id}_dp0`, so register pods as
 plain workers and pin a distinct `engine_id` per pod.
 
 ```bash
-smg \
+smg launch \
   --pd-disaggregation \
   --prefill grpc://prefill:50051 8998 \
   --decode grpc://decode:50052 \
@@ -171,7 +223,7 @@ smg \
 
 ### Helper Script
 
-Use the provided script to launch workers with either backend:
+The smg repository ships a script that launches a prefill/decode pair with either backend. Run it from an smg checkout:
 
 ```bash
 # NIXL (default)
@@ -183,20 +235,179 @@ KV_BACKEND=mooncake ./scripts/launch-pd-workers.sh vllm /path/to/model
 
 ---
 
+## vLLM PD over HTTP
+
+SMG runs the same sequential flow against vLLM's OpenAI-compatible HTTP server, with no gRPC servicer in the stack. It sends the prefill leg as a one-token, non-streaming request, captures the `kv_transfer_params` from the prefill response, and relays them to the decode leg.
+
+### Start vLLM Workers
+
+```bash
+# Prefill worker
+VLLM_NIXL_SIDE_CHANNEL_PORT=5600 \
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}'
+
+# Decode worker
+VLLM_NIXL_SIDE_CHANNEL_PORT=5601 \
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 8001 \
+  --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_consumer"}'
+```
+
+The NIXL side-channel notes in the gRPC section apply here too.
+
+### Start SMG and Register the Workers
+
+The vLLM HTTP server does not report its KV connector, so start SMG in PD mode without startup workers:
+
+```bash
+smg launch --pd-disaggregation --host 0.0.0.0 --port 30000
+```
+
+Then register each worker with its connector:
+
+```bash
+curl -X POST http://localhost:30000/workers \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://prefill:8000", "worker_type": "prefill", "kv_connector": "NixlConnector"}'
+
+curl -X POST http://localhost:30000/workers \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://decode:8001", "worker_type": "decode", "kv_connector": "NixlConnector"}'
+```
+
+!!! warning "Register the connector"
+    Workers passed as `--prefill http://...` and `--decode http://...` carry no connector. SMG then runs them in passthrough mode: requests still succeed, but decode recomputes every prompt and `smg_pd_kv_connector_mode_total{mode="passthrough"}` grows.
+
+For Mooncake, start the workers with the Mooncake `--kv-transfer-config` and `VLLM_MOONCAKE_BOOTSTRAP_PORT` from the gRPC section, using `vllm serve` in place of the gRPC entrypoint. Then register the prefill worker with its engine id and bootstrap port as well:
+
+```bash
+curl -X POST http://localhost:30000/workers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "http://prefill:8000",
+    "worker_type": "prefill",
+    "kv_connector": "MooncakeConnector",
+    "kv_engine_id": "prefill-0",
+    "bootstrap_port": 8998
+  }'
+```
+
+`kv_engine_id` must match the `engine_id` in the prefill worker's `--kv-transfer-config`, and `bootstrap_port` its `VLLM_MOONCAKE_BOOTSTRAP_PORT`. Without an engine id, SMG cannot mint the handoff and decode recomputes the prompt. On Kubernetes, the `smg.ai/kv-connector` and `smg.ai/kv-engine-id` pod annotations set the same fields (see [Service Discovery](service-discovery.md#pd-disaggregation-discovery)).
+
+---
+
+## TokenSpeed PD and EPD (gRPC)
+
+TokenSpeed serves PD over gRPC and moves the KV cache with Mooncake. For multimodal models it also supports EPD (encode-prefill-decode): encode workers run the vision tower and ship the embeddings to prefill over Mooncake. `$MODEL` below is the model to serve; for EPD, a vision-language model.
+
+```bash
+# Prefill worker
+python -m smg_grpc_servicer.tokenspeed \
+  --model "$MODEL" \
+  --host 0.0.0.0 \
+  --port 50061 \
+  --disaggregation-mode prefill \
+  --disaggregation-bootstrap-port 8998 \
+  --disaggregation-transfer-backend mooncake
+
+# Decode worker
+python -m smg_grpc_servicer.tokenspeed \
+  --model "$MODEL" \
+  --host 0.0.0.0 \
+  --port 50062 \
+  --disaggregation-mode decode \
+  --disaggregation-transfer-backend mooncake
+```
+
+Start SMG in PD mode:
+
+```bash
+smg launch \
+  --pd-disaggregation \
+  --prefill grpc://prefill:50061 8998 \
+  --decode grpc://decode:50062 \
+  --model-path "$MODEL"
+```
+
+For EPD, add encode workers and switch SMG to `--epd-disaggregation`:
+
+```bash
+# Encode worker (vision tower)
+python -m smg_grpc_servicer.tokenspeed \
+  --model "$MODEL" \
+  --host 0.0.0.0 \
+  --port 50060 \
+  --disaggregation-mode encode \
+  --disaggregation-bootstrap-port 8995 \
+  --disaggregation-transfer-backend mooncake
+```
+
+```bash
+smg launch \
+  --epd-disaggregation \
+  --encode grpc://encode:50060 8995 \
+  --prefill grpc://prefill:50061 8998 \
+  --decode grpc://decode:50062 \
+  --model-path "$MODEL"
+```
+
+The number after each encode and prefill URL is that worker's `--disaggregation-bootstrap-port`. `--encode-policy` (`random`, `round_robin`, or the default `consistent_hashing`) assigns media items to encode workers; the default sends a repeated image to the same encode worker. EPD works only with gRPC TokenSpeed workers, and text-only requests skip the encode leg.
+
+---
+
+## Kubernetes
+
+With service discovery, give each role its own label selector:
+
+```bash
+smg launch \
+  --service-discovery \
+  --pd-disaggregation \
+  --prefill-selector app=sglang role=prefill \
+  --decode-selector app=sglang role=decode \
+  --service-discovery-namespace inference \
+  --service-discovery-port 8000
+```
+
+Prefill pods advertise their bootstrap port with the `sglang.ai/bootstrap-port` annotation, and vLLM pods declare their KV connector with `smg.ai/kv-connector`. See [Service Discovery](service-discovery.md#pd-disaggregation-discovery) for the pod labels and annotations.
+
+---
+
+## Check Pairing
+
+SMG pairs a prefill worker only with decode workers that share its KV transfer protocol: the same runtime, the same transport (NIXL or Mooncake), and a matching KV cache layout, as far as the workers report them. Each prefill and decode worker shows its pairing key in `/workers`:
+
+```bash
+curl -s http://localhost:30000/workers | jq '.workers[] | {url, worker_type, pd_pairing}'
+```
+
+When no prefill is compatible with any decode, requests fail with 503 `no_compatible_pd_pair`. The Rust `smg` binary's `--pd-pairing-mode` flag (`off`, `lenient`, or `strict`; default `lenient`) sets how strictly the legs are compared. See [Prefill/Decode Pairing](../concepts/routing/pd-disaggregation.md#prefilldecode-pairing).
+
+---
+
 ## Verify
 
 ```bash
 # Check workers and their roles
-curl http://localhost:30000/workers | jq
+curl -s http://localhost:30000/workers | jq '.workers[] | {url, worker_type, is_healthy}'
+
+# Not ready until at least one prefill and one decode worker are healthy
+curl -i http://localhost:30000/readiness
 
 # Send a request
 curl http://localhost:30000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "meta-llama/Llama-3.1-70B-Instruct",
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
+
+PD mode serves Chat Completions, Completions, the Anthropic Messages API, and the Responses API on both transports. `/v1/messages/count_tokens` works with HTTP workers and goes to a single prefill worker.
 
 ---
 
@@ -204,13 +415,17 @@ curl http://localhost:30000/v1/chat/completions \
 
 | | vLLM PD | SGLang PD |
 |---|---------|-----------|
-| **Protocol** | gRPC | HTTP |
+| **Worker transport** | HTTP or gRPC | HTTP or gRPC |
 | **Dispatch** | Prefill first, then decode | Both workers receive request simultaneously |
-| **KV Transfer** | NIXL (RDMA) or Mooncake (TCP/RDMA) | Bootstrap-based coordination |
-| **SMG flags** | `--prefill grpc://...` + `--model-path` | `--prefill http://... <bootstrap_port>` |
+| **KV Transfer** | NIXL or Mooncake (`--kv-transfer-config`) | Mooncake or NIXL (`--disaggregation-transfer-backend`), through the prefill's bootstrap server |
+| **Handoff data** | `kv_transfer_params`, relayed or minted by SMG | `bootstrap_host`, `bootstrap_port`, `bootstrap_room`, injected by SMG |
+| **SMG flags** | `--prefill <url>` (NIXL) or `--prefill <url> <bootstrap_port>` (Mooncake) | `--prefill <url> <bootstrap_port>` |
+| **HTTP workers** | Register with `kv_connector` for a KV handoff | No extra registration |
+
+TokenSpeed PD works like SGLang PD (both legs at once, bootstrap port on the prefill URL), over gRPC with Mooncake only.
 
 ---
 
 ## Next Steps
 
-For sizing guidelines, per-phase routing policies, Kubernetes service discovery, and monitoring, see the full [PD Disaggregation Concepts](../concepts/routing/pd-disaggregation.md) page.
+For per-phase routing policies, pairing, admission control, multimodal handling, monitoring, and troubleshooting, see the full [PD Disaggregation Concepts](../concepts/routing/pd-disaggregation.md) page.

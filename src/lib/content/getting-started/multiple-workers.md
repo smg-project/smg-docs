@@ -16,19 +16,22 @@ SMG can route across many workers simultaneously — local inference servers, re
 
 ## Supported Worker Types
 
-SMG connects to workers over HTTP or gRPC, and supports both local inference servers and remote API providers:
+SMG connects to workers over HTTP, gRPC, or ZMQ, and supports both local inference servers and remote API providers:
 
 | Worker Type | Protocol | Example URL |
 |-------------|----------|-------------|
-| vLLM | gRPC | `grpc://worker:50051` |
+| vLLM | HTTP / gRPC / ZMQ | `http://worker:8000`, `grpc://worker:50051`, or `ipc:///tmp/smg-zmq/engine-0` |
 | TensorRT-LLM | gRPC | `grpc://worker:50051` |
-| TokenSpeed | gRPC | `grpc://worker:50051` |
+| TokenSpeed | gRPC / ZMQ | `grpc://worker:50051` or `ipc:///tmp/smg-zmq/engine-0` |
 | SGLang | HTTP / gRPC | `http://worker:8000` or `grpc://worker:50051` |
+| MLX (Apple Silicon) | gRPC | `grpc://worker:50051` |
 | OpenAI (GPT) | HTTP | `https://api.openai.com` |
 | Anthropic (Claude) | HTTP | `https://api.anthropic.com` |
 | xAI (Grok) | HTTP | `https://api.x.ai` |
 | Google (Gemini) | HTTP | `https://generativelanguage.googleapis.com` |
 | Any OpenAI-compatible API | HTTP | `https://your-provider.com` |
+
+ZMQ workers (`ipc://`) run on the same host as SMG, which connects directly to the engine core with no engine API server in between. See [ZMQ Direct Workers](zmq-workers.md).
 
 ## Static Workers via CLI
 
@@ -147,29 +150,32 @@ curl -X DELETE http://localhost:30000/workers/{worker_id}
 
 ### Worker configuration options
 
-The `POST /workers` endpoint accepts additional fields:
+`POST /workers` takes a worker spec. Only `url` is required; the gateway probes the worker and discovers the rest. A spec with commonly used options:
 
 ```json
 {
   "url": "http://worker:8000",
+  "runtime_type": "vllm",
   "api_key": "optional-key",
-  "runtime": "sglang",
-  "worker_type": "regular",
-  "priority": 50,
-  "cost": 1.0,
-  "labels": {"region": "us-east"}
+  "labels": {"region": "us-east"},
+  "health": {"check_interval_secs": 30},
+  "overload": {"token_usage": 0.9}
 }
 ```
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `url` | (required) | Worker URL (`http://`, `grpc://`, or `https://` for cloud) |
-| `api_key` | — | API key for authenticated workers |
-| `runtime` | (auto-detect) | Runtime: `sglang`, `vllm`, `trtllm`, `mlx`, or `external` |
-| `worker_type` | `regular` | Type: `regular`, `prefill`, or `decode` |
-| `priority` | `50` | Routing priority (0–100, higher = preferred) |
-| `cost` | `1.0` | Cost multiplier for cost-aware routing |
-| `labels` | `{}` | Arbitrary metadata; e.g. `realtime: "true"` (see [Realtime-capable workers](#realtime-capable-workers)) |
+| `url` | (required) | Worker URL. The scheme picks the transport: `http://` or `https://`, `grpc://` or `grpcs://`, or `ipc://` for a same-host [ZMQ worker](zmq-workers.md) |
+| `runtime_type` | (auto-detect) | Engine: `sglang`, `vllm`, `trtllm`, `mlx`, `tokenspeed`, `generic`, or `external`. Also accepted as `runtime` |
+| `worker_type` | `regular` | `regular`, `prefill`, `decode`, or `encode` |
+| `models` | `[]` | Model cards, such as `[{"id": "meta-llama/Llama-3.1-8B-Instruct"}]`. Empty: the gateway uses the model the worker reports (ZMQ workers fall back to `--model-path`) |
+| `api_key` | — | API key for authenticated workers. Never returned by `GET /workers` |
+| `labels` | `{}` | String metadata, such as `realtime: "true"` (see [Realtime-capable workers](#realtime-capable-workers)) |
+| `health` | gateway settings | Per-worker [health check](../concepts/reliability/health-checks.md) overrides, such as `check_interval_secs` or `drain_settle_secs` |
+| `overload` | gateway settings | Per-worker [overload protection](../concepts/reliability/overload-protection.md) thresholds: `waiting_requests`, `token_usage` |
+| `http_pool` | gateway settings | HTTP client overrides, such as `{"http2": true}` to pin HTTP/2 |
+
+The [Admin API reference](../reference/api/admin.md#worker-spec) lists every field, the validation rules, and how `PATCH` and `PUT` change a registered worker.
 
 ### Realtime-capable workers
 

@@ -1,3 +1,7 @@
+---
+title: Reliability & Resilience
+---
+
 # Reliability & Resilience
 
 SMG provides several mechanisms to ensure high availability and stability.
@@ -9,5 +13,6 @@ SMG provides several mechanisms to ensure high availability and stability.
 *   **[Rate Limiting](./rate-limiting.md)**: Protect your workers from being overwhelmed by controlling the concurrency and request rate.
 *   **[Tenant Rate Limiting](./tenant-rate-limiting.md)**: Cap per-tenant LLM token and request consumption per minute, independent of worker concurrency.
 *   **[Priority Scheduling](./priority-scheduling.md)**: Admit higher-priority traffic first with reserved slots, per-class queues, and TTFT-aware preemption.
+*   **[Overload Protection](./overload-protection.md)**: Exclude workers whose engines report saturation from routing, and shed requests immediately when every candidate worker is saturated.
 *   **[Health Checks](./health-checks.md)**: Active and passive monitoring of worker health to remove unhealthy nodes from the rotation.
 *   **[Graceful Shutdown](./graceful-shutdown.md)**: Ensure in-flight requests complete before the server stops.

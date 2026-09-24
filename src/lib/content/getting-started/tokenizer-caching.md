@@ -149,6 +149,20 @@ Estimate ~1 KB per active conversation context for L1 sizing.
 
 ---
 
+## Monitor Cache Activity
+
+SMG exports cache counters on its Prometheus endpoint (smg-project/smg#2603): `smg_tokenizer_cache_lookups_total` (labels `layer` and `result`), `smg_tokenizer_cache_evictions_total`, and `smg_tokenizer_cache_reused_bytes_total` (label `layer`). `layer` is `l0` or `l1`; `result` is `hit` or `miss`. Check each layer's hit ratio:
+
+```promql
+sum by (layer) (rate(smg_tokenizer_cache_lookups_total{result="hit"}[5m]))
+/
+sum by (layer) (rate(smg_tokenizer_cache_lookups_total[5m]))
+```
+
+A low hit ratio together with a steady eviction rate means the cache is too small for the workload. See the [Metrics Reference](../reference/metrics.md#tokenizer-cache-metrics) for the full definitions.
+
+---
+
 ## Next Steps
 
 - [Tokenizer Caching Concepts](../concepts/performance/tokenizer-caching.md) — Cache architecture, special token boundaries, monitoring metrics, PromQL queries

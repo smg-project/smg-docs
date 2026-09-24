@@ -104,6 +104,7 @@ Understand how SMG is structured internally:
 - [Architecture Overview](architecture/overview.md) — High-level system design
 - [Service Discovery](architecture/service-discovery.md) — Kubernetes integration and worker registration
 - [gRPC Pipeline](architecture/grpc-pipeline.md) — Token-level streaming implementation
+- [Multimodal Pipeline](architecture/multimodal.md) — How images and video reach gRPC workers
 - [High Availability](architecture/high-availability.md) — Multi-instance mesh networking
 
 ### Routing
@@ -120,6 +121,7 @@ Learn how SMG selects workers for requests:
 Optimize SMG for high-throughput deployments:
 
 - [Tokenizer Caching](performance/tokenizer-caching.md) — Two-level cache for tokenization
+- [Request Streaming and Upstream Connections](performance/request-streaming.md) — Stream-or-buffer request bodies, upstream HTTP/2, and connection pooling
 
 ### Extensibility
 
@@ -133,7 +135,13 @@ Extend SMG with custom logic and external tools:
 Understand how SMG handles failures:
 
 - [Circuit Breakers](reliability/circuit-breakers.md) — Preventing cascade failures
-- [Rate Limiting](reliability/rate-limiting.md) — Protecting workers from overload
+- [Rate Limiting](reliability/rate-limiting.md) — Gateway concurrency limits and request queuing
+- [Tenant Rate Limiting](reliability/tenant-rate-limiting.md) — Per-tenant token and request budgets
+- [Priority Scheduling](reliability/priority-scheduling.md) — Priority classes, reserved capacity, and preemption
+- [Overload Protection](reliability/overload-protection.md) — Excluding saturated workers and shedding load
+- [Retries](reliability/retries.md) — Retrying transient failures with backoff
+- [Health Checks](reliability/health-checks.md) — Detecting unhealthy workers and taking them out of rotation
+- [Graceful Shutdown](reliability/graceful-shutdown.md) — Draining in-flight requests before the gateway stops
 
 ---
 

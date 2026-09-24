@@ -176,7 +176,7 @@ smg launch \
 Before it uses a request's bucket, the policy checks balance. The load it compares is the characters (or tokens) routed to each prefill worker over the last 5 seconds: when the busiest and least busy workers differ by more than `--balance-abs-threshold` and the busiest exceeds `--balance-rel-threshold` times the least busy, the request goes to the least busy worker instead. Both flags are shared with `cache_aware`, but here they are measured in characters or tokens, not requests.
 
 !!! warning "Prefill leg only"
-    Only a PD prefill policy is given bucket boundaries, and `--decode-policy bucket` is rejected at startup. As `--policy` outside PD mode, or on a decode leg that inherits it from `--policy`, `bucket` has no buckets: it picks a random available worker and logs a warning on every request. In PD mode, set it with `--prefill-policy bucket` and give the decode leg its own `--decode-policy`.
+    Only a PD prefill policy is given bucket boundaries, and `--decode-policy bucket` is rejected at startup. The Python launcher also rejects `--policy bucket`. With the Rust binary, as `--policy` outside PD mode, or on a decode leg that inherits it from `--policy`, `bucket` has no buckets: it picks a random available worker and logs a warning on every request. In PD mode, set it with `--prefill-policy bucket` and give the decode leg its own `--decode-policy`.
 
 **Use when:** PD disaggregation where prefill workers should specialize by prompt length, for example with a bimodal request length distribution.
 

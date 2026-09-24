@@ -143,7 +143,7 @@ A valid `X-SMG-Routing-Key` header replaces the prompt as the hash key. Lower me
 
 ## Bucket
 
-Routes prefill requests by length in PD mode: each prefill worker owns a range of request sizes, and the ranges adapt to recent traffic every 5 seconds. Only the prefill leg gets buckets, so set it with `--prefill-policy`: `--decode-policy bucket` is rejected at startup, and anywhere else `bucket` picks a random worker.
+Routes prefill requests by length in PD mode: each prefill worker owns a range of request sizes, and the ranges adapt to recent traffic every 5 seconds. Only the prefill leg gets buckets, so set it with `--prefill-policy`: `--decode-policy bucket` is rejected at startup, the Python launcher also rejects `--policy bucket`, and anywhere else `bucket` picks a random worker.
 
 ```bash
 smg launch \

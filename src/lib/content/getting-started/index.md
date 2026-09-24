@@ -63,7 +63,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     docker pull ghcr.io/smg-project/smg:latest
     ```
 
-    Release tags are the bare version with no `v` prefix, for example `lightseekorg/smg:1.10.1`, and `latest` points at the newest release. GHCR carries gateway releases from 1.10.1 on; older release tags are on Docker Hub. Nightly builds are on GHCR only: `ghcr.io/smg-project/smg:nightly`, or `nightly-<YYYYMMDD>-<short-sha>` to pin one night. Dated nightly tags are pruned after a short retention window.
+    Release tags are the bare version with no `v` prefix, for example `lightseekorg/smg:1.11.0`, and `latest` points at the newest release. GHCR carries gateway releases from 1.10.1 on; older release tags are on Docker Hub. Nightly builds are on GHCR only: `ghcr.io/smg-project/smg:nightly`, or `nightly-<YYYYMMDD>-<short-sha>` to pin one night. Dated nightly tags are pruned after a short retention window.
 
     **Gateway + engine** (all-in-one images that route and serve), for `linux/amd64` only:
 
@@ -80,7 +80,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     | TensorRT-LLM | `trtllm-1.3.0rc24`, `trtllm-1.3.0rc23`, `trtllm-1.3.0rc22` | `nvcr.io/nvidia/tensorrt-llm/release` | `nightly-trtllm` |
     | TokenSpeed | `tokenspeed-tml` | `lightseekorg/tokenspeed:tml` | `nightly-tokenspeed` |
 
-    For example, v1.10.1 published `ghcr.io/smg-project/smg:1.10.1-vllm-v0.27.1` and `ghcr.io/smg-project/smg:1.10.1-sglang-v0.5.18`. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
+    For example, v1.11.0 published `ghcr.io/smg-project/smg:1.11.0-vllm-v0.27.1` and `ghcr.io/smg-project/smg:1.11.0-sglang-v0.5.20`, both built from SMG 1.11.0. The release TokenSpeed image is not: the release workflow builds it from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
 
 === "From Source"
 
@@ -273,7 +273,7 @@ curl http://localhost:30000/v1/responses \
 
 ## Worker Startup Recipes (Standalone)
 
-Use these when workers are not started via `smg serve`. Each command starts one worker; register it with `smg launch --worker-urls` using a `grpc://` or `http://` URL, as in [Option B](#option-b-launch-gateway-only-with-smg-launch). The SMG engine images for vLLM, SGLang, TensorRT-LLM, and TokenSpeed already contain the engine and the SMG gRPC servicer. SMG v1.11.0's CI starts workers with these commands (plus test-specific flags) on vLLM 0.27.1, SGLang 0.5.20, TensorRT-LLM 1.3.0rc24, and a pinned TokenSpeed commit.
+Use these when workers are not started via `smg serve`. Each command starts one worker; register it with `smg launch --worker-urls` using a `grpc://` or `http://` URL, as in [Option B](#option-b-launch-gateway-only-with-smg-launch). The SMG engine images for vLLM, SGLang, TensorRT-LLM, and TokenSpeed already contain the engine and the SMG gRPC servicer. SMG v1.11.0's CI starts workers the same way (plus test-specific flags) on vLLM 0.27.1, SGLang 0.5.20, TensorRT-LLM 1.3.0rc24, and a pinned TokenSpeed commit.
 
 === "vLLM"
 
@@ -317,7 +317,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
 
 === "TensorRT-LLM"
 
-    gRPC serving is built into TensorRT-LLM 1.3.0rc14 and later.
+    gRPC serving is built into TensorRT-LLM, so it needs no SMG servicer.
 
     ```bash
     # gRPC worker (grpc://<host>:50051)
@@ -343,7 +343,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
       --grammar-backend xgrammar
     ```
 
-    TokenSpeed's default grammar backend is `none`, which leaves `tool_choice` and `response_format` constraints unenforced. Add `--enable-output-logprobs` if clients request logprobs; without it they come back empty.
+    TokenSpeed's default grammar backend is `none`, which makes it reject requests that need constrained decoding, such as `tool_choice` set to `required` or a named function, or a JSON `response_format`. Add `--enable-output-logprobs` if clients request logprobs; without it they come back empty.
 
 === "MLX"
 
@@ -577,7 +577,7 @@ curl http://localhost:30000/health
 
 ### All-in-one with engine images
 
-Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. Replace `<version>` with an SMG release (see the Docker tab under [Install](#install) for the engine tags each release builds).
+Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. The examples use the v1.11.0 images; the Docker tab under [Install](#install) lists the engine tags each release builds.
 
 === "SGLang"
 
@@ -586,7 +586,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:<version>-sglang-v0.5.20 \
+      ghcr.io/smg-project/smg:1.11.0-sglang-v0.5.20 \
       serve \
       --backend sglang \
       --model-path /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -601,7 +601,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:<version>-vllm-v0.27.1 \
+      ghcr.io/smg-project/smg:1.11.0-vllm-v0.27.1 \
       serve \
       --backend vllm \
       --model /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -609,7 +609,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --port 30000
     ```
 
-Each engine image sets `SMG_DEFAULT_BACKEND` to its engine, so `--backend` is optional. Workers connect over gRPC by default. TensorRT-LLM images take `--backend trtllm` and support only gRPC; TokenSpeed images need `--connection-mode zmq` (see [ZMQ Workers](zmq-workers.md)).
+Each engine image sets `SMG_DEFAULT_BACKEND` to its engine, so `--backend` is optional. Workers connect over gRPC by default. TensorRT-LLM images take `--backend trtllm` and support only gRPC. TokenSpeed needs `--connection-mode zmq` and `--router-model-path` (see [ZMQ Workers](zmq-workers.md)). The release TokenSpeed images can't do this: the SMG 1.7.0 they contain has no TokenSpeed backend or ZMQ mode in `smg serve`.
 
 Verify:
 
@@ -645,7 +645,7 @@ A minimal `values.yaml` either lists workers or discovers them:
         - http://worker-2.inference.svc:8000
     ```
 
-    For gRPC workers, use `grpc://` URLs and set `router.model` to the model's Hugging Face ID or path so the gateway can load the tokenizer.
+    For gRPC workers, use `grpc://` URLs. The gateway loads the tokenizer from the tokenizer or model path each worker reports, and fetches it from the worker if that path doesn't load on the gateway. TensorRT-LLM workers report no path, so for them set `router.model` to the model's Hugging Face ID or path.
 
 === "Service discovery"
 
@@ -658,7 +658,7 @@ A minimal `values.yaml` either lists workers or discovers them:
         port: 8000
     ```
 
-    The gateway watches pods with this label in the release namespace. Set `router.serviceDiscovery.namespace` to watch another namespace, or `router.serviceDiscovery.clusterWide: true` to watch all of them.
+    The gateway watches pods with this label in the release namespace. Set `router.serviceDiscovery.namespace` to watch another namespace (the chart's `Role` grants access only in the release namespace, so grant pod access in the other namespace yourself), or `router.serviceDiscovery.clusterWide: true` to watch all of them.
 
 The chart creates these resources (names assume the release is called `smg`):
 
@@ -667,6 +667,7 @@ The chart creates these resources (names assume the release is called `smg`):
 | `Deployment` `smg-router` running `docker.io/lightseekorg/smg:<chart appVersion>` | Always; a `StatefulSet` plus a headless `Service` when `router.mesh.enabled` |
 | `Service` `smg-router` (`ClusterIP`): port 80 to the gateway's 30000, and 29000 for metrics | Always |
 | `ServiceAccount` `smg` | `serviceAccount.create` (default `true`) |
+| `Secret` `smg-hf-token`, passed to the router and workers as `HF_TOKEN` | `huggingface.token` is set |
 | `Role` and `RoleBinding` allowing `get`, `list`, and `watch` on pods | `router.serviceDiscovery.enabled`, `router.mesh.enabled`, or `rbac.create`; a `ClusterRole` and `ClusterRoleBinding` with `router.serviceDiscovery.clusterWide` |
 | `ServiceMonitor` | `router.metrics.serviceMonitor.enabled` (needs the Prometheus Operator CRDs) |
 | `Ingress`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, Grafana dashboard `ConfigMap` | `router.ingress.enabled`, `router.autoscaling.enabled`, `router.podDisruptionBudget.enabled`, `grafana.dashboard.enabled` |
@@ -680,7 +681,7 @@ A few chart behaviors to know:
 - Engine images for `workers[]` resolve to `ghcr.io/<repository>:<tag>`, and the repository defaults to `global.image.repository` (`lightseekorg/smg`). GHCR has no engine release images under that name after 1.9.0, so set `image.repository: smg-project/smg` next to each worker's `image.tag`. The chart's worker examples still pin 1.3.3 images.
 
 !!! warning "History backends in chart 1.11.0"
-    With `history.backend` set to `postgres`, `redis`, or `oracle`, chart 1.11.0 passes flags the gateway image rejects (`--postgres-pool-max-size`, `--redis-pool-max-size`, `--oracle-dsn`), and the router exits at startup. Leave `history.backend` at `memory` and pass the history flags through `router.extraArgs` instead, for example `--history-backend postgres --postgres-db-url <url>`.
+    With `history.backend` set to `postgres` or `redis`, or to `oracle` with `history.oracle.dsn`, chart 1.11.0 passes a flag the gateway image rejects (`--postgres-pool-max-size`, `--redis-pool-max-size`, or `--oracle-dsn`), and the router exits at startup. Leave `history.backend` at `memory` and pass the history flags through `router.extraArgs` instead, for example `--history-backend postgres --postgres-db-url <url>`.
 
 Verify:
 

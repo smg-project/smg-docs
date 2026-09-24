@@ -4,7 +4,7 @@ title: Configuration
 
 # Configuration Reference
 
-Every `smg launch` flag in SMG v1.11.0, with its default, accepted values, and environment variable. Sections follow the headings that `smg launch --help` prints.
+Every `smg launch` flag in SMG v1.11.0, with its default, accepted values, and environment variable. Sections mostly follow the headings that `smg launch --help` prints.
 
 ---
 
@@ -16,7 +16,7 @@ SMG reads its configuration from:
 2. **Environment variables**, only for the flags that declare one (the Oracle `ATP_*` variables, `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_JWKS_URI`, and `CONTROL_PLANE_API_KEYS`) and for the multimodal flags with `SMG_*` fallbacks, plus the environment-only settings in the [Environment Variable Reference](#environment-variable-reference)
 3. **Built-in defaults** (lowest priority)
 
-One exception: `RUST_LOG`, when set, replaces the log filter that `--log-level` would build. See [Logging Configuration](#logging-configuration).
+One exception: `RUST_LOG`, when set to a valid filter, replaces the log filter that `--log-level` would build. See [Logging Configuration](#logging-configuration).
 
 The `smg` command that `pip install smg` provides parses flags with its own Python parser, which differs in a few places. See [Python Launcher Differences](#python-launcher-differences).
 
@@ -29,7 +29,7 @@ The `smg` command that `pip install smg` provides parses flags with its own Pyth
 | Invocation | Notes |
 |------------|-------|
 | `smg launch [OPTIONS]` | Starts the gateway. `smg start` is a visible alias of `launch`. |
-| `smg [OPTIONS]` | Same flags without a subcommand. Top-level flags and a subcommand cannot be combined: `smg --port 8080 launch` is rejected. |
+| `smg [OPTIONS]` | Same flags without a subcommand (Rust binary only; the pip `smg` needs `launch` or `serve`). Top-level flags and a subcommand cannot be combined: `smg --port 8080 launch` is rejected. |
 | `amg [OPTIONS]` | A second binary built from the same source (`model_gateway/Cargo.toml` declares both `smg` and `amg`). Identical flags. |
 | `shepherd-model-gateway` | The top-level `--help` lists it as the full command name, but Cargo builds no binary with this name. |
 | `smg --version`, `smg -V`, `smg --version-verbose` | Print version information and exit. Checked before any other argument is parsed. |
@@ -84,12 +84,12 @@ Routing flags configure the default policy (`--policy`). In PD mode, `--prefill-
 |--------|-----------------------|
 | `random` | A random healthy worker. |
 | `round_robin` | Cycles through healthy workers. |
-| `passthrough` | Always the first healthy worker. It skips load polling and KV-event subscription, and is meant for single-backend gateways; with several workers registered it logs one warning and still sends everything to the first. |
+| `passthrough` | Always the first healthy worker. It reads no load reports (so it never forces load polling under `--disable-load-monitoring`) and starts no KV-event subscription, and is meant for single-backend gateways; with several workers registered it logs one warning and still sends everything to the first. |
 | `cache_aware` | The worker holding the longest matching prompt prefix. Below `--cache-threshold`, or when the spill gate fires, it falls back to least-load expected-wait selection. See [Cache-Aware Routing](../concepts/routing/cache-aware.md). |
 | `power_of_two` | Samples two healthy workers and takes the one with the lower least-load expected wait. Needs at least two workers unless service discovery or IGW mode is on. |
 | `least_load` | The worker with the lowest expected wait: queued plus in-flight token work divided by throughput, plus a KV-pressure term. See [Least Load Policy Options](#least-load-policy-options). |
 | `prefix_hash` | Hashes the request's leading tokens onto a consistent-hash ring and walks away from overloaded workers. |
-| `consistent_hashing` | Consistent-hash ring keyed on the request's routing key. `X-SMG-Target-Worker` picks a worker by index; requests without a key go to a random worker. |
+| `consistent_hashing` | Consistent-hash ring keyed on the request's routing key or, without one, on its `Authorization`, `X-Forwarded-For`, or `Cookie` header. `X-SMG-Target-Worker` picks a worker by index; a request with none of these goes to a random worker. |
 | `manual` | A sticky map from routing key to worker with idle eviction. First-seen keys are placed by `--assignment-mode`. |
 | `bucket` | Maps request length (tokens, or characters when untokenized) to per-worker length buckets whose boundaries adapt every 5 seconds; picks the least-loaded worker when the `--balance-*` imbalance check fires. |
 
@@ -104,7 +104,7 @@ Routing flags configure the default policy (`--policy`). In PD mode, `--prefill-
 | `--balance-rel-threshold` | `1.5` | Spill gate, relative part (a multiple of the healthy-fleet mean); fires only together with the absolute part. Must be at least `1.0`. `bucket` reuses it too. Alias: `--spill-rel-threshold`. |
 | `--balance-token-usage-threshold` | `1.0` | Abandon cache affinity for shortest-queue when the KV-usage spread (hottest minus coldest backend, 0.0 to 1.0) exceeds this. Catches long-context KV imbalance that request counts miss. The backend must report `token_usage`. `1.0` or more disables it; must be greater than 0. |
 | `--overload-token-usage-threshold` | `1.0` | Safety valve for a saturated engine: when the hottest backend's KV utilization exceeds this, de-rank it regardless of spread. It stays routable; see [Worker Overload Protection](#worker-overload-protection) for the hard cutoff. Best set high (for example `0.9`). `1.0` or more disables it; must be greater than 0. |
-| `--overlap-decay` | `0.0` | Anti-hotspot decay for event-driven selection: each candidate's overlap score is divided by `1 + overlap_decay × backlog`, where backlog is the worker's waiting-prefill blocks per request block. Needs backend load reporting. `0.0` disables it. |
+| `--overlap-decay` | `0.0` | Anti-hotspot decay for event-driven selection: each candidate's overlap score is divided by `1 + overlap_decay × backlog`, where backlog is the worker's waiting-prefill blocks beyond the least-backlogged candidate's, per request block. Needs backend load reporting. `0.0` disables it. |
 | `--selection-temperature` | `0.0` | Softmax temperature over min-max normalized scores in event-driven selection, spreading picks across near-equal candidates. `0.0` is exact argmax. |
 | `--eviction-interval` | `120` | Seconds between cache-tree eviction cycles (placement-map TTL sweeps with `--cache-index hash`). Also the sweep interval of the manual-policy and sticky-session maps. Must be greater than 0 for `cache_aware`. |
 | `--max-tree-size` | `67108864` | Size budget for each model's approximation tree, shared across all of that model's workers: characters for HTTP workers, tokens for gRPC workers. Eviction keeps every tree at or under it. |
@@ -400,7 +400,7 @@ smg launch \
 `RUST_LOG`, when set to a valid filter, replaces the filter built from `--log-level`:
 
 ```bash
-RUST_LOG=smg=debug,hyper=warn smg ...
+RUST_LOG=smg=debug,hyper=warn smg launch ...
 ```
 
 See [Configure Logging](../getting-started/logging.md).
@@ -476,7 +476,7 @@ Gateway-wide admission control for the inference routes. For behavior and sizing
 | `--max-concurrent-requests` | `-1` (unlimited) | Maximum standing concurrent requests. Each admission permit is held for the full response, including streaming bodies. `-1` (any value of 0 or less) disables the limit. |
 | `--queue-size` | `100` | Requests that may wait for a permit when the limit is reached. A request that finds the queue full, or no queue (`0`), gets `429` (`admission_queue_full`). |
 | `--queue-timeout-secs` | `60` | Maximum time a request waits in the queue before it gets `503` (`admission_queue_timeout`). Must be greater than 0 when `--queue-size` is greater than 0. |
-| `--rate-limit-tokens-per-second` | unset | Refill rate of the admission token bucket, whose capacity is `--max-concurrent-requests`. Unset or `0` means no refill: `--max-concurrent-requests` bounds standing concurrency alone. A positive value also caps the admission rate. Must be 0 or more. |
+| `--rate-limit-tokens-per-second` | unset | Refill rate of the admission token bucket, whose capacity is `--max-concurrent-requests`. It has no effect while that limit is off. Unset or `0` means no refill: `--max-concurrent-requests` bounds standing concurrency alone. A positive value also refills the bucket over time, on top of the permits that finished requests return, so more than `--max-concurrent-requests` requests can be in flight. With `--priority-scheduler-enabled`, a positive value instead caps admissions at this many requests per second, in bursts of up to `--max-concurrent-requests`; excess requests get `429` (`scheduler_queue_full`). Must be 0 or more. |
 
 ---
 
@@ -603,7 +603,7 @@ Names use underscores: `--reasoning-parser deepseek-r1` fails; use `deepseek_r1`
 | Default | unset |
 | Description | Path to the MCP (Model Context Protocol) server configuration file (YAML), loaded at startup. `--help` lists it under Parsers. |
 
-When the file has no `proxy:` block, outbound MCP connections read `MCP_HTTP_PROXY`, `MCP_HTTPS_PROXY`, and `MCP_NO_PROXY` (falling back to `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`). See [Model Context Protocol (MCP)](../concepts/extensibility/mcp.md).
+Only the file's `servers` list is applied. A server entry's own `proxy:` block sets that server's outbound proxy; otherwise MCP connections use the standard `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` variables (upper- or lowercase). v1.11.0 ignores the top-level `proxy:` block and never reads `MCP_HTTP_PROXY`, `MCP_HTTPS_PROXY`, or `MCP_NO_PROXY`. See [Model Context Protocol (MCP)](../concepts/extensibility/mcp.md).
 
 ---
 
@@ -688,7 +688,7 @@ The Rust CLI has no flags for a client certificate or CA bundle toward workers. 
 
 **Example**:
 ```bash
-smg --enable-trace --otlp-traces-endpoint jaeger:4317
+smg launch --enable-trace --otlp-traces-endpoint jaeger:4317
 ```
 
 ---
@@ -731,7 +731,7 @@ Authentication for the admin routes: worker management, cache and tokenizer oper
 
 **Example**:
 ```bash
-smg \
+smg launch \
   --worker-urls http://worker:8000 \
   --api-key shared-secret \
   --tenant-api-key team-red:red-secret \
@@ -757,7 +757,7 @@ Router pods can also discover each other through `--router-selector` (see [Servi
 
 **Example**:
 ```bash
-smg \
+smg launch \
   --enable-mesh \
   --mesh-server-name router-1 \
   --mesh-advertise-host 192.168.1.10 \
@@ -809,7 +809,7 @@ the cgroup-quota-derived default and any `TOKIO_WORKER_THREADS` value).
 
 ## Python Launcher Differences
 
-`pip install smg` installs a Python `smg` command, not the Rust binary. Its `smg launch`, and `python -m smg.launch_router`, parse flags with `bindings/python/src/smg/router_args.py` and then start the gateway through the Python bindings. The container image's entrypoint is `python3 -m smg.launch_router`, so `docker run` arguments go through this parser too. Most flags match the Rust CLI. The differences in v1.11.0:
+`pip install smg` installs a Python `smg` command, not the Rust binary. Its `smg launch`, and `python -m smg.launch_router`, parse flags with `bindings/python/src/smg/router_args.py` and then start the gateway through the Python bindings. The gateway image's entrypoint is `python3 -m smg.launch_router` and the engine images' entrypoint is this Python `smg`, so `docker run` arguments go through this parser too. Most flags match the Rust CLI. The differences in v1.11.0:
 
 - **Entry points:** the Python `smg` needs a subcommand (`launch` or `serve`); there is no `start` alias and no subcommand-less form. Under `smg serve`, most router flags take a `--router-` prefix (for example `--router-policy`), and `--router-disable-arg-fallback` stops them from falling back to same-named backend flags.
 - **Python-only flags:** `--client-cert-path`, `--client-key-path`, and `--ca-cert-paths` (mTLS toward workers); `--bucket-adjust-interval-secs` (default `5`; the Rust CLI fixes 5 seconds); `--control-plane-audit-enabled` (audit logging is off unless set, while the Rust CLI enables it and offers `--disable-audit-logging`); and `--no-remove-unhealthy-workers` / `--no-worker-auto-recovery` in place of `=false`.
@@ -817,7 +817,7 @@ the cgroup-quota-derived default and any `TOKIO_WORKER_THREADS` value).
 - **Different values:** `--policy` and `--decode-policy` do not accept `bucket` (`--prefill-policy` does), and `--prefill-policy` and `--decode-policy` accept `passthrough`. `--backend` accepts only `sglang`, `vllm`, `tokenspeed`, `openai`, and `anthropic`, and defaults to `sglang`, which behaves like leaving the Rust flag unset. `--reasoning-parser` and `--tool-call-parser` are checked against the registered names at parse time.
 - **Environment variables:** Python reads `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `REDIS_URL`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS` as defaults for its storage flags; the Rust CLI does not. Both read the Oracle `ATP_*` variables. `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_JWKS_URI`, and `CONTROL_PLANE_API_KEYS` are Rust-only.
 - **Multiple values:** `--control-plane-api-keys` and `--jwt-role-mapping` accept several values after one flag in Python; the Rust CLI takes one value per flag.
-- **Not available in Python:** `--disable-audit-logging`, `--drain-settle-secs`, `--engine-metrics`, `--jwt-role-claim`, `--kv-indexer-ttl-secs`, `--kv-indexer-max-entries`, `--pd-pairing-mode`, the four `--priority-scheduler-*` flags, `--runtime-worker-threads`, `--tenant-api-key`, `--trust-tenant-header`, `--tenant-header-name`, the two `--tenant-rate-limit-*` flags, `--webrtc-bind-addr`, and `--webrtc-stun-server`.
+- **Not available in Python:** `--disable-audit-logging`, `--drain-settle-secs`, `--engine-metrics`, `--jwt-role-claim`, `--kv-indexer-ttl-secs`, `--kv-indexer-max-entries`, `--pd-pairing-mode`, the four `--priority-scheduler-*` flags, `--runtime-worker-threads`, the hidden `--runtime` alias of `--backend`, `--tenant-api-key`, `--trust-tenant-header`, `--tenant-header-name`, the two `--tenant-rate-limit-*` flags, `--webrtc-bind-addr`, and `--webrtc-stun-server`.
 
 ---
 
@@ -826,13 +826,13 @@ the cgroup-quota-derived default and any `TOKIO_WORKER_THREADS` value).
 ### Minimal Configuration
 
 ```bash
-smg --worker-urls http://localhost:8000
+smg launch --worker-urls http://localhost:8000
 ```
 
 ### High-Throughput Configuration
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 http://w4:8000 \
   --policy cache_aware \
   --max-concurrent-requests 200 \
@@ -844,7 +844,7 @@ smg \
 ### Low-Latency Configuration
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --policy power_of_two \
   --max-concurrent-requests 50 \
@@ -857,7 +857,7 @@ smg \
 ### Least-Load Routing with Overload Protection
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 \
   --policy least_load \
   --least-load-max-waiting-requests 32 \
@@ -871,7 +871,7 @@ smg \
 ### Sticky Sessions on Cache-Aware Routing
 
 ```bash
-smg \
+smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
   --policy cache_aware \
   --sticky-sessions \
@@ -881,7 +881,7 @@ smg \
 ### PD Disaggregated Mode
 
 ```bash
-smg \
+smg launch \
   --pd-disaggregation \
   --prefill http://prefill1:30001 9001 \
   --prefill http://prefill2:30002 9002 \
@@ -894,7 +894,7 @@ smg \
 ### Kubernetes Service Discovery
 
 ```bash
-smg \
+smg launch \
   --service-discovery \
   --selector app=sglang-worker \
   --service-discovery-namespace inference \
@@ -906,7 +906,7 @@ smg \
 
 ```bash
 # Router 1
-smg \
+smg launch \
   --enable-mesh \
   --mesh-server-name router-1 \
   --mesh-advertise-host 192.168.1.10 \
@@ -915,7 +915,7 @@ smg \
   --worker-urls http://worker1:8000
 
 # Router 2
-smg \
+smg launch \
   --enable-mesh \
   --mesh-server-name router-2 \
   --mesh-advertise-host 192.168.1.11 \
@@ -927,7 +927,7 @@ smg \
 ### Secure Production Configuration
 
 ```bash
-smg \
+smg launch \
   --service-discovery \
   --selector app=sglang-worker \
   --service-discovery-namespace inference \
@@ -949,7 +949,7 @@ smg \
 ### With Tokenizer and Parsers
 
 ```bash
-smg \
+smg launch \
   --worker-urls grpc://localhost:50051 \
   --model-path Qwen/Qwen3-8B \
   --tokenizer-cache-enable-l0 \
@@ -962,14 +962,14 @@ smg \
 
 ```bash
 # PostgreSQL
-smg \
+smg launch \
   --worker-urls http://localhost:8000 \
   --history-backend postgres \
   --postgres-db-url "postgres://user:pass@localhost:5432/smg" \
   --postgres-pool-max-size 32
 
 # Redis
-smg \
+smg launch \
   --worker-urls http://localhost:8000 \
   --history-backend redis \
   --redis-url "redis://localhost:6379" \
@@ -1010,7 +1010,7 @@ These variables back a flag; the flag wins when both are set.
 | `HF_TOKEN` | Hugging Face token for tokenizer and model config downloads. |
 | `HF_HOME`, `HF_ENDPOINT` | Hugging Face cache directory and Hub endpoint, read by the `hf-hub` client that downloads tokenizers and model configs. |
 | `DB_AUTO_MIGRATE` | `true` or `1` turns on automatic schema migrations for the Oracle and PostgreSQL backends when the schema config does not set `auto_migrate`. See [Schema Migrations](#schema-migrations). |
-| `MCP_HTTP_PROXY`, `MCP_HTTPS_PROXY`, `MCP_NO_PROXY` | Proxy for MCP connections when the MCP config has no `proxy:` block. They fall back to `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | Standard proxy variables (upper- or lowercase), used by outbound MCP connections whose server entry sets no `proxy:`. `MCP_HTTP_PROXY`, `MCP_HTTPS_PROXY`, and `MCP_NO_PROXY` are not read in v1.11.0. See [MCP Configuration](#mcp-configuration). |
 | `OPENAI_ADMIN_KEY`, `XAI_ADMIN_KEY`, `ANTHROPIC_ADMIN_KEY`, `GEMINI_ADMIN_KEY` | Key used to list an external provider's models when a provider worker is registered. Takes precedence over `--api-key`. |
 
 ### Multimodal Variables

@@ -109,10 +109,10 @@ smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
 
 | Header | Description |
 |--------|-------------|
-| `X-SMG-Target-Worker` | Direct routing by worker index (0-based) |
-| `X-SMG-Routing-Key` | Consistent hash routing for session affinity |
+| `X-SMG-Target-Worker` | Route to a worker by 0-based index into the model's available workers; `503` if that index has no available worker |
+| `X-SMG-Routing-Key` | Consistent hash routing for session affinity. Non-empty UTF-8, at most 128 bytes; add names with `--routing-key-headers` |
 
-**Priority:** `X-SMG-Target-Worker` > `X-SMG-Routing-Key` > Implicit keys > Random fallback
+**Priority:** `X-SMG-Target-Worker` > body `rid` (with `--routing-key-override`) > routing-key header > implicit keys > random fallback
 
 Best for session affinity and user-to-worker pinning.
 
@@ -167,10 +167,10 @@ Both flags are shared with `cache_aware`. Best for PD disaggregation where prefi
 
 ## Manual
 
-Sticky session routing with explicit routing key mapping. Sessions stay with their assigned worker even when new workers are added. Requires `X-SMG-Routing-Key` header.
+Pins each routing key to a worker and keeps it there until that worker becomes unavailable or the key goes unused for `--max-idle-secs`. Keys come from the `X-SMG-Routing-Key` header, or from the request body's `rid` when `--routing-key-override` is also enabled. Requests without a key are placed by the assignment mode and not pinned.
 
 ```bash
-smg \
+smg launch \
   --policy manual \
   --worker-urls http://w1:8000 http://w2:8000 \
   --assignment-mode min_load \
@@ -180,9 +180,11 @@ smg \
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--assignment-mode` | `random` | Strategy for assigning new routing keys: `random`, `min_load` (fewest active requests), or `min_group` (fewest routing keys) |
-| `--max-idle-secs` | `14400` | Maximum idle time (seconds) before a routing entry is evicted. Default is 4 hours |
-| `--eviction-interval` | `120` (Python launcher: `60`) | Seconds between TTL eviction cycles |
+| `--assignment-mode` | `random` | How a new key picks its worker: `random`, `min_load` (fewest in-flight requests), `min_group` (fewest active routing keys), or `delegate` (same as `min_load` under this policy) |
+| `--max-idle-secs` | `14400` | Seconds a key can go unused before its pin is evicted (4 hours). Alias: `--sticky-key-idle-secs` |
+| `--eviction-interval` | `120` (Python launcher: `60`) | Seconds between eviction sweeps. Also sets the cache-aware tree eviction interval |
+
+To pin conversations on top of another policy, such as `cache_aware`, use `--routing-key-override` (alias `--sticky-sessions`) instead. See [Sticky Sessions and Routing Keys](../concepts/routing/sticky-sessions.md).
 
 Best for stateful chat where context is stored on workers.
 

@@ -18,6 +18,10 @@ export const conceptsNav: DocsNavSection[] = [
 		items: [
 			{ label: 'Load Balancing', href: `${base}/concepts/routing/load-balancing` },
 			{ label: 'Cache-Aware Routing', href: `${base}/concepts/routing/cache-aware` },
+			{
+				label: 'Sticky Sessions and Routing Keys',
+				href: `${base}/concepts/routing/sticky-sessions`
+			},
 			{ label: 'PD Disaggregation', href: `${base}/concepts/routing/pd-disaggregation` }
 		]
 	},

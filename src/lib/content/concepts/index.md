@@ -119,6 +119,7 @@ Learn how SMG selects workers for requests:
 Optimize SMG for high-throughput deployments:
 
 - [Tokenizer Caching](performance/tokenizer-caching.md) — Two-level cache for tokenization
+- [Request Streaming and Upstream Connections](performance/request-streaming.md) — Stream-or-buffer request bodies, upstream HTTP/2, and connection pooling
 
 ### Extensibility
 

@@ -216,7 +216,7 @@ The default `cache_aware` policy balances KV cache reuse against load:
 
 1. Match the request's prefix (text or token IDs) against a per-model tree of the prefixes routed to each worker, or against the engines' own KV-cache events when gRPC workers publish them
 2. If a worker holds enough of the prefix (above `--cache-threshold` in tree mode), the workers holding it are the candidates; otherwise every available worker is
-3. Skip a candidate whose in-flight requests exceed the mean across available workers by more than `--balance-abs-threshold` and are also above `--balance-rel-threshold` × that mean
+3. Skip a holder whose in-flight requests exceed the mean across available workers by more than `--balance-abs-threshold` and are also above `--balance-rel-threshold` × that mean; if every holder is skipped, the other available workers that pass the same check become the candidates
 4. Route to the candidate with the lowest expected wait (the `least_load` score), breaking exact ties at random
 
 See [Cache-Aware Routing](../routing/cache-aware.md) for KV-event mode, the hash index, and KV-pressure tuning.

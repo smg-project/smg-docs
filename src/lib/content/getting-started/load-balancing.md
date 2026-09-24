@@ -80,7 +80,7 @@ Best for large or heterogeneous fleets where cache locality doesn't matter.
 Routes to the worker with the lowest expected wait: the token work queued on it divided by its generation throughput, plus a penalty that grows as its KV cache fills. Work sent since the worker's last load report is counted too, so bursts spread out between polls. It is intended for gRPC workers, where each request's token count is known.
 
 ```bash
-smg \
+smg launch \
   --policy least_load \
   --worker-urls grpc://worker1:50051 grpc://worker2:50052 \
   --model-path meta-llama/Llama-3.1-8B-Instruct
@@ -90,7 +90,7 @@ smg \
 |-----------|---------|-------------|
 | `--least-load-kv-pressure-weight` | `0.15` | Weight (seconds) of the KV-pressure penalty. Raise it to avoid nearly full KV caches more aggressively; `0` turns the penalty off |
 | `--least-load-default-throughput` | `2000` | Generation throughput (tokens/s) assumed for a worker that reports none. Set it to your measured per-replica rate |
-| `--least-load-mean-prefill-tokens` | `1024` | Tokens assumed per request when the real count is unknown (HTTP requests, and queues reported only as request counts) |
+| `--least-load-mean-prefill-tokens` | `1024` | Tokens assumed per request when the real count is unknown (HTTP requests without token IDs, and queues reported only as request counts) |
 | `--least-load-max-waiting-requests` | `0` | Skip a worker once its waiting requests, plus requests sent to it since its last load report, reach this count; `0` disables. Set it below the engine's max batch size |
 
 When every worker is at the waiting-queue cap, the request fails with `503` instead of deepening a backlog. See [Least Load](../concepts/routing/load-balancing.md#least-load) for the scoring model.
@@ -143,14 +143,15 @@ A valid `X-SMG-Routing-Key` header replaces the prompt as the hash key. Lower me
 
 ## Bucket
 
-Routes prefill requests by length in PD mode: each prefill worker owns a range of request sizes, and the ranges adapt to recent traffic every 5 seconds. Only the prefill leg gets buckets, so set it with `--prefill-policy`; as `--policy` without PD mode, or as a decode policy, it picks a random worker.
+Routes prefill requests by length in PD mode: each prefill worker owns a range of request sizes, and the ranges adapt to recent traffic every 5 seconds. Only the prefill leg gets buckets, so set it with `--prefill-policy`: `--decode-policy bucket` is rejected at startup, and anywhere else `bucket` picks a random worker.
 
 ```bash
-smg \
+smg launch \
   --pd-disaggregation \
   --prefill http://prefill1:8000 9001 \
   --prefill http://prefill2:8000 9002 \
   --decode http://decode1:8000 \
+  --decode http://decode2:8000 \
   --prefill-policy bucket \
   --decode-policy power_of_two
 ```
@@ -212,7 +213,7 @@ smg --policy random --worker-urls http://w1:8000 http://w2:8000
 Sends every request to the first available worker, with no balancing and no KV-event subscription. Use it when the gateway fronts a single worker; with more workers, the others receive traffic only while the first is unavailable. `smg serve` switches to it automatically when it launches one worker.
 
 ```bash
-smg --policy passthrough --worker-urls http://w1:8000
+smg launch --policy passthrough --worker-urls http://w1:8000
 ```
 
 ---

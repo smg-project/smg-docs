@@ -98,7 +98,7 @@ In `least_load`, `power_of_two` and `cache_aware`, scores that tie exactly are b
 
 ## Cache-Aware
 
-The **recommended policy** for production LLM inference, and the default. It keeps a per-model prefix tree of the requests it has routed to each worker (for gRPC workers that publish KV-cache events, the engines' reported cache contents instead) and sends each request to a worker that already holds its prefix. When no worker holds enough of it (`--cache-threshold`), or every holder is far busier than the fleet mean (beyond both `--balance-abs-threshold` and `--balance-rel-threshold`), it picks by the same expected-wait score as [`least_load`](#least-load).
+The **recommended policy** for production LLM inference, and the default. It keeps a per-model prefix tree of the requests it has routed to each worker (for gRPC workers that publish KV-cache events, the engines' reported cache contents instead) and sends each request to a worker that already holds its prefix. When no worker holds enough of it (`--cache-threshold` in tree mode), or every holder is far busier than the fleet mean (beyond both `--balance-abs-threshold` and `--balance-rel-threshold`), it picks by the same expected-wait score as [`least_load`](#least-load).
 
 ```bash
 smg --policy cache_aware --worker-urls http://w1:8000 http://w2:8000
@@ -136,14 +136,15 @@ smg --policy cache_aware --worker-urls http://w1:8000 http://w2:8000
 
 ## Bucket
 
-Routes prefill requests by size in PD disaggregation. Each prefill worker owns a range of request lengths, counted in characters of prompt text or in tokens when the request carries token IDs. The ranges start as an even split of 0–4,096 with the last worker open-ended. Every 5 seconds the policy re-checks them and, when the load per worker has changed by more than a factor of two since the last adjustment, recomputes them from recent request sizes so each range carries a similar share of the traffic.
+Routes prefill requests by size in PD disaggregation. Each prefill worker owns a range of request lengths, counted in characters of prompt text or in tokens when the request carries token IDs; the last worker's range is open-ended. Every 5 seconds the policy re-checks the ranges. On the first check that sees traffic, and afterwards whenever the load per worker has changed by more than a factor of two since the last adjustment, it recomputes them from recent request sizes so each range carries a similar share of the traffic.
 
 ```bash
-smg \
+smg launch \
   --pd-disaggregation \
   --prefill http://prefill1:8000 9001 \
   --prefill http://prefill2:8000 9002 \
   --decode http://decode1:8000 \
+  --decode http://decode2:8000 \
   --prefill-policy bucket \
   --decode-policy power_of_two
 ```
@@ -175,7 +176,7 @@ smg \
 Before it uses a request's bucket, the policy checks balance. The load it compares is the characters (or tokens) routed to each prefill worker over the last 5 seconds: when the busiest and least busy workers differ by more than `--balance-abs-threshold` and the busiest exceeds `--balance-rel-threshold` times the least busy, the request goes to the least busy worker instead. Both flags are shared with `cache_aware`, but here they are measured in characters or tokens, not requests.
 
 !!! warning "Prefill leg only"
-    Only a PD prefill policy is given bucket boundaries. As `--policy` outside PD mode, or as a decode policy, `bucket` has no buckets: it picks a random available worker and logs a warning on every request. In PD mode, set it with `--prefill-policy bucket` and give the decode leg its own `--decode-policy`.
+    Only a PD prefill policy is given bucket boundaries, and `--decode-policy bucket` is rejected at startup. As `--policy` outside PD mode, or on a decode leg that inherits it from `--policy`, `bucket` has no buckets: it picks a random available worker and logs a warning on every request. In PD mode, set it with `--prefill-policy bucket` and give the decode leg its own `--decode-policy`.
 
 **Use when:** PD disaggregation where prefill workers should specialize by prompt length, for example with a bimodal request length distribution.
 
@@ -222,7 +223,7 @@ smg --policy power_of_two --worker-urls http://w1:8000 http://w2:8000
 Scores every available worker by its **expected wait**, meaning how long the work already queued on it will take to drain, plus a penalty that rises steeply as its KV cache fills. It routes to the lowest score. Work sent since a worker's last load report counts too, so a burst that arrives between two polls spreads across workers instead of landing on the one that looked idlest.
 
 ```bash
-smg \
+smg launch \
   --policy least_load \
   --worker-urls grpc://worker1:50051 grpc://worker2:50052 \
   --model-path meta-llama/Llama-3.1-8B-Instruct
@@ -246,7 +247,7 @@ smg \
 
 - No cache locality
 - Scores every available worker on each request
-- Estimates HTTP requests at a mean size, so it is intended for gRPC workers
+- Estimates HTTP requests without token IDs at a mean size, so it is intended for gRPC workers
 
 </div>
 
@@ -520,7 +521,7 @@ smg --policy random --worker-urls http://w1:8000 http://w2:8000
 Forwards every request to the first available worker. It does no balancing and never reads worker load or cache state, and because only `cache_aware` subscribes to KV-cache events, it adds no event subscription either. It is built for a gateway in front of a single worker, where a balancing policy has nothing to choose between.
 
 ```bash
-smg --policy passthrough --worker-urls http://w1:8000
+smg launch --policy passthrough --worker-urls http://w1:8000
 ```
 
 <div class="grid" markdown>
@@ -547,7 +548,7 @@ smg --policy passthrough --worker-urls http://w1:8000
 
 </div>
 
-If more than one worker is registered, the gateway logs a warning once and keeps sending everything to the first available worker. `smg serve` switches to `passthrough` on its own when it launches a single worker (`--data-parallel-size 1`, the default), overriding `--router-policy`. The gateway still polls worker loads for metrics and overload protection unless you pass `--disable-load-monitoring`.
+If more than one worker is registered, the gateway logs a warning once and keeps sending everything to the first available worker. `smg serve` switches to `passthrough` on its own when it launches a single worker (`--data-parallel-size 1`, the default), overriding `--router-policy`. By default the gateway still polls worker loads, for engine metrics and overload protection; with `--disable-load-monitoring` it polls only when something else, such as `--engine-metrics` or overload protection, needs the data.
 
 **Use when:** The gateway fronts exactly one worker.
 
@@ -642,18 +643,18 @@ Nothing to balance, so skip the selection and cache bookkeeping entirely.
 
 `--policy` applies to every model unless a worker names another policy. A worker registered with a `policy` label, for example `"labels": {"policy": "least_load"}` in its [worker spec](../../getting-started/multiple-workers.md), sets the policy for its model. The first worker registered for a model decides, and the model keeps that policy until its last worker is removed.
 
-A label that names the same policy as `--policy` gets a per-model instance built from your flags. A label naming any other policy gets that policy's built-in defaults, which can differ from the CLI defaults; its flags are not applied.
+A label that names the same policy as `--policy` gets a per-model instance built from your flags. A label naming any other policy gets that policy's built-in defaults, which can differ from the CLI defaults; its flags are not applied. In PD and EPD mode, the legs always use the leg policies below, whatever the labels say.
 
 ### PD and EPD Legs
 
-In PD mode, `--prefill-policy` and `--decode-policy` set each leg's policy and default to `--policy`. They accept every policy except `passthrough`, `least_load` included. In EPD mode, `--encode-policy` accepts `random`, `round_robin` or `consistent_hashing` and defaults to `consistent_hashing`. See [PD Disaggregation](pd-disaggregation.md).
+In PD mode, `--prefill-policy` and `--decode-policy` set each leg's policy and default to `--policy`. Both accept `least_load`. `--decode-policy bucket` is rejected at startup, and the Rust binary also rejects `passthrough` on either leg. Outside IGW mode, a leg given `power_of_two` through `--prefill-policy` or `--decode-policy` needs at least two workers on that leg, or startup fails. In EPD mode, `--encode-policy` accepts `random`, `round_robin` or `consistent_hashing` and defaults to `consistent_hashing`. See [PD Disaggregation](pd-disaggregation.md).
 
 ---
 
 ## Observability
 
 - `smg_worker_selection_total` counts every policy selection by `worker_type`, `connection_mode`, `model` and `policy`.
-- `smg_cache_aware_policy_branch_total`, `smg_prefix_hash_policy_branch_total`, `smg_consistent_hashing_policy_branch_total` and `smg_manual_policy_branch_total` count which branch each decision took (label `branch`), for example a `prefix_hash` request moved off its ring worker (`load_balance_walk`).
+- `smg_cache_aware_policy_branch_total`, `smg_prefix_hash_policy_branch_total`, `smg_consistent_hashing_policy_branch_total` and `smg_manual_policy_branch_total` count which branch each decision took (label `branch`), for example a `prefix_hash` request moved off its ring worker (`load_balance_walk`). The cache-aware counter covers tree-mode decisions only.
 - `smg_worker_requests_active` is the per-worker in-flight count that load-aware policies compare.
 - At `--log-level debug`, `cache_aware`, `prefix_hash`, `least_load`, `power_of_two` and sticky-session selections log each routing decision with the chosen worker. See [Logging](../../getting-started/logging.md).
 

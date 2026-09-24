@@ -65,7 +65,7 @@ Routing strategies from simple random selection to cache-aware algorithms.
 
 ### :material-lightning-bolt: Performance
 
-Tokenizer caching and optimization strategies for high-throughput deployments.
+Tokenizer caching, request body streaming, and pooled upstream connections (optionally over HTTP/2) for high-throughput deployments.
 
 [Learn about Performance →](performance/tokenizer-caching.md)
 
@@ -85,7 +85,7 @@ WASM plugins and MCP integration for custom middleware and external tools.
 
 ### :material-shield: Reliability
 
-Circuit breakers, retries, and rate limiting for resilient deployments.
+Circuit breakers, retries, health checks, rate limiting, overload protection, and graceful shutdown for resilient deployments.
 
 [Learn about Reliability →](reliability/circuit-breakers.md)
 

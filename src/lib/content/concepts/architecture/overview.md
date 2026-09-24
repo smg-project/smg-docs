@@ -33,9 +33,9 @@ Registries hold the configuration and state needed for request processing.
 | Registry | Purpose | Used By |
 |----------|---------|---------|
 | **Model Registry** | Maps model names to backends and capabilities | Router Manager |
-| **LB Policy Registry** | Load balancing configurations per model | All routing paths |
-| **Tokenizer Registry** | Tokenizers for gateway-side processing | gRPC path |
-| **Chat History** | Multi-turn conversation context | Responses API |
+| **LB Policy Registry** | Load balancing configurations per model | Self-hosted HTTP, gRPC, and ZMQ workers (external providers and realtime sessions go to the least-loaded worker instead) |
+| **Tokenizer Registry** | Tokenizers for gateway-side processing | gRPC and ZMQ paths, `/v1/tokenize`, `/v1/detokenize` |
+| **Chat History** | Multi-turn conversation context | Responses and Conversations APIs |
 | **WASM Plugins** | Custom request/response transformations | Middleware |
 
 ---
@@ -53,25 +53,28 @@ SMG exposes three categories of endpoints:
 | `POST /v1/responses` | Agentic workflows with tool execution |
 | `POST /v1/embeddings` | Embedding generation |
 | `POST /v1/rerank` | Reranking API |
-| `POST /messages` | Anthropic Messages API |
+| `POST /v1/messages` | Anthropic Messages API |
 
 ### Utility APIs
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /tokenize` | Tokenize text using model's tokenizer |
-| `POST /detokenize` | Convert token IDs back to text |
-| `POST /v1/parser/tool` | Parse tool calls from text |
-| `POST /v1/parser/reasoning` | Parse reasoning chains |
+| `POST /v1/tokenize` | Tokenize text using model's tokenizer |
+| `POST /v1/detokenize` | Convert token IDs back to text |
+| `POST /parse/function_call` | Parse tool calls from text |
+| `POST /parse/reasoning` | Parse reasoning chains |
+
+The two `/parse/*` routes sit behind control-plane auth, like the admin APIs.
 
 ### Admin APIs
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET/POST /workers` | Worker management |
-| `GET/POST /tokenizers` | Tokenizer management |
+| `GET/POST /v1/tokenizers` | Tokenizer management |
 | `GET/POST /wasm` | WASM plugin management |
-| `GET/POST /mcp` | MCP server management |
+
+There is no admin API for MCP servers: static servers come from the `--mcp-config-path` file at startup, and a request can name its own. See the [Extension API reference](../../reference/api/extensions.md) for every route and its auth tier.
 
 ---
 
@@ -83,24 +86,28 @@ The gateway layer handles cross-cutting concerns before requests reach the route
 
 | Component | Function |
 |-----------|----------|
-| **Rate Limiter** | Multi-tenant token bucket with per-user quotas |
-| **OIDC Auth** | JWT validation and tenant extraction |
+| **Admission Control** | Off by default. `--max-concurrent-requests` caps concurrent requests gateway-wide, with a bounded FIFO queue; the priority scheduler admits by priority class instead |
+| **Authentication** | Bearer API keys (`--api-key`, `--tenant-api-key`) on inference routes; control-plane API keys or JWT/OIDC with the admin role on control-plane routes |
+| **Tenant Resolution** | Identifies the tenant from its API key, a trusted header (`--trust-tenant-header`), or the client IP |
 | **WASM Plugins** | Custom request transformation logic |
 | **Request ID** | Assigns unique ID for tracing |
 | **Metrics** | Records latency, throughput, error rates |
 | **OpenTelemetry** | Distributed tracing spans |
 
+Per-tenant token and request budgets ([tenant rate limiting](../reliability/tenant-rate-limiting.md)) are enforced later, inside the gRPC router, not in this middleware.
+
 ---
 
 ## Router Layer
 
-The router layer handles LLM-specific request processing. It selects one of three routing paths based on worker type.
+The router layer handles LLM-specific request processing. It selects one of four routing paths based on worker type. By default SMG builds a single router at startup, chosen by the worker URL scheme, the PD mode, and `--backend`, and sends every request to it. With `--enable-igw`, it builds a router for each path and picks one per request from the workers that serve the requested model.
 
 ### Router Manager
 
 | Worker Type | Path Selected | Gateway Behavior |
 |-------------|---------------|------------------|
 | gRPC workers | gRPC Path | Full server - tokenization, chat templates, tool parsing |
+| ZMQ workers | ZMQ Path | The gRPC router's pipeline, over local `ipc://` sockets |
 | HTTP workers | HTTP Path | Smart proxy - load balancing, PD disaggregation |
 | External APIs | 3rd Party Path | Unified router - provider abstraction |
 
@@ -179,7 +186,7 @@ With `--pd-disaggregation`, SMG sends each request to a prefill worker and a dec
 
 - SGLang (HTTP)
 - vLLM (HTTP)
-- TensorRT-LLM (HTTP)
+- Other OpenAI-compatible servers: SMG registers a server whose engine it cannot identify with the `generic` runtime
 
 ---
 
@@ -189,7 +196,7 @@ The third-party path routes to external LLM providers through a unified interfac
 
 ### Model Discovery
 
-The gateway discovers available models from external providers and exposes them through `/v1/models`.
+When an external worker is registered with an API key, the gateway reads the provider's `/v1/models` to learn which models to route there; without a key, the worker accepts any model. `GET /v1/models` leaves provider models out unless the caller sends its own provider key, in which case SMG asks the providers' `/v1/models` with that key. See [Model Discovery](../../getting-started/external-providers.md#model-discovery).
 
 ### Supported Providers
 
@@ -208,13 +215,13 @@ The gateway discovers available models from external providers and exposes them 
 
 ## Response Processing
 
-All paths converge at response processing for tool handling and MCP execution.
+Response processing differs by path. On the gRPC and ZMQ paths, SMG parses tool calls and reasoning out of the model output itself. On the HTTP path, the engine's own server does that and SMG passes the response through. The MCP loop runs only in the Responses API (on gRPC or ZMQ workers, or with an OpenAI-compatible provider) and in the Messages API with the Anthropic provider; see [Where MCP Runs](../extensibility/mcp.md#where-mcp-runs).
 
 ### Components
 
 | Component | Function |
 |-----------|----------|
-| **Tool Parser** | Extracts function/tool calls from model output |
+| **Tool Parser** | Extracts function/tool calls from model output (gRPC and ZMQ paths) |
 | **MCP Handler** | Executes tools via Model Context Protocol servers |
 | **Response Builder** | Assembles final response with tool results |
 
@@ -222,10 +229,10 @@ All paths converge at response processing for tool handling and MCP execution.
 
 When the model requests tool execution:
 
-1. Tool parser extracts the tool call
+1. The model's output contains a tool call (on gRPC and ZMQ workers, SMG's tool parser extracts it)
 2. MCP handler executes the tool
-3. Result is re-routed through the router for continued generation
-4. Loop continues until model produces final response
+3. SMG appends the call and its result to the conversation and calls the model again
+4. Loop continues until the model answers without a tool call or a tool-loop limit stops it
 
 ---
 
@@ -265,7 +272,7 @@ Built-in resilience features protect against failures.
 
 | Feature | Function |
 |---------|----------|
-| **Circuit Breaker** | Stops routing to failing workers |
+| **Circuit Breaker** | Stops routing to a worker after consecutive failures, under every routing policy |
 | **Retry Handler** | Retries failed requests with exponential backoff |
 | **Health Checker** | Periodic worker health probes |
 | **Timeout Manager** | Request and connection timeouts |

@@ -85,7 +85,7 @@
               "docs": "f6d5ce025f8c241c2c384e9026114ea1c987d0e7"
             }
           },
-          "last_error": "POST /repos/smg-project/smg-docs/pulls: HTTP 403; check Actions PR-creation policy and publishing token pull-requests:write access"
+          "last_error": "POST /repos/smg-project/smg-docs/pulls: HTTP 403; repository/organization policy forbids GitHub Actions PR creation"
         }
       ]
     },

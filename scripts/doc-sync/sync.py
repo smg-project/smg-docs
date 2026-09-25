@@ -180,14 +180,14 @@ def validate_plan(plan, docs_paths):
         if not re.fullmatch(r"docs(?:\([a-z0-9_./-]+\))?: [^\n]{1,110}", concern["title"]):
             raise ValueError("Invalid documentation PR title")
         paths = concern.get("doc_paths", [])
-        if not 1 <= len(paths) <= 3 or len(set(paths)) != len(paths):
-            raise ValueError("A concern must identify 1–3 distinct existing pages")
+        if not paths or len(set(paths)) != len(paths):
+            raise ValueError("A concern must identify distinct existing pages")
         if any(not doc_path(p) or p not in docs_paths for p in paths):
             raise ValueError("Concern targets an unsupported documentation path")
     return plan
 
 
-def make_changes(edits, originals, allowed, max_files, max_lines):
+def make_changes(edits, originals, allowed, max_lines):
     if not isinstance(edits, list) or not edits:
         raise ValueError("No edits proposed")
     changed = {}
@@ -202,8 +202,8 @@ def make_changes(edits, originals, allowed, max_files, max_lines):
             raise ValueError(f"Ambiguous/stale edit in {path}")
         changed[path] = text.replace(old, new, 1)
     changed = {p: text for p, text in changed.items() if text != originals[p]}
-    if not changed or len(changed) > max_files:
-        raise ValueError("PR file-count limit exceeded or empty change")
+    if not changed:
+        raise ValueError("Empty change")
     lines = 0
     diffs = []
     for path, new in changed.items():
@@ -211,8 +211,9 @@ def make_changes(edits, originals, allowed, max_files, max_lines):
             raise ValueError("Invalid/oversized page")
         diff = list(difflib.unified_diff(originals[path].splitlines(True), new.splitlines(True),
                                         fromfile="a/" + path, tofile="b/" + path))
-        lines += sum(line.startswith(("+", "-")) and not line.startswith(("+++", "---"))
-                     for line in diff)
+        # Only the first two records are file headers. Actual changed content
+        # can also start with +++/--- and must count toward the PR line limit.
+        lines += sum(line.startswith(("+", "-")) for line in diff[2:])
         diffs.extend(diff)
     if lines > max_lines:
         raise ValueError(f"PR changed-line limit exceeded: {lines} > {max_lines}; split the concern")
@@ -319,7 +320,7 @@ def object_schema(properties, required=None):
 
 STRING = {"type": "string"}
 CONCERN_SCHEMA = object_schema({**{k: STRING for k in ("slug", "area", "concern", "evidence", "title")},
-                               "doc_paths": {"type": "array", "items": STRING, "minItems": 1, "maxItems": 3}})
+                               "doc_paths": {"type": "array", "items": STRING, "minItems": 1}})
 PLAN_SCHEMA = object_schema({"decision": {"type": "string", "enum": ["concerns", "documented", "not_user_facing", "deferred"]},
                              "reason": STRING, "concerns": {"type": "array", "items": CONCERN_SCHEMA}})
 EDIT_SCHEMA = object_schema({"decision": {"type": "string", "enum": ["edit", "documented", "deferred"]},
@@ -410,9 +411,8 @@ def main():
     args = parser.parse_args()
     docs = args.docs.resolve()
     config = json.loads((docs / "scripts/doc-sync/config.json").read_text())
-    if (not 1 <= config["max_files_per_pr"] <= 3
-            or not 1 <= config["max_changed_lines_per_pr"] <= 250):
-        parser.error("Hard scope ceilings are 3 files and 250 changed lines")
+    if not 1 <= config["max_changed_lines_per_pr"] < 1000:
+        parser.error("Each PR must stay under 1,000 changed lines")
     for option in ("max_commits", "max_prs"):
         override = getattr(args, option)
         if override is not None:
@@ -465,7 +465,7 @@ def main():
                     f"or not_user_facing with a specific reason. Deferred means unresolved, not processed.\n"
                     f"Split distinct behaviors into separate concerns, even within the same area.\n"
                     f"Each concern needs a stable kebab-case slug, a conventional docs title, a single\n"
-                    f"behavior statement, source evidence and 1–3 existing target pages.\n"
+                    f"behavior statement, source evidence and existing target pages for that concern.\n"
                     f"Current docs inventory:\n{inventory}\nSource change:\n{patch}", PLAN_SCHEMA), evidence.doc_paths)
                 if plan["decision"] == "deferred":
                     defer_audit(sha, plan["reason"])
@@ -511,8 +511,8 @@ def main():
                     f"Prepare ONE focused documentation PR for this concern: {json.dumps(c)}\n"
                     f"Original source commit: {sha}. Verify it is still applicable in CURRENT source.\n"
                     f"No other fixes, reorganizing, or broad regeneration. Return exact old/new text\n"
-                    f"replacements only, at most {config['max_files_per_pr']} files and\n"
-                    f"{config['max_changed_lines_per_pr']} added+removed lines. Each old text must occur once.\n"
+                    f"replacements only, at most {config['max_changed_lines_per_pr']} added+removed\n"
+                    f"lines across any number of pages needed for this ONE concern. Each old text must occur once.\n"
                     f"If already documented, return documented with evidence; if uncertain, deferred.\n"
                     f"Current target documents: {json.dumps(originals)}", EDIT_SCHEMA)
                 if proposal.get("decision") == "documented" and proposal.get("reason"):
@@ -522,7 +522,7 @@ def main():
                 if proposal.get("decision") != "edit":
                     raise ValueError("Deferred: " + proposal.get("reason", "invalid proposal"))
                 changes, diff, lines = make_changes(proposal["edits"], originals, c["doc_paths"],
-                                                    config["max_files_per_pr"], config["max_changed_lines_per_pr"])
+                                                    config["max_changed_lines_per_pr"])
                 review = model.run(
                     f"Independently review the proposed patch. Reject any second concern, unsupported\n"
                     f"claim, irrelevant cleanup, or behavior already covered in existing docs.\n"

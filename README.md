@@ -53,5 +53,5 @@ The visual anchor is **Piet Mondrian**: his work distills complex reality into a
 
 The [nightly documentation workflow](scripts/doc-sync/README.md) audits SMG code
 changes against the current docs on `smg-org-runner-cpu`. It opens separate draft
-PRs for individual concerns, with file/line limits, duplicate prevention, and
+PRs for individual concerns, with a changed-line limit, duplicate prevention, and
 scope, type-check, and build validation before publication.

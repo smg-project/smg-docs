@@ -14,7 +14,7 @@ PAGE = "src/lib/content/reference/configuration.md"
 class ScopeTests(unittest.TestCase):
     def test_one_concern_edit(self):
         changed, diff, count = sync.make_changes(
-            [{"path": PAGE, "old": "old\n", "new": "new\n"}], {PAGE: "old\n"}, [PAGE], 3, 250)
+            [{"path": PAGE, "old": "old\n", "new": "new\n"}], {PAGE: "old\n"}, [PAGE], 999)
         self.assertEqual(changed, {PAGE: "new\n"})
         self.assertEqual(count, 2)
         self.assertIn("-old", diff)
@@ -24,22 +24,38 @@ class ScopeTests(unittest.TestCase):
                      "src/lib/content/new.md", "src/lib/content//reference/configuration.md"]:
             with self.subTest(path=path), self.assertRaises(ValueError):
                 sync.make_changes([{"path": path, "old": "x", "new": "y"}],
-                                  {path: "x"}, [PAGE], 3, 250)
+                                  {path: "x"}, [PAGE], 999)
 
     def test_ambiguous_and_stale_replacements_rejected(self):
         for original in ["repeat repeat", "not present"]:
             with self.assertRaises(ValueError):
                 sync.make_changes([{"path": PAGE, "old": "repeat", "new": "new"}],
-                                  {PAGE: original}, [PAGE], 3, 250)
+                                  {PAGE: original}, [PAGE], 999)
 
-    def test_line_and_file_limits_reject_bundles(self):
+    def test_999_changed_lines_allowed_but_1000_rejected(self):
+        originals = {PAGE: "old\n"}
+        edits = [{"path": PAGE, "old": "old\n", "new": "line\n" * 998}]
+        self.assertEqual(sync.make_changes(edits, originals, [PAGE], 999)[2], 999)
+        edits[0]["new"] = "line\n" * 999
         with self.assertRaises(ValueError):
-            sync.make_changes([{"path": PAGE, "old": "old\n", "new": "line\n" * 250}],
-                              {PAGE: "old\n"}, [PAGE], 3, 250)
-        pages = [f"src/lib/content/{n}.md" for n in range(4)]
+            sync.make_changes(edits, originals, [PAGE], 999)
+
+    def test_page_count_is_unlimited_within_single_concern(self):
+        pages = [f"src/lib/content/{n}.md" for n in range(20)]
+        edits = [{"path": p, "old": "old\n", "new": "new\n"} for p in pages]
+        changed, _, count = sync.make_changes(edits, {p: "old\n" for p in pages}, pages, 999)
+        self.assertEqual(len(changed), 20)
+        self.assertEqual(count, 40)
+        concern = {"slug": "routing", "title": "docs: routing", "area": "routing",
+                   "concern": "one behavior across its guides", "evidence": "source.rs", "doc_paths": pages}
+        sync.validate_plan({"decision": "concerns", "reason": "one gap", "concerns": [concern]}, set(pages))
+        self.assertNotIn("maxItems", sync.CONCERN_SCHEMA["properties"]["doc_paths"])
+
+    def test_header_like_changed_content_counts_toward_limit(self):
+        originals = {PAGE: "--old\n"}
+        edits = [{"path": PAGE, "old": "--old\n", "new": "++new\n" * 999}]
         with self.assertRaises(ValueError):
-            sync.make_changes([{"path": p, "old": "old", "new": "new"} for p in pages],
-                              {p: "old" for p in pages}, pages, 3, 250)
+            sync.make_changes(edits, originals, [PAGE], 999)
 
     def test_mixed_commit_is_split_into_stable_concerns(self):
         def concern(slug):

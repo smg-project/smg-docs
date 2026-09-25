@@ -15,11 +15,11 @@ The workflow reads the runner's `ANTHROPIC_API_KEY`; it needs no new model secre
   the same page. Do not accumulate multiple source commits into a catch-all PR.
 - Read current code and docs before proposing anything. Skip changes already
   documented, reverted/superseded behavior, and changes without user-facing impact.
-- A PR edits at most **3 existing Markdown pages** under `src/lib/content/`, with
-  at most **250 added + removed lines**. It cannot change workflow/code/config
+- A PR can edit **any number of existing Markdown pages** under `src/lib/content/`
+  for its one concern, with **fewer than 1,000 added + removed lines** (999 maximum). It cannot change workflow/code/config
   files. Work needing a new page/navigation entry is explicitly deferred.
 - An independent model call reviews the patch for one-concern scope, accuracy,
-  and whether it is already documented. Hard file/line/path guards then apply.
+  and whether it is already documented. Hard line/path guards then apply.
 - `git diff --check`, `pnpm check`, and a production `pnpm build` must pass before
   publication. A generated PR records its exact source and docs revisions.
 - At most **100 new PRs per UTC day**, shared across scheduled runs, retries,

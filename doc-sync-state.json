@@ -41,6 +41,41 @@
         "concerns": []
       },
       "items": []
+    },
+    "7ff6e0347b9c8ee014cb15d8971b528422abb158": {
+      "plan": {
+        "decision": "concerns",
+        "reason": "The commit changes observable HTTP behavior on the PD router: non-streaming responses (including logprob-merged responses and their fallback paths) now carry Content-Type: application/json instead of axum's default application/octet-stream. The fix is present and active in current source, but no current docs page mentions the response content type for PD non-streaming responses, even though the docs document content-type semantics elsewhere. One small addition to the PD documentation is warranted.",
+        "concerns": [
+          {
+            "slug": "pd-non-streaming-json-content-type",
+            "area": "routing/pd-disaggregation",
+            "title": "docs(pd-disaggregation): note that non-streaming PD responses carry Content-Type: application/json",
+            "concern": "Non-streaming responses returned by the HTTP PD router now always carry the Content-Type: application/json header (previously they defaulted to application/octet-stream, which broke OpenAI-style JSON clients); this applies to plain relayed decode bodies, logprob-merged responses, and all merge-failure fallback paths, while streaming PD responses continue to use text/event-stream.",
+            "evidence": "model_gateway/src/routers/http/pd_router.rs lines 1613-1624 define non_stream_pd_json_response, which sets CONTENT_TYPE to application/json and whose doc comment states axum's (StatusCode, Bytes).into_response() defaults to application/octet-stream; process_non_streaming_response (lines 1627-1674) returns through this helper on every path (no-logprob relay at 1644, missing prefill body at 1648, parse failure at 1657, merged body at 1667, serialization failure at 1671). Streaming responses set text/event-stream separately at line 1607. Current docs pages concepts/routing/pd-disaggregation.md and getting-started/pd-disaggregation.md describe PD dispatch and responses but never mention the response Content-Type, and a docs-wide search for octet-stream returns no matches.",
+            "doc_paths": [
+              "src/lib/content/concepts/routing/pd-disaggregation.md",
+              "src/lib/content/getting-started/pd-disaggregation.md"
+            ]
+          }
+        ]
+      },
+      "items": [
+        {
+          "concern": {
+            "slug": "pd-non-streaming-json-content-type",
+            "area": "routing/pd-disaggregation",
+            "title": "docs(pd-disaggregation): note that non-streaming PD responses carry Content-Type: application/json",
+            "concern": "Non-streaming responses returned by the HTTP PD router now always carry the Content-Type: application/json header (previously they defaulted to application/octet-stream, which broke OpenAI-style JSON clients); this applies to plain relayed decode bodies, logprob-merged responses, and all merge-failure fallback paths, while streaming PD responses continue to use text/event-stream.",
+            "evidence": "model_gateway/src/routers/http/pd_router.rs lines 1613-1624 define non_stream_pd_json_response, which sets CONTENT_TYPE to application/json and whose doc comment states axum's (StatusCode, Bytes).into_response() defaults to application/octet-stream; process_non_streaming_response (lines 1627-1674) returns through this helper on every path (no-logprob relay at 1644, missing prefill body at 1648, parse failure at 1657, merged body at 1667, serialization failure at 1671). Streaming responses set text/event-stream separately at line 1607. Current docs pages concepts/routing/pd-disaggregation.md and getting-started/pd-disaggregation.md describe PD dispatch and responses but never mention the response Content-Type, and a docs-wide search for octet-stream returns no matches.",
+            "doc_paths": [
+              "src/lib/content/concepts/routing/pd-disaggregation.md",
+              "src/lib/content/getting-started/pd-disaggregation.md"
+            ]
+          },
+          "status": "pending"
+        }
+      ]
     }
   }
 }

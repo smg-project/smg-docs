@@ -681,7 +681,7 @@ A few chart behaviors to know:
 - Engine images for `workers[]` resolve to `ghcr.io/<repository>:<tag>`, and the repository defaults to `global.image.repository` (`lightseekorg/smg`). GHCR has no engine release images under that name after 1.9.0, so set `image.repository: smg-project/smg` next to each worker's `image.tag`. The chart's worker examples still pin 1.3.3 images.
 
 !!! warning "History backends in chart 1.11.0"
-    With `history.backend` set to `postgres` or `redis`, or to `oracle` with `history.oracle.dsn`, chart 1.11.0 passes a flag the gateway image rejects (`--postgres-pool-max-size`, `--redis-pool-max-size`, or `--oracle-dsn`), and the router exits at startup. Leave `history.backend` at `memory` and pass the history flags through `router.extraArgs` instead, for example `--history-backend postgres --postgres-db-url <url>`.
+    With `history.backend` set to `postgres` or `redis`, or to `oracle` with `history.oracle.dsn`, chart 1.11.0 passes a flag the gateway image rejects (`--postgres-pool-max-size`, `--redis-pool-max-size`, or `--oracle-dsn`), and the router exits at startup. On chart 1.11.0, leave `history.backend` at `memory` and pass the history flags through `router.extraArgs` instead, for example `--history-backend postgres --postgres-db-url <url>`. The chart template on `main` (commit `089fd47b`) is fixed to pass the flag names the gateway accepts (`--postgres-pool-max`, `--redis-pool-max`, `--oracle-connect-descriptor`, `--oracle-username`); no released chart version includes that fix yet.
 
 Verify:
 

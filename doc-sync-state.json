@@ -251,6 +251,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "5e6952ea1e02c303b8fd152e160086c4e11e5ec2": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit exclusively modifies internal CI benchmark infrastructure: .github/workflows/nightly-tau2.yml (new dispatch inputs request_timeout/run_timeout, a num_tasks cap on one matrix leg, a PYTHONPATH shim export, summary-heading wording), a new scripts/tau2/costmap_shim/sitecustomize.py that registers the served model at $0 cost in LiteLLM purely to silence log spam inside the benchmark subprocess, timeout/report-format changes in the internal harness scripts/tau2/run_ab.py, and tests under scripts/tests/. Verified against current source: run_ab.py remains an internal \u03c4\u00b2-bench A/B CI driver (and has evolved further on main). No gateway runtime code, configuration option, API, metric, or documented developer workflow changes. Verified against current docs: the Benchmarks section of contributing/development.md covers only Criterion benchmarks, benchmark-* workflows, and the advisory genai-bench job; searches for \"tau2\" and \"run_ab\" across all docs pages return nothing, so no existing passage is affected and no documented behavior changed.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

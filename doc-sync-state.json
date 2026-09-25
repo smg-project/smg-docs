@@ -25,6 +25,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "76186ff0ae0061bcec58331bb82f946ef58d026f": {
+      "plan": {
+        "decision": "documented",
+        "reason": "The commit's sole user-facing effect is that Linux aarch64 PyPI wheels are built on manylinux_2_28 (requiring glibc 2.28+) while x86_64 stays on manylinux2014 (glibc 2.17+). The current workflow (.github/workflows/release-pypi.yml lines 24\u201348) confirms this is still in effect, and src/lib/content/getting-started/index.md lines 19\u201322 already document the exact matrix: \"Linux x86_64 | manylinux2014 (glibc 2.17+), musllinux 1.1\" and \"Linux aarch64 | manylinux 2.28 (glibc 2.28+), musllinux 1.1\". No doc change is required.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

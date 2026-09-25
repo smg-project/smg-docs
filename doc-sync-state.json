@@ -171,6 +171,41 @@
         "concerns": []
       },
       "items": []
+    },
+    "f5c25393c9111a90f02207896979a07e27f1baf1": {
+      "plan": {
+        "decision": "concerns",
+        "reason": "The commit changes how `reasoning_effort` toggles thinking for chat templates that declare their own on/off words (Hy4-style: `high`/`no_think`): on such templates only the template's own off word turns thinking off, and the protocol-level `none`/`minimal` values no longer disarm the reasoning parser \u2014 any non-off value follows the template default. Current docs state unconditionally that `none`/`minimal` turn thinking off for templates with their own effort levels, which now contradicts source on main (commit f5c25393). One behavior, one concern spanning the two pages that describe the thinking decision.",
+        "concerns": [
+          {
+            "slug": "reasoning-effort-native-off-words",
+            "area": "reference/api",
+            "title": "docs: templates with their own reasoning_effort off words ignore the protocol none/minimal thinking switch",
+            "concern": "On gRPC workers, for chat templates that toggle thinking through their own `reasoning_effort` on/off words (Hy4-style templates using `high`/`no_think`), thinking is turned off only by the template's own off word (`no_think`); the protocol values `none` and `minimal` no longer turn thinking off \u2014 any value other than the off word resolves to the template default (on, for default-on templates) and short-circuits the `thinking.type` toggle and the generic effort fallback. Renderers without their own off words (DeepSeek V4/V4.1, Kimi-K3) are unchanged: `none`/`minimal` still turn thinking off there. This fix is present on main via commit f5c25393c9111a90f02207896979a07e27f1baf1; release inclusion is unverified, so the docs should describe it as current main behavior.",
+            "evidence": "Source commit f5c25393c9111a90f02207896979a07e27f1baf1; current model_gateway/src/routers/grpc/utils/parsers.rs lines 200-223 (`native_effort_thinking`: when `off_values` is non-empty, an off word returns Some(false) and every other value returns Some(on-word match || DefaultOn), bypassing `thinking_from_reasoning_effort`); crates/tokenizer/src/chat_template.rs `REASONING_EFFORT_ON_VALUES = [\"high\"]` / `REASONING_EFFORT_OFF_VALUES = [\"no_think\"]` and `ThinkingKeyName::ReasoningEffort`; commit test asserts `resolve_user_thinking(None, Some(\"none\"), None, &tok) == Some(true)` for a Hy4-style mock. Contradicted doc passages: src/lib/content/reference/api/openai.md line 193 (\"for templates with their own effort levels ... `none` and `minimal` turn thinking off, a native level turns it on\") and src/lib/content/concepts/architecture/grpc-pipeline.md line 175 (\"Without it, a `reasoning_effort` of \\\"none\\\" or \\\"minimal\\\" means off.\").",
+            "doc_paths": [
+              "src/lib/content/reference/api/openai.md",
+              "src/lib/content/concepts/architecture/grpc-pipeline.md"
+            ]
+          }
+        ]
+      },
+      "items": [
+        {
+          "concern": {
+            "slug": "reasoning-effort-native-off-words",
+            "area": "reference/api",
+            "title": "docs: templates with their own reasoning_effort off words ignore the protocol none/minimal thinking switch",
+            "concern": "On gRPC workers, for chat templates that toggle thinking through their own `reasoning_effort` on/off words (Hy4-style templates using `high`/`no_think`), thinking is turned off only by the template's own off word (`no_think`); the protocol values `none` and `minimal` no longer turn thinking off \u2014 any value other than the off word resolves to the template default (on, for default-on templates) and short-circuits the `thinking.type` toggle and the generic effort fallback. Renderers without their own off words (DeepSeek V4/V4.1, Kimi-K3) are unchanged: `none`/`minimal` still turn thinking off there. This fix is present on main via commit f5c25393c9111a90f02207896979a07e27f1baf1; release inclusion is unverified, so the docs should describe it as current main behavior.",
+            "evidence": "Source commit f5c25393c9111a90f02207896979a07e27f1baf1; current model_gateway/src/routers/grpc/utils/parsers.rs lines 200-223 (`native_effort_thinking`: when `off_values` is non-empty, an off word returns Some(false) and every other value returns Some(on-word match || DefaultOn), bypassing `thinking_from_reasoning_effort`); crates/tokenizer/src/chat_template.rs `REASONING_EFFORT_ON_VALUES = [\"high\"]` / `REASONING_EFFORT_OFF_VALUES = [\"no_think\"]` and `ThinkingKeyName::ReasoningEffort`; commit test asserts `resolve_user_thinking(None, Some(\"none\"), None, &tok) == Some(true)` for a Hy4-style mock. Contradicted doc passages: src/lib/content/reference/api/openai.md line 193 (\"for templates with their own effort levels ... `none` and `minimal` turn thinking off, a native level turns it on\") and src/lib/content/concepts/architecture/grpc-pipeline.md line 175 (\"Without it, a `reasoning_effort` of \\\"none\\\" or \\\"minimal\\\" means off.\").",
+            "doc_paths": [
+              "src/lib/content/reference/api/openai.md",
+              "src/lib/content/concepts/architecture/grpc-pipeline.md"
+            ]
+          },
+          "status": "pending"
+        }
+      ]
     }
   }
 }

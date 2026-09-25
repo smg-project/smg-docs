@@ -89,7 +89,7 @@ class GitHub:
 
 class Ledger:
     def __init__(self, gh, base_sha, since, dry_run):
-        self.gh, self.dry_run = gh, dry_run
+        self.gh, self.dry_run, self.base_sha = gh, dry_run, base_sha
         self.file_sha = None
         refs = gh.api("git/matching-refs/heads/" + STATE_BRANCH)
         exists = any(x["ref"] == "refs/heads/" + STATE_BRANCH for x in refs)
@@ -105,11 +105,23 @@ class Ledger:
                 raise ValueError("Ledger version/start date changed; migrate the ledger explicitly")
         else:
             self.data = {"version": 1, "since": since, "commits": {}}
-            if not dry_run:
-                gh.api("git/refs", "POST", {"ref": "refs/heads/" + STATE_BRANCH, "sha": base_sha})
 
     def save(self):
         if self.dry_run:
+            return
+        if self.file_sha is None:
+            # Create a branch that ALREADY contains its ledger, atomically. A job
+            # killed during its first audit must not leave an empty state branch.
+            base_tree = self.gh.api(f"git/commits/{self.base_sha}")["tree"]["sha"]
+            tree = self.gh.api("git/trees", "POST", {"base_tree": base_tree, "tree": [{
+                "path": STATE_PATH, "mode": "100644", "type": "blob",
+                "content": json.dumps(self.data, indent=2)}]})
+            commit = self.gh.api("git/commits", "POST", {
+                "message": f"chore: initialize docs audit ledger\n\nSigned-off-by: {BOT_NAME} <{BOT_EMAIL}>",
+                "tree": tree["sha"], "parents": [self.base_sha],
+                "author": {"name": BOT_NAME, "email": BOT_EMAIL}})
+            self.gh.api("git/refs", "POST", {"ref": "refs/heads/" + STATE_BRANCH, "sha": commit["sha"]})
+            self.file_sha = next(x["sha"] for x in tree["tree"] if x["path"] == STATE_PATH)
             return
         body = {"message": f"chore: checkpoint nightly docs audit\n\nSigned-off-by: {BOT_NAME} <{BOT_EMAIL}>",
                 "branch": STATE_BRANCH,

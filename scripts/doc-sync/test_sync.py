@@ -130,6 +130,19 @@ class PublishTests(unittest.TestCase):
             ledger.save()
             self.assertEqual(gh.api.call_count, 1)
 
+    def test_first_ledger_checkpoint_is_atomic(self):
+        with patch.object(sync, "GitHub") as gh:
+            gh.api.return_value = []
+            ledger = sync.Ledger(gh, "base", "2026-06-27", False)
+            self.assertEqual(gh.api.call_count, 1)  # No empty branch at construction.
+            gh.api.side_effect = [{"tree": {"sha": "base-tree"}},
+                                  {"sha": "state-tree", "tree": [{"path": sync.STATE_PATH, "sha": "state-blob"}]},
+                                  {"sha": "state-commit"}, {}]
+            ledger.save()
+            self.assertEqual(gh.api.call_args.args, ("git/refs", "POST", {
+                "ref": "refs/heads/" + sync.STATE_BRANCH, "sha": "state-commit"}))
+            self.assertEqual(ledger.file_sha, "state-blob")
+
     def test_large_ledger_uses_blob_endpoint(self):
         import base64
         data = {"version": 1, "since": "2026-06-27", "commits": {"already-checked": {}}}

@@ -28,6 +28,7 @@ concurrency:
 jobs:
   sync:
     if: github.repository == 'smg-project/smg-docs'
+    # Claude Fable access uses the API credential provided by this runner set.
     runs-on: smg-org-runner-cpu
     timeout-minutes: 90
     permissions:

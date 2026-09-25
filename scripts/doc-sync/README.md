@@ -7,7 +7,11 @@ content and opens **draft PRs, one user-facing concern per PR**. It never merges
 The initial source window starts **2026-06-27 UTC** (90 days before setup). This is
 a fixed date, not a rolling lookback: incomplete work cannot silently age out.
 Each run shares its audit capacity between the oldest backlog and newest commits.
-The workflow reads the runner's `ANTHROPIC_API_KEY`; it needs no new model secret.
+Discovery, documentation drafting, and independent review all use
+`claude-fable-5` through the Anthropic Messages API with the runner's
+`ANTHROPIC_API_KEY`; they run only on `smg-org-runner-cpu`.
+The separate PR CI jobs use `ubuntu-latest` for mocked unit tests, lint, type
+checks, and builds. Those checks make no model calls and need no model credential.
 All generated documentation and ledger commits use
 `XinyueZhang369 <zoeyzhang369@gmail.com>` as author, committer, and DCO
 `Signed-off-by` identity.

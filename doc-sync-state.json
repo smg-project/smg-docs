@@ -17,6 +17,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "ff679739f0112553d7fe7732cc7f7d82a82ce2c6": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit is a pure release chore: it bumps version strings for the v1.7.0 release across Cargo.toml files, pyproject.toml files, the Helm chart, and the default `smg_commit`/tag examples in the release Docker workflows. It changes no gateway behavior, configuration options, APIs, defaults, or metrics. Current source verification shows the commit is already superseded (model_gateway/Cargo.toml is at version 1.11.0). The current docs do not hard-code any release version that would now be stale: searches for \"1.6.0\" and \"v1.6\" in the docs repo return no matches, and image-tag examples in high-availability.md and service-discovery.md use the placeholder pattern `{smg_version}-{engine}-{engine_version}` with unrelated illustrative versions. The version-bump release process itself is already documented in src/lib/content/contributing/development.md (\"A `chore(release): bump versions for vX.Y.Z` PR bumps the versions... `make bump-version VERSION=X.Y.Z` updates the gateway and binding versions...\"), so no documentation change is required.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

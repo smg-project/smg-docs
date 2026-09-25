@@ -108,6 +108,39 @@
         "concerns": []
       },
       "items": []
+    },
+    "089fd47b4fcaff1d6981f93a3394d7d273ead209": {
+      "plan": {
+        "decision": "concerns",
+        "reason": "The commit fixes the Helm chart so its history-backend router flags match the Python launcher's exact option names. The current docs still present this as an unresolved known issue in the \"History backends in chart 1.11.0\" warning without noting the fix, so the workaround guidance needs to be scoped to chart 1.11.0 and earlier.",
+        "concerns": [
+          {
+            "slug": "helm-history-backend-flags-fixed",
+            "area": "getting-started",
+            "title": "docs(getting-started): scope Helm history-backend startup failure to chart 1.11.0 and note the fix",
+            "concern": "The Helm chart's smg.routerArgs template now passes the Python launcher's exact history flag names (--postgres-pool-max, --redis-pool-max, --oracle-connect-descriptor, --oracle-username), so chart versions after 1.11.0 no longer make the router exit at startup when history.backend is postgres, redis, or oracle with a DSN; the docs warning still describes the bug as current and unconditionally recommends the router.extraArgs workaround.",
+            "evidence": "deploy/helm/smg/templates/_helpers.tpl lines 252, 260, 265, 271 now emit \"--postgres-pool-max\", \"--redis-pool-max\", \"--oracle-connect-descriptor\", and \"--oracle-username\" (commit 089fd47b), which bindings/python/tests/test_helm_chart_args.py verifies are exact options of RouterArgs; deploy/helm/smg/Chart.yaml still says version 1.11.0, so the fix ships after that release. src/lib/content/getting-started/index.md lines 683-684 (\"History backends in chart 1.11.0\") still states the chart \"passes a flag the gateway image rejects (--postgres-pool-max-size, --redis-pool-max-size, or --oracle-dsn), and the router exits at startup\" and advises leaving history.backend at memory, without noting the issue is fixed in later chart versions.",
+            "doc_paths": [
+              "src/lib/content/getting-started/index.md"
+            ]
+          }
+        ]
+      },
+      "items": [
+        {
+          "concern": {
+            "slug": "helm-history-backend-flags-fixed",
+            "area": "getting-started",
+            "title": "docs(getting-started): scope Helm history-backend startup failure to chart 1.11.0 and note the fix",
+            "concern": "The Helm chart's smg.routerArgs template now passes the Python launcher's exact history flag names (--postgres-pool-max, --redis-pool-max, --oracle-connect-descriptor, --oracle-username), so chart versions after 1.11.0 no longer make the router exit at startup when history.backend is postgres, redis, or oracle with a DSN; the docs warning still describes the bug as current and unconditionally recommends the router.extraArgs workaround.",
+            "evidence": "deploy/helm/smg/templates/_helpers.tpl lines 252, 260, 265, 271 now emit \"--postgres-pool-max\", \"--redis-pool-max\", \"--oracle-connect-descriptor\", and \"--oracle-username\" (commit 089fd47b), which bindings/python/tests/test_helm_chart_args.py verifies are exact options of RouterArgs; deploy/helm/smg/Chart.yaml still says version 1.11.0, so the fix ships after that release. src/lib/content/getting-started/index.md lines 683-684 (\"History backends in chart 1.11.0\") still states the chart \"passes a flag the gateway image rejects (--postgres-pool-max-size, --redis-pool-max-size, or --oracle-dsn), and the router exits at startup\" and advises leaving history.backend at memory, without noting the issue is fixed in later chart versions.",
+            "doc_paths": [
+              "src/lib/content/getting-started/index.md"
+            ]
+          },
+          "status": "pending"
+        }
+      ]
     }
   }
 }

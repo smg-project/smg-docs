@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 spec = importlib.util.spec_from_file_location("sync", Path(__file__).with_name("sync.py"))
 sync = importlib.util.module_from_spec(spec)
@@ -233,6 +233,100 @@ class DailyLimitTests(unittest.TestCase):
 
 
 
+class TransportFailureTests(unittest.TestCase):
+    def test_get_recovers_from_transient_dns_failure(self):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"ok": true}'
+        with patch.object(sync.urllib.request, "urlopen", side_effect=[
+                sync.urllib.error.URLError("sensitive DNS details"), response]) as open_url, \
+             patch.object(sync.time, "sleep") as sleep:
+            self.assertEqual(sync.request("https://api.github.com/test", "secret"), {"ok": True})
+            self.assertEqual(open_url.call_count, 2)
+            sleep.assert_called_once()
+
+    def test_anthropic_recovers_from_response_read_timeout(self):
+        responses = [MagicMock(), MagicMock()]
+        responses[0].__enter__.return_value.read.side_effect = TimeoutError("secret diagnostic")
+        responses[1].__enter__.return_value.read.return_value = b'{"ok": true}'
+        with patch.object(sync.urllib.request, "urlopen", side_effect=responses) as open_url, \
+             patch.object(sync.time, "sleep"):
+            self.assertEqual(sync.request("https://api.anthropic.com/v1/messages", "secret", "POST",
+                                          {"model": "test"}, anthropic=True), {"ok": True})
+            self.assertEqual(open_url.call_count, 2)
+
+    def test_exhausted_transport_retries_are_bounded_and_sanitized(self):
+        for exc in (sync.urllib.error.URLError("secret diagnostic"),
+                    TimeoutError("secret diagnostic"), ConnectionResetError("secret diagnostic")):
+            with self.subTest(error=type(exc).__name__), \
+                 patch.object(sync.urllib.request, "urlopen", side_effect=exc) as open_url, \
+                 patch.object(sync.time, "sleep") as sleep:
+                with self.assertRaises(RuntimeError) as raised:
+                    sync.request("https://api.github.com/test?token=secret", "secret")
+                self.assertEqual(open_url.call_count, 4)
+                self.assertEqual(sleep.call_count, 3)
+                self.assertEqual(str(raised.exception), "GET /test: " + type(exc).__name__)
+                self.assertNotIn("secret", str(raised.exception))
+
+    def test_github_writes_are_not_retried_after_ambiguous_failure(self):
+        for method in ("POST", "PUT", "PATCH"):
+            with self.subTest(method=method), \
+                 patch.object(sync.urllib.request, "urlopen", side_effect=TimeoutError("secret")) as open_url, \
+                 patch.object(sync.time, "sleep") as sleep:
+                with self.assertRaises(RuntimeError):
+                    sync.request("https://api.github.com/test", "secret", method, {"write": True})
+                self.assertEqual(open_url.call_count, 1)
+                sleep.assert_not_called()
+
+
+class MalformedPlanTests(unittest.TestCase):
+    def test_non_object_concerns_raise_validation_errors(self):
+        for concern in ("routing", None, [], 42):
+            with self.subTest(concern=concern), self.assertRaises(ValueError):
+                sync.validate_plan({"decision": "concerns", "reason": "a gap", "concerns": [concern]}, {PAGE})
+
+    def test_non_object_plans_raise_validation_errors(self):
+        for plan in (None, [], "routing"):
+            with self.subTest(plan=plan), self.assertRaises(ValueError):
+                sync.validate_plan(plan, {PAGE})
+
+    def test_non_string_slugs_raise_validation_errors(self):
+        for slug in (None, [], 42):
+            with self.subTest(slug=slug), self.assertRaises(ValueError):
+                sync.validate_plan({"decision": "concerns", "reason": "a gap", "concerns": [{"slug": slug}]}, {PAGE})
+
+    def test_bad_item_is_deferred_without_stopping_next_commit(self):
+        failures = [{"decision": "concerns", "reason": "a gap", "concerns": ["routing"]},
+                    RuntimeError("POST /v1/messages: TimeoutError")]
+        for failed_result in failures:
+            with self.subTest(failure=failed_result), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "scripts/doc-sync").mkdir(parents=True)
+                (root / "scripts/doc-sync/config.json").write_text(Path(__file__).with_name("config.json").read_text())
+                report = root / "report.json"
+                with patch.dict(sync.os.environ, {"GH_TOKEN": "test-only", "DOC_SYNC_REPORT": str(report)}), \
+                     patch.object(sync.sys, "argv", ["sync.py", "--source", str(root), "--docs", str(root),
+                                                      "--dry-run", "--max-commits", "2"]), \
+                     patch.object(sync, "GitHub") as gh, patch.object(sync, "Model") as model, \
+                     patch.object(sync, "Evidence") as evidence, patch.object(sync, "git") as git:
+                    gh.return_value.repo = "smg-project/smg-docs"
+                    gh.return_value.api.return_value = []
+                    gh.return_value.pages.return_value = []
+                    evidence.return_value.refs = {"source": "source-head", "docs": "docs-head"}
+                    evidence.return_value.doc_paths = {PAGE}
+                    git.side_effect = ["first\nsecond\n", "first patch", "second patch"]
+                    model.return_value.calls = 2
+                    model.return_value.run.side_effect = [failed_result,
+                        {"decision": "documented", "reason": "already covered", "concerns": []}]
+                    self.assertEqual(sync.main(), 1)
+                data = json.loads(report.read_text())
+                self.assertEqual(len(data["errors"]), 1)
+                self.assertEqual(data["errors"][0]["commit"], "first")
+                self.assertEqual(data["results"][0]["commit"], "second")
+                self.assertEqual(data["results"][0]["decision"], "documented")
+                self.assertEqual(data["unreviewed_commits"], 1)
+
+
+
 class ModelProtocolTests(unittest.TestCase):
     def test_truncated_model_output_is_never_accepted(self):
         with patch.dict(sync.os.environ, {"ANTHROPIC_API_KEY": "test-only"}), \
@@ -255,6 +349,19 @@ class ModelProtocolTests(unittest.TestCase):
             model = sync.Model({"max_model_calls": 10, "model": "test"}, evidence)
             self.assertEqual(model.run("audit", sync.PLAN_SCHEMA), {"decision": "documented"})
             self.assertEqual(model.calls, 4)
+
+    def test_non_object_finish_result_is_rejected_after_evidence_reads(self):
+        outputs = [{"stop_reason": "tool_use", "content": [
+            {"type": "tool_use", "id": "source", "name": "read_file", "input": {"repo": "source", "path": "src.rs"}},
+            {"type": "tool_use", "id": "docs", "name": "read_file", "input": {"repo": "docs", "path": PAGE}}]},
+            {"stop_reason": "tool_use", "content": [
+                {"type": "tool_use", "id": "done", "name": "finish", "input": ["malformed"]}]}]
+        with patch.dict(sync.os.environ, {"ANTHROPIC_API_KEY": "test-only"}), \
+             patch.object(sync, "request", side_effect=outputs), patch.object(sync, "Evidence") as evidence:
+            evidence.tool.return_value = {"lines": "some evidence"}
+            model = sync.Model({"max_model_calls": 10, "model": "test"}, evidence)
+            with self.assertRaisesRegex(ValueError, "must be an object"):
+                model.run("audit", sync.PLAN_SCHEMA)
 
     def test_call_budget_stops_unbounded_model_loop(self):
         with patch.dict(sync.os.environ, {"ANTHROPIC_API_KEY": "test-only"}), \

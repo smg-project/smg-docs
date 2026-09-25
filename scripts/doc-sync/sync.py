@@ -51,6 +51,7 @@ def git(root, *args):
 
 
 def request(url, token, method="GET", payload=None, anthropic=False):
+    """Retry safe requests and surface sanitized HTTP or transport failures."""
     headers = {"User-Agent": "smg-nightly-doc-sync", "Content-Type": "application/json"}
     if anthropic:
         headers.update({"x-api-key": token, "anthropic-version": "2023-06-01"})
@@ -73,6 +74,13 @@ def request(url, token, method="GET", payload=None, anthropic=False):
                 continue
             # Do not echo request headers, tokens, or arbitrary response bodies.
             raise RuntimeError(f"{method} {urllib.parse.urlsplit(url).path}: HTTP {exc.code}") from None
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            if attempt + 1 < attempts:
+                time.sleep(min(30, 2 ** (attempt + 1)))
+                continue
+            # Exception messages/reasons can contain credentials or request data.
+            raise RuntimeError(f"{method} {urllib.parse.urlsplit(url).path}: "
+                               f"{type(exc).__name__}") from None
 
 
 class GitHub:
@@ -166,6 +174,9 @@ def choose_commits(commits, records, limit):
 
 
 def validate_plan(plan, docs_paths):
+    """Reject malformed model plans through the per-commit validation path."""
+    if not isinstance(plan, dict):
+        raise ValueError("Audit plan must be an object")
     if plan.get("decision") not in ("concerns", "documented", "not_user_facing", "deferred"):
         raise ValueError("Invalid audit decision")
     if not isinstance(plan.get("reason"), str) or not plan["reason"].strip():
@@ -175,8 +186,11 @@ def validate_plan(plan, docs_paths):
         raise ValueError("Concern list and audit decision disagree")
     seen = set()
     for concern in concerns:
+        if not isinstance(concern, dict):
+            raise ValueError("Concern must be an object")
         slug = concern.get("slug", "")
-        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug) or len(slug) > 64 or slug in seen:
+        if (not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug)
+                or len(slug) > 64 or slug in seen):
             raise ValueError("Invalid/duplicate concern slug")
         seen.add(slug)
         for key in ("area", "concern", "evidence", "title"):
@@ -302,6 +316,8 @@ class Model:
                         "tool_use_id": finishes[0]["id"], "is_error": True,
                         "content": "Read current files from BOTH source and docs before finishing."}]})
                     continue
+                if not isinstance(finishes[0]["input"], dict):
+                    raise ValueError("Model finish result must be an object")
                 return finishes[0]["input"]
             messages.append({"role": "assistant", "content": blocks})
             replies = []

@@ -13,6 +13,17 @@ permissions:
   contents: read
 
 jobs:
+  doc-sync-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s scripts/doc-sync -p 'test_*.py' -v
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -64,7 +75,7 @@ jobs:
       - run: pnpm build
 
   finish:
-    needs: [lint, check, build]
+    needs: [lint, check, build, doc-sync-tests]
     if: always()
     runs-on: ubuntu-latest
     permissions: {}
@@ -73,7 +84,8 @@ jobs:
         run: |
           if [[ "${{ needs.lint.result }}" == "failure" || \
                 "${{ needs.check.result }}" == "failure" || \
-                "${{ needs.build.result }}" == "failure" ]]; then
+                "${{ needs.build.result }}" == "failure" || \
+                "${{ needs.doc-sync-tests.result }}" == "failure" ]]; then
             echo "CI failed"
             exit 1
           fi

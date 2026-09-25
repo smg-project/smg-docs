@@ -384,8 +384,9 @@ class EndToEndDryRunTests(unittest.TestCase):
             (root / second).write_text("old metric\n")
             (root / "source.rs").write_text("current source")
             (root / "scripts/doc-sync").mkdir(parents=True)
-            (root / "scripts/doc-sync/config.json").write_text(
-                Path(__file__).with_name("config.json").read_text())
+            # The docs snapshot can have an old/broken automation config: the
+            # dispatched automation's own config must be used instead.
+            (root / "scripts/doc-sync/config.json").write_text("invalid old docs config")
             subprocess.run(["git", "init", "-q", str(root)], check=True)
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
             subprocess.run(["git", "-C", str(root), "-c", "user.name=Test", "-c", "user.email=test@example.com",
@@ -420,7 +421,129 @@ class EndToEndDryRunTests(unittest.TestCase):
             self.assertEqual(len(drafts), 1)
             self.assertEqual(data["pending_concerns"], 2)  # Dry-run checkpoints nothing.
             self.assertNotIn("metrics.md", drafts[0]["diff"])
+            self.assertIn("## Concern\n\nrouting correction", drafts[0]["body"])
             self.assertEqual((root / PAGE).read_text(), "old\n")
+
+
+class RecoveryTests(unittest.TestCase):
+    def item(self):
+        return {"status": "pending", "concern": {"slug": "routing", "concern": "hypothesis",
+                "doc_paths": [PAGE]}, "prepared": {"branch": "docs/smg-sync-old-routing",
+                "commit": "old", "title": "docs: routing", "body": "old claims"}}
+
+    def test_legacy_draft_is_regenerated_without_modifying_old_branch(self):
+        item, ledger = self.item(), FakeLedger()
+        with patch.object(sync, "GitHub") as gh:
+            gh.api.return_value = [{"ref": "refs/heads/" + item["prepared"]["branch"],
+                                    "object": {"sha": "old"}}]
+            sync.refresh_prepared(gh, ledger, item, {"source": "s", "docs": "d"})
+            gh.api.assert_called_once()
+            self.assertEqual(len(gh.api.call_args.args), 1)  # Only reads GitHub.
+        self.assertNotIn("prepared", item)
+        self.assertEqual(item["superseded"][0]["commit"], "old")
+        self.assertEqual(sync.candidate_branch("a" * 40, item), "docs/smg-sync-aaaaaaaaaaaa-routing-r1")
+        self.assertIn("release availability", item["last_error"])
+        self.assertEqual(ledger.saves, 1)
+
+    def test_human_changes_block_regeneration(self):
+        item, ledger = self.item(), FakeLedger()
+        with patch.object(sync, "GitHub") as gh:
+            gh.api.return_value = [{"ref": "refs/heads/" + item["prepared"]["branch"],
+                                    "object": {"sha": "human"}}]
+            with self.assertRaisesRegex(ValueError, "modified"):
+                sync.refresh_prepared(gh, ledger, item, {"source": "s", "docs": "d"})
+        self.assertIn("prepared", item)
+        self.assertEqual(ledger.saves, 0)
+
+    def test_current_validation_and_snapshots_resume_without_regeneration(self):
+        item, ledger = self.item(), FakeLedger()
+        refs = {"source": "s", "docs": "d"}
+        item["prepared"].update(validation_version=sync.VALIDATION_VERSION, refs=refs)
+        with patch.object(sync, "GitHub") as gh:
+            sync.refresh_prepared(gh, ledger, item, refs)
+            gh.api.assert_not_called()
+        self.assertIn("prepared", item)
+        self.assertEqual(ledger.saves, 0)
+
+    def test_source_or_docs_change_invalidates_saved_validation(self):
+        for refs in ({"source": "new", "docs": "d"}, {"source": "s", "docs": "new"}):
+            item, ledger = self.item(), FakeLedger()
+            item["prepared"].update(validation_version=sync.VALIDATION_VERSION,
+                                    refs={"source": "s", "docs": "d"})
+            with patch.object(sync, "GitHub") as gh:
+                gh.api.return_value = []
+                sync.refresh_prepared(gh, ledger, item, refs)
+            self.assertNotIn("prepared", item)
+
+    def test_rejected_patch_feedback_reaches_correction_attempt(self):
+        item, ledger = self.item(), FakeLedger()
+        edits = {"decision": "edit", "reason": "accurate summary", "edits": [
+            {"path": PAGE, "old": "old", "new": "new"}]}
+        reject = {"single_concern": True, "accurate": False, "not_already_documented": True,
+                  "reason": "Only the logprob path forces JSON; inspect the caller"}
+        accept = {**reject, "accurate": True, "reason": "Verified conditional scope"}
+        with patch.object(sync, "Model") as model:
+            model.run.side_effect = [edits, reject, edits, accept]
+            result = sync.draft_changes(model, {"max_changed_lines_per_pr": 999}, ledger,
+                                        item, "sha", {PAGE: "old"})
+            self.assertIn(reject["reason"], model.run.call_args_list[2].args[0])
+            self.assertIn("Previous rejected patch:", model.run.call_args_list[2].args[0])
+            self.assertEqual(result[1], {PAGE: "new"})
+            self.assertEqual(model.run.call_count, 4)
+        self.assertEqual(ledger.saves, 1)
+
+    def test_repeated_rejection_preserves_feedback_and_fails(self):
+        item, ledger = self.item(), FakeLedger()
+        edit = {"decision": "edit", "edits": [{"path": PAGE, "old": "old", "new": "new"}]}
+        reject = {"single_concern": True, "accurate": False, "not_already_documented": True,
+                  "reason": "Unverified release claim"}
+        with patch.object(sync, "Model") as model:
+            model.run.side_effect = [edit, reject, edit, reject]
+            with self.assertRaisesRegex(ValueError, "Unverified release claim"):
+                sync.draft_changes(model, {"max_changed_lines_per_pr": 999}, ledger,
+                                   item, "sha", {PAGE: "old"})
+            self.assertEqual(model.run.call_count, 4)
+        self.assertIn("Unverified release claim", item["last_error"])
+        self.assertIn("+new", item["last_diff"])
+        self.assertEqual(ledger.saves, 2)
+
+    def test_runtime_budget_does_not_call_model_after_deadline(self):
+        with patch.dict(sync.os.environ, {"ANTHROPIC_API_KEY": "test-only"}), \
+             patch.object(sync.time, "monotonic", side_effect=[100, 161]), \
+             patch.object(sync, "request") as request:
+            model = sync.Model({"max_model_calls": 100, "max_runtime_minutes": 1}, None)
+            with self.assertRaises(sync.BudgetExhausted):
+                model.run("audit", sync.PLAN_SCHEMA)
+            request.assert_not_called()
+
+    def test_uncapped_history_includes_every_commit_and_prioritizes_old_and_new(self):
+        commits = [str(n) for n in range(563)]
+        selected = sync.choose_commits(commits, {}, 0)
+        self.assertEqual(len(selected), 563)
+        self.assertEqual(set(selected), set(commits))
+        self.assertEqual(selected[:4], ["0", "562", "1", "561"])
+
+    def test_budget_stop_keeps_audit_unreviewed_without_marking_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, gh, model, evidence = Path(tmp), MagicMock(), MagicMock(), MagicMock()
+            report = root / "report.json"
+            gh.api.return_value = []
+            gh.pages.return_value = []
+            evidence.refs = {"source": "source", "docs": "docs"}
+            evidence.doc_paths = {PAGE}
+            model.calls = 0
+            model.run.side_effect = sync.BudgetExhausted("time budget")
+            with patch.dict(sync.os.environ, {"GH_TOKEN": "test", "DOC_SYNC_REPORT": str(report)}), \
+                 patch.object(sync.sys, "argv", ["sync.py", "--source", tmp, "--docs", tmp, "--dry-run"]), \
+                 patch.object(sync, "GitHub", return_value=gh), \
+                 patch.object(sync, "Model", return_value=model), \
+                 patch.object(sync, "Evidence", return_value=evidence), \
+                 patch.object(sync, "git", side_effect=["first\n", "patch"]):
+                self.assertEqual(sync.main(), 0)
+            data = json.loads(report.read_text())
+            self.assertEqual(data["unreviewed_commits"], 1)
+            self.assertTrue(data["budget_limited"])
+            self.assertEqual(data["errors"], [])
 
 
 if __name__ == "__main__":

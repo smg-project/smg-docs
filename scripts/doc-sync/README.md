@@ -6,7 +6,11 @@ content and opens **draft PRs, one user-facing concern per PR**. It never merges
 
 The initial source window starts **2026-06-27 UTC** (90 days before setup). This is
 a fixed date, not a rolling lookback: incomplete work cannot silently age out.
-Each run shares its audit capacity between the oldest backlog and newest commits.
+Each run alternates the oldest backlog and newest commits. The default has no
+commit-count cap (`max_commits: 0`); a run works within a 600-model-call and
+65-minute model-work budget, reserving half for drafting/review. Unfinished work
+remains pending. Budget-limited completion is reported explicitly and does not
+mean the entire 90-day history has been audited.
 Discovery, documentation drafting, and independent review all use
 `claude-fable-5` through the Anthropic Messages API with the runner's
 `ANTHROPIC_API_KEY`; they run only on `smg-org-runner-cpu`.
@@ -26,7 +30,11 @@ All generated documentation and ledger commits use
   for its one concern, with **fewer than 1,000 added + removed lines** (999 maximum). It cannot change workflow/code/config
   files. Work needing a new page/navigation entry is explicitly deferred.
 - An independent model call reviews the patch for one-concern scope, accuracy,
-  and whether it is already documented. Hard line/path guards then apply.
+  and whether it is already documented, including callers/conditional paths and
+  release availability. A rejection gets one correction attempt with the review
+  feedback and rejected diff. Feedback persists for subsequent runs if unresolved.
+  Hard line/path guards then apply. Source on `main` is not evidence that a fix
+  has shipped: preserve valid release warnings and identify unreleased fixes.
 - `git diff --check`, `pnpm check`, and a production `pnpm build` must pass before
   publication. A generated PR records its exact source and docs revisions.
 - At most **100 new PRs per UTC day**, shared across scheduled runs, retries,
@@ -38,8 +46,9 @@ All generated documentation and ledger commits use
   cannot run shell commands, fetch arbitrary URLs, or access tokens. Trusted
   Python code validates proposals and performs GitHub writes.
 
-Edit `config.json` to tune bounded limits or the model. Manual dispatch can lower
-`max_commits` and `max_prs`, but cannot raise the configured limits.
+Edit `config.json` to tune runtime/model budgets or the model. Manual dispatch
+can set `max_commits` to a positive batch size for verification, or `0` for the
+entire pending backlog within budget. `max_prs` cannot exceed the configured cap.
 
 ## Durable state and duplicate prevention
 
@@ -47,13 +56,19 @@ The `automation/doc-sync-state` branch stores `doc-sync-state.json`. It is separ
 from `main` and from documentation PRs, so routine checkpoints do not deploy the
 site. Source commit IDs and per-commit concern slugs identify work permanently.
 A plan is saved before any PR work; a prepared commit is saved before creating its
-branch/PR. Interrupted publication resumes from that exact commit. Existing open,
+branch/PR. Interrupted publication resumes from that exact commit only when the
+source/docs snapshots and validation version still match. Otherwise it regenerates
+and reviews the draft on a new revision branch, retaining the old branch and
+checkpoint for inspection. Bump `VALIDATION_VERSION` when changing validation
+requirements. Human-modified branches block this regeneration. Existing open,
 merged, and human-closed PRs are terminal for that concern; the bot never force
 pushes, reopens rejected PRs, or rewrites human edits. Later changes to the same
 behavior are independently checked against the current docs.
 
 Deferred work and errors remain unprocessed/pending, appear in the JSON artifact,
-and make the run fail visibly. Deferred concerns may need a human to split a large
+and make the run fail visibly when the audit/drafting attempt cannot resolve them.
+Expected model-call/runtime limits preserve the backlog and set `budget_limited`
+in the report without recording an error. Deferred concerns may need a human to split a large
 change or add navigation. To retry a deliberately closed PR, a maintainer must
 explicitly remove its ledger entry **and** resolve/rename the old branch; there is
 no automatic reopening. Do not edit the ledger while the workflow is running.
@@ -78,6 +93,12 @@ Start with **Actions → Nightly SMG Documentation Sync → Run workflow**, keep
 the audit, scope review and site validation, but writes no GitHub branches, PRs or
 ledger checkpoints. Its `doc-sync-report.json` artifact includes proposed diffs
 and reasons for skipped/deferred work. The scheduled trigger publishes by default.
+
+For workflow fixes, dispatch the development branch: the workflow loads automation
+and its config from that ref, but separately checks out documentation `main` and
+source `main`. Generated documentation PRs therefore contain only approved page
+edits, never the unmerged automation changes. Both branch and scheduled runs share
+the same concurrency group and durable ledger.
 
 Run the deterministic tests locally (no tokens or model calls):
 

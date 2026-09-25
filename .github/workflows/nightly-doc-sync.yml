@@ -10,9 +10,9 @@ on:
         type: boolean
         default: true
       max_commits:
-        description: Maximum source commits to audit (1–20)
+        description: Maximum source commits to audit (0 = entire pending backlog within runtime budget)
         type: number
-        default: 20
+        default: 0
       max_prs:
         description: Maximum separate concern PRs this run (1–100; daily cap also applies)
         type: number
@@ -35,9 +35,16 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - name: Checkout automation from the dispatched ref
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          path: automation
+
       - name: Checkout documentation
         uses: actions/checkout@v7
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: false
           path: docs
@@ -74,7 +81,7 @@ jobs:
           pnpm exec wrangler types
 
       - name: Check automation
-        working-directory: docs
+        working-directory: automation
         run: python -m unittest discover -s scripts/doc-sync -p 'test_*.py' -v
 
       - name: Verify runner-provided API key
@@ -94,7 +101,7 @@ jobs:
           GH_TOKEN: ${{ secrets.DOC_SYNC_TOKEN || github.token }}
           DOC_SYNC_REPORT: ${{ runner.temp }}/doc-sync-report.json
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-          MAX_COMMITS: ${{ inputs.max_commits || 20 }}
+          MAX_COMMITS: ${{ inputs.max_commits || 0 }}
           MAX_PRS: ${{ inputs.max_prs || 100 }}
         shell: bash
         run: |
@@ -102,7 +109,7 @@ jobs:
           if [[ "$DRY_RUN" == 'true' ]]; then
             args+=(--dry-run)
           fi
-          python scripts/doc-sync/sync.py "${args[@]}"
+          python -u ../automation/scripts/doc-sync/sync.py "${args[@]}"
 
       - name: Preserve audit, deferred work, and dry-run patches
         if: always()

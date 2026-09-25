@@ -158,6 +158,9 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(gh.api.call_args.args, ("git/refs", "POST", {
                 "ref": "refs/heads/" + sync.STATE_BRANCH, "sha": "state-commit"}))
             self.assertEqual(ledger.file_sha, "state-blob")
+            initial_commit = gh.api.call_args_list[-2].args[2]
+            self.assertEqual(initial_commit["author"], sync.commit_metadata("")["author"])
+            self.assertEqual(initial_commit["committer"], initial_commit["author"])
 
     def test_large_ledger_uses_blob_endpoint(self):
         import base64
@@ -175,6 +178,28 @@ class PublishTests(unittest.TestCase):
             gh.api.side_effect = [[{"ref": "refs/heads/" + sync.STATE_BRANCH}], RuntimeError("HTTP 403")]
             with self.assertRaises(RuntimeError):
                 sync.Ledger(gh, "base", "2026-06-27", False)
+
+
+class CommitIdentityTests(unittest.TestCase):
+    def test_documentation_commit_metadata_uses_requested_identity(self):
+        metadata = sync.commit_metadata("docs: explain routing")
+        identity = {"name": "XinyueZhang369", "email": "zoeyzhang369@gmail.com"}
+        self.assertEqual(metadata["author"], identity)
+        self.assertEqual(metadata["committer"], identity)
+        self.assertEqual(metadata["message"], "docs: explain routing\n\nSigned-off-by: XinyueZhang369 <zoeyzhang369@gmail.com>")
+
+    def test_ledger_updates_use_same_identity_and_signoff(self):
+        with patch.object(sync, "GitHub") as gh:
+            gh.api.return_value = []
+            ledger = sync.Ledger(gh, "base", "2026-06-27", False)
+            ledger.file_sha = "previous-blob"
+            gh.api.return_value = {"content": {"sha": "next-blob"}}
+            ledger.save()
+            payload = gh.api.call_args.args[2]
+            self.assertEqual(payload["author"], sync.commit_metadata("")["author"])
+            self.assertEqual(payload["committer"], payload["author"])
+            self.assertIn("Signed-off-by: XinyueZhang369 <zoeyzhang369@gmail.com>", payload["message"])
+
 
 
 class DailyLimitTests(unittest.TestCase):

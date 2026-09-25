@@ -8,6 +8,9 @@ The initial source window starts **2026-06-27 UTC** (90 days before setup). This
 a fixed date, not a rolling lookback: incomplete work cannot silently age out.
 Each run shares its audit capacity between the oldest backlog and newest commits.
 The workflow reads the runner's `ANTHROPIC_API_KEY`; it needs no new model secret.
+All generated documentation and ledger commits use
+`XinyueZhang369 <zoeyzhang369@gmail.com>` as author, committer, and DCO
+`Signed-off-by` identity.
 
 ## Scope and validation
 

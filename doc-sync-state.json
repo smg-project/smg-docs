@@ -100,6 +100,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "c871927b1b6901dcb683f1f5552860ceb0c63fc0": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit modifies only internal CI workflow files (.github/workflows/nightly-bfcl.yml, .github/workflows/nightly-tau2.yml), switching the reasoning parser used by nightly Kimi-K2.6 benchmark jobs from kimi_k25 to kimi_thinking. No SMG runtime code, CLI surface, or parser behavior changed: current crates/reasoning_parser/src/factory.rs already registers both parsers unchanged (kimi_k25 with always_in_reasoning=false at lines 182-191, kimi_thinking with always_in_reasoning=true at lines 193-202) and the same detection patterns (lines 226-232). Their semantics are already documented correctly in current docs: src/lib/content/concepts/architecture/grpc-pipeline.md lines 226-227 show kimi_thinking \"Starts in reasoning: Yes\" vs kimi_k25 \"No\", and src/lib/content/getting-started/tokenization-and-parsing.md line 196 lists kimi_thinking among parsers that start in reasoning. The change is purely a benchmark-harness configuration fix with no effect on user-facing behavior.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

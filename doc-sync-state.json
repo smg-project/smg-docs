@@ -243,6 +243,14 @@
           "last_error": "POST /repos/smg-project/smg-docs/pulls: HTTP 403; check Actions PR-creation policy and publishing token pull-requests:write access"
         }
       ]
+    },
+    "177dd1b24fb02482538a2cf08830e7f481b6cf7b": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit only modifies scripts/ci_install_tokenspeed.sh, an internal CI-only install script (verified: its header scopes it to CI on k8s-runner-gpu nodes and the CI Docker image). It pins nvidia-cutlass-dsl==4.5.2 via UV_CONSTRAINT/PIP_CONSTRAINT and adds diagnostic provenance output to fix a transitive-dependency regression (cute.core.ThrMma removed in cutlass 4.6.0) that broke `import tokenspeed` in CI runs. No gateway code, configuration surface, API, metrics, or documented user workflow changes. The single docs mention of the script (src/lib/content/getting-started/kv-events-cache-aware.md line 132) is an informational pointer that remains accurate; no docs page documents or should document CI dependency pins.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

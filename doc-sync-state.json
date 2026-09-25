@@ -9,6 +9,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "7019d7edac1e1de920053d3be5628cc4711b2ee6": {
+      "plan": {
+        "decision": "documented",
+        "reason": "Both changes require no doc edits. (1) The commit's sglang>=0.5.13 floor is superseded: current source (grpc_servicer/pyproject.toml:43) requires sglang>=0.5.20, and the current docs already state the correct current requirement \u2014 src/lib/content/getting-started/kv-events-cache-aware.md:16: \"the extra requires SGLang 0.5.20 or newer\". Writing 0.5.13 into docs would be stale. (2) The removal of the WatchLoadUpdateReq piggyback in grpc_servicer/smg_grpc_servicer/sglang/request_manager.py is a behavior-preserving internal refactor (replaced upstream by shmem load snapshots per the pyproject comment); no current docs page describes that internal forwarding path, so there is nothing to correct.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

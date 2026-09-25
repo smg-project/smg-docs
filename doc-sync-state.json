@@ -76,6 +76,14 @@
           "status": "pending"
         }
       ]
+    },
+    "f54dabd16fae6a17bd18d8d5c40923ea86de7149": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit only bumps the internal str0m WebRTC dependency from 0.20 to 0.21 in Cargo.toml with unchanged feature flags and no code changes; current source has since moved to str0m 0.23 (verified at Cargo.toml:73), and no current docs page references str0m or any dependency version. No user-facing behavior, configuration option, API, or default changed.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

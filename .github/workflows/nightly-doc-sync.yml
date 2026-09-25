@@ -14,9 +14,9 @@ on:
         type: number
         default: 20
       max_prs:
-        description: Maximum separate concern PRs to create (1–5)
+        description: Maximum separate concern PRs this run (1–100; daily cap also applies)
         type: number
-        default: 5
+        default: 100
 
 permissions:
   contents: read
@@ -94,7 +94,7 @@ jobs:
           DOC_SYNC_REPORT: ${{ runner.temp }}/doc-sync-report.json
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
           MAX_COMMITS: ${{ inputs.max_commits || 20 }}
-          MAX_PRS: ${{ inputs.max_prs || 5 }}
+          MAX_PRS: ${{ inputs.max_prs || 100 }}
         shell: bash
         run: |
           args=(--source ../source --max-commits "$MAX_COMMITS" --max-prs "$MAX_PRS")

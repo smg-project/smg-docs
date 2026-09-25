@@ -329,6 +329,24 @@ REVIEW_SCHEMA = object_schema({"single_concern": {"type": "boolean"}, "accurate"
                                "not_already_documented": {"type": "boolean"}, "reason": STRING})
 
 
+def daily_pr_budget(gh, limit, day=None):
+    """Count all generated PRs created on the UTC day, including closed/merged.
+
+    Query GitHub rather than only checkpoints: a failed run may have created its
+    PR before recording success. Workflow concurrency serializes nightly/reruns.
+    """
+    day = day or dt.datetime.now(dt.timezone.utc).date().isoformat()
+    created = 0
+    for pr in gh.pages("pulls?state=all&sort=created&direction=desc"):
+        created_day = pr["created_at"][:10]
+        if created_day < day:
+            break
+        if (created_day == day and pr["head"]["ref"].startswith("docs/smg-sync-")
+                and (pr["head"].get("repo") or {}).get("full_name") == gh.repo):
+            created += 1
+    return max(0, limit - created)
+
+
 def marker(sha, slug):
     return f"<!-- smg-doc-sync:{sha}:{slug} -->"
 
@@ -421,7 +439,9 @@ def main():
     # Reserve every open PR's documentation pages, including manually authored PRs.
     open_prs = list(gh.pages("pulls?state=open"))
     reserved = set()
-    automated_open = sum(p["head"]["ref"].startswith("docs/smg-sync-") for p in open_prs)
+    daily_remaining = daily_pr_budget(gh, config["max_prs_per_day"])
+    publication_limit = min(config["max_prs"], daily_remaining)
+    report["daily_prs_remaining_at_start"] = daily_remaining
     for pr in open_prs:
         reserved.update(f["filename"] for f in gh.pages(f"pulls/{pr['number']}/files") if doc_path(f["filename"]))
     inventory = "\n".join(sorted(evidence.doc_paths))
@@ -463,7 +483,7 @@ def main():
                     candidates.append((sha, item))
         count = 0
         for sha, item in candidates:
-            if count >= config["max_prs"] or automated_open >= config["max_open_prs"]:
+            if count >= publication_limit:
                 break
             c = item["concern"]
             branch = branch_name(sha, c["slug"])
@@ -484,7 +504,6 @@ def main():
                         url = publish(gh, ledger, item)
                         report["results"].append({"pr": url, "decision": "resumed publication"})
                         count += 1
-                        automated_open += 1
                         reserved.update(c["doc_paths"])
                     continue
                 originals = {p: git(docs, "show", f"{evidence.refs['docs']}:{p}") for p in c["doc_paths"]}
@@ -532,7 +551,6 @@ def main():
                     ledger.save()  # Persist intent before branch/PR creation; partial runs resume safely.
                     url = publish(gh, ledger, item)
                     report["results"].append({"pr": url, "concern": c["concern"]})
-                    automated_open += 1
                 count += 1
                 reserved.update(changes)
             except (RuntimeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as exc:

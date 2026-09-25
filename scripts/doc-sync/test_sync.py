@@ -161,6 +161,37 @@ class PublishTests(unittest.TestCase):
                 sync.Ledger(gh, "base", "2026-06-27", False)
 
 
+class DailyLimitTests(unittest.TestCase):
+    def pr(self, date="2026-09-25", branch="docs/smg-sync-a-routing", state="open", repo="smg-project/smg-docs"):
+        return {"created_at": date + "T10:00:00Z", "state": state,
+                "head": {"ref": branch, "repo": {"full_name": repo}}}
+
+    def test_closed_and_merged_prs_still_count_today(self):
+        with patch.object(sync, "GitHub") as gh:
+            gh.repo = "smg-project/smg-docs"
+            gh.pages.return_value = [self.pr(), self.pr(state="closed"), self.pr(state="closed")]
+            self.assertEqual(sync.daily_pr_budget(gh, 100, "2026-09-25"), 97)
+            self.assertIn("state=all", gh.pages.call_args.args[0])
+
+    def test_prior_days_unrelated_and_fork_prs_do_not_count(self):
+        with patch.object(sync, "GitHub") as gh:
+            gh.repo = "smg-project/smg-docs"
+            gh.pages.return_value = [self.pr(branch="docs/manual-fix"), self.pr(repo="someone/fork"),
+                                    self.pr(), self.pr(date="2026-09-24")]
+            self.assertEqual(sync.daily_pr_budget(gh, 100, "2026-09-25"), 99)
+
+    def test_reruns_cannot_exceed_daily_cap(self):
+        with patch.object(sync, "GitHub") as gh:
+            gh.repo = "smg-project/smg-docs"
+            gh.pages.return_value = [self.pr()] * 99
+            self.assertEqual(sync.daily_pr_budget(gh, 100, "2026-09-25"), 1)
+            gh.pages.return_value = [self.pr()] * 100
+            self.assertEqual(sync.daily_pr_budget(gh, 100, "2026-09-25"), 0)
+            gh.pages.return_value = [self.pr()] * 101
+            self.assertEqual(sync.daily_pr_budget(gh, 100, "2026-09-25"), 0)
+
+
+
 class ModelProtocolTests(unittest.TestCase):
     def test_truncated_model_output_is_never_accepted(self):
         with patch.dict(sync.os.environ, {"ANTHROPIC_API_KEY": "test-only"}), \

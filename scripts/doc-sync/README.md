@@ -22,7 +22,9 @@ The workflow reads the runner's `ANTHROPIC_API_KEY`; it needs no new model secre
   and whether it is already documented. Hard file/line/path guards then apply.
 - `git diff --check`, `pnpm check`, and a production `pnpm build` must pass before
   publication. A generated PR records its exact source and docs revisions.
-- At most **5 new PRs per run**, at most **10 open automated PRs**. Any open PR
+- At most **100 new PRs per UTC day**, shared across scheduled runs, retries,
+  and manual dispatches. Closed and merged PRs still count for their creation day;
+  the former 10-open-PR ceiling is removed. Any open PR
   (including a human's) touching a target page defers that concern until a later
   night. Independent pages can yield multiple PRs the same day.
 - The model only receives public repository evidence and read/search tools. It

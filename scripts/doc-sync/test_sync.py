@@ -291,6 +291,38 @@ class PublicationPermissionTests(unittest.TestCase):
         self.assertNotIn("secret value", str(raised.exception))
         self.assertEqual(request.call_count, 1)
 
+    def test_permission_denial_stops_remaining_publication_and_preserves_drafts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, ledger = Path(tmp), FakeLedger()
+            report = root / "report.json"
+            refs = {"source": "source", "docs": "docs"}
+            items = [{"status": "pending", "concern": {"slug": name, "concern": name, "doc_paths": [PAGE]},
+                      "prepared": {"branch": "docs/smg-sync-" + name, "commit": name,
+                                   "validation_version": sync.VALIDATION_VERSION, "refs": refs}}
+                     for name in ("first", "second")]
+            ledger.data = {"commits": {name: {"items": [item]} for name, item in zip(("first", "second"), items)}}
+            with patch.dict(sync.os.environ, {"GH_TOKEN": "test", "DOC_SYNC_REPORT": str(report)}), \
+                 patch.object(sync.sys, "argv", ["sync.py", "--source", tmp, "--docs", tmp]), \
+                 patch.object(sync, "GitHub") as gh, patch.object(sync, "Evidence") as evidence, \
+                 patch.object(sync, "Model") as model, patch.object(sync, "Ledger", return_value=ledger), \
+                 patch.object(sync, "git", return_value="first\nsecond\n"), \
+                 patch.object(sync, "find_pr", return_value=None), \
+                 patch.object(sync, "publish", side_effect=sync.PublicationPermissionError("policy forbids PRs")) as publish:
+                gh.return_value.api.return_value = {"object": {"sha": "docs"}}
+                gh.return_value.pages.return_value = []
+                evidence.return_value.refs = refs
+                evidence.return_value.doc_paths = {PAGE}
+                model.return_value.calls = 0
+                self.assertEqual(sync.main(), 1)
+                publish.assert_called_once()
+                model.return_value.run.assert_not_called()
+            data = json.loads(report.read_text())
+            self.assertEqual(data["pending_concerns"], 2)
+            self.assertEqual(len(data["errors"]), 1)
+            self.assertEqual(items[1]["status"], "pending")
+            self.assertIn("prepared", items[0])
+            self.assertIn("prepared", items[1])
+
     def test_unknown_permission_response_remains_sanitized(self):
         import io
         error = sync.urllib.error.HTTPError("https://api.github.com/repos/o/r/pulls", 403,

@@ -84,6 +84,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "28ccd541de69f6d9bb4de7255f8d34e38a6cc428": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit adds only internal CI benchmarking infrastructure: a nightly, informational GitHub Actions workflow (.github/workflows/nightly-tau2.yml, verified in current source and explicitly \"never a merge gate\"; its PR trigger is now even disabled in current code) plus maintainer scripts (scripts/tau2/launch_arms.sh, scripts/tau2/run_ab.py), a scripts-local README, and unit tests/fixtures (scripts/tests/test_tau2_run_ab.py). No gateway runtime code, configuration, CLI, API, or metrics changed (nothing under crates/, model_gateway/, or bindings/). Current docs contain no coverage of nightly benchmark workflows (searches for \"tau2\" and \"bfcl\" return no docs matches), and contributing/development.md documents only PR-gating CI lanes and the benchmark-*/genai-bench jobs, so no existing passage becomes stale or contradictory. The README's note about SMG's auto model\u2192parser mapping lacking a Qwen3.6 entry describes pre-existing behavior in crates/tool_parser, not a change made by this commit.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

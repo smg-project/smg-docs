@@ -151,7 +151,7 @@
               "src/lib/content/getting-started/index.md"
             ]
           },
-          "status": "pending",
+          "status": "published",
           "superseded": [
             {
               "branch": "docs/smg-sync-089fd47b4fca-helm-history-backend-flags-fixed",
@@ -170,7 +170,8 @@
               "source": "f5c25393c9111a90f02207896979a07e27f1baf1",
               "docs": "f6d5ce025f8c241c2c384e9026114ea1c987d0e7"
             }
-          }
+          },
+          "pr": "https://github.com/smg-project/smg-docs/pull/64"
         }
       ]
     },

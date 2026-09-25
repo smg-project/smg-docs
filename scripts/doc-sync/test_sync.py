@@ -130,6 +130,17 @@ class PublishTests(unittest.TestCase):
             ledger.save()
             self.assertEqual(gh.api.call_count, 1)
 
+    def test_large_ledger_uses_blob_endpoint(self):
+        import base64
+        data = {"version": 1, "since": "2026-06-27", "commits": {"already-checked": {}}}
+        with patch.object(sync, "GitHub") as gh:
+            gh.api.side_effect = [[{"ref": "refs/heads/" + sync.STATE_BRANCH}],
+                                  {"sha": "blob-sha", "encoding": "none", "content": ""},
+                                  {"encoding": "base64", "content": base64.b64encode(json.dumps(data).encode()).decode()}]
+            ledger = sync.Ledger(gh, "base", "2026-06-27", True)
+            self.assertIn("already-checked", ledger.data["commits"])
+            self.assertEqual(gh.api.call_args.args[0], "git/blobs/blob-sha")
+
     def test_ledger_load_failure_is_not_treated_as_empty_history(self):
         with patch.object(sync, "GitHub") as gh:
             gh.api.side_effect = [[{"ref": "refs/heads/" + sync.STATE_BRANCH}], RuntimeError("HTTP 403")]

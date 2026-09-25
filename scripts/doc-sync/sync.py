@@ -96,6 +96,10 @@ class Ledger:
         if exists:
             value = gh.api(f"contents/{STATE_PATH}?ref={STATE_BRANCH}")
             self.file_sha = value["sha"]
+            # The Contents endpoint omits inline content above 1 MB. A long-lived
+            # audit ledger must still load without silently losing its history.
+            if value.get("encoding") != "base64":
+                value = gh.api("git/blobs/" + self.file_sha)
             self.data = json.loads(base64.b64decode(value["content"]))
             if self.data.get("version") != 1 or self.data.get("since") != since:
                 raise ValueError("Ledger version/start date changed; migrate the ledger explicitly")
@@ -419,7 +423,7 @@ def main():
             if model.calls >= config["max_model_calls"] // 2:
                 break
             try:
-                patch = git(args.source, "show", "--format=fuller", "--stat", "--patch", "--no-ext-diff", sha)
+                patch = git(args.source, "show", "--format=fuller", "--stat", "--patch", "--diff-merges=first-parent", "--no-ext-diff", sha)
                 if len(patch) > 100_000:
                     defer_audit(sha, "Source diff exceeds 100 KB; manual decomposition required")
                     continue

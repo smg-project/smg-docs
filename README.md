@@ -48,3 +48,10 @@ The visual anchor is **Piet Mondrian**: his work distills complex reality into a
 - **Symbol** — a gateway arch set into a Mondrian-like grid, progressively reduced until only the rounded arch remains: the mark that anchors the home hero and the favicon.
 - **Color** — solid tech black and warm paper off-whites around the signature **radial orange glow**. Orange was chosen for its warmth — the humanities-and-arts half of the pairing, balancing the cool precision of the tech side — and the glow renders live as the home hero's shader background.
 - **Typography** — [Changa](https://fonts.google.com/specimen/Changa) for the wordmark and display, [Inter](https://rsms.me/inter/) for text.
+
+## Nightly documentation maintenance
+
+The [nightly documentation workflow](scripts/doc-sync/README.md) audits SMG code
+changes against the current docs on `smg-org-runner-cpu`. It opens separate draft
+PRs for individual concerns, with a changed-line limit, duplicate prevention, and
+scope, type-check, and build validation before publication.

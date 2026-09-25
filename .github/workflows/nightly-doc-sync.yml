@@ -1,0 +1,114 @@
+name: Nightly SMG Documentation Sync
+
+on:
+  schedule:
+    - cron: '43 9 * * *' # 09:43 UTC daily; off the top-of-hour scheduling peak.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Audit and validate without creating branches, PRs, or ledger state
+        type: boolean
+        default: true
+      max_commits:
+        description: Maximum source commits to audit (1–20)
+        type: number
+        default: 20
+      max_prs:
+        description: Maximum separate concern PRs this run (1–100; daily cap also applies)
+        type: number
+        default: 100
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-smg-doc-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'smg-project/smg-docs'
+    # Claude Fable access uses the API credential provided by this runner set.
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout documentation
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: docs
+
+      - name: Checkout current SMG source and history
+        uses: actions/checkout@v7
+        with:
+          repository: smg-project/smg
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          path: source
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+          package_json_file: docs/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: docs/pnpm-lock.yaml
+
+      - name: Install documentation dependencies
+        working-directory: docs
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec wrangler types
+
+      - name: Check automation
+        working-directory: docs
+        run: python -m unittest discover -s scripts/doc-sync -p 'test_*.py' -v
+
+      - name: Verify runner-provided API key
+        shell: bash
+        run: |
+          if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+            echo '::error::ANTHROPIC_API_KEY is missing from the runner pod environment'
+            exit 1
+          fi
+          echo "::add-mask::${ANTHROPIC_API_KEY}"
+
+      - name: Audit and open one draft PR per concern
+        working-directory: docs
+        env:
+          # An optional bot token can trigger PR CI. Otherwise the publisher runs
+          # type checks and a production build itself before every PR creation.
+          GH_TOKEN: ${{ secrets.DOC_SYNC_TOKEN || github.token }}
+          DOC_SYNC_REPORT: ${{ runner.temp }}/doc-sync-report.json
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          MAX_COMMITS: ${{ inputs.max_commits || 20 }}
+          MAX_PRS: ${{ inputs.max_prs || 100 }}
+        shell: bash
+        run: |
+          args=(--source ../source --max-commits "$MAX_COMMITS" --max-prs "$MAX_PRS")
+          if [[ "$DRY_RUN" == 'true' ]]; then
+            args+=(--dry-run)
+          fi
+          python scripts/doc-sync/sync.py "${args[@]}"
+
+      - name: Preserve audit, deferred work, and dry-run patches
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smg-doc-sync-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/doc-sync-report.json
+          if-no-files-found: warn
+          retention-days: 30

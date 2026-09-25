@@ -1,0 +1,11 @@
+{
+	"source_repository": "smg-project/smg",
+	"docs_repository": "smg-project/smg-docs",
+	"source_since": "2026-06-27T00:00:00Z",
+	"model": "claude-fable-5",
+	"max_commits": 20,
+	"max_prs": 100,
+	"max_prs_per_day": 100,
+	"max_changed_lines_per_pr": 999,
+	"max_model_calls": 120
+}

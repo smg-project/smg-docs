@@ -144,6 +144,7 @@ A restarted vLLM process without a pinned `engine_id` comes back with a new KV e
 - **Prefill failures stay on the prefill worker (sequential dispatch).** A failed prefill leg never reaches the decode worker's circuit breaker, because decode was never contacted.
 - **Decode aborts wait for the handoff (gRPC).** When the client disconnects, a prefill leg still running is aborted at once. The decode leg's abort waits for the leg's first response or a terminal event, for at most 30 seconds, to avoid tearing a decode engine down mid-transfer.
 - **HTTP streams start on the response heads (parallel dispatch).** For a streamed request that does not ask for logprobs, SMG starts streaming decode output as soon as both legs return a 2xx response head. It drains the prefill body in the background, because closing it early would abort the KV transfer, and records the prefill worker's outcome when the drain ends. Requests with logprobs wait for the prefill body.
+- **Non-streaming HTTP responses keep a JSON content type.** Streamed HTTP PD responses are sent as `text/event-stream`. A non-streaming decode body without logprobs is relayed with the decode worker's response headers, so its `Content-Type` comes from the engine. When the request asks for logprobs, SMG builds the response body itself — the logprob-merged body, or the plain decode body when the prefill body is missing or the merge fails — and sets `Content-Type: application/json` on it, rather than the `application/octet-stream` default of a raw byte response.
 
 ### Parallel Sampling (`n>1`)
 

@@ -158,7 +158,7 @@
             }
           ],
           "publication_revision": 1,
-          "last_error": "Previous prepared draft is stale or predates current validation. Recheck call sites, conditional paths, and release availability; do not reuse its claims unchecked.",
+          "last_error": "POST /repos/smg-project/smg-docs/pulls: HTTP 403; check Actions PR-creation policy and publishing token pull-requests:write access",
           "prepared": {
             "commit": "0de096c9b7ffd70b12d7d973dcc47963e93ef171",
             "branch": "docs/smg-sync-089fd47b4fca-helm-history-backend-flags-fixed-r1",

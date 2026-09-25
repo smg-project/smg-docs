@@ -149,6 +149,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "735174976b14b4c0f8b9f38b2dbcb93d21d1421d": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit only modifies internal CI infrastructure for the project's own self-hosted GitHub Actions runners: scripts/k8s-runner-resources/README.md (verified current, lines 3\u201310: an internal ARC deployment guide for smg-project/smg runner scale sets), runner-values-*.yaml Helm values pinning the CI runner image to a private OCIR registry image (action-runner:2.337.0), and ephemeralrunnersets-phase.patch.json (a CRD schema repair patch for the CI cluster). No SMG runtime behavior, configuration surface, API, metric, or user deployment artifact changes. Current docs contain no ARC/runner-scale-set content (searches for \"k8s-runner-resources\", \"action-runner\", \"runner scale set\" return nothing), and contributing/development.md covers contributor build/test setup, not maintainer-only CI cluster provisioning. The new guidance is appropriately self-documented in the in-repo README for its maintainer audience.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

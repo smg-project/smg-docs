@@ -278,6 +278,30 @@ class TransportFailureTests(unittest.TestCase):
                 sleep.assert_not_called()
 
 
+class PublicationPermissionTests(unittest.TestCase):
+    def test_known_policy_denial_is_diagnosed_without_echoing_response(self):
+        import io
+        body = json.dumps({"message": "GitHub Actions is not permitted to create or approve pull requests.",
+                           "private_details": "secret value"}).encode()
+        error = sync.urllib.error.HTTPError("https://api.github.com/repos/o/r/pulls", 403,
+                                          "Forbidden", {}, io.BytesIO(body))
+        with patch.object(sync.urllib.request, "urlopen", side_effect=error) as request:
+            with self.assertRaisesRegex(sync.PublicationPermissionError, "policy forbids") as raised:
+                sync.request(error.url, "secret value", "POST", {})
+        self.assertNotIn("secret value", str(raised.exception))
+        self.assertEqual(request.call_count, 1)
+
+    def test_unknown_permission_response_remains_sanitized(self):
+        import io
+        error = sync.urllib.error.HTTPError("https://api.github.com/repos/o/r/pulls", 403,
+                                          "Forbidden", {}, io.BytesIO(b'{"message":"secret value"}'))
+        with patch.object(sync.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(sync.PublicationPermissionError) as raised:
+                sync.request(error.url, "secret value", "POST", {})
+        self.assertNotIn("secret value", str(raised.exception))
+        self.assertIn("check Actions", str(raised.exception))
+
+
 class MalformedPlanTests(unittest.TestCase):
     def test_non_object_concerns_raise_validation_errors(self):
         for concern in ("routing", None, [], 42):

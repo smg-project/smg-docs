@@ -99,10 +99,11 @@ jobs:
           # An optional bot token can trigger PR CI. Otherwise the publisher runs
           # type checks and a production build itself before every PR creation.
           GH_TOKEN: ${{ secrets.DOC_SYNC_TOKEN || github.token }}
+          DOC_SYNC_TOKEN_KIND: ${{ secrets.DOC_SYNC_TOKEN && 'DOC_SYNC_TOKEN' || 'GITHUB_TOKEN' }}
           DOC_SYNC_REPORT: ${{ runner.temp }}/doc-sync-report.json
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
           MAX_COMMITS: ${{ inputs.max_commits || 0 }}
-          MAX_PRS: ${{ inputs.max_prs || 100 }}
+          MAX_PRS: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.max_prs) || '100' }}
         shell: bash
         run: |
           args=(--source ../source --max-commits "$MAX_COMMITS" --max-prs "$MAX_PRS")

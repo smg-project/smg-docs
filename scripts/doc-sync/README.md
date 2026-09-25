@@ -82,6 +82,9 @@ allowed when using `GITHUB_TOKEN`. If organization policy blocks it, a repositor
 admin must enable it or configure a dedicated `DOC_SYNC_TOKEN` with contents and
 pull-request write permissions for **smg-docs only**. Never reuse ARC's registration
 credential or put a personal token in code.
+PR-creation permission failures stop further publication/model work immediately;
+known GitHub policy denials are diagnosed without logging arbitrary API responses
+or credentials. The job logs which token source is selected, never its value.
 
 PRs created with `GITHUB_TOKEN` do not trigger normal PR workflows. The nightly
 publisher therefore runs checks/build itself for each proposed patch; the PR body

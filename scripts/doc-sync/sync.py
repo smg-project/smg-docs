@@ -51,6 +51,10 @@ class BudgetExhausted(RuntimeError):
     """An intentional work limit; unfinished work remains pending for another run."""
 
 
+class PublicationPermissionError(RuntimeError):
+    """PR creation is forbidden; stop publication until permissions are repaired."""
+
+
 def commit_metadata(subject):
     identity = {"name": COMMIT_NAME, "email": COMMIT_EMAIL}
     return {"message": f"{subject}\n\nSigned-off-by: {COMMIT_NAME} <{COMMIT_EMAIL}>",
@@ -84,10 +88,24 @@ def request(url, token, method="GET", payload=None, anthropic=False):
                 time.sleep(min(30, 2 ** (attempt + 1)))
                 continue
             # Do not echo request headers, tokens, or arbitrary response bodies.
-            hint = ""
             if exc.code == 403 and method == "POST" and url.endswith("/pulls"):
-                hint = "; check Actions PR-creation policy and publishing token pull-requests:write access"
-            raise RuntimeError(f"{method} {urllib.parse.urlsplit(url).path}: HTTP {exc.code}{hint}") from None
+                # Match only known server messages. Never print arbitrary API
+                # response text, headers, or credentials into logs/retry prompts.
+                diagnosis = "check Actions PR-creation policy and publishing token pull-requests:write access"
+                try:
+                    message = json.loads(exc.read(8192)).get("message", "")
+                    known = {
+                        "GitHub Actions is not permitted to create or approve pull requests.":
+                            "repository/organization policy forbids GitHub Actions PR creation",
+                        "Resource not accessible by integration": "publishing token lacks access to this operation",
+                        "Resource not accessible by personal access token": "publishing token lacks access to this operation",
+                    }
+                    if isinstance(message, str):
+                        diagnosis = known.get(message, diagnosis)
+                except (ValueError, AttributeError, OSError):
+                    pass
+                raise PublicationPermissionError(f"POST {urllib.parse.urlsplit(url).path}: HTTP 403; {diagnosis}") from None
+            raise RuntimeError(f"{method} {urllib.parse.urlsplit(url).path}: HTTP {exc.code}") from None
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             if attempt + 1 < attempts:
                 time.sleep(min(30, 2 ** (attempt + 1)))
@@ -576,6 +594,7 @@ def main():
     candidates = []
     print(f"Audit window: {config['source_since']}; {len(commits)} eligible commits; "
           f"{len(selected)} selected; {daily_remaining} PR slots today", flush=True)
+    print(f"Publishing credential: {os.environ.get('DOC_SYNC_TOKEN_KIND', 'unspecified')}", flush=True)
     try:
         for sha in selected:
             # Reserve half the call budget for writing/reviewing pending concerns.
@@ -684,6 +703,8 @@ def main():
                 ledger.save()
                 print(f"Concern {sha[:12]}/{c['slug']} failed: {exc}", flush=True)
                 report["errors"].append({"commit": sha, "concern": c["concern"], "reason": str(exc)})
+                if isinstance(exc, PublicationPermissionError):
+                    break  # Further model work cannot repair a repository permission.
     finally:
         report["pending_concerns"] = sum(i["status"] == "pending" for r in records.values() for i in r["items"])
         report["unreviewed_commits"] = sum(c not in records or "deferred" in records[c] for c in commits)

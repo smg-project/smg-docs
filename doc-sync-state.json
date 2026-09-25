@@ -33,6 +33,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "ac8dd51ad17744d7a7e942bba024131d74e95453": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit only edits .github/workflows/release-pypi.yml (verified in current source at lines 187\u2013201: a hermetic Python 3.13 setup step and `pip install -U twine` so CI's twine/packaging can parse Metadata 2.4 wheels during PyPI upload). It changes no gateway code, no published package contents, no flags/APIs/metrics, and no documented process: the only docs reference to release-pypi (src/lib/content/contributing/development.md, line 627) describes only when the workflow triggers, which is unchanged. This is internal CI release plumbing with no user-facing behavior to document.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

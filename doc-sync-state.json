@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "since": "2026-06-27T00:00:00Z",
+  "commits": {
+    "9ec311c6f131a0f469432d495155fab4aa3b2a81": {
+      "plan": {
+        "decision": "documented",
+        "reason": "The commit relaxes validation so min_tokens=0 is accepted on Chat Completions (crates/protocols/src/chat.rs:302, range(min = 0)) and Completions (crates/protocols/src/completion.rs:99), leaving only the cross-field rule that min_tokens must not exceed max_tokens/max_completion_tokens (chat.rs:500-503, completion.rs:178-181). The current docs already match this exactly: src/lib/content/reference/api/openai.md:120 documents min_tokens as \"Minimum tokens to generate; must not exceed `max_completion_tokens`\" with no lower-bound restriction \u2014 unlike neighboring fields where the page explicitly notes \"(at least 1)\" (e.g., max_completion_tokens at line 91, top_k at line 118). The Completions endpoint inherits the same extension-field table via openai.md:358. The previous min=1 rejection was never documented, so the fix brings behavior in line with the existing documentation and no edit is needed.",
+        "concerns": []
+      },
+      "items": []
+    }
+  }
+}

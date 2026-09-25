@@ -141,6 +141,14 @@
           "status": "pending"
         }
       ]
+    },
+    "fea60bb15fd8faac436d73ab6f3c28ac6c856c33": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "Verified against current source and docs: the commit adds internal CI-infrastructure tooling only \u2014 a scheduled workflow (.github/workflows/ci-node-health.yml, cron '17 * * * *') and script (scripts/ci_node_health.py) that monitor the maintainers' own H100 CI cluster over an in-cluster Prometheus ClusterIP and reconcile GitHub issues under the ci-node-health label, plus unit tests and a pytest sub-step (pr-test-rust.yml lines 267\u2013268) inside an existing CI job. Nothing changes SMG gateway behavior, configuration, APIs, or metrics, and no contributor-facing CI job, required check, or change-detection rule described in src/lib/content/contributing/development.md (\"CI at a Glance\", lines 633\u2013646, documents jobs at a granularity that stays accurate). The monitor requires the project's private cluster and is already documented for its actual audience (cluster operators) in the in-repo scripts/k8s-runner-resources/README.md, which the workflow header itself cites as its docs; it is not material for the public SMG documentation.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

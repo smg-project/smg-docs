@@ -163,6 +163,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "85fd5be108c6e035ec84a65fe8444f2086bfb539": {
+      "plan": {
+        "decision": "documented",
+        "reason": "All user-facing behaviors from this commit are already covered in current docs and verified against current source. Source: model_gateway/src/routers/http/router.rs lines 280\u2013300 (select_realtime_worker with require_realtime_capable: true, WorkerType::Regular, ConnectionMode::Http) and model_gateway/src/routers/common/worker_selection.rs lines 123, 155\u2013158 (realtime-label gate) confirm the behavior is live. Docs: src/lib/content/getting-started/multiple-workers.md lines 186\u2013209 document the \"Realtime-capable workers\" label gate (\"Only workers labeled `realtime: \\\"true\\\"` receive realtime traffic, so SMG never proxies a realtime connection to a worker that can't serve it\") with the registration example and the no-label batch-transcription note; src/lib/content/reference/api/openai.md lines 504\u2013539 document Realtime API support on both the OpenAI and HTTP routers, the full endpoint table (WS /v1/realtime, WebRTC /v1/realtime/calls, sessions/client_secrets/transcription_sessions), the required model query parameter, and a WebSocket example (Audio Transcriptions is documented at lines 470\u2013500); src/lib/content/reference/api/admin.md line 338 documents the well-known `realtime` label requiring the exact string \"true\"; src/lib/content/reference/metrics.md lines 289\u2013294 document the metrics labels the commit introduced for HTTP-router realtime traffic (router_type=http, backend_type=regular, connection_mode websocket/webrtc, realtime* endpoint labels); concepts/architecture/overview.md lines 36 and 241 document least-loaded placement for realtime sessions. No gaps or inaccuracies found.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

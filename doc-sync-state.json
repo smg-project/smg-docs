@@ -92,6 +92,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "3a9630d316a60c1aa7a0775b4280a2a1ece02ab5": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit only reschedules internal CI benchmark workflows: nightly-bfcl now runs Mon/Wed/Fri and nightly-tau2 Tue/Thu/Sat (verified in current .github/workflows/nightly-tau2.yml lines 20\u201331, cron \"17 7 * * 2,4,6\"), and the tau2 pull_request sanity trigger is commented out. These are informational, non-merge-gating benchmark A/B runs (the workflow header states \"Informational/non-blocking \u2014 never a merge gate\"). They affect no gateway runtime behavior, configuration, or API. The published docs never mention these workflows: searches for \"BFCL\" and \"tau2\" in docs return nothing, and the CI documentation in src/lib/content/contributing/development.md (\"CI at a Glance\", lines 633\u2013646) covers only PR-gating and advisory jobs, not nightly benchmark schedules. The \"nightly\" references in docs concern nightly rustfmt and nightly container tags, unrelated to this change. Nothing in existing docs is contradicted and no user-facing behavior changed.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

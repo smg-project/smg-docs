@@ -286,6 +286,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "2041fb027e30a57b7194ee6974b6cb5ace6005fe": {
+      "plan": {
+        "decision": "documented",
+        "reason": "The commit's user-facing behavior \u2014 on gRPC workers, reasoning_effort \"none\"/\"minimal\" disables thinking (writes the template thinking toggle false) unless an explicit chat_template_kwargs toggle overrides it, and the reasoning parser follows the same decision \u2014 persists in current source in evolved form: crates/protocols/src/chat.rs:416-433 (thinking_from_reasoning_effort maps \"none\"/\"minimal\" to Some(false), levels defer) and model_gateway/src/routers/grpc/utils/parsers.rs:225-242 (resolve_thinking_pref: explicit toggle wins, reasoning_effort mapping is fallback). It is concretely documented: reference/api/openai.md lines 188\u2013197 state \"SMG decides whether the model starts in reasoning mode from the first of these that applies: 1. an explicit thinking toggle in chat_template_kwargs; ... 4. the effective effort, where `none` and `minimal` turn thinking off. ... The template and the reasoning parser use the same decision.\" concepts/architecture/grpc-pipeline.md lines 175\u2013177 state \"a `reasoning_effort` of \\\"none\\\" or \\\"minimal\\\" means off. SMG writes the preference under the key the template actually reads: `enable_thinking` (Qwen3, GLM, Nemotron), `thinking` (DeepSeek, Kimi)... A value you pass for that key in chat_template_kwargs wins\" and \"the reasoning parser follows the same decision.\" The docs reflect the current, more precise per-template key selection that superseded the commit's set-both-keys approach; no correction needed.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

@@ -407,6 +407,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "52cdaaa93c6a5b4ab0f9e87c995074ae7bc78258": {
+      "plan": {
+        "decision": "documented",
+        "reason": "The governance model introduced by this commit is present in the current source (GOVERNANCE.md lines 1\u201375; CONTRIBUTING.md line 10 links it) and is already fully covered on the published contributing page. src/lib/content/contributing/index.md has a dedicated \"Governance\" section (lines 198\u2013210) that links GOVERNANCE.md, cites the Minimum Viable Governance framework, tabulates the three roles (contributors, code owners, core maintainers as the default `*` CODEOWNERS owners), and describes lazy consensus, core-maintainer decision-making for significant changes, and the contributor \u2192 code owner \u2192 core maintainer path landing as a CODEOWNERS-updating PR \u2014 matching GOVERNANCE.md's content. Related governance details are also documented: security reporting (index.md lines 220\u2013222) and significant-change proposals (line 155/209). The docs intentionally point to CODEOWNERS/GOVERNANCE.md by link rather than listing individual maintainer names (lines 205\u2013206), so the @key4ng CODEOWNERS addition requires no docs change. No remaining user-facing gap.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

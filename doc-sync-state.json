@@ -278,6 +278,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "8b4857ccdd5543f377dc9385bc9a118429f53cae": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit only pins dependency versions in two pyproject.toml files, both verified present in current source: (1) a build-system cap grpcio-tools>=1.81.1,<1.82 in crates/grpc_client/python/pyproject.toml lines 1-7, which affects only CI/source builds of the smg-grpc-proto wheel and changes nothing about installed-package behavior; (2) transformers<5.13 added to the smg-grpc-servicer [mlx] extra in grpc_servicer/pyproject.toml line 49, which pip resolves automatically to avoid a broken transformers 5.13 import in mlx-lm. Current docs were read directly: getting-started/grpc-workers.md line 42 and getting-started/index.md line 350 document `pip install \"smg-grpc-servicer[mlx]\"` with no version pins, and no docs page lists build requirements or transitive dependency constraints (docs searches for transformers/grpcio-tools return nothing). The pins keep the documented install workflows working exactly as written, so there is no user-facing behavior change to document or correct.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

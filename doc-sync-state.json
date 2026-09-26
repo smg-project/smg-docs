@@ -391,6 +391,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "bce5c1fa9cd5f9029cf711295d7504a14a5ec53e": {
+      "plan": {
+        "decision": "documented",
+        "reason": "The commit is an internal performance refactor of Qwen vision preprocessing (rayon scoped tasks replacing std::thread::scope, direct RGB patchify, identity-axis resize skip) whose outputs are asserted bit-identical to the prior path by the commit's own tests and new HuggingFace golden fingerprints (crates/multimodal/tests/qwen_preprocess_golden.rs). The only behavioral change is the smart_resize_video beta calculation (crates/multimodal/src/vision/processors/qwen_vl_base.rs, test_smart_resize_video_matches_hf_actual_frame_beta), an edge-case HuggingFace-parity bugfix that makes video resizing conform to the reference processor. The current docs already state this contract: src/lib/content/concepts/architecture/multimodal.md says SMG \"preprocesses it the way the model's reference processor does\" (line 7) and that \"Frame size [is] Set by the model's processor\" (Frame Sampling table), and the Performance section already documents that Qwen-VL-pipeline processors \"split the images across cores ... and video clips run in parallel\" (line 287). No configuration flag, API field, default, limit, or error code changed, so no doc edit is needed.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

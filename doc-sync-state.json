@@ -302,6 +302,87 @@
         "concerns": []
       },
       "items": []
+    },
+    "584db9286d730589c8196c458e1f3e8c6eabd39e": {
+      "plan": {
+        "decision": "concerns",
+        "reason": "The commit introduces three distinct user-facing behaviors that all persist in current code and are absent from current docs: (1) `/v1/models` `owned_by: nvidia` is now recognized as a local SGLang-runtime backend during worker auto-detection; (2) local HTTP workers get their model identity (served_model_name, model_path) discovered from `/v1/models` when SGLang metadata endpoints are unavailable; (3) the HTTP proxy strips SGLang extension fields carrying default values before forwarding requests to local HTTP workers. Each is documented nowhere in the current docs inventory and each targets an existing page.",
+        "concerns": [
+          {
+            "slug": "worker-detection-nvidia-owned-by",
+            "area": "reference",
+            "title": "docs(reference): document `owned_by: nvidia` auto-detection as a local SGLang-runtime worker",
+            "concern": "An OpenAI-compatible HTTP server whose `/v1/models` reports `owned_by: \"nvidia\"` is now auto-classified as a local worker and its runtime is detected as `sglang` (instead of the server being treated as unrecognized/generic) when `runtime_type` is left unspecified.",
+            "evidence": "model_gateway/src/workflow/steps/classify.rs:29 currently reads `const LOCAL_OWNED_BY: &[&str] = &[\"sglang\", \"vllm\", \"trtllm\", \"nvidia\"];` and lines 61-65 classify a matching `owned_by` as Local; model_gateway/src/workflow/steps/local/detect_backend.rs:122 maps `Some(\"sglang\" | \"nvidia\") => ModelsProbe::Detected(\"sglang\".to_string())`. The current `runtime_type` docs row (src/lib/content/reference/api/admin.md line 310) says only that `unspecified` \"detects the engine: over HTTP from `/v1/models`, `/version`, and `/server_info`, registering an unidentified OpenAI-compatible server as `generic`\" and never mentions that `owned_by: nvidia` is recognized and mapped to the `sglang` runtime.",
+            "doc_paths": [
+              "src/lib/content/reference/api/admin.md"
+            ]
+          },
+          {
+            "slug": "http-model-id-discovery-v1-models",
+            "area": "getting-started",
+            "title": "docs(getting-started): document model ID discovery from `/v1/models` for local HTTP workers",
+            "concern": "During registration of a local HTTP worker on the SGLang metadata path, the gateway now also reads `/v1/models` and fills the `served_model_name` label from the first model's `id` and the `model_path` label from its `root` when the SGLang-specific endpoints (`/get_server_info`, `/get_model_info`) did not supply them, so a compatible frontend without those endpoints still gets its model identity discovered automatically.",
+            "evidence": "model_gateway/src/workflow/steps/local/discover_metadata.rs lines 195-216 currently fetch `{base}/v1/models` and insert `served_model_name` from `m.id` and `model_path` from `m.root` via `labels.entry(...).or_insert_with(...)`, with the comment \"/v1/models gives us model identity and max_model_len when a compatible local frontend does not expose the SGLang-specific metadata endpoints.\" The current docs passage (src/lib/content/getting-started/rl-control-plane.md line 190) says only \"For an HTTP SGLang worker it reads `tp_size`, `version`, `weight_version`, and more from `/server_info`\", and src/lib/content/reference/api/admin.md line 318 describes the model-ID fallback labels without mentioning that `/v1/models` populates them.",
+            "doc_paths": [
+              "src/lib/content/getting-started/rl-control-plane.md",
+              "src/lib/content/reference/api/admin.md"
+            ]
+          },
+          {
+            "slug": "http-strip-default-sglang-fields",
+            "area": "reference",
+            "title": "docs(reference): document stripping of default-valued SGLang extension fields before HTTP forwarding",
+            "concern": "The HTTP proxy now removes SGLang extension fields from a request body before forwarding it to a local HTTP worker when they carry their default value: any listed field that is `null` or `false` is dropped, and `separate_reasoning`/`stream_reasoning` are additionally dropped when `true` (their default), so backends that reject unknown fields no longer see harmless defaults.",
+            "evidence": "crates/external_router/src/sglang_fields.rs lines 44-57 define `strip_default_sglang_fields`, which removes a `SGLANG_FIELDS` entry (e.g. `top_k`, `continue_final_message`, `return_hidden_states`) whose value `is_null() || value == false || (matches!(*field, \"separate_reasoning\" | \"stream_reasoning\") && value == true)`; model_gateway/src/routers/http/request_body.rs applies it to every outbound local-HTTP body (line 77 `body.strip_default_sglang_fields();` and line 102 `strip_default_sglang_fields(&mut json_val);`). The current Extension Fields section (src/lib/content/reference/api/openai.md lines 112-138) lists these fields and says \"Fields SMG does not model are kept and forwarded unchanged to HTTP workers\" but never mentions that default-valued extension fields are stripped before forwarding.",
+            "doc_paths": [
+              "src/lib/content/reference/api/openai.md"
+            ]
+          }
+        ]
+      },
+      "items": [
+        {
+          "concern": {
+            "slug": "worker-detection-nvidia-owned-by",
+            "area": "reference",
+            "title": "docs(reference): document `owned_by: nvidia` auto-detection as a local SGLang-runtime worker",
+            "concern": "An OpenAI-compatible HTTP server whose `/v1/models` reports `owned_by: \"nvidia\"` is now auto-classified as a local worker and its runtime is detected as `sglang` (instead of the server being treated as unrecognized/generic) when `runtime_type` is left unspecified.",
+            "evidence": "model_gateway/src/workflow/steps/classify.rs:29 currently reads `const LOCAL_OWNED_BY: &[&str] = &[\"sglang\", \"vllm\", \"trtllm\", \"nvidia\"];` and lines 61-65 classify a matching `owned_by` as Local; model_gateway/src/workflow/steps/local/detect_backend.rs:122 maps `Some(\"sglang\" | \"nvidia\") => ModelsProbe::Detected(\"sglang\".to_string())`. The current `runtime_type` docs row (src/lib/content/reference/api/admin.md line 310) says only that `unspecified` \"detects the engine: over HTTP from `/v1/models`, `/version`, and `/server_info`, registering an unidentified OpenAI-compatible server as `generic`\" and never mentions that `owned_by: nvidia` is recognized and mapped to the `sglang` runtime.",
+            "doc_paths": [
+              "src/lib/content/reference/api/admin.md"
+            ]
+          },
+          "status": "pending"
+        },
+        {
+          "concern": {
+            "slug": "http-model-id-discovery-v1-models",
+            "area": "getting-started",
+            "title": "docs(getting-started): document model ID discovery from `/v1/models` for local HTTP workers",
+            "concern": "During registration of a local HTTP worker on the SGLang metadata path, the gateway now also reads `/v1/models` and fills the `served_model_name` label from the first model's `id` and the `model_path` label from its `root` when the SGLang-specific endpoints (`/get_server_info`, `/get_model_info`) did not supply them, so a compatible frontend without those endpoints still gets its model identity discovered automatically.",
+            "evidence": "model_gateway/src/workflow/steps/local/discover_metadata.rs lines 195-216 currently fetch `{base}/v1/models` and insert `served_model_name` from `m.id` and `model_path` from `m.root` via `labels.entry(...).or_insert_with(...)`, with the comment \"/v1/models gives us model identity and max_model_len when a compatible local frontend does not expose the SGLang-specific metadata endpoints.\" The current docs passage (src/lib/content/getting-started/rl-control-plane.md line 190) says only \"For an HTTP SGLang worker it reads `tp_size`, `version`, `weight_version`, and more from `/server_info`\", and src/lib/content/reference/api/admin.md line 318 describes the model-ID fallback labels without mentioning that `/v1/models` populates them.",
+            "doc_paths": [
+              "src/lib/content/getting-started/rl-control-plane.md",
+              "src/lib/content/reference/api/admin.md"
+            ]
+          },
+          "status": "pending"
+        },
+        {
+          "concern": {
+            "slug": "http-strip-default-sglang-fields",
+            "area": "reference",
+            "title": "docs(reference): document stripping of default-valued SGLang extension fields before HTTP forwarding",
+            "concern": "The HTTP proxy now removes SGLang extension fields from a request body before forwarding it to a local HTTP worker when they carry their default value: any listed field that is `null` or `false` is dropped, and `separate_reasoning`/`stream_reasoning` are additionally dropped when `true` (their default), so backends that reject unknown fields no longer see harmless defaults.",
+            "evidence": "crates/external_router/src/sglang_fields.rs lines 44-57 define `strip_default_sglang_fields`, which removes a `SGLANG_FIELDS` entry (e.g. `top_k`, `continue_final_message`, `return_hidden_states`) whose value `is_null() || value == false || (matches!(*field, \"separate_reasoning\" | \"stream_reasoning\") && value == true)`; model_gateway/src/routers/http/request_body.rs applies it to every outbound local-HTTP body (line 77 `body.strip_default_sglang_fields();` and line 102 `strip_default_sglang_fields(&mut json_val);`). The current Extension Fields section (src/lib/content/reference/api/openai.md lines 112-138) lists these fields and says \"Fields SMG does not model are kept and forwarded unchanged to HTTP workers\" but never mentions that default-valued extension fields are stripped before forwarding.",
+            "doc_paths": [
+              "src/lib/content/reference/api/openai.md"
+            ]
+          },
+          "status": "pending"
+        }
+      ]
     }
   }
 }

@@ -270,6 +270,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "1cb3236c37e7fdebb10f094efb0ab5e768eee64c": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit is a defect fix in the PD HTTP streaming relay, verified in current source (model_gateway/src/routers/http/pd_router.rs lines 1561\u20131568 and fn chunk_contains_done_event at line 1828): the stream terminator is now detected only as a line-anchored, delimiter-complete `data: [DONE]` SSE event, and merge_streaming_logprobs skips only an exact `[DONE]` sentinel instead of any payload containing that substring. Previously, payload text containing the bytes `data: [DONE]` (e.g., inside tool-call arguments) falsely terminated a live stream. The fix introduces no new configuration, API field, metric, or behavioral contract \u2014 it makes the code conform to the SSE contract the current docs already state (src/lib/content/reference/api/openai.md lines 301/308 show streams ending with a standalone `data: [DONE]` event), and no existing page (including concepts/routing/pd-disaggregation.md's \"Failures, Cancellation, and Streaming\" section, lines 140\u2013147) describes the old buggy substring detection, so there is no incorrect passage to fix and nothing new for users to configure or observe beyond bug-free behavior.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

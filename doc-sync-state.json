@@ -294,6 +294,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "de328f37124c53420709306201341266c747ef0b": {
+      "plan": {
+        "decision": "documented",
+        "reason": "The commit is an internal refactor whose user-facing effects are all described in current docs. Verified in current source: thinking_from_reasoning_effort (crates/protocols/src/chat.rs:416-433) still maps reasoning_effort \"none\"/\"minimal\" to thinking off and defers otherwise; ChatTemplateParams.thinking (crates/tokenizer/src/chat_template.rs:521) still injects the preference under the template's own detected toggle key with explicit chat_template_kwargs winning; the gateway still projects reasoning_effort / Anthropic ThinkingConfig through it (model_gateway/src/routers/grpc/utils/chat_utils.rs:269-274), now extended by later commits (thinking.type, effective effort) that the docs already reflect. Verified doc passages: grpc-pipeline.md:174-177 (\"SMG writes the preference under the key the template actually reads: enable_thinking (Qwen3, GLM, Nemotron), thinking (DeepSeek, Kimi)... A value you pass for that key in chat_template_kwargs wins\"; \"the reasoning parser follows the same decision\"), grpc-pipeline.md:162-164 (DeepSeek V3.2/V4 renderers \"thinking (default off)\" \u2014 covering the derive_thinking_mode fallback), openai.md:188-197 (the thinking decision precedence including none/minimal turning thinking off and the parser using the same decision), and messages.md:316 (ThinkingConfig enabled/adaptive on, disabled off, absent = template default). The Go bindings signature change is not a documented product surface, and its observable effect (reasoning detection following the unified decision) is covered by the same passages.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

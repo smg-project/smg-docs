@@ -383,6 +383,14 @@
           "status": "pending"
         }
       ]
+    },
+    "8797bfd8584998afde8f544c43e848124bef034e": {
+      "plan": {
+        "decision": "not_user_facing",
+        "reason": "The commit is a pure internal performance/robustness optimization of TokenSpeed multimodal encoder-input assembly with no change to any user-visible surface. Verified against current source (changes persist, refactored into model_gateway/src/routers/grpc/multimodal/assemble.rs lines 156-202 and model_gateway/src/routers/grpc/proto_wrapper.rs lines 795-851) and current docs. What changed: (1) SHM segments are written via mmap with fallocate/set_len reservation instead of a BufWriter; (2) f32\u2192bf16/f16 conversion is parallelized with rayon; (3) assembly runs in tokio::task::spawn_blocking with a PendingTokenSpeedAssembly drop guard that unlinks /dev/shm files if the request future is cancelled mid-assembly; (4) encoder-input slices are borrowed ArrayViewD views instead of owned copies; (5) new internal crate dependencies (memmap2, rayon, rustix). None of this alters the documented contract: transport mode selection (inline/shm/auto/rdma), the --multimodal-shm-min-bytes threshold, fallback to inline on SHM write failure counted in smg_mm_shm_write_failures_total, encoder dtype selection, and the serialized wire format (little-endian bytes in logical row-major order, confirmed by the commit's own equivalence tests) all remain exactly as described in src/lib/content/concepts/architecture/multimodal.md (Tensor Transport section, lines 293-325) and src/lib/content/reference/configuration.md (line 289). No new flags, env vars, metrics, error codes, or API fields were introduced, so there is nothing for users or operators to configure or observe differently.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

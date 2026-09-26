@@ -262,6 +262,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "8155b1fd2c6aeece7ce39d1dd2a523d91d1c684a": {
+      "plan": {
+        "decision": "documented",
+        "reason": "Every user-facing behavior in commit 8155b1fd is already covered by current docs, verified against current source. (1) The engine-specific HTTP load path (vLLM/SGLang scraped from Prometheus /metrics when no native load route answers) exists in model_gateway/src/worker/monitor.rs (fetch_http_load dispatch, lines 646\u2013705, 744\u2013795) and is documented in concepts/reliability/overload-protection.md lines 95\u201399 (\"HTTP vLLM or SGLang without a native route | GET /metrics | ... KV usage from vllm:kv_cache_usage_perc (vllm:gpu_cache_usage_perc on older vLLM) or SGLang token_usage (sglang: or sglang_ prefix). A scrape without the KV usage gauge counts as no report.\"), concepts/routing/load-balancing.md line 93 (\"falling back to the engine's Prometheus /metrics (SGLang, vLLM) when that route does not answer\"), and concepts/routing/cache-aware.md line 228. (2) The metric-name variants and the KV-usage-gauge requirement are matched verbatim by the same overload-protection passage. (3) The manager.rs change gating the /get_loads workers[].load scalar to -1 is superseded: WorkerLoadInfo no longer exists in current source and /get_loads is a deprecated alias of /loads; reference/api/admin.md line 800 documents the v1.11.0 response-shape change and line 790 documents that num_used_tokens/max_total_num_tokens are 0 for workers read from Prometheus /metrics. (4) The DP-rank cache gating on has_absolute_token_data (monitor.rs lines 1109\u20131124) is an internal correctness fix preventing ratio-only snapshots from collapsing DP routing onto rank 0; docs make no contrary claim and load-balancing.md line 265 already notes metrics-scraped engines report no token counts. No doc edit is needed.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

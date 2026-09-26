@@ -399,6 +399,14 @@
         "concerns": []
       },
       "items": []
+    },
+    "b7a84fe40659c3ba459d0673daee6a222d25e604": {
+      "plan": {
+        "decision": "documented",
+        "reason": "All user-facing behaviors from this commit are already covered by current docs, and the rest is internal. (1) The adaptive decoder-thread allocation was superseded in current source by a generalized version (crates/multimodal/src/media.rs:1281-1290, adaptive_decoder_threads applied to both OpenCV and ffmpeg decodes), and that current behavior is documented in src/lib/content/concepts/architecture/multimodal.md line 205: \"Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer threads as more run at once (smg-project/smg#2583).\" (2) The decode-backend selection and fallback chain (media.rs:701-769) still matches multimodal.md line 197 (\"Builds with the opencv-video feature decode with OpenCV first and fall back to ffmpeg\") and the documented SMG_VIDEO_DECODE_BACKEND values auto/opencv/ffmpeg in reference/configuration.md line 341. (3) The buffered in-memory OpenCV capture, sequential-grab frame advancement, and direct-to-RGB output buffer are internal performance optimizations with bit-exact output and no new configuration surface; the tempfile path remains as a fallback. (4) The sample_fps finiteness check is defensive; the user-facing video_url.fps override is already documented as constrained to 0.2-5.0 (multimodal.md line 211). (5) Build dependencies for opencv-video (system OpenCV headers, pkg-config, clang) are already documented in contributing/development.md line 302 and installed by make opencv-deps; OPENCV_INCLUDE_PATHS is only a niche build-time override. (6) New smg_mm_timing event names fall under the non-exhaustive event categories in getting-started/logging.md lines 190-195, which never enumerated fallback events.",
+        "concerns": []
+      },
+      "items": []
     }
   }
 }

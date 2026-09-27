@@ -36,6 +36,14 @@ def source_git(*args):
     return git("-C", os.environ["SOURCE_ROOT"], *args)
 
 
+def source_patch(sha):
+    """Decode Git patch evidence as UTF-8, replacing invalid source-file bytes."""
+    raw = subprocess.check_output([
+        "git", "-c", "core.hooksPath=/dev/null", "-C", os.environ["SOURCE_ROOT"],
+        "show", "--first-parent", "--no-ext-diff", "--no-textconv", sha])
+    return raw.decode("utf-8", errors="replace").strip()
+
+
 def mutate_git(*args):
     subprocess.run(["git", "-c", "core.hooksPath=/dev/null", *args], check=True)
 
@@ -142,8 +150,7 @@ def prepare(repo, output):
     sources.mkdir(exist_ok=True)
     for line in history.splitlines():
         sha = line.split()[0]
-        patch = source_git("show", "--first-parent", "--no-ext-diff", "--no-textconv", sha)
-        (sources / f"{sha}.patch").write_text(patch + "\n")
+        (sources / f"{sha}.patch").write_text(source_patch(sha) + "\n", encoding="utf-8")
     prs = existing_prs(repo)
     requested = int(os.environ.get("MAX_PRS", "100"))
     if not 1 <= requested <= MAX_PRS:
@@ -359,8 +366,8 @@ def main():
         if args.command == "evidence":
             path = Path(os.environ["NIGHTLY_ITEM"])
             path.write_text(json.dumps(item) + "\n")
-            patch = source_git("show", "--first-parent", "--no-ext-diff", "--no-textconv", item["source_sha"])
-            path.with_name("nightly-docs-source.patch").write_text(patch + "\n")
+            path.with_name("nightly-docs-source.patch").write_text(
+                source_patch(item["source_sha"]) + "\n", encoding="utf-8")
         elif args.command in ("check", "import"):
             if args.command == "import":
                 changed = import_bundle(item, base, Path(os.environ["BUNDLE_PATH"]).read_text())

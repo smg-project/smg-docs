@@ -284,6 +284,33 @@ class GitGuardTests(unittest.TestCase):
             patch_file = Path(context["source_diffs"]) / f"{source}.patch"
             self.assertIn("+package example", patch_file.read_text())
 
+    def test_context_and_selected_evidence_tolerate_non_utf8_source(self):
+        Path("fixture.txt").write_bytes(b"caf\xe9\nUTF-8: caf\xc3\xa9\n")
+        self.git("add", "fixture.txt")
+        self.git("commit", "-qm", "Add mixed-encoding source fixture")
+        source = self.git("rev-parse", "HEAD")
+        raw = subprocess.check_output([
+            "git", "show", "--first-parent", "--no-ext-diff", "--no-textconv", source])
+        with self.assertRaises(UnicodeDecodeError):
+            raw.decode("utf-8")
+        for command in ("context", "evidence"):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                env = {"SOURCE_ROOT": os.getcwd(), "GITHUB_REPOSITORY": "test/repo",
+                       "NIGHTLY_CONTEXT": str(root / "context.json"), "MAX_PRS": "100",
+                       "NIGHTLY_ITEM": str(root / "item.json"), "BASE_SHA": self.base,
+                       "ITEM_JSON": json.dumps(proposal(source_sha=source))}
+                with patch.dict(os.environ, env), \
+                        patch("sys.argv", ["nightly_docs.py", command]), \
+                        patch.object(docs, "existing_prs", return_value=[]):
+                    docs.main()
+                output = (root / "nightly-docs-sources" / f"{source}.patch"
+                          if command == "context" else root / "nightly-docs-source.patch")
+                text = output.read_text(encoding="utf-8")
+                self.assertEqual(text, raw.decode("utf-8", errors="replace").strip() + "\n")
+                self.assertIn("+caf\ufffd\n", text)
+                self.assertIn("+UTF-8: caf\u00e9\n", text)
+
     def test_bundle_cannot_replace_guard_or_install_git_hook(self):
         for path in ["scripts/doc-sync/nightly_docs.py", ".git/hooks/pre-push",
                      ".git/config", docs.DOC_ROOT + "../../../../.git/config"]:

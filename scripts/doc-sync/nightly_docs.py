@@ -299,7 +299,7 @@ def publish(item, repo, base, base_branch):
         # The publisher, rather than the model, owns commit metadata and DCO.
         git("config", "user.name", "XinyueZhang369")
         git("config", "user.email", "zoeyzhang369@gmail.com")
-        message = f'[Docs] Update {item["concern"]}'[:52]
+        message = f'docs: update {item["concern"]}'[:72]
         mutate_git("commit", "-s", "-m", message)
         mutate_git("push", "origin", f"HEAD:refs/heads/{branch}")
     body = f'''{MARKER}{item["key"]} -->
@@ -331,7 +331,7 @@ Scope: **{item["area"]} / {item["concern"]}**. Other concerns are deferred.
         f.write(body)
         f.flush()
         url = run("gh", "pr", "create", "--repo", repo, "--base", base_branch,
-                  "--head", branch, "--title", item["title"], "--body-file", f.name, "--draft")
+                  "--head", branch, "--title", "docs: " + item["title"][7:], "--body-file", f.name, "--draft")
     print(url)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:

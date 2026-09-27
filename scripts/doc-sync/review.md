@@ -24,3 +24,10 @@ The primary source-commit patch must actually introduce or change the documented
 behavior. Reject a proposal attributed to an older merely related commit, even
 if its description of current main happens to be true. Verify release caveats
 against the pinned source's tags/version evidence, not chronology alone.
+
+Check both sides of historical behavior claims: an old bug may affect only
+nondefault configurations. Trace middleware ordering and early returns before
+accepting claims about every request. Confirm that user-facing configuration
+validation permits a feature, even when an internal setter or test supports it.
+Name the introducing source change for unreleased fixes instead of implying
+every build newer than a tag includes them. Existing docs are not proof.

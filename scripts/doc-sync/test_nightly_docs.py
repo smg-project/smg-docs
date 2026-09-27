@@ -350,6 +350,9 @@ class GitGuardTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn("https://github.com/smg-project/smg/commit/", calls[0][1])
         self.assertIn("--draft", calls[0][0])
+        self.assertEqual(calls[0][0][calls[0][0].index("--title") + 1],
+                         "docs: " + self.item["title"][7:])
+        self.assertTrue(self.git("log", "-1", "--format=%s").startswith("docs: "))
         self.assertIn(self.item["key"], calls[0][1])
         self.assertIn(self.item["source_sha"], calls[0][1])
 

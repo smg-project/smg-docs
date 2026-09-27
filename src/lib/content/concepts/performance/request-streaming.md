@@ -158,6 +158,24 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 - **No Nagle delay.** `TCP_NODELAY` is set on accepted plain-HTTP client connections, so small SSE events go out immediately instead of waiting for earlier data to be acknowledged. Connections to workers set `TCP_NODELAY` too.
 - **Load accounting.** A streaming response keeps its worker's in-flight load count until the body finishes or the client disconnects, so load-aware policies see the request for its whole duration.
 
+### Delta Re-Slicing for MiniMax Models
+
+Engines emit streamed chat completions one token per SSE event, and tool-call arguments in one piece. MiniMax's provider contract instead bounds the size of every streamed delta: almost none may be shorter than 5 or longer than 200 characters. Since v1.11.0, SMG meets that contract by re-slicing the deltas of chat completion streams for MiniMax models, so clients of those models receive multi-character text slices rather than the worker's per-token events. Concatenating the delta fields yields exactly the worker's text; only the event boundaries change.
+
+The regular HTTP relay re-slices a response when all of the following hold; every other stream is relayed as the worker sent it:
+
+- The route is `/v1/chat/completions` and the parsed request asked for a streaming response. A [streamed request body](#how-the-router-decides) is never parsed, so its response always relays verbatim.
+- The model name the client sent has a `/`-separated segment starting with `minimax` or `abab` (case-insensitive). The check runs before alias resolution, so an alias with a different name that resolves to a MiniMax model is not re-sliced.
+- The worker answered with `Content-Type: text/event-stream`.
+
+The gRPC router encodes chat completion SSE frames itself and re-slices its outbound stream for MiniMax models the same way. The HTTP PD relay and every other response path forward deltas as they came.
+
+**How slices are cut.** The relay buffers the text of the `reasoning_content`, `reasoning`, and `content` delta fields and of tool-call `arguments`, each separately. Buffered text leaves either as slices of at most 160 characters, cut once at least 80 characters are buffered, or as a flush of everything pending once the worker has sent nothing for 250 ms, so a slow generation still comes out token by token between upstream pauses. A cut never leaves a tail shorter than 5 characters; only a delta that is tiny in total produces a tiny event. Synthesized events reuse the envelope (`id`, `model`, `created`, and so on) of the latest upstream event, and only the stream's first `role` is forwarded. Because re-slicing changes the body length, the relayed response carries no `Content-Length` header.
+
+**Order is preserved.** Buffered text is flushed before anything that must stay in sequence goes out: `finish_reason` and `usage` follow the text they close, a tool call's `id` and `name` precede its `arguments`, and `logprobs` stay attached to the event whose text they describe, which is forwarded whole.
+
+**What passes through.** Only single-choice chat streams are re-sliced. Comments and keep-alives and malformed frames are forwarded as they came, and delta fields SMG does not merge stay in their events, in order. An event with more than one choice, anything after `data: [DONE]`, and an unterminated frame longer than 1 MiB switch the rest of the stream to verbatim forwarding. If the upstream fails mid-stream, buffered text is emitted before the error ends the body.
+
 ---
 
 ## Upstream Connections

@@ -93,6 +93,7 @@ jobs:
           name: nightly-docs-context
           path: ${{ runner.temp }}/nightly-docs-context
           if-no-files-found: error
+          overwrite: true
           retention-days: 2
 
   discover:
@@ -156,6 +157,7 @@ jobs:
           name: nightly-docs-scan-${{ matrix.shard }}
           path: ${{ runner.temp }}/nightly-docs-scan-${{ matrix.shard }}.json
           if-no-files-found: error
+          overwrite: true
           retention-days: 2
 
   plan:
@@ -206,6 +208,7 @@ jobs:
           name: nightly-docs-discovery-report
           path: ${{ runner.temp }}/nightly-docs-discovery-report.json
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   write:

@@ -13,7 +13,9 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    repositories' default-branch snapshots, check/build the base docs, and collect
    source patches and existing PRs.
 2. **Discover:** eight subsystem scans, at most four in parallel, inspect history,
-   current implementation/tests, and current documentation. Each has 100 Claude
+   current implementation/tests, and current documentation. Each sees the full
+   source index with subsystem priority IDs, so cross-cutting changes can be
+   attributed to their actual commit. Each has 100 Claude
    turns and reports inspected commits, proposals, and remaining work.
 3. **Plan:** round-robin the scans, validate source IDs, remove duplicates, defer
    overlapping pages, and allocate the remaining daily PR slots.

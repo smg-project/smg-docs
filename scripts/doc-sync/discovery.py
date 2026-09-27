@@ -99,7 +99,7 @@ def combine(scans, context):
     for slug, scan in by_slug.items():
         if scan["base_sha"] != context["base_sha"]:
             raise ValueError("Discovery baseline mismatch")
-        validate_scan(json.dumps(scan), context, slug, assignments[slug])
+        validate_scan(json.dumps(scan), context, slug, context["code_history"])
     selected, occupied, keys, identities, questions, deferred = [], set(), set(), set(), set(), []
     # Round robin prevents the first large subsystem from consuming the cap.
     for row in zip_longest(*(by_slug[slug]["concerns"] for slug in expected)):
@@ -130,6 +130,19 @@ def combine(scans, context):
     return selected, deferred
 
 
+def scan_context(context, slug, assignments):
+    # Path ownership is a prioritization hint, not a source-attribution boundary.
+    # Cross-cutting wiring (e.g. app_context.rs enabling MCP config) can introduce
+    # subsystem behavior without touching that subsystem's directory.
+    focus = next(focus for name, focus, _ in SHARDS if name == slug)
+    primary = {line.split()[0] for line in assignments[slug]}
+    history = context["code_history"]
+    return {**context, "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
+            "focus_commit_ids": [i for i, line in enumerate(history, 1) if line.split()[0] in primary],
+            "shard": slug, "focus": focus,
+            "scan_responsibilities": {name: focus for name, focus, _ in SHARDS}}
+
+
 def main():
     command = sys.argv[1]
     root = Path(os.environ["RUNNER_TEMP"]) / "nightly-docs-context"
@@ -144,19 +157,16 @@ def main():
     elif command == "context":
         slug = os.environ["SHARD"]
         assignments = json.loads((root / "assignments.json").read_text())
-        focus = next(focus for name, focus, _ in SHARDS if name == slug)
-        context.update(code_history=[f"{i}: {line}" for i, line in enumerate(assignments[slug], 1)],
-                       shard=slug, focus=focus,
-                       scan_responsibilities={name: focus for name, focus, _ in SHARDS})
-        Path(os.environ["NIGHTLY_CONTEXT"]).write_text(json.dumps(context, indent=2))
+        scoped = scan_context(context, slug, assignments)
+        Path(os.environ["NIGHTLY_CONTEXT"]).write_text(json.dumps(scoped, indent=2))
     elif command == "scan":
         slug = os.environ["SHARD"]
         assignments = json.loads((root / "assignments.json").read_text())
-        raw = resolve_scan(os.environ["PLAN_JSON"], assignments[slug])
-        scan = validate_scan(raw, context, slug, assignments[slug])
+        raw = resolve_scan(os.environ["PLAN_JSON"], context["code_history"])
+        scan = validate_scan(raw, context, slug, context["code_history"])
         Path(os.environ["SCAN_OUTPUT"]).write_text(json.dumps(scan))
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-            summary.write(f"{slug}: {len(assignments[slug])} eligible commits; "
+            summary.write(f"{slug}: {len(assignments[slug])} priority commits; "
                           f"{len(scan['inspected_commits'])} self-reported inspected; "
                           f"{len(scan['concerns'])} proposed concerns.\n")
     elif command == "combine":
@@ -172,7 +182,7 @@ def main():
             output.write(f"count={len(selected)}\n")
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write(f"Selected {len(selected)} independent concerns; deferred {len(deferred)}.\n\n")
-            summary.write("| Scan | Eligible commits | Reported inspected | Proposals |\n| --- | ---: | ---: | ---: |\n")
+            summary.write("| Scan | Priority commits | Reported inspected | Proposals |\n| --- | ---: | ---: | ---: |\n")
             assignments = partition(context)
             for scan in scans:
                 summary.write(f"| {scan['shard']} | {len(assignments[scan['shard']])} | "

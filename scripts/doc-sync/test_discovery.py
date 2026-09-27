@@ -59,6 +59,22 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([item['concern'] for item in selected[:8]], [f'concern-{n}-0' for n in range(8)])
         self.assertTrue(all(reason == 'UTC daily/run PR cap' for _, reason in deferred))
 
+    def test_cross_cutting_commit_uses_global_id_outside_priority_paths(self):
+        slug = self.scans[0]['shard']
+        self.assignments[slug] = self.history[:1]
+        scoped = discovery.scan_context(self.context, slug, self.assignments)
+        self.assertEqual(scoped['focus_commit_ids'], [1])
+        self.assertEqual(scoped['code_history'][1], '2: ' + self.history[1])
+        item = proposal(source_sha='b' * 40)
+        self.scans[0].update(inspected_commits=['b' * 40], concerns=[item])
+        selected, _ = self.combine()
+        self.assertEqual(selected[0]['source_sha'], 'b' * 40)
+        del item['source_sha']
+        item['source_commit'] = 2
+        raw = json.dumps({'concerns': [item], 'inspected_commits': [2], 'remaining_work': 'Done'})
+        self.assertEqual(json.loads(discovery.resolve_scan(raw, self.history))['concerns'][0]['source_sha'],
+                         'b' * 40)
+
     def test_remaining_daily_slots_limit_parallel_publish_matrix(self):
         self.context["max_prs"] = 2
         for n, scan in enumerate(self.scans):

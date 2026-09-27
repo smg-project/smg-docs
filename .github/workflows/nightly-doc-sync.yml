@@ -54,7 +54,14 @@ jobs:
           else
             echo "sha=$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")" >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./.github/actions/nightly-docs-setup
+      # Keep the composite action available for post-job cleanup even when
+      # the dispatched branch introduces it before it exists on main.
+      - name: Preserve the workflow-revision setup action
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
         id: setup
         with:
           docs-sha: ${{ steps.baseline.outputs.sha }}
@@ -106,7 +113,14 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/nightly-docs-setup
+      # Keep the composite action available for post-job cleanup even when
+      # the dispatched branch introduces it before it exists on main.
+      - name: Preserve the workflow-revision setup action
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base_sha }}
           source-ref: ${{ needs.prepare.outputs.source_sha }}
@@ -161,7 +175,14 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/nightly-docs-setup
+      # Keep the composite action available for post-job cleanup even when
+      # the dispatched branch introduces it before it exists on main.
+      - name: Preserve the workflow-revision setup action
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base_sha }}
           source-ref: ${{ needs.prepare.outputs.source_sha }}
@@ -213,7 +234,14 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/nightly-docs-setup
+      # Keep the composite action available for post-job cleanup even when
+      # the dispatched branch introduces it before it exists on main.
+      - name: Preserve the workflow-revision setup action
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.plan.outputs.base_sha }}
           source-ref: ${{ needs.plan.outputs.source_sha }}
@@ -274,7 +302,14 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/nightly-docs-setup
+      # Keep the composite action available for post-job cleanup even when
+      # the dispatched branch introduces it before it exists on main.
+      - name: Preserve the workflow-revision setup action
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.plan.outputs.base_sha }}
           source-ref: ${{ needs.plan.outputs.source_sha }}

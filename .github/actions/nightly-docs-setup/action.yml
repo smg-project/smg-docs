@@ -52,11 +52,10 @@ runs:
         fetch-depth: 0
         persist-credentials: false
         path: .nightly-source
-    - name: Place source outside the documentation tree
+    - name: Pin the separate source checkout
       id: source
       shell: bash
       run: |
-        export SOURCE_ROOT="$RUNNER_TEMP/smg-source"
+        export SOURCE_ROOT="$GITHUB_WORKSPACE/.nightly-source"
         echo "SOURCE_ROOT=$SOURCE_ROOT" >> "$GITHUB_ENV"
-        mv .nightly-source "$SOURCE_ROOT"
         echo "sha=$(git -C "$SOURCE_ROOT" rev-parse HEAD)" >> "$GITHUB_OUTPUT"

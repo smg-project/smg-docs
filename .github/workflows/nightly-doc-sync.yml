@@ -2,121 +2,357 @@ name: Nightly SMG Documentation Sync
 
 on:
   schedule:
-    - cron: '43 9 * * *' # 09:43 UTC daily; off the top-of-hour scheduling peak.
+    - cron: '43 9 * * *' # 09:43 UTC daily
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Audit and validate without creating branches, PRs, or ledger state
+        description: Validate proposals without creating branches or PRs
         type: boolean
         default: true
-      max_commits:
-        description: Maximum source commits to audit (0 = entire pending backlog within runtime budget)
-        type: number
-        default: 0
       max_prs:
-        description: Maximum separate concern PRs this run (1–100; daily cap also applies)
+        description: Maximum PRs this run (1-100; shared UTC daily cap also applies)
         type: number
         default: 100
 
 permissions:
   contents: read
+  pull-requests: read
 
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+# Serialize the entire run, including publication. A retry must not race another
+# planner over the same gaps. Every run rechecks live PRs before publishing.
 concurrency:
   group: nightly-smg-doc-sync
   cancel-in-progress: false
 
 jobs:
-  sync:
-    if: github.repository == 'smg-project/smg-docs'
-    # Claude Fable access uses the API credential provided by this runner set.
+  prepare:
+    if: github.repository == 'smg-project/smg-docs' && (github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: smg-org-runner-cpu
-    timeout-minutes: 90
-    permissions:
-      contents: write
-      pull-requests: write
+    timeout-minutes: 45
+    outputs:
+      scans: ${{ steps.partition.outputs.matrix }}
+      base_sha: ${{ steps.baseline.outputs.sha }}
+      source_sha: ${{ steps.setup.outputs.source-sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout automation from the dispatched ref
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
-          persist-credentials: false
-          path: automation
-
-      - name: Checkout documentation
-        uses: actions/checkout@v7
-        with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-          path: docs
-
-      - name: Checkout current SMG source and history
-        uses: actions/checkout@v7
+      - name: Pin the default-branch documentation baseline
+        id: baseline
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./.github/actions/nightly-docs-setup
+        id: setup
         with:
-          repository: smg-project/smg
-          ref: main
-          fetch-depth: 0
-          persist-credentials: false
-          path: source
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
+          docs-sha: ${{ steps.baseline.outputs.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-          run_install: false
-          package_json_file: docs/package.json
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: '22'
           cache: pnpm
-          cache-dependency-path: docs/pnpm-lock.yaml
-
-      - name: Install documentation dependencies
-        working-directory: docs
+      - name: Check and build the documentation site
         run: |
           pnpm install --frozen-lockfile
           pnpm exec wrangler types
-
-      - name: Check automation
-        working-directory: automation
-        run: python -m unittest discover -s scripts/doc-sync -p 'test_*.py' -v
-
-      - name: Verify runner-provided API key
-        shell: bash
-        run: |
-          if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-            echo '::error::ANTHROPIC_API_KEY is missing from the runner pod environment'
-            exit 1
-          fi
-          echo "::add-mask::${ANTHROPIC_API_KEY}"
-
-      - name: Audit and open one draft PR per concern
-        working-directory: docs
+          pnpm check
+          pnpm build
+      - name: Gather code history and existing documentation PRs
         env:
-          # An optional bot token can trigger PR CI. Otherwise the publisher runs
-          # type checks and a production build itself before every PR creation.
-          GH_TOKEN: ${{ secrets.DOC_SYNC_TOKEN || github.token }}
-          DOC_SYNC_TOKEN_KIND: ${{ secrets.DOC_SYNC_TOKEN && 'DOC_SYNC_TOKEN' || 'GITHUB_TOKEN' }}
-          DOC_SYNC_REPORT: ${{ runner.temp }}/doc-sync-report.json
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-          MAX_COMMITS: ${{ inputs.max_commits || 0 }}
           MAX_PRS: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.max_prs) || '100' }}
-        shell: bash
+          NIGHTLY_CONTEXT: ${{ runner.temp }}/nightly-docs-context/context.json
         run: |
-          args=(--source ../source --max-commits "$MAX_COMMITS" --max-prs "$MAX_PRS")
-          if [[ "$DRY_RUN" == 'true' ]]; then
-            args+=(--dry-run)
-          fi
-          python -u ../automation/scripts/doc-sync/sync.py "${args[@]}"
-
-      - name: Preserve audit, deferred work, and dry-run patches
-        if: always()
-        uses: actions/upload-artifact@v4
+          mkdir -p "$RUNNER_TEMP/nightly-docs-context"
+          python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" context
+      - name: Partition discovery by subsystem
+        id: partition
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/discovery.py" partition
+      - uses: actions/upload-artifact@v4
         with:
-          name: smg-doc-sync-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/doc-sync-report.json
-          if-no-files-found: warn
-          retention-days: 30
+          name: nightly-docs-context
+          path: ${{ runner.temp }}/nightly-docs-context
+          if-no-files-found: error
+          retention-days: 2
+
+  discover:
+    needs: prepare
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.scans) }}
+    name: 'Discover: ${{ matrix.shard }}'
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/nightly-docs-setup
+        with:
+          docs-sha: ${{ needs.prepare.outputs.base_sha }}
+          source-ref: ${{ needs.prepare.outputs.source_sha }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: nightly-docs-context
+          path: ${{ runner.temp }}/nightly-docs-context
+      - name: Prepare this subsystem's discovery context
+        env:
+          NIGHTLY_CONTEXT: ${{ runner.temp }}/nightly-docs-scan-context.json
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/discovery.py" context
+      - name: Identify separate documentation concerns
+        id: discover
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: Read and follow ${{ runner.temp }}/nightly-docs-tools/plan.md. The context file is ${{ runner.temp }}/nightly-docs-scan-context.json.
+          claude_args: >-
+            --model claude-fable-5
+            --effort xhigh
+            --max-turns 100
+            --tools "Read,Glob,Grep"
+            --allowedTools "Read,Glob,Grep"
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"concerns":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"properties":{"area":{"type":"string"},"concern":{"type":"string"},"source_commit":{"type":"integer","minimum":1},"title":{"type":"string"},"question":{"type":"string"},"evidence":{"type":"string"},"doc_paths":{"type":"array","minItems":1,"items":{"type":"string"}}},"required":["area","concern","source_commit","title","question","evidence","doc_paths"]}},"inspected_commits":{"type":"array","items":{"type":"integer","minimum":1}},"remaining_work":{"type":"string"}},"required":["concerns","inspected_commits","remaining_work"]}'
+      - name: Validate and record scan coverage
+        env:
+          PLAN_JSON: ${{ steps.discover.outputs.structured_output }}
+          SCAN_OUTPUT: ${{ runner.temp }}/nightly-docs-scan-${{ matrix.shard }}.json
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/discovery.py" scan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-docs-scan-${{ matrix.shard }}
+          path: ${{ runner.temp }}/nightly-docs-scan-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 2
+
+  plan:
+    needs: [prepare, discover]
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+      base_sha: ${{ needs.prepare.outputs.base_sha }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/nightly-docs-setup
+        with:
+          docs-sha: ${{ needs.prepare.outputs.base_sha }}
+          source-ref: ${{ needs.prepare.outputs.source_sha }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: nightly-docs-context
+          path: ${{ runner.temp }}/nightly-docs-context
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: nightly-docs-scan-*
+          path: ${{ runner.temp }}/nightly-docs-scans
+          merge-multiple: true
+      - name: Combine scans and defer duplicate or conflicting concerns
+        id: plan
+        env:
+          SCAN_DIR: ${{ runner.temp }}/nightly-docs-scans
+          REPORT_OUTPUT: ${{ runner.temp }}/nightly-docs-discovery-report.json
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/discovery.py" combine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-docs-discovery-report
+          path: ${{ runner.temp }}/nightly-docs-discovery-report.json
+          if-no-files-found: error
+          retention-days: 14
+
+  write:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: read
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: 'Document: ${{ matrix.concern }}'
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASE_SHA: ${{ needs.plan.outputs.base_sha }}
+      BASE_BRANCH: ${{ github.event.repository.default_branch }}
+      ITEM_JSON: ${{ toJSON(matrix) }}
+    steps:
+      # Load automation from the immutable workflow revision, then the setup
+      # action switches to the same clean default-branch snapshot for all jobs.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/nightly-docs-setup
+        with:
+          docs-sha: ${{ needs.plan.outputs.base_sha }}
+          source-ref: ${{ needs.plan.outputs.source_sha }}
+      - name: Save the single concern
+        env:
+          NIGHTLY_ITEM: ${{ runner.temp }}/nightly-docs-item.json
+        run: |
+          python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" evidence
+      - name: Update documentation for this concern only
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: Read and follow ${{ runner.temp }}/nightly-docs-tools/write.md. NIGHTLY_ITEM is ${{ runner.temp }}/nightly-docs-item.json; the source commit diff is ${{ runner.temp }}/nightly-docs-source.patch.
+          claude_args: >-
+            --model claude-fable-5
+            --effort xhigh
+            --max-turns 120
+            --tools "Read,Glob,Grep,Edit,Write"
+            --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Export untrusted documentation data
+        env:
+          BUNDLE_PATH: ${{ runner.temp }}/nightly-docs-bundle.json
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" export
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-docs-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/nightly-docs-bundle.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 2
+
+  publish:
+    needs: [plan, write]
+    # Successful writers can publish even when another matrix item fails.
+    if: always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.count != '0'
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: 'Validate and publish: ${{ matrix.concern }}'
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASE_SHA: ${{ needs.plan.outputs.base_sha }}
+      BASE_BRANCH: ${{ github.event.repository.default_branch }}
+      ITEM_JSON: ${{ toJSON(matrix) }}
+    steps:
+      # Only data crosses the job boundary. No writer scripts, Git metadata,
+      # hooks, config, or review verdicts are reused in this privileged job.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/nightly-docs-setup
+        with:
+          docs-sha: ${{ needs.plan.outputs.base_sha }}
+          source-ref: ${{ needs.plan.outputs.source_sha }}
+      - name: Find this concern's artifact
+        id: artifact
+        env:
+          ARTIFACT_NAME: nightly-docs-${{ strategy.job-index }}
+        run: |
+          ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" --paginate \
+            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\" and .expired == false) | .id")
+          if [ -n "$ids" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "Writer produced no artifact for this concern; no PR created." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/download-artifact@v5
+        if: steps.artifact.outputs.found == 'true'
+        with:
+          name: nightly-docs-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/nightly-docs-incoming
+      - name: Validate and import documentation data with pristine guards
+        if: steps.artifact.outputs.found == 'true'
+        id: scope
+        env:
+          BUNDLE_PATH: ${{ runner.temp }}/nightly-docs-incoming/nightly-docs-bundle.json
+          NIGHTLY_ITEM: ${{ runner.temp }}/nightly-docs-item.json
+        run: |
+          python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" evidence
+          python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" import
+          git -c core.hooksPath=/dev/null diff --cached --no-ext-diff --no-textconv > "$RUNNER_TEMP/nightly-docs-review.patch"
+      - name: Independently review accuracy and scope
+        if: steps.scope.outputs.changed == 'true'
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: Read and follow ${{ runner.temp }}/nightly-docs-tools/review.md. NIGHTLY_ITEM is ${{ runner.temp }}/nightly-docs-item.json. Read ${{ runner.temp }}/nightly-docs-review.patch and ${{ runner.temp }}/nightly-docs-source.patch.
+          claude_args: >-
+            --model claude-fable-5
+            --effort xhigh
+            --max-turns 120
+            --tools "Read,Glob,Grep"
+            --allowedTools "Read,Glob,Grep"
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"single_concern":{"type":"boolean"},"accurate":{"type":"boolean"},"reason":{"type":"string"}},"required":["single_concern","accurate","reason"]}'
+      - name: Record the review decision
+        if: steps.scope.outputs.changed == 'true'
+        id: verdict
+        env:
+          REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
+        run: |
+          python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" review
+      - uses: pnpm/action-setup@v4
+        if: steps.verdict.outputs.accepted == 'true'
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        if: steps.verdict.outputs.accepted == 'true'
+        with:
+          node-version: '22'
+          cache: pnpm
+      - name: Check and build the documentation site
+        if: steps.verdict.outputs.accepted == 'true'
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec wrangler types
+          pnpm check
+          pnpm build
+      - name: Publish one documentation PR
+        if: steps.verdict.outputs.accepted == 'true'
+        env:
+          REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          GH_TOKEN: ${{ secrets.DOC_SYNC_TOKEN || github.token }}
+        run: |
+          gh auth setup-git
+          python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" publish
+      - name: No-op summary
+        if: steps.scope.outputs.changed == 'false'
+        run: echo "No supported documentation change remained for this concern; no PR created." >> "$GITHUB_STEP_SUMMARY"

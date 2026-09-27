@@ -1,0 +1,62 @@
+name: Set up nightly documentation tools
+description: Prepare Python, gh, and the runner-provided Anthropic key
+inputs:
+  docs-sha:
+    description: Immutable docs default-branch commit to document
+    required: true
+  source-ref:
+    description: Immutable SMG source commit (main only for initial snapshot)
+    default: main
+outputs:
+  source-sha:
+    description: Pinned SMG source revision
+    value: ${{ steps.source.outputs.sha }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - name: Export API key from pod environment
+      shell: bash
+      run: |
+        : "${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in the smg-org-runner-cpu pod environment}"
+        echo "::add-mask::${ANTHROPIC_API_KEY}"
+        echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" >> "$GITHUB_ENV"
+    - name: Install gh CLI if needed
+      shell: bash
+      run: |
+        if ! command -v gh &>/dev/null; then
+          case "$(uname -m)" in
+            x86_64) arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "Unsupported runner architecture" >&2; exit 1 ;;
+          esac
+          version=2.74.0
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${version}/gh_${version}_linux_${arch}.tar.gz" \
+            | tar xz --strip-components=2 -C "$HOME/.local/bin" "gh_${version}_linux_${arch}/bin/gh"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        fi
+    - name: Preserve workflow tools and check out documentation source
+      shell: bash
+      env:
+        SOURCE_SHA: ${{ inputs.docs-sha }}
+      run: |
+        python3 -m unittest discover -s scripts/doc-sync -p 'test_*.py' -q
+        python3 scripts/doc-sync/prepare_source.py "$SOURCE_SHA" "$RUNNER_TEMP/nightly-docs-tools"
+    - uses: actions/checkout@v7
+      with:
+        repository: smg-project/smg
+        ref: ${{ inputs.source-ref }}
+        fetch-depth: 0
+        persist-credentials: false
+        path: .nightly-source
+    - name: Place source outside the documentation tree
+      id: source
+      shell: bash
+      run: |
+        export SOURCE_ROOT="$RUNNER_TEMP/smg-source"
+        echo "SOURCE_ROOT=$SOURCE_ROOT" >> "$GITHUB_ENV"
+        mv .nightly-source "$SOURCE_ROOT"
+        echo "sha=$(git -C "$SOURCE_ROOT" rev-parse HEAD)" >> "$GITHUB_OUTPUT"

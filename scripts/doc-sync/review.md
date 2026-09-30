@@ -41,3 +41,6 @@ accepting claims about every request. Confirm that user-facing configuration
 validation permits a feature, even when an internal setter or test supports it.
 Name the introducing source change for unreleased fixes instead of implying
 every build newer than a tag includes them. Existing docs are not proof.
+Review the entire edited claim, including wording retained from the old page.
+Check disabling flags and early returns before accepting absolute claims such as
+"every request"; unchanged words inside a rewritten claim can still make it false.

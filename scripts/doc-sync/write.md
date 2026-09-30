@@ -22,6 +22,10 @@ Use concrete source-backed defaults and examples. Distinguish released behavior
 from unreleased behavior on main when relevant. Never invent test results.
 Verify API verbs, RBAC requirements, and success guarantees by following the
 implementation into its helpers; help text and comments alone are not proof.
+Revalidate the entire claim you edit, including text retained from the old page.
+Check disabling flags, early returns, and fallback paths before retaining words
+like "every", "always", or "never". Qualify historical claims against pre-existing
+failure handling; a newly added safeguard does not prove older versions had none.
 Do not describe reported status as convergence or attribution unless verified.
 Do not edit generated API reference docs, code, workflows, site configuration,
 lockfiles, or the automation's own instructions. Do not delete existing files.

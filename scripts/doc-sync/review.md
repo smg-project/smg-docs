@@ -5,7 +5,17 @@ Finish evidence gathering within 60 turns, reserving the rest of the 120-turn
 budget for the structured verdict. Batch related source reads. If accuracy
 remains uncertain, reject and explain the uncertainty.
 
-Return JSON with single_concern (boolean), accurate (boolean), and reason (text).
+Return JSON with single_concern, accurate, placement_appropriate, and
+related_docs_consistent (booleans), and reason (text).
+Set placement_appropriate=true only after reading placement.examined_pages and
+verifying the existing canonical section is corrected or extended as needed.
+Reject an unnecessary new page even when its content is accurate; check that
+new_page_reason explains why the existing pages cannot reasonably host it.
+Set related_docs_consistent=true only after searching the docs for this concern's
+fields, commands, defaults, and old claims. The patch must reconcile contradictory
+claims on related pages, not just add a correct page while leaving stale text.
+If a necessary page is missing from the plan or blocked by another PR, reject the
+incomplete fix. One concern may legitimately require many existing pages.
 Set single_concern=true ONLY when EVERY substantive edit serves the single
 planned user question or stale claim. Shared subsystem, source commit, or doc
 page is NOT sufficient to justify bundling independent concerns.

@@ -16,7 +16,10 @@ def proposal(**changes):
             "title": "[Docs] Explain rollout wait timeout", "question": "How long does rollout wait?",
             "evidence": "pkg/controller: timeout default differs from the guide.",
             "doc_paths": [docs.DOC_ROOT + "tasks/rollouts.md"]}
-    return {**item, **changes}
+    item.update(changes)
+    item.setdefault("placement", {"examined_pages": item["doc_paths"][:],
+                                 "canonical_pages": item["doc_paths"][:], "new_page_reason": ""})
+    return item
 
 
 def pr(item, state="open", **changes):
@@ -31,7 +34,10 @@ class PlanningTests(unittest.TestCase):
                 "existing_prs": prs or []}
 
     def plan(self, items, context=None):
-        return docs.plan(json.dumps({"concerns": items}), context or self.context())
+        context = context or self.context()
+        context.setdefault("doc_inventory", [{"path": path} for item in items
+                                             for path in item["placement"]["examined_pages"]])
+        return docs.plan(json.dumps({"concerns": items}), context)
 
     def test_old_backlog_is_eligible_and_key_is_stable(self):
         first = self.plan([proposal()])[0]
@@ -53,7 +59,8 @@ class PlanningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output, summary = Path(directory) / "output", Path(directory) / "summary"
             raw = json.dumps({"single_concern": True, "accurate": False,
-                              "reason": "Incorrect <verb> claim"})
+                              "reason": "Incorrect <verb> claim", "placement_appropriate": True,
+                              "related_docs_consistent": True})
             with patch.dict(os.environ, {"GITHUB_OUTPUT": str(output),
                                          "GITHUB_STEP_SUMMARY": str(summary)}):
                 docs.record_review(raw)
@@ -129,7 +136,7 @@ class PlanningTests(unittest.TestCase):
                       {"single_concern": "true", "accurate": True}]:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 docs.review_passes(json.dumps(value))
-        docs.review_passes('{"single_concern":true,"accurate":true,"reason":"verified"}')
+        docs.review_passes('{"single_concern":true,"accurate":true,"placement_appropriate":true,"related_docs_consistent":true,"reason":"verified"}')
 
 
 class DailyLimitTests(unittest.TestCase):
@@ -186,6 +193,7 @@ class GitGuardTests(unittest.TestCase):
         new = self.path.parent / "example.md"
         new.write_text("A related example.\n")
         self.item["doc_paths"].append(str(new))
+        self.item["placement"]["new_page_reason"] = "A separate worked example accompanies the corrected reference."
         self.assertTrue(docs.validate_diff(self.item, self.base))
         self.assertEqual(set(self.git("diff", "--cached", "--name-only").splitlines()),
                          {str(self.path), str(new)})
@@ -196,7 +204,9 @@ class GitGuardTests(unittest.TestCase):
             path = self.path.parent / f"related-{i}.md"
             path.write_text("Related documentation.\n")
             paths.append(str(path))
-        item = docs.validate_item(proposal(source_sha=self.base, doc_paths=paths))
+        item = docs.validate_item(proposal(source_sha=self.base, doc_paths=paths,
+            placement={"examined_pages": [str(self.path)], "canonical_pages": [],
+                       "new_page_reason": "Related examples requiring dedicated reference entries."}))
         self.assertTrue(docs.validate_diff(item, self.base))
         self.assertEqual(len(self.git("diff", "--cached", "--name-only").splitlines()), 20)
 

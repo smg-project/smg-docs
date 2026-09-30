@@ -12,13 +12,16 @@ from test_nightly_docs import proposal
 class DiscoveryTests(unittest.TestCase):
     def setUp(self):
         self.history = ['a' * 40 + ' old change', 'b' * 40 + ' new change']
-        self.context = {'base_sha': 'c' * 40, 'source_sha': 'd' * 40, 'code_history': self.history, 'existing_prs': []}
+        self.context = {'base_sha': 'c' * 40, 'source_sha': 'd' * 40, 'code_history': self.history, 'existing_prs': [], 'doc_inventory': [{'path': p} for p in proposal()['doc_paths']]}
         self.assignments = {slug: self.history for slug, _, _ in discovery.SHARDS}
         self.scans = [{'shard': slug, 'base_sha': self.context['base_sha'], 'concerns': [],
                        'inspected_commits': [], 'remaining_work': 'No more supported candidates.'}
                       for slug, _, _ in discovery.SHARDS]
 
     def combine(self):
+        self.context['doc_inventory'] = [{'path': path} for scan in self.scans
+                                        for item in scan['concerns']
+                                        for path in item['placement']['examined_pages']]
         with patch.object(discovery, 'partition', return_value=self.assignments):
             return discovery.combine(self.scans, self.context)
 

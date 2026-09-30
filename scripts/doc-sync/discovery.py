@@ -90,8 +90,17 @@ def validate_scan(raw, context, slug, history):
             "inspected_commits": inspected, "remaining_work": result["remaining_work"]}
 
 
+def scan_names(context):
+    """Select all scans by default, or one explicitly requested validation scan."""
+    names = [slug for slug, _, _ in SHARDS]
+    requested = context.get("discovery_shard", "")
+    if requested and requested not in names:
+        raise ValueError("Unknown discovery shard")
+    return [requested] if requested else names
+
+
 def combine(scans, context):
-    expected = [slug for slug, _, _ in SHARDS]
+    expected = scan_names(context)
     by_slug = {scan["shard"]: scan for scan in scans}
     if len(by_slug) != len(scans) or set(by_slug) != set(expected):
         raise ValueError("Missing or duplicate discovery scans")
@@ -153,7 +162,7 @@ def main():
         assignments = partition(context)
         (root / "assignments.json").write_text(json.dumps(assignments))
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-            output.write("matrix=" + json.dumps({"include": [{"shard": slug} for slug, _, _ in SHARDS]}) + "\n")
+            output.write("matrix=" + json.dumps({"include": [{"shard": slug} for slug in scan_names(context)]}) + "\n")
     elif command == "context":
         slug = os.environ["SHARD"]
         assignments = json.loads((root / "assignments.json").read_text())
@@ -175,7 +184,8 @@ def main():
         report = {"base_sha": context["base_sha"], "source_sha": context["source_sha"],
                   "initial_since": context["initial_since"], "available_pr_slots": context["max_prs"],
                   "eligible_commits": len(context["code_history"]), "scans": scans, "selected": selected,
-                  "deferred": deferred}
+                  "deferred": deferred, "discovery_shard": context.get("discovery_shard", ""),
+                  "dry_run": context.get("dry_run", False)}
         Path(os.environ["REPORT_OUTPUT"]).write_text(json.dumps(report, indent=2))
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
             output.write("matrix=" + json.dumps({"include": selected}) + "\n")

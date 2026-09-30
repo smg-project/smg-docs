@@ -22,6 +22,7 @@ MAX_LINES = 1000
 MAX_PRS = 100
 SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 MARKER = "<!-- nightly-docs:"
+REVIEW_GATES = ("single_concern", "accurate", "placement_appropriate", "related_docs_consistent")
 
 
 def run(*args):
@@ -57,6 +58,51 @@ def doc_path(path):
     p = PurePosixPath(path)
     return (isinstance(path, str) and path.startswith(DOC_ROOT) and path.endswith(".md")
             and ".." not in p.parts and str(p) == path and all(part not in (".git", ".github") for part in p.parts))
+
+
+def doc_inventory(base):
+    """Index existing Markdown pages from the pinned documentation revision."""
+    pages = []
+    for entry in git("ls-tree", "-r", "-z", base, "--", DOC_ROOT).split("\0"):
+        if not entry:
+            continue
+        metadata, path = entry.split("\t", 1)
+        if not metadata.startswith("100644 blob ") or not doc_path(path):
+            continue
+        content = git("show", f"{base}:{path}")
+        title = re.search(r"^title:\s*(.+)$", content, re.MULTILINE)
+        pages.append({"path": path, "title": title.group(1).strip("\"'") if title else path,
+                      "headings": re.findall(r"^#{1,6}\s+(.+)$", content, re.MULTILINE)})
+    return pages
+
+
+def validate_placement(item, pages):
+    """Require examined existing pages, complete planned corrections, and new-page reasons."""
+    known = {page["path"] for page in pages}
+    decision = item.get("placement")
+    if not isinstance(decision, dict):
+        raise ValueError("Missing documentation placement decision")
+    for key in ("examined_pages", "canonical_pages"):
+        paths = decision.get(key)
+        if (not isinstance(paths, list) or any(not isinstance(p, str) for p in paths)
+                or len(paths) != len(set(paths)) or not set(paths) <= known):
+            raise ValueError(f"Invalid placement {key}; use existing documentation pages")
+    if known and not decision["examined_pages"]:
+        raise ValueError("Inspect existing documentation before selecting pages")
+    canonical = set(decision["canonical_pages"])
+    planned_existing = set(item["doc_paths"]) & known
+    if canonical != planned_existing or not canonical <= set(decision["examined_pages"]):
+        raise ValueError("Canonical pages must be examined and all included in doc_paths")
+    reason = decision.get("new_page_reason")
+    if not isinstance(reason, str) or len(reason) > 4000:
+        raise ValueError("Invalid new-page justification")
+    if set(item["doc_paths"]) - known:
+        if not reason.strip():
+            raise ValueError("New pages require justification against the existing documentation")
+    elif not canonical:
+        raise ValueError("An existing-page update must identify its canonical pages")
+    elif reason.strip():
+        raise ValueError("New-page justification supplied without a new page")
 
 
 def validate_item(item):
@@ -159,7 +205,9 @@ def prepare(repo, output):
                "source_repo": SOURCE_REPO, "source_root": os.environ["SOURCE_ROOT"],
                "initial_since": INITIAL_SINCE, "max_prs": min(requested, daily_remaining(prs)),
                "code_history": history.splitlines(), "source_diffs": str(sources),
-               "existing_prs": prs}
+               "existing_prs": prs, "doc_inventory": doc_inventory("HEAD"),
+               "discovery_shard": os.environ.get("DISCOVERY_SHARD", ""),
+               "dry_run": os.environ.get("DRY_RUN") == "true"}
     Path(output).write_text(json.dumps(context, indent=2) + "\n")
 
 
@@ -175,6 +223,7 @@ def plan(raw, context):
         if not proposal["title"].startswith("[Docs] "):
             proposal = {**proposal, "title": "[Docs] " + proposal["title"]}
         item = validate_item(proposal)
+        validate_placement(item, context["doc_inventory"])
         if item["source_sha"] not in candidates:
             raise ValueError("Source commit is not in the supplied default-branch history")
         if item["key"] in keys or occupied.intersection(item["doc_paths"]):
@@ -189,6 +238,7 @@ def plan(raw, context):
 def validate_diff(item, base):
     if git("rev-parse", "HEAD") != base:
         raise ValueError("The writer must not commit or switch branches")
+    validate_placement(item, doc_inventory(base))
     # Include added files but never silently ignore edits outside the allowlist.
     changed = set(filter(None, git("diff", "--name-only", "HEAD").splitlines()))
     changed.update(filter(None, git("ls-files", "--others", "--exclude-standard").splitlines()))
@@ -196,6 +246,8 @@ def validate_diff(item, base):
         return False
     if not changed <= set(item["doc_paths"]):
         raise ValueError("Changes exceed the planned documentation file allowlist")
+    if not set(item["placement"]["canonical_pages"]) <= changed:
+        raise ValueError("The patch leaves a planned canonical-page correction unchanged")
     for path in changed:
         p = Path(path)
         if not p.is_file() or any(parent.is_symlink() for parent in (p, *p.parents)):
@@ -251,8 +303,7 @@ def import_bundle(item, base, raw):
 def review_verdict(raw):
     verdict = json.loads(raw)
     if (not isinstance(verdict, dict)
-            or type(verdict.get("single_concern")) is not bool
-            or type(verdict.get("accurate")) is not bool
+            or any(type(verdict.get(key)) is not bool for key in REVIEW_GATES)
             or not isinstance(verdict.get("reason"), str)
             or not verdict["reason"].strip() or len(verdict["reason"]) > 10000):
         raise ValueError("Malformed documentation review")
@@ -261,7 +312,7 @@ def review_verdict(raw):
 
 def record_review(raw):
     verdict = review_verdict(raw)
-    accepted = verdict["single_concern"] and verdict["accurate"]
+    accepted = all(verdict[key] for key in REVIEW_GATES)
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"accepted={str(accepted).lower()}\n")
     if not accepted:
@@ -272,7 +323,7 @@ def record_review(raw):
 
 def review_passes(raw):
     verdict = review_verdict(raw)
-    if verdict.get("single_concern") is not True or verdict.get("accurate") is not True:
+    if not all(verdict[key] for key in REVIEW_GATES):
         raise ValueError("Documentation review rejected the change: " + str(verdict.get("reason")))
 
 
@@ -289,9 +340,6 @@ def publish(item, repo, base, base_branch):
     if not validate_diff(item, base):
         print("No documentation gap to publish.")
         return
-    if os.environ.get("DRY_RUN") == "true":
-        print("Dry run: validated concern; no branch or PR created.")
-        return
     # Never overwrite an existing branch, even after a prior push/PR API failure.
     # In that case reuse it only if its exact tree and parent match this run.
     branch = item["branch"]
@@ -301,7 +349,10 @@ def publish(item, repo, base, base_branch):
         mutate_git("fetch", "origin", f"refs/heads/{branch}")
         if git("rev-parse", "FETCH_HEAD^{tree}") != tree or git("rev-parse", "FETCH_HEAD^") != base:
             raise ValueError(f"Existing branch {branch} differs; inspect it before retrying")
-    else:
+    if os.environ.get("DRY_RUN") == "true":
+        print("Dry run: validated concern and remote branch; no commit, push, or PR created.")
+        return
+    if not remote:
         mutate_git("switch", "-c", branch)
         # The publisher, rather than the model, owns commit metadata and DCO.
         git("config", "user.name", "XinyueZhang369")

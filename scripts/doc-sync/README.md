@@ -15,14 +15,16 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
 2. **Discover:** eight subsystem scans, at most four in parallel, inspect history,
    current implementation/tests, and current documentation. Each sees the full
    source index with subsystem priority IDs, so cross-cutting changes can be
-   attributed to their actual commit. Each has 100 Claude
+   attributed to their actual commit. Discovery receives existing page titles/headings and must identify every
+   canonical page needing correction, with justification for any new page.
+   Each has 100 Claude
    turns and reports inspected commits, proposals, and remaining work.
 3. **Plan:** round-robin the scans, validate source IDs, remove duplicates, defer
    overlapping pages, and allocate the remaining daily PR slots.
 4. **Write:** at most four independent writers, each with 120 turns, update only
    its concern's allowlisted Markdown files. Export documentation text as JSON.
 5. **Publish:** fresh jobs import only that text, reapply path/size guards, run an
-   independent read-only accuracy/scope review, run `pnpm check` and `pnpm build`,
+   independent read-only accuracy, scope, placement, and related-page consistency review, run `pnpm check` and `pnpm build`,
    and publish. Successful writers remain publishable if another writer fails.
 
 Every job in this workflow uses the CPU runner set. Separate PR CI jobs on
@@ -41,7 +43,10 @@ model calls.
 - Each PR must have **fewer than 1,000 added plus deleted lines** (999 maximum).
   There is **no page-count cap**. New Markdown pages are allowed under
   `src/lib/content/`; deletion, symlinks, executable files, code, and configuration
-  changes are rejected.
+  changes are rejected. A new page needs a documented reason why existing pages
+  cannot host the concern. Writers must change all planned canonical pages; an
+  incomplete correction is rejected. If an open PR blocks a necessary page,
+  defer the whole concern instead of creating a new page or omitting the correction.
 - **100 new PRs per UTC day**, shared by scheduled/manual runs and retries. The
   count includes merged/closed PRs and the previous pipeline's PRs. Planning
   allocates only remaining slots, the entire workflow is serialized across refs,
@@ -62,7 +67,8 @@ model calls.
 
 Dispatch `nightly-doc-sync.yml` on a working branch to test its automation against
 current main docs/source. `dry_run` defaults to true; set it to false to publish.
-`max_prs` accepts 1–100 and cannot override the shared daily cap. The old
+`discovery_shard` optionally selects one subsystem for a targeted validation run;
+omitting it runs all eight scans. `max_prs` accepts 1–100 and cannot override the shared daily cap. The old
 `max_commits` input is removed so the full initial window stays available.
 The optional `DOC_SYNC_TOKEN` is used only by the trusted publication step;
 otherwise `GITHUB_TOKEN` publishes. GitHub Actions must be allowed to create PRs.
@@ -71,10 +77,24 @@ performs its own type check and production build.
 
 The `nightly-docs-discovery-report` artifact records pinned revisions, eligible
 commits, per-scan coverage, selected concerns, and deferred work. Scan contexts and
-writer bundles are retained for two days; the discovery report for fourteen.
+writer bundles are retained for two days; publication validation artifacts
+retain the item, diff, and explicit four-gate review verdict for fourteen days.
+The discovery report is also retained for fourteen days and identifies targeted
+scans and dry runs.
 The old `automation/doc-sync-state` branch is retained as history and is no longer
 written. Eligibility comes from the fixed source window and live PR history, so
 legacy incomplete work remains discoverable.
+
+A dry run also checks an existing concern branch for conflicting content before
+stopping without commits, pushes, or PR creation. To test one subsystem:
+
+```sh
+gh workflow run nightly-doc-sync.yml --repo smg-project/smg-docs \
+  --ref codex/your-branch -f dry_run=true -f discovery_shard=grpc-multimodal -f max_prs=2
+```
+
+Require a useful existing-page diff, an accepted review, and a passing build to
+validate placement; an empty or rejected plan alone does not demonstrate a fix.
 
 Run guards locally with:
 

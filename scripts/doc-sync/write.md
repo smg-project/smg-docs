@@ -1,6 +1,11 @@
 Read repository guidance if present and the single concern JSON in NIGHTLY_ITEM.
 Read the supplied source-commit patch, current implementation and tests under SOURCE_ROOT, and docs in the working directory.
 Update ONLY the listed doc_paths to address exactly this one concern.
+Correct or extend all placement.canonical_pages before adding a justified new
+page. Search related docs for contradictory claims about the same concern.
+If a necessary correction is outside doc_paths, leave the tree unchanged and
+explain the missing path; do not publish a knowingly incomplete fix or add a
+separate page to avoid correcting existing text.
 Finish investigation and editing within 60 turns, leaving the rest of the
 120-turn budget for completing edits and concluding. Batch related source reads;
 do not spend the entire budget investigating adjacent implementation details.

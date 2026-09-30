@@ -44,3 +44,6 @@ every build newer than a tag includes them. Existing docs are not proof.
 Review the entire edited claim, including wording retained from the old page.
 Check disabling flags and early returns before accepting absolute claims such as
 "every request"; unchanged words inside a rewritten claim can still make it false.
+Distinguish an individual operation from the whole request when reviewing bypass,
+performance, and metrics claims; check secondary work (such as stop-string
+encoding) before accepting that a request cannot touch a cache or metric.

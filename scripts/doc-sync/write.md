@@ -26,6 +26,11 @@ Revalidate the entire claim you edit, including text retained from the old page.
 Check disabling flags, early returns, and fallback paths before retaining words
 like "every", "always", or "never". Qualify historical claims against pre-existing
 failure handling; a newly added safeguard does not prove older versions had none.
+Treat the discovery evidence as a hypothesis, not a verified description: read
+the complete relevant helpers and their callers, including secondary work.
+Scope bypass, performance, and metrics claims to the exact operation verified.
+For example, skipping prompt encoding's cache does not prove a whole request
+makes no cache lookups: incidental work such as stop-string encoding may use it.
 Do not describe reported status as convergence or attribution unless verified.
 Do not edit generated API reference docs, code, workflows, site configuration,
 lockfiles, or the automation's own instructions. Do not delete existing files.

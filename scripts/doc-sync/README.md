@@ -101,10 +101,11 @@ not replace the production queue. The requested cap is stored separately from
 remaining daily slots, so a production run with no quota left still preserves
 pending work.
 
-When discovery is incomplete, prior unselected concerns take priority over newly
+When discovery is incomplete or daily quota reduces the requested proposal budget,
+prior unselected concerns take priority over newly
 deferred concerns. Recorded PR instances and older pending copies of selected
 identities are removed; file-blocked concerns remain pending. Any excess keys are
-listed in `queue_overflow` and the job summary. Complete discovery may retire old
+listed in `queue_overflow` and the job summary. Complete discovery with its full requested budget may retire old
 concerns it no longer proposes. The queue is best-effort within artifact retention;
 the fixed source window keeps older unfinished work eligible after artifacts expire.
 Pending evidence is never directly published: discovery and publication revalidate

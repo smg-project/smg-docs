@@ -79,6 +79,15 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(report['queued_concerns'], prior)
         self.assertEqual(report['queue_overflow'], [docs.validate_item(deferred)['key']])
 
+    def test_complete_but_quota_limited_run_keeps_prior_unselected_work(self):
+        old = docs.validate_item(proposal())
+        for remaining in [0, 1]:
+            with self.subTest(remaining=remaining):
+                self.context.update(pending_concerns=[old], max_prs=remaining, requested_max_prs=100)
+                report = self.report(self.scans)
+                self.assertTrue(report['complete'])
+                self.assertEqual(report['queued_concerns'], [old])
+
     def test_full_scan_retires_pending_work_not_reproposed(self):
         self.context['pending_concerns'] = [docs.validate_item(proposal())]
         report = self.report(self.scans)

@@ -174,7 +174,10 @@ def build_report(scans, context):
     received = {scan['shard'] for scan in scans}
     missing = [name for name in expected if name not in received]
     queued = deferred_queue(scans, deferred, context['existing_prs'])
-    if missing:
+    # Daily quota can reduce each scan's proposal budget even when every scan
+    # succeeds. Such a run cannot retire prior work merely by omitting it.
+    quota_limited = context.get('max_prs', docs.MAX_PRS) < context.get('requested_max_prs', docs.MAX_PRS)
+    if missing or quota_limited:
         selected_ids = {(item['area'], item['concern']) for item in selected}
         prior = [item for item in context.get('pending_concerns', [])
                  if (item['area'], item['concern']) not in selected_ids]

@@ -21,7 +21,17 @@ Continue across those candidates: do not stop after a handful of easy findings
 while other promising candidates remain unexamined. Aim for broad coverage,
 not a quota of PRs; never invent gaps or lower accuracy to fill the cap.
 Finish evidence gathering within 80 turns and reserve the remaining budget for
-the structured plan. Return an empty concerns list when no supported gaps remain.
+the structured plan. The hard ceiling is 200 turns to absorb tool batches and
+final-output overhead; it is not a target for additional investigation. Stop
+investigating at the 80-turn target, return the supported concerns already found,
+and record unfinished candidates in remaining_work. Return an empty concerns
+list when no supported gaps remain.
+
+Revisit pending_concerns relevant to your subsystem before new candidates.
+These are retained evidence from earlier production plans, not permission to
+publish: recheck current source, documentation, placement, and existing PRs.
+Retire concerns that are no longer valid or already addressed; do not preserve
+stale claims merely because a previous scan proposed them.
 Every code_history line begins with an integer commit ID, then its full SHA.
 Use the integer ID for source_commit and inspected_commits; the workflow owns
 resolving IDs to exact hashes. Never retype a SHA in a structured source field.

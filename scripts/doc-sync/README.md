@@ -17,10 +17,14 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    source index with subsystem priority IDs, so cross-cutting changes can be
    attributed to their actual commit. Discovery receives existing page titles/headings and must identify every
    canonical page needing correction, with justification for any new page.
-   Each has 100 Claude
-   turns and reports inspected commits, proposals, and remaining work.
-3. **Plan:** round-robin the scans, validate source IDs, remove duplicates, defer
-   overlapping pages, and allocate the remaining daily PR slots.
+   Each has a 200-turn hard ceiling with an 80-turn investigation target,
+   reserving headroom for tool batches and structured output. Scans report
+   inspected commits, proposals, and remaining work.
+3. **Plan:** round-robin available validated scans, validate source IDs, remove
+   duplicates, defer overlapping pages, and allocate the remaining daily PR slots.
+   Failed scans do not suppress valid sibling results. A separate coverage job
+   fails on missing scans, so incomplete discovery remains visibly unsuccessful.
+   Unknown, duplicate, malformed, or wrong-baseline artifacts still fail planning.
 4. **Write:** at most four independent writers, each with 120 turns, update only
    its concern's allowlisted Markdown files. Export documentation text as JSON.
 5. **Publish:** fresh jobs import only that text, reapply path/size guards, run an
@@ -76,7 +80,10 @@ PRs created with `GITHUB_TOKEN` do not trigger ordinary PR CI, so publication
 performs its own type check and production build.
 
 The `nightly-docs-discovery-report` artifact records pinned revisions, eligible
-commits, per-scan coverage, selected concerns, and deferred work. Scan contexts and
+commits, per-scan coverage, selected concerns, and deferred work. It also records
+`expected_shards`, `missing_shards`, and `complete`; absent scans are never counted
+as empty successful inspections. With no scans, planning still writes a report,
+but no writer or publisher is scheduled. Scan contexts and
 writer bundles are retained for two days; publication validation artifacts
 retain the item, diff, and explicit four-gate review verdict for fourteen days.
 The discovery report is also retained for fourteen days and identifies targeted
@@ -84,6 +91,25 @@ scans and dry runs.
 The old `automation/doc-sync-state` branch is retained as history and is no longer
 written. Eligibility comes from the fixed source window and live PR history, so
 legacy incomplete work remains discoverable.
+
+Concerns blocked by page conflicts or quota are retained as `queued_concerns`
+(up to 100) for fresh evaluation. Recovery paginates default-branch reports from
+the last 14 days, accepting only attempts that requested all eight scans and the
+full 100-PR cap with publication enabled, for the same SMG source/history window.
+Partial production reports qualify; branch pilots, dry runs, and limited runs do
+not replace the production queue. The requested cap is stored separately from
+remaining daily slots, so a production run with no quota left still preserves
+pending work.
+
+When discovery is incomplete, prior unselected concerns take priority over newly
+deferred concerns. Recorded PR instances and older pending copies of selected
+identities are removed; file-blocked concerns remain pending. Any excess keys are
+listed in `queue_overflow` and the job summary. Complete discovery may retire old
+concerns it no longer proposes. The queue is best-effort within artifact retention;
+the fixed source window keeps older unfinished work eligible after artifacts expire.
+Pending evidence is never directly published: discovery and publication revalidate
+it against current code, docs, and PRs. The coverage check does not block otherwise
+valid writing, review, build, or publication jobs.
 
 A dry run also checks an existing concern branch for conflicting content before
 stopping without commits, pushes, or PR creation. To test one subsystem:

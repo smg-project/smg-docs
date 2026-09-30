@@ -203,7 +203,7 @@ def prepare(repo, output):
         raise ValueError("max_prs must be between 1 and 100")
     context = {"base_sha": git("rev-parse", "HEAD"), "source_sha": source_sha,
                "source_repo": SOURCE_REPO, "source_root": os.environ["SOURCE_ROOT"],
-               "initial_since": INITIAL_SINCE, "max_prs": min(requested, daily_remaining(prs)),
+               "initial_since": INITIAL_SINCE, "requested_max_prs": requested, "max_prs": min(requested, daily_remaining(prs)),
                "code_history": history.splitlines(), "source_diffs": str(sources),
                "existing_prs": prs, "doc_inventory": doc_inventory("HEAD"),
                "discovery_shard": os.environ.get("DISCOVERY_SHARD", ""),

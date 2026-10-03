@@ -58,7 +58,7 @@ SMG accepts media on these APIs:
 | API | Media input |
 |-----|-------------|
 | Chat Completions (`/v1/chat/completions`) | `image_url`, `video_url`, `audio_url`, and `input_audio` content parts in any non-assistant message |
-| Messages (`/v1/messages`) | `image` blocks with a `base64` or `url` source, in user messages |
+| Messages (`/v1/messages`) | `image` blocks with a `base64` or `url` source, in user messages — top-level blocks and blocks inside a `tool_result`, which enter the prompt at the result's position (smg-project/smg#2728; v1.11.0 silently drops a tool result's images) |
 | Responses (`/v1/responses`) | `input_image` content parts that carry an `image_url` |
 
 Media URLs can be `http://`, `https://`, or base64 `data:` URLs.

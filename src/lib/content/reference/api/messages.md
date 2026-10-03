@@ -179,7 +179,7 @@ A tool call comes back as a `tool_use` block, with `stop_reason` set to `tool_us
 }
 ```
 
-Return the result in the next `user` message as a `tool_result` block whose `tool_use_id` is the `id` of the call.
+Return the result in the next `user` message as a `tool_result` block whose `tool_use_id` is the `id` of the call. The result's `content` is a string or an array of `text`, `image`, `document`, and `search_result` blocks, so a tool that takes a screenshot can return it as an `image` block. [gRPC and ZMQ Workers](#grpc-and-zmq-workers) describes what a self-hosted model sees of such a result.
 
 ---
 
@@ -308,7 +308,7 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 
 | Request field | Handling |
 |---------------|----------|
-| `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `system`-role message inside `messages` keeps its position. Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
+| `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `tool_result` block becomes a tool message carrying the result's text; `image` blocks inside the result join the user turn at the result's position, in block order, so the model sees a returned screenshot like a user-sent image (smg-project/smg#2728; v1.11.0 silently drops a tool result's images on this path, while the text still arrives). `document` and `search_result` blocks inside a result are dropped. A `system`-role message inside `messages` keeps its position. Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
 | `max_tokens`, `temperature`, `top_p`, `top_k` | Sent to the engine as sampling parameters. |
 | `stop_sequences` | Sent as stop strings to vLLM, TensorRT-LLM, and TokenSpeed gRPC workers. For SGLang gRPC workers and ZMQ workers, SMG matches them itself and sends only single-token stops to the engine, as stop token IDs. |
 | `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser; with a `tool_choice` of `tool`, only that tool is passed to the chat template. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |

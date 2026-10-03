@@ -249,6 +249,16 @@ EPD mode only.
 | `--encode-policy` | `consistent_hashing` | Policy for encode workers in EPD mode: `random`, `round_robin`, or `consistent_hashing`. |
 | `--pd-pairing-mode` | `lenient` | How strictly placement pairs a prefill with a decode on their KV transfer protocol. `off` pairs on nothing; `lenient` refuses only a known difference in runtime, transport, or KV layout (unknown components and engine versions pair with anything); `strict` also refuses unknown components and version differences. `--help` lists it under Routing Policy. |
 
+### Prefill Admission
+
+These three flags landed on `main` after the v1.11.0 release (smg-project/smg#1961), so v1.11.0 builds do not have them. They cap how many Prefill requests the gateway keeps in flight on each prefill worker, counting only this gateway process's own dispatches. Requests over the cap wait in one FIFO queue per gateway process, not per worker.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--prefill-max-inflight-requests-per-worker` | `-1` (off) | Maximum in-flight Prefill requests per prefill worker. Any value of 0 or less turns the gate off, and setting either queue flag then fails startup validation. A positive value requires PD or EPD mode and is rejected together with `--priority-scheduler-enabled`. |
+| `--prefill-queue-size` | unset (`100` with the gate on) | Requests that may wait for a Prefill slot. A request that finds the queue full, or no queue (`0`), gets `429` (`pd_prefill_queue_full`). |
+| `--prefill-queue-timeout-secs` | unset (`60` with the gate on) | Maximum time a request waits for a Prefill slot before it gets `429` (`pd_prefill_queue_timeout`). Must be greater than 0 when the queue is on; the check applies the defaults, so an explicit `0` passes startup validation only next to `--prefill-queue-size 0`. |
+
 ### Worker Startup Configuration
 
 These govern every worker registration, not only PD workers, although `--help` lists them under PD Disaggregation.

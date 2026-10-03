@@ -72,7 +72,7 @@ Running both phases on the same worker creates inefficiencies:
 | Engine | Worker transport | Dispatch | KV transfer |
 |--------|------------------|----------|-------------|
 | **SGLang** | HTTP or gRPC | Parallel, bootstrap room | Mooncake or NIXL (engine flag `--disaggregation-transfer-backend`) |
-| **vLLM** | HTTP or gRPC | Sequential, `kv_transfer_params` relay | `NixlConnector` or `MooncakeConnector` (engine flag `--kv-transfer-config`); [`MoRIIOConnector`](#mori-io-http) over HTTP |
+| **vLLM** | HTTP or gRPC | Sequential, `kv_transfer_params` relay; MoRI-IO WRITE optionally concurrent | `NixlConnector` or `MooncakeConnector` (engine flag `--kv-transfer-config`); [`MoRIIOConnector`](#mori-io-http) over HTTP |
 | **TokenSpeed** | gRPC | Parallel, KV bootstrap room | Mooncake |
 
 - **The worker URL scheme selects the path.** `http://` workers go through the HTTP PD router, which forwards the client's JSON body to both legs and adds the handoff fields. `grpc://` workers go through the [gRPC pipeline](../architecture/grpc-pipeline.md), where SMG tokenizes the prompt and parses the output itself.
@@ -120,7 +120,7 @@ The prefill worker's KV connector decides how SMG tags the prefill leg and what 
 |-------------------|-------------|---------------------------------|
 | `NixlConnector` | `{"do_remote_decode": true, "do_remote_prefill": false}` | The params the prefill response returns (for example `remote_engine_id`, `remote_request_id`, `remote_block_ids`, `remote_host`/`remote_port`, `tp_size`), forwarded verbatim |
 | `MooncakeConnector` | The same tag plus a `transfer_id` that SMG mints | Synthesized by SMG, because Mooncake pushes the KV and returns nothing: `{"do_remote_decode": false, "do_remote_prefill": true}` plus `transfer_id`, `remote_engine_id` (the prefill's KV engine id), and `remote_bootstrap_addr` = `http://<bootstrap_host>:<bootstrap_port>` (port 8998 when the worker has none) |
-| `MoRIIOConnector` (HTTP) | The same tag plus a minted `transfer_id`, `remote_dp_size: 1`, and the decode's TP as `remote_tp_size` when the decode has a `tp_size` label. WRITE mode also names the decode's side channel: `remote_host`, `remote_handshake_port`, `remote_notify_port`. The leg also gets `ignore_eos: true` and loses `stop` and `stop_token_ids` | The params the prefill response returns, forwarded verbatim only after SMG checks that they carry the minted `transfer_id` and the prefill peer (`remote_engine_id`, `remote_block_ids`, `remote_host`, `remote_handshake_port`, `remote_notify_port`). See [MoRI-IO](#mori-io-http) |
+| `MoRIIOConnector` (HTTP) | The same tag plus a minted `transfer_id`, `remote_dp_size: 1`, and the decode's TP as `remote_tp_size` when the decode has a `tp_size` label. WRITE mode also names the decode's side channel: `remote_host`, `remote_handshake_port`, `remote_notify_port`. The leg also gets `ignore_eos: true` and loses `stop` and `stop_token_ids` | The params the prefill response returns, forwarded verbatim only after SMG checks that they carry the minted `transfer_id` and the prefill peer (`remote_engine_id`, `remote_block_ids`, `remote_host`, `remote_handshake_port`, `remote_notify_port`). Under concurrent WRITE dispatch, minted up front by SMG instead: `{"do_remote_decode": false, "do_remote_prefill": true}` plus the minted `transfer_id`, `remote_dp_size: 1`, the prefill's side channel (`remote_host`, `remote_handshake_port`, `remote_notify_port`), and the prefill's `tp_size` label as `remote_tp_size` when set. See [MoRI-IO](#mori-io-http) |
 | None or another connector | No tag ("passthrough") | Whatever `kv_transfer_params` the prefill response returns, if any |
 
 The handoff falls back to a local recompute in these cases:
@@ -142,7 +142,7 @@ A restarted vLLM process without a pinned `engine_id` comes back with a new KV e
 
 #### MoRI-IO (HTTP)
 
-vLLM's `MoRIIOConnector` moves the KV cache over RDMA with MoRI-IO in one of two modes. In READ mode (`"read_mode": true` in `kv_connector_extra_config` on both engines), the decode engine pulls the KV after the prefill leg returns. In WRITE mode, the default, the prefill engine pushes the KV into blocks the decode engine allocates. SMG sends the legs sequentially in both modes.
+vLLM's `MoRIIOConnector` moves the KV cache over RDMA with MoRI-IO in one of two modes. In READ mode (`"read_mode": true` in `kv_connector_extra_config` on both engines), the decode engine pulls the KV after the prefill leg returns. In WRITE mode, the default, the prefill engine pushes the KV into blocks the decode engine allocates. SMG sends the legs sequentially by default in both modes; a WRITE pair can opt into concurrent dispatch with the decode worker's `moriio_write_dispatch` label (see below).
 
 A MoRI-IO decode engine never recomputes the prompt. Without a valid handoff it answers with text computed over KV that never arrived (READ) or waits for a push that never comes (WRITE). SMG therefore takes the MoRI-IO path whenever the decode worker is a `MoRIIOConnector` worker, and fails a request rather than sending a decode leg without its handoff.
 
@@ -151,10 +151,11 @@ HTTP vLLM workers report none of the MoRI-IO settings, so set them as worker lab
 | Label | Default | Meaning |
 |-------|---------|---------|
 | `moriio_mode` | none (required) | `read` or `write`. Both legs of a pair must use the same mode |
-| `moriio_host` | The worker URL's host | The address on which the prefill engine reaches the decode engine's MoRI-IO side channel (used in WRITE mode) |
+| `moriio_host` | The worker URL's host | The address on which the peer engine reaches this worker's MoRI-IO side channel (used in WRITE mode). The prefill engine pushes to the decode worker's; under concurrent dispatch the decode engine also dials the prefill worker's |
 | `moriio_handshake_port` | `6301` | The engine's `handshake_port` |
 | `moriio_notify_port` | `61005` | The engine's `notify_port` |
-| `tp_size` | Unset: both legs have the same TP | The decode engine's tensor-parallel size, sent to the prefill as `remote_tp_size` |
+| `moriio_write_dispatch` | `sequential` | `sequential` or `concurrent`: whether SMG sends the two WRITE legs one after the other or at once. Honored on the decode worker; a READ pair stays sequential. Any other value on either worker refuses the pair |
+| `tp_size` | Unset: both legs have the same TP | The decode engine's tensor-parallel size, sent to the prefill as `remote_tp_size`. Under concurrent dispatch, the prefill worker's value is likewise sent to the decode leg |
 
 ```bash
 curl -X POST http://localhost:30000/workers \
@@ -171,21 +172,25 @@ The engines do not need `proxy_ip` and `proxy_ping_port`, which only register th
 
 Before either leg is contacted, SMG refuses:
 
-- **A misconfigured pair** with 503 `moriio_pair_misconfigured`: a leg that is not a `MoRIIOConnector` worker, legs in different modes, a worker with DP>1, a missing or unparsable label, or, in WRITE mode, a decode side channel the prefill cannot reach (a loopback host while the prefill is not on loopback, or the prefill's own side channel). The reason is in the gateway log. [Pairing](#prefilldecode-pairing) already keeps READ and WRITE workers apart, because their transports are `moriio-read` and `moriio-write`.
+- **A misconfigured pair** with 503 `moriio_pair_misconfigured`: a leg that is not a `MoRIIOConnector` worker, legs in different modes, a worker with DP>1, a missing, unparsable, or invalid label (including a `moriio_write_dispatch` value other than `sequential` or `concurrent`), or, in WRITE mode, a decode side channel the prefill cannot reach: a loopback or unspecified decode host (`localhost`, `127.0.0.1`, `0.0.0.0`, `[::]`) while the prefill is not, or the prefill's own side channel. Under concurrent dispatch the decode engine dials the prefill's side channel as labeled, so the same refusal applies to a loopback or unspecified prefill host while the decode is not. The reason is in the gateway log. [Pairing](#prefilldecode-pairing) already keeps READ and WRITE workers apart, because their transports are `moriio-read` and `moriio-write`.
 - **Requests that would share one handoff** with 400 `moriio_fanout_unsupported`: `n>1`, a batched `prompt` or `prompt_embeds` list, and `use_beam_search`.
 - **Request ids carrying peer addresses** with 400 `moriio_request_id_reserved`: the connector reads its peer from markers in the request id (`___prefill_addr_`, `___decode_addr_`) before the explicit fields, and vLLM takes the request id from `X-Request-Id` or, without that header, from the body's `request_id`. SMG checks every `X-Request-Id` value it forwards and the body field.
 - **Other routes** with 501 `moriio_route_unsupported`: only `/v1/chat/completions` and `/v1/completions` are supported.
 
-The connector returns a handoff only when the prefill leg ends at its one-token cap. That token is discarded, so SMG sets `ignore_eos` and removes stop conditions on the prefill leg; the decode leg keeps the client's. A prefill response without a handoff that carries the minted `transfer_id` fails the request with 502 `moriio_handoff_invalid`, and no decode leg is sent. The gRPC pipeline does not speak MoRI-IO and refuses such pairs with 501 `moriio_grpc_pd_unsupported`.
+The connector returns a handoff only when the prefill leg ends at its one-token cap. That token is discarded, so SMG sets `ignore_eos` and removes stop conditions on the prefill leg; the decode leg keeps the client's. A prefill response without a handoff that carries the minted `transfer_id` fails the request with 502 `moriio_handoff_invalid`: under sequential dispatch no decode leg is sent, and under concurrent dispatch SMG drops the decode leg already in flight. The gRPC pipeline does not speak MoRI-IO and refuses such pairs with 501 `moriio_grpc_pd_unsupported`.
 
-!!! note "WRITE is sequential"
-    SMG sends the WRITE decode leg after the prefill leg returns, so the prefill engine pushes the KV only after its forward pass. vllm-router dispatches both WRITE legs at once and the prefill pushes the KV layer by layer, which gives it a lower time to first token.
+!!! note "WRITE dispatch: sequential by default, concurrent opt-in"
+    SMG sends the WRITE decode leg after the prefill leg returns, so the prefill engine pushes the KV only after its forward pass. Label the decode worker `moriio_write_dispatch: concurrent` to dispatch both WRITE legs at once, as vllm-router does: the prefill engine pushes the KV layer by layer into blocks the decode engine has already allocated, which lowers the time to first token. The trade-off is on failures: a decode request aborted before the prefill pushes leaves its blocks allocated in the vLLM connector.
+
+Under concurrent dispatch, SMG mints the decode leg's `kv_transfer_params` up front instead of relaying the prefill's handoff (see [Connector Modes](#connector-modes)): the decode engine dials the side channel named by the prefill worker's `moriio_host`, `moriio_handshake_port`, and `moriio_notify_port` labels, which must therefore match the prefill engine's configuration. SMG still validates the handoff the prefill returns, with one extra check: it must report the same handshake and notify ports the decode leg was told. The decode response — even one that has already arrived — is forwarded only after the handoff passes; otherwise the request fails with 502 `moriio_handoff_invalid` and SMG drops the decode leg, whose engine would wait for a push that never comes.
+
+With both legs in flight, the first leg to fail ends the request, and SMG drops the other leg, which makes its engine abort it. A prefill error status passes through as `prefill_upstream_error`, a decode transport error answers 502 `decode_request_failed`, and a decode engine that refuses the request takes no push, so its error status is returned without waiting for the prefill.
 
 ### Failures, Cancellation, and Streaming
 
 - **Retries re-select both legs.** Each attempt picks a new pair under the router's [retry](../reliability/retries.md) settings.
 - **A failed leg fails fast (gRPC, parallel dispatch).** The first leg that fails to start answers the client right away. SMG drops the other leg as soon as its dispatch lands, which aborts its bootstrap room instead of leaving it to the engine's deadline. Over HTTP, a transport error on either leg cancels the other.
-- **Prefill failures stay on the prefill worker (sequential dispatch).** A failed prefill leg never reaches the decode worker's circuit breaker, because decode was never contacted.
+- **Prefill failures stay on the prefill worker (sequential dispatch).** A failed prefill leg never reaches the decode worker's circuit breaker, because decode was never contacted. Under concurrent MoRI-IO WRITE dispatch (see [MoRI-IO](#mori-io-http)) both legs are in flight: the first leg to fail answers the client, and the leg SMG drops records no outcome on its worker.
 - **Decode aborts wait for the handoff (gRPC).** When the client disconnects, a prefill leg still running is aborted at once. The decode leg's abort waits for the leg's first response or a terminal event, for at most 30 seconds, to avoid tearing a decode engine down mid-transfer.
 - **HTTP streams start on the response heads (parallel dispatch).** For a streamed request that does not ask for logprobs, SMG starts streaming decode output as soon as both legs return a 2xx response head. It drains the prefill body in the background, because closing it early would abort the KV transfer, and records the prefill worker's outcome when the drain ends. Requests with logprobs wait for the prefill body.
 - **Non-streaming HTTP responses keep a JSON content type.** Streamed HTTP PD responses are sent as `text/event-stream`. A non-streaming decode body without logprobs is relayed with the decode worker's response headers, so its `Content-Type` comes from the engine. When the request asks for logprobs, SMG builds the response body itself — the logprob-merged body, or the plain decode body when the prefill body is missing or the merge fails — and sets `Content-Type: application/json` on it, rather than the `application/octet-stream` default of a raw byte response.
@@ -410,7 +415,7 @@ On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longe
 | 400 | `moriio_fanout_unsupported` | MoRI-IO: `n>1`, a batched prompt or prompt embeddings, or beam search |
 | 400 | `moriio_request_id_reserved` | MoRI-IO: a request id carries the connector's peer-address markers |
 | 501 | `moriio_route_unsupported` | MoRI-IO: the route is not `/v1/chat/completions` or `/v1/completions` |
-| 502 | `moriio_handoff_invalid` | MoRI-IO: the prefill returned no usable handoff, so no decode leg was sent |
+| 502 | `moriio_handoff_invalid` | MoRI-IO: the prefill returned no usable handoff. Sequential dispatch sends no decode leg; concurrent dispatch drops the one already sent |
 | 501 | `moriio_grpc_pd_unsupported` | gRPC: MoRI-IO PD is supported only by the HTTP PD router |
 
 `/readiness` reports ready only when at least one prefill worker and one decode worker are healthy (and an encode worker in EPD mode).
@@ -491,7 +496,7 @@ Long prompts with short outputs need relatively more prefill capacity. Short pro
 | `smg_pd_ttft_seconds` | Histogram | `backend_type`, `model`, `runtime` | Prefill dispatch to the first decode output. HTTP PD, and gRPC streaming on SGLang and TokenSpeed pairs |
 | `smg_pd_prefill_duration_seconds` | Histogram | `backend_type`, `model`, `runtime` | Prefill-leg duration. HTTP PD and gRPC vLLM |
 | `smg_pd_kv_transfer_duration_seconds` | Histogram | `backend_type`, `model`, `runtime` | Prefill completion to decode dispatch. gRPC vLLM |
-| `smg_pd_kv_connector_mode_total` | Counter | `mode` (`nixl`, `mooncake`, `moriio`, `passthrough`) | vLLM sequential dispatches |
+| `smg_pd_kv_connector_mode_total` | Counter | `mode` (`nixl`, `mooncake`, `moriio`, `passthrough`) | vLLM dispatches, sequential and MoRI-IO concurrent |
 | `smg_pd_kv_transfer_failures_total` | Counter | — | A NIXL prefill returned no `kv_transfer_params`, so decode recomputed the prompt; or a MoRI-IO pair or handoff check failed, so the request failed |
 | `smg_pd_bootstrap_failures_total` | Counter | — | HTTP bootstrap injection failed |
 | `smg_pd_admission_waits_total` | Counter | — | gRPC dispatches admitted after waiting for a decode slot |

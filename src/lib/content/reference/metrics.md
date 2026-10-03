@@ -478,7 +478,9 @@ KV connector mode chosen for vLLM prefill-decode dispatches.
 |------|--------|
 | Counter | `mode` |
 
-Modes: `mooncake`, `nixl`, `passthrough`
+Modes: `mooncake`, `nixl`, `moriio`, `passthrough`
+
+`mode="moriio"` is newer than v1.11.0 (smg-project/smg#2732); v1.11.0 and earlier report only the other three modes. It is recorded only by the HTTP PD router, which takes the MoRI-IO path whenever the decode worker is a [MoRI-IO](../concepts/routing/pd-disaggregation.md#mori-io-http) worker and records the mode once the pair passes its MoRI-IO checks (a misconfigured pair gets `503 moriio_pair_misconfigured` and no mode sample). The gRPC pipeline refuses MoRI-IO pairs with `501 moriio_grpc_pd_unsupported` instead of recording a mode.
 
 #### `smg_pd_bootstrap_failures_total`
 
@@ -490,7 +492,7 @@ HTTP PD requests whose body could not take the bootstrap fields (the body is not
 
 #### `smg_pd_kv_transfer_failures_total`
 
-vLLM NIXL dispatches where the prefill leg returned no `kv_transfer_params`, so the decode worker recomputes the prompt itself.
+vLLM NIXL dispatches where the prefill leg returned no `kv_transfer_params`, so the decode worker recomputes the prompt itself. Newer than v1.11.0 (smg-project/smg#2732), the counter also covers the HTTP [MoRI-IO](../concepts/routing/pd-disaggregation.md#mori-io-http) path, where a MoRI-IO decode engine never recomputes and the request fails instead: the selected pair is not configured for MoRI-IO (`503 moriio_pair_misconfigured`, counted before either leg is sent) or the prefill returned no usable KV handoff (`502 moriio_handoff_invalid`).
 
 | Type | Labels |
 |------|--------|

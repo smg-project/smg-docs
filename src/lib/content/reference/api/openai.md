@@ -131,6 +131,16 @@ SMG also accepts these SGLang-style extensions on Chat Completions:
 | `return_hidden_states` | boolean | Return the model's hidden states |
 | `rid` | string | Request ID forwarded to the backend |
 
+On current main (after v1.11.0, smg-project/smg#2729) the seven boolean extensions —
+`ignore_eos`, `no_stop_trim`, `skip_special_tokens`, `continue_final_message`,
+`separate_reasoning`, `stream_reasoning`, and `return_hidden_states` — treat an explicit
+JSON `null` as the field's default, exactly as if the key were absent, so a client that
+serializes unset options as `null` is accepted. In v1.11.0, `null` on any of them fails
+request parsing and the request is rejected with `400` `json_parse_error` (see
+[Error Format](#error-format)). A non-boolean value other than `null` is rejected either
+way, and the tolerance is chat-only: [Completions](#completions) still rejects `null` on
+its extension booleans, including on main.
+
 Fields SMG does not model are kept and forwarded unchanged to HTTP workers, and so are
 unknown `stream_options` keys such as SGLang's `step_usage_chunks`. The SGLang-native
 `/generate` endpoint likewise keeps its nested `sampling_params.custom_params` object.
@@ -357,7 +367,10 @@ POST /v1/completions
 
 Completions takes the same [extension fields](#extension-fields) as Chat Completions except
 the chat-only ones (`continue_final_message`, `separate_reasoning`, `stream_reasoning`,
-`chat_template_kwargs`), plus a `json_schema` string constraint. On gRPC workers each
+`chat_template_kwargs`), plus a `json_schema` string constraint. Unlike Chat Completions
+on current main, the Completions extension booleans do not accept JSON `null`:
+`"ignore_eos": null` — likewise on `no_stop_trim`, `skip_special_tokens`, and
+`return_hidden_states` — is rejected with `400` `json_parse_error`. On gRPC workers each
 prompt in an array is its own engine request.
 
 #### Example Request

@@ -167,6 +167,7 @@ To connect vLLM to its engine core directly instead of through gRPC, add `--conn
 |--------|---------|-------------|
 | `--backend` | `sglang` | Inference backend: `sglang`, `vllm`, `trtllm`, or `tokenspeed`. The `SMG_DEFAULT_BACKEND` environment variable changes the default |
 | `--connection-mode` | `grpc` | Worker connection mode: `grpc`, `http`, or `zmq`. TensorRT-LLM supports only `grpc` and TokenSpeed only `zmq`; `zmq` also works with `vllm` |
+| `--servicer-impl` | `python` | Implementation of the vLLM gRPC servicer: `python` or `rust`. `rust` requires `--backend vllm --connection-mode grpc` and is newer than v1.11.0; see [Rust vLLM Servicer](grpc-workers.md#rust-vllm-servicer) |
 | `--host` | `127.0.0.1` | Router host |
 | `--port` | `8080` | Router port (`30000` with `--backend sglang`; see below) |
 | `--data-parallel-size`, `--dp-size` | `1` | Number of worker replicas, each on its own GPU slice |
@@ -293,6 +294,8 @@ Use these when workers are not started via `smg serve`. Each command starts one 
       --host 0.0.0.0 \
       --port 8000
     ```
+
+    Setting `SMG_VLLM_SERVICER_IMPL=rust` in the gRPC worker's environment serves the same contract from the Rust servicer instead of the default Python one (newer than v1.11.0); see [Rust vLLM Servicer](grpc-workers.md#rust-vllm-servicer).
 
 === "SGLang"
 

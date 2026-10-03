@@ -50,6 +50,8 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
       --port 50051
     ```
 
+    This starts the default Python servicer. Setting `SMG_VLLM_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust vLLM Servicer](#rust-vllm-servicer).
+
 === "SGLang"
 
     ```bash
@@ -99,6 +101,38 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
     ```
 
     MLX workers are gRPC-only and run on Apple Silicon. They don't support constrained decoding: chat requests with a forced `tool_choice` or a `response_format` get a 400, as do requests with `n` greater than 1 or string `stop` sequences.
+
+### Rust vLLM Servicer
+
+vLLM gRPC workers can serve the same gRPC contract from a Rust implementation instead of the default Python one. The selection is newer than v1.11.0: it exists on current main but not in the v1.11.0 wheels or engine images. The switch is the `SMG_VLLM_SERVICER_IMPL` environment variable, read by upstream vLLM's gRPC entrypoint before it builds an engine, so the worker command stays the same:
+
+```bash
+SMG_VLLM_SERVICER_IMPL=rust python -m vllm.entrypoints.grpc_server \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 50051
+```
+
+In Rust mode, the vLLM engine runs headless in a spawned child process and the servicer talks to it over a same-host ZMQ connection; Python keeps only the process lifecycle. That ZMQ hop is inside the worker — the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md). The gateway cannot tell the two implementations apart.
+
+With `smg serve`, select it with `--servicer-impl rust`. The flag defaults to `python`, is valid only with `--backend vllm --connection-mode grpc` (any other backend or connection mode is rejected at startup), and is authoritative: it sets `SMG_VLLM_SERVICER_IMPL=rust` in each worker's environment, and with `--servicer-impl python` it removes an `SMG_VLLM_SERVICER_IMPL` inherited from your shell.
+
+```bash
+smg serve \
+  --backend vllm \
+  --connection-mode grpc \
+  --servicer-impl rust \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --data-parallel-size 2
+```
+
+For the selection to take effect, the worker's environment needs:
+
+- the `smg` wheel, which carries the Rust servicer binding (`smg.servicer.VllmGrpcServer`)
+- `smg-grpc-servicer[vllm]`, which carries the switch and the Rust request path
+- a vLLM whose gRPC entrypoint consults the switch (`smg_grpc_servicer.vllm.resolve_servicer_impl`)
+
+Misconfiguration fails loudly instead of silently serving Python: `smg serve --servicer-impl rust` refuses to start when `smg-grpc-servicer` is not importable or the installed vLLM lacks the hook, and when `SMG_VLLM_SERVICER_IMPL=rust` reaches a worker whose vLLM never consulted it, the Python servicer itself refuses to start.
 
 ---
 

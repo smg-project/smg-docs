@@ -6,7 +6,7 @@ title: Tenant Rate Limiting Reference
 
 Precise contract for per-tenant token/request rate limiting: every configuration knob, the YAML policy schema, and the exact response shape. For how it works conceptually — the reserve/settle model, retry handling, `n>1` accounting — see [Tenant Rate Limiting](../concepts/reliability/tenant-rate-limiting.md).
 
-Tenant rate limiting is **disabled by default** and, when enabled, only enforced on the **gRPC router's** Chat, Generate, Completion, and Messages endpoints (Harmony-mode chat included). It does not apply to the Responses endpoint, embeddings, classify, audio transcriptions, or the HTTP/external-provider routers.
+Tenant rate limiting is **disabled by default** and, when enabled, only enforced on the **gRPC router's** Chat, Generate, Completion, and Messages endpoints (Harmony-mode chat included). The gRPC router serves both gRPC- and [ZMQ-connected](../getting-started/zmq-workers.md) workers (`--connection-mode zmq`, `ipc://` worker URLs), so enforcement does not depend on the worker transport. It does not apply to the Responses endpoint, embeddings, classify, audio transcriptions, or the HTTP/external-provider routers.
 
 ---
 

@@ -65,7 +65,7 @@ model calls.
   receives GitHub write permissions. Its scripts and Git metadata are pristine.
 - Independent review rejection is an expected filter and creates no PR. Malformed
   output, operational errors, guard failures, and build failures fail the job.
-- Generated commits use **XinyueZhang369 <zoeyzhang369@gmail.com>** as author and
+- Generated commits use **github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>** as author and
   committer, with that DCO `Signed-off-by` identity. This is a DCO sign-off, not a
   cryptographic signature. Existing remote branches are never force-overwritten.
 

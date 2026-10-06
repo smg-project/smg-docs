@@ -104,14 +104,23 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
 ### Rust vLLM Servicer
 
-vLLM gRPC workers can serve the same gRPC contract from a Rust implementation instead of the default Python one. The selection is newer than v1.11.0: it exists on current main but not in the v1.11.0 wheels or engine images. The switch is the `SMG_VLLM_SERVICER_IMPL` environment variable, read by upstream vLLM's gRPC entrypoint before it builds an engine, so the worker command stays the same:
+vLLM gRPC workers can serve the same gRPC contract from a Rust implementation instead of the default Python one. The selection is newer than v1.11.0: it exists on current main but not in the v1.11.0 wheels or engine images. The switch lives in the `smg-grpc-servicer` package and needs no vLLM change: vLLM's gRPC launcher imports the package's servicer classes before it defines `serve_grpc`, and that import installs the switch over `serve_grpc`. Select the implementation with `--servicer-impl` on `vllm serve --grpc` — a flag the package adds to vLLM's parser as a `vllm.general_plugins` plugin — or with the `SMG_VLLM_SERVICER_IMPL` environment variable:
 
 ```bash
+vllm serve meta-llama/Llama-3.1-8B-Instruct \
+  --grpc \
+  --host 0.0.0.0 \
+  --port 50051 \
+  --servicer-impl rust
+
+# The environment variable selects it for python -m vllm.entrypoints.grpc_server too:
 SMG_VLLM_SERVICER_IMPL=rust python -m vllm.entrypoints.grpc_server \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051
 ```
+
+When both are set, the flag wins: the parsed `--servicer-impl` is read ahead of the environment, and the decision is written back to `SMG_VLLM_SERVICER_IMPL` so the worker's own guard agrees with it. A `VLLM_PLUGINS` setting that leaves out the `smg-servicer` plugin only removes the flag; the environment variable works regardless.
 
 In Rust mode, the vLLM engine runs headless in a spawned child process and the servicer talks to it over a same-host ZMQ connection; Python keeps only the process lifecycle. That ZMQ hop is inside the worker — the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md). The gateway cannot tell the two implementations apart.
 
@@ -130,9 +139,9 @@ For the selection to take effect, the worker's environment needs:
 
 - the `smg` wheel, which carries the Rust servicer binding (`smg.servicer.VllmGrpcServer`)
 - `smg-grpc-servicer[vllm]`, which carries the switch and the Rust request path
-- a vLLM whose gRPC entrypoint consults the switch (`smg_grpc_servicer.vllm.resolve_servicer_impl`)
+- a vLLM whose gRPC launcher imports the package's servicer classes at module level — the stock shape, so an unmodified vLLM qualifies — or carries the check (`smg_grpc_servicer.vllm.resolve_servicer_impl`) in its own `serve_grpc`
 
-Misconfiguration fails loudly instead of silently serving Python: `smg serve --servicer-impl rust` refuses to start when `smg-grpc-servicer` is not importable or the installed vLLM lacks the hook, and when `SMG_VLLM_SERVICER_IMPL=rust` reaches a worker whose vLLM never consulted it, the Python servicer itself refuses to start.
+Misconfiguration fails loudly instead of silently serving Python: `smg serve --servicer-impl rust` refuses to start when `smg-grpc-servicer` is not importable or the installed vLLM's launcher would not be switched, and when `SMG_VLLM_SERVICER_IMPL=rust` reaches a worker where the switch never ran (a launcher file executed directly as `__main__`, or one that didn't import the package's servicer before defining `serve_grpc`), the Python servicer itself refuses to start.
 
 ---
 

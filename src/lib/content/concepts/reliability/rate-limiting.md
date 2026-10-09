@@ -95,7 +95,7 @@ Because a stream keeps its permit for as long as it streams, `--max-concurrent-r
 - **Timeout from queue entry.** `--queue-timeout-secs` counts from the moment the request starts waiting. A request that times out is shed with 503.
 - **No queue.** `--queue-size 0` disables queueing: a request that finds no free permit is shed with 429 at once.
 
-The FIFO handoff applies in the default mode, with no token refill. A positive `--rate-limit-tokens-per-second` changes how the queue behaves, as described next.
+The FIFO handoff applies in both refill modes; in v1.11.0 and earlier it applies only in the default mode, with no token refill. A positive `--rate-limit-tokens-per-second` changes where tokens come from and what the cap bounds, as described next.
 
 ### Token Bucket and Refill
 
@@ -105,8 +105,11 @@ Permits come from a token bucket whose capacity is `--max-concurrent-requests`. 
 |----------|------------------------|-------------------|
 | Tokens come back when | A response finishes | A response finishes, plus `N` tokens per second, up to capacity |
 | `--max-concurrent-requests` bounds | Requests in flight | Burst size only: with long-lived responses, requests in flight can grow past the cap by up to `N` per second |
-| Queue order | Strict FIFO | None: waiters poll for tokens, and a new arrival can take a refilled token first |
-| Longest queue wait | `--queue-timeout-secs` | At most `1/N` seconds (or `--queue-timeout-secs`, if shorter), then 503 |
+| Queue order | Strict FIFO | Strict FIFO: refilled tokens also go to the oldest waiter |
+| Longest queue wait | `--queue-timeout-secs` | `--queue-timeout-secs` |
+
+!!! note "Changed after v1.11.0"
+    In v1.11.0 and earlier, a positive rate bypasses the FIFO queue: waiters poll for tokens, a new arrival can take a refilled token ahead of them, and a queued request is shed with 503 after at most `1/N` seconds (or `--queue-timeout-secs`, if shorter). On main after the v1.11.0 release (smg-project/smg#2733), refilled tokens go to the oldest waiter like returned ones, so the queue order and wait bound above apply in both modes.
 
 With the default, the bucket's free tokens always equal `--max-concurrent-requests` minus the requests in flight. Leave the rate unset unless you want burst-rate behavior.
 

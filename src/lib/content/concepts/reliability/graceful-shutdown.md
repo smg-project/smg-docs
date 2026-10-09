@@ -295,6 +295,10 @@ Graceful shutdown drains the gateway itself. Removing a worker from a running ga
 
 The worker settle window is a fixed delay: SMG does not wait for the worker's in-flight request count to reach zero. Only workers that were `Ready` are drained; `Pending`, `NotReady`, and `Failed` workers are not, and a removal that finds no `Ready` worker skips the wait. Set `--drain-settle-secs 0` to skip draining. The flag belongs to the `smg` binary; the Python launcher does not accept it yet.
 
+Worker removal also does not extend the engine process's lifetime. If Kubernetes terminates the engine before a stream finishes, the client still sees a stream failure. Put the termination delay on each **engine container**: use a `preStop` hook that allows discovery to remove it from routing and active requests to finish, or a tested engine shutdown mode that drains generations. The gateway's own shutdown grace does not supply this worker-side delay.
+
+The pod's `terminationGracePeriodSeconds` must cover the hook **and** the engine's subsequent shutdown time, with margin. Follow the [worker example and rollout verification](../../getting-started/service-discovery.md#rollouts-and-draining) to choose a budget for your longest requests. A longer settle window by itself cannot compensate for an engine that exits immediately.
+
 ---
 
 ## Monitoring

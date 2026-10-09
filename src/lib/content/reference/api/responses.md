@@ -70,7 +70,7 @@ POST /v1/responses
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `model` | string | Yes | Model identifier |
-| `input` | string or array | Yes | Input text or array of input items. Must not be empty, and an array must contain at least one message |
+| `input` | string or array | Yes | Input text or array of input items. Must not be empty. In v1.11.0 and earlier an array must also contain at least one message; see [Input Formats](#input-formats) |
 | `instructions` | string | No | System instructions for the model |
 | `max_output_tokens` | integer | No | Maximum tokens to generate (at least 1) |
 | `max_tool_calls` | integer | No | Maximum tool calls SMG executes for this response (at least 1); see [Tool Call Limits](#tool-call-limits) |
@@ -143,6 +143,35 @@ A `function_call_output.output` is a string or an array of content parts, and an
 result is allowed. gRPC workers concatenate the text parts in order and reject a result
 that contains media; HTTP workers receive the array unchanged. A replayed `function_call`
 keeps its `namespace` when it has one.
+
+**Tool results without a new message:**
+
+```json
+{
+  "previous_response_id": "resp_abc123",
+  "input": [
+    {
+      "type": "function_call_output",
+      "call_id": "call_abc123",
+      "output": "18°C and sunny"
+    }
+  ]
+}
+```
+
+A continuation needs no message items: in the standard agentic loop the client answers a
+response's `function_call` by sending back only the matching `function_call_output`, with
+the earlier turns held by `previous_response_id` or `conversation`. A `store: false`
+request that replays the history, as in the previous example, likewise needs no new user
+message after the tool result. On gpt-oss (Harmony) models each result's `call_id` must
+match a `function_call` earlier in the resolved input — the replayed items plus any
+history loaded from `previous_response_id` — and an unmatched result is rejected with
+`400` `harmony_build_failed` (`No function call found for call_id: ...`).
+
+Accepting an `input` array without any message is new on main after v1.11.0
+(smg-project/smg#2723). v1.11.0 and earlier reject such an array with `400`
+(`Input items must contain at least one message`), so on those releases a continuation
+must include a message item.
 
 ### Tool Configuration
 
@@ -1183,6 +1212,10 @@ response2 = client.responses.create(
     store=True
 )
 ```
+
+A chained turn does not have to add a message: after a response ends in `function_call`
+items, the next request's `input` can be only their `function_call_output` items (see
+[Input Formats](#input-formats)).
 
 ---
 

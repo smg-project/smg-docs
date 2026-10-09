@@ -1,0 +1,88 @@
+name: Documentation PR Maintenance
+
+on:
+  schedule:
+    - cron: '11 */2 * * *'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Existing nightly docs PR (empty scans all eligible PRs)
+        type: string
+        default: ''
+      apply:
+        description: Publish repairs and update maintenance status
+        type: boolean
+        default: false
+      force:
+        description: Explicitly resume a PR that exhausted its failed-round budget
+        type: boolean
+        default: false
+      feedback:
+        description: Additional source-backed feedback for this PR
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+
+# Serialize scheduled sweeps and manual dispatches; workers also lock each PR.
+concurrency:
+  group: docs-pr-maintenance-controller
+  cancel-in-progress: false
+
+jobs:
+  select:
+    # Repository owners can pause all maintenance with DOCS_MAINTENANCE_ENABLED=false.
+    if: >-
+      github.repository == 'smg-project/smg-docs'
+      && vars.DOCS_MAINTENANCE_ENABLED != 'false'
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      count: ${{ steps.select.outputs.count }}
+      apply: ${{ steps.mode.outputs.apply }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      EXTRA_FEEDBACK: ${{ inputs.feedback }}
+      FORCE: ${{ inputs.force }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/docs-maintenance-setup
+        with:
+          source-ref: ''
+      - name: Select mode
+        id: mode
+        env:
+          INPUTS_JSON: ${{ toJSON(inputs) }}
+          RUN_EVENT: ${{ github.event_name }}
+        run: python3 scripts/doc-sync/maintenance.py mode
+      - name: Reconcile eligible PRs and skip unchanged work
+        id: select
+        run: python3 scripts/doc-sync/maintenance.py select
+
+  maintain:
+    needs: select
+    if: needs.select.outputs.count != '0' && needs.select.outputs.count != ''
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: write
+    uses: ./.github/workflows/docs-pr-worker.yml
+    with:
+      number: ${{ matrix.number }}
+      apply: ${{ needs.select.outputs.apply == 'true' }}
+      force: ${{ inputs.force || false }}
+      feedback: ${{ inputs.feedback || '' }}
+    secrets: inherit

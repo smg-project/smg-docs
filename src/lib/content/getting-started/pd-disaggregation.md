@@ -298,7 +298,7 @@ curl -X POST http://localhost:30000/workers \
 
 `kv_engine_id` must match the `engine_id` in the prefill worker's `--kv-transfer-config`, and `bootstrap_port` its `VLLM_MOONCAKE_BOOTSTRAP_PORT`. Without an engine id, SMG cannot mint the handoff and decode recomputes the prompt. On Kubernetes, the `smg.ai/kv-connector` and `smg.ai/kv-engine-id` pod annotations set the same fields (see [Service Discovery](service-discovery.md#pd-disaggregation-discovery)).
 
-For MoRI-IO (RDMA transfer, HTTP workers only), start the workers with a `--kv-transfer-config` naming the `MoRIIOConnector` and register each leg with the connector plus a `moriio_mode` label — `read` or `write`, matching the engines' `kv_connector_extra_config`. The mode has no default, and both legs of a pair must use the same one:
+For MoRI-IO (RDMA transfer, HTTP workers only, newer than v1.11.0), start the workers with a `--kv-transfer-config` naming the `MoRIIOConnector` and register each leg with the connector plus a `moriio_mode` label — `read` or `write`, matching the engines' `kv_connector_extra_config`. The mode has no default, and both legs of a pair must use the same one:
 
 ```bash
 curl -X POST http://localhost:30000/workers \
@@ -322,7 +322,7 @@ curl -X POST http://localhost:30000/workers \
   }'
 ```
 
-SMG expects each engine's MoRI-IO side channel on the worker URL's host and vLLM's default ports. When that does not hold, also set the `moriio_host`, `moriio_handshake_port` (default `6301`), and `moriio_notify_port` (default `61005`) labels, and give the decode worker a `tp_size` label when the two legs' tensor-parallel sizes differ. A misconfigured pair — mismatched modes, a missing `moriio_mode` label, or a side channel the prefill cannot reach — fails with 503 `moriio_pair_misconfigured` before either worker is contacted. MoRI-IO serves only `/v1/chat/completions` and `/v1/completions`, and gRPC workers cannot use it. See [MoRI-IO](../concepts/routing/pd-disaggregation.md#mori-io-http) for the transfer modes, the full label table, and the requests SMG refuses.
+SMG expects each engine's MoRI-IO side channel on the worker URL's host and vLLM's default ports. When that does not hold, also set the `moriio_host`, `moriio_handshake_port` (default `6301`), and `moriio_notify_port` (default `61005`) labels, and give the decode worker a `tp_size` label when the two legs' tensor-parallel sizes differ. Legs labeled with different modes never pair (requests fail with 503 `no_compatible_pd_pair`, as under [Check Pairing](#check-pairing)); a pair that is misconfigured in any other way — a missing `moriio_mode` label, or a side channel the prefill cannot reach — fails with 503 `moriio_pair_misconfigured` before either worker is contacted. MoRI-IO serves only `/v1/chat/completions` and `/v1/completions`, and gRPC workers cannot use it. See [MoRI-IO](../concepts/routing/pd-disaggregation.md#mori-io-http) for the transfer modes, the full label table, the requests SMG refuses, and what a v1.11.0 gateway — which does not recognize the connector — does with these workers.
 
 ---
 

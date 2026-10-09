@@ -493,7 +493,7 @@ info = rl.call(workers[0].id, "server_info", method="GET")
 print(info.status, info.body)
 ```
 
-The full example then sends a `/generate` request through SMG and checks that `meta_info.weight_version` reports the new version, because discovery's `weight_version` is not refreshed after a refit. See [`examples/rl`](https://github.com/smg-project/smg/tree/main/examples/rl).
+The full example then sends a `/generate` request through SMG and checks that `meta_info.weight_version` reports the new version, because discovery's `weight_version` is not refreshed after a refit. Newer than v1.11.0, the same check works for a TokenSpeed gRPC worker, whose refit must reach the engine directly; see [Troubleshooting](#troubleshooting). See [`examples/rl`](https://github.com/smg-project/smg/tree/main/examples/rl).
 
 ---
 
@@ -572,7 +572,11 @@ RUST_LOG=warn,smg_rl=info smg launch \
 
 ??? question "weight_version in discovery does not change after a refit"
 
-    This is expected. Discovery reports the `weight_version` label recorded when the worker registered, and the control plane does not refresh it. Ask the engine instead: SGLang reports `meta_info.weight_version` on `/generate` responses.
+    This is expected. Discovery reports the `weight_version` label recorded when the worker registered, and the control plane does not refresh it. Read the live version from `/generate`'s `meta_info.weight_version` instead. Who reports it there depends on the worker:
+
+    - **HTTP SGLang workers.** SMG forwards `/generate` to the engine, and SGLang reports its own live version.
+    - **TokenSpeed gRPC workers, newer than v1.11.0.** SMG builds `/generate` responses for gRPC workers itself, and it reports the version the TokenSpeed engine stamped on that very response — the engine's live `server_args.weight_version`, which a refit updates — on streaming chunks too. The worker must run the Python servicer (`python -m smg_grpc_servicer.tokenspeed`); smg-grpc-servicer 0.13.1 with smg-grpc-proto 0.4.23 are the first versions that carry the field. When the engine stamps nothing, an empty value, or its `default` placeholder, SMG falls back to the registration-time label. The refit itself still cannot go through the control plane, which does not proxy gRPC workers.
+    - **Every other gRPC or ZMQ worker**, and TokenSpeed gRPC workers in v1.11.0, gets the registration-time label (or `default`), which a refit does not change. Only `/generate` carries the engine-stamped value: Chat Completions' `system_fingerprint` is the registration-time label even for TokenSpeed.
 
 ??? question "Long refits fail with upstream_timeout or a client timeout"
 

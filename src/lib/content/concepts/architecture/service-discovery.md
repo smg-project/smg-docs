@@ -459,11 +459,13 @@ SMG removes a pod's workers when the pod:
 Each removal runs as a workflow:
 
 1. **RemoveWorker job**: The reconcile pass submits one job per address, pinned to each registration's revision. A worker that was replaced in the meantime is skipped and re-evaluated on the next pass.
-2. **Drain**: `Ready` workers move to `Draining`. They receive no new requests; requests already in flight continue.
+2. **Drain**: `Ready` workers move to `Draining`. They receive no new requests; requests already in flight can continue while the engine remains alive.
 3. **Settle**: SMG waits `--drain-settle-secs` (default `5`). A worker's `health.drain_settle_secs` overrides it, and a job that drains several workers waits for the longest window. Workers that were not `Ready` are not drained, and a job with no `Ready` worker skips the wait.
 4. **Remove**: The workers leave the worker registry and the routing policies.
 
 A removal job matches every registration at the address: the `http://` or `grpc://` worker and each DP rank registered there (`<address>@<rank>`).
+
+This workflow does not delay Kubernetes signals or shut down the engine for you. Protect in-flight streams with an engine-container `preStop` wait or a tested graceful engine shutdown. Include discovery propagation, the settle window, the longest remaining request, and engine exit time in the pod's termination budget. See the [worker manifest and rollout checks](../../getting-started/service-discovery.md#rollouts-and-draining).
 
 When the pod becomes Ready again, the next pass registers it again. If readiness returns while the removal is still inside its settle window, re-registration can wait for the next periodic pass.
 

@@ -13,7 +13,7 @@ This guide wires **gRPC workers that publish KV cache events** to **SMG's `cache
 - Completed the [Getting Started](index.md) guide
 - Read [Cache-Aware Routing](../concepts/routing/cache-aware.md) for the routing concepts
 - A machine that can run an SGLang worker (GPU + CUDA-capable Python environment)
-- `smg-grpc-servicer[sglang]` installed alongside SGLang (the extra requires SGLang 0.5.20 or newer)
+- `smg-grpc-servicer[sglang]` installed alongside SGLang (the extra requires SGLang 0.5.21 or newer)
 
 </div>
 

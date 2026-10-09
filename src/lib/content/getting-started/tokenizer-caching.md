@@ -69,8 +69,9 @@ smg \
 |-----------|---------|-------------|
 | `--tokenizer-cache-enable-l0` | `false` | Enable exact match cache |
 | `--tokenizer-cache-l0-max-entries` | `10000` | Maximum number of cached entries |
+| `--tokenizer-cache-l0-max-memory` | `268435456` (256 MB) | Maximum memory in bytes (on main after the v1.12.0 release) |
 
-Each entry keeps the full input text and its encoding, so its size grows with prompt length.
+Each entry keeps the input text and its plain token IDs, charged against the byte budget as the text's length plus 4 bytes per token plus a fixed 128-byte overhead; an input whose entry alone would exceed a quarter of the budget is not cached at all. The byte budget is on main after the v1.12.0 release (smg-project/smg#2924) — in v1.12.0 and earlier, L0 caps only the number of entries, and each entry keeps the input's full encoding.
 
 ### L1 Cache
 
@@ -85,7 +86,7 @@ Each entry keeps the full input text and its encoding, so its size grows with pr
 
 ### L0 Sizing
 
-L0 caps the number of entries, not their bytes. An entry for a short prompt is small, but roughly 2 MB per entry was observed for large inputs (smg-project/smg#2603). Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that repeat in your traffic, and watch process memory as you raise it.
+On main after the v1.12.0 release, L0 is bounded two ways (smg-project/smg#2924): inserts evict entries until both the entry cap and the byte budget hold, so `--tokenizer-cache-l0-max-memory` (default 256 MB) caps what the cached texts and token IDs can cost no matter how large the inputs are. Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that repeat in your traffic. In v1.12.0 and earlier the entry cap is the only bound and an entry keeps the full input text and its encoding — roughly 2 MB per entry was observed for large inputs (smg-project/smg#2603) — so watch process memory as you raise the entry cap.
 
 ### L1 Sizing
 

@@ -6,7 +6,7 @@ title: Metrics Reference
 
 Complete reference for the Prometheus metrics SMG exports. Metrics are grouped by layer, from the gateway's own runtime through HTTP, routing, workers, discovery, and MCP, followed by groups that belong to specific features: routing policies, the priority scheduler, the RL control plane, and the HA mesh.
 
-A series appears on `/metrics` only after the first event that records it, and several groups exist only when the feature that produces them is enabled. Each entry says when it is emitted.
+A series appears on `/metrics` only after the first event that records it, and several groups exist only when the feature that produces them is enabled. Each entry says when it is emitted. On main after the v1.11.0 release, the overload-shed, retry, and circuit-breaker transition families are the exception: they are published at zero up front — the first two at start-up, each worker's breaker transitions when the worker is registered — so `absent()` alerts stay quiet on a healthy process and `increase()` catches the first event after a restart (smg-project/smg#2914). Their entries below list the exact series; in v1.11.0 they too appear only on their first event.
 
 ---
 
@@ -744,6 +744,8 @@ Requests shed with `503 worker_overload_protection_shed`. The response carries `
 | `dispatch` | The selected worker became overloaded between selection and dispatch |
 | `pd_admission` | A gRPC prefill-decode dispatch found no room on the decode engine (see `smg_pd_admission_sheds_total`); this stage does not depend on overload protection being enabled |
 
+On main after the v1.11.0 release, all three `stage` series are published at zero when the metrics listener starts, whether or not overload protection is enabled; the same start-up pass zeroes the selection-stage fallback counters `smg_worker_overload_fallback_total` and `smg_worker_liveness_fallback_total` (smg-project/smg#2914). In v1.11.0 each series appears on its first shed. `smg_workers_overloaded` is not pre-published: the gauge first appears when a load poll flips a worker's overload flag.
+
 ```promql
 # Overload sheds per second, by stage
 sum by (stage) (rate(smg_worker_overload_shed_total[5m]))
@@ -779,6 +781,8 @@ Circuit breaker state transitions.
 
 States: `closed`, `open`, `half_open`
 
+On main after the v1.11.0 release, the five transitions a breaker can make (`closed` → `open`, `open` → `half_open`, `open` → `closed`, `half_open` → `closed`, `half_open` → `open`) are published at zero for each worker when it is registered, so `increase()` sees a worker's first trip (smg-project/smg#2914); in v1.11.0 each series appears on the first time the breaker makes that transition. `smg_worker_cb_outcomes_total` is not pre-published and still appears per worker with its first recorded outcome.
+
 #### `smg_worker_cb_outcomes_total`
 
 Request outcomes tracked by the circuit breaker.
@@ -809,6 +813,8 @@ Consecutive successes per worker.
 
 ### Retry Metrics
 
+On main after the v1.11.0 release, these families are published at gateway start-up (smg-project/smg#2914): both counters at zero for every combination of the three `worker_type` values and ten `endpoint` values, and the backoff summary's `attempt="1"` series as an empty distribution (`_count` 0; later attempts still appear on their first backoff). In v1.11.0 each family appears only with its first event.
+
 #### `smg_worker_retries_total`
 
 Retry attempts.
@@ -817,7 +823,7 @@ Retry attempts.
 |------|--------|
 | Counter | `worker_type`, `endpoint` |
 
-`endpoint` uses the same values as `smg_router_requests_total`. A PD retry counts once for the `prefill` and once for the `decode` worker type.
+`worker_type` is `regular`, `prefill`, or `decode`; a PD retry counts once for the `prefill` and once for the `decode` worker type. `endpoint` is the retried route reduced to `chat`, `generate`, `completions`, `rerank`, `responses`, `decisions`, `systemone`, `messages`, `audio_transcriptions`, or `other` — a narrower set than `smg_router_requests_total` uses.
 
 #### `smg_worker_retries_exhausted_total`
 

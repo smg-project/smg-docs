@@ -96,7 +96,7 @@ L0 caps the number of entries, not their bytes. An entry for a short prompt is s
 | 100 MB | Multi-turn conversation heavy |
 | 200 MB | Long context applications |
 
-L1 keeps an entry for every special-token boundary of each input, holding the token IDs of the whole prefix up to that boundary, and charges it the prefix's length in bytes plus 4 bytes per token. A long multi-turn prompt with many boundaries therefore counts for many times its own length.
+On a miss, L1 stores an entry for every special-token boundary of the input, holding the token IDs of the whole prefix up to that boundary. On a hit it stores one more, for the prefix up to the input's own deepest boundary, so each turn of a conversation leaves the entry its next turn matches (on main after the v1.11.0 release, smg-project/smg#2869 — earlier versions store nothing on a hit). Each entry is charged the prefix's length in bytes plus 4 bytes per token, so a long multi-turn prompt with many boundaries counts for many times its own length, and hits as well as misses grow the cache toward the memory bound.
 
 ---
 

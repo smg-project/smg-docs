@@ -381,10 +381,15 @@ class GitGuardTests(unittest.TestCase):
             docs.publish(self.item, "test/repo", self.base, "main")
         self.assertEqual(self.git("rev-parse", "HEAD^"), self.base)
         self.assertEqual(self.git("diff", "--name-only", self.base), str(self.path))
-        self.assertIn("Signed-off-by: XinyueZhang369", self.git("log", "-1", "--format=%B"))
+        self.assertIn("Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
+                      self.git("log", "-1", "--format=%B"))
         self.assertEqual(self.git("log", "-1", "--format=%an|%ae|%cn|%ce"),
-                         "XinyueZhang369|zoeyzhang369@gmail.com|XinyueZhang369|zoeyzhang369@gmail.com")
+                         "github-actions[bot]|41898282+github-actions[bot]@users.noreply.github.com|"
+                         "github-actions[bot]|41898282+github-actions[bot]@users.noreply.github.com")
         self.assertEqual(len(calls), 1)
+        self.assertIn("Commit includes a DCO sign-off", calls[0][1])
+        self.assertNotIn("XinyueZhang369", calls[0][1])
+        self.assertNotIn("zoeyzhang369@gmail.com", calls[0][1])
         self.assertIn("https://github.com/smg-project/smg/commit/", calls[0][1])
         self.assertIn("--draft", calls[0][0])
         self.assertEqual(calls[0][0][calls[0][0].index("--title") + 1],

@@ -208,7 +208,7 @@ Registers a worker. The body is a [worker spec](#worker-spec); only `url` is req
 |--------|-----------|----------|
 | `http://`, `https://` | HTTP | SGLang, vLLM, or other OpenAI-compatible HTTP servers, and external providers. Hosts ending in `openai.com`, `anthropic.com`, `x.ai`, or `googleapis.com` register as external automatically. |
 | `grpc://`, `grpcs://` | gRPC | SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX gRPC servers. See [gRPC Workers](../../getting-started/grpc-workers.md). |
-| `ipc://<path>` | ZMQ | A vLLM or TokenSpeed engine core on the same host. See [ZMQ Workers](../../getting-started/zmq-workers.md). |
+| `ipc://<path>` | ZMQ | A vLLM, TokenSpeed, or SGLang engine core on the same host (SGLang over ZMQ is newer than v1.11.0). See [ZMQ Workers](../../getting-started/zmq-workers.md). |
 
 The scheme must be lowercase. Send the spec as JSON:
 
@@ -397,7 +397,7 @@ Either field turns overload protection on for this worker, even when the gateway
 | `dp_size` | integer | none | On an `ipc://` worker, the number of data-parallel engines that dial into its one socket set. A value above 1 makes a grouped worker, and the gateway spreads requests across the group's engines. On other workers the gateway sets this field itself during data-parallel discovery. |
 | `zmq_handshake_address` | string | derived | `tcp://` address the gateway binds for the engine handshake. The default is `tcp://127.0.0.1:<port>`, with the port (20000 to 29999) derived from the `ipc://` path. Set it for an engine that dials a fixed address, such as `tcp://127.0.0.1:30500`, TokenSpeed's default. |
 
-Registration of a ZMQ worker fails when the runtime is not `vllm` or `tokenspeed`, when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, when `dp_size` is above 1 on a gateway running with `--dp-aware`, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
+Registration of a ZMQ worker fails when the runtime is not `vllm`, `tokenspeed`, or `sglang` (`sglang` over ZMQ is newer than v1.11.0; v1.11.0 accepts only the first two), when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, when `dp_size` is above 1 on a gateway running with `--dp-aware`, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
 
 **PD disaggregation and KV transfer**: see [PD Disaggregation](../../concepts/routing/pd-disaggregation.md).
 

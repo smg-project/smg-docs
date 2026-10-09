@@ -224,9 +224,15 @@ spec:
       labels:
         app: sglang-worker
     spec:
+      # Includes the preStop wait, engine shutdown, and scheduling margin.
+      terminationGracePeriodSeconds: 180
       containers:
         - name: sglang
           image: lmsysorg/sglang:latest
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "135"]
           args:
             - --model-path=meta-llama/Llama-3.1-8B-Instruct
             - --port=8000
@@ -245,7 +251,15 @@ The readiness probe matters: SMG registers a pod only once its `Ready` condition
 
 ## Rollouts and Draining
 
-When a pod is deleted, stops matching the selector, or fails its readiness probe, SMG stops routing new requests to its workers (they enter `Draining`; in-flight requests continue), then removes them after `--drain-settle-secs` (default `5`). The pod is registered again when it becomes Ready.
+When SMG observes a pod's `deletionTimestamp`, selector change, or failed readiness condition, it stops routing new requests to that pod's workers. They enter `Draining`, then leave the registry after `--drain-settle-secs` (default `5`). A non-terminating pod can be registered again when it becomes Ready.
+
+The settle window does not keep the engine process alive or wait for its active stream count to reach zero. Existing streams can finish only while the engine and its connections remain available. Increasing `--drain-settle-secs` alone cannot protect them from an engine that exits on SIGTERM.
+
+The worker example above delays SIGTERM with a `preStop` hook. Its illustrative 135-second wait allows 10 seconds for discovery to observe termination, the 5-second settle window, and up to 120 seconds for the longest remaining request. Size these values for your workload, including queued requests, and check that the image contains `sleep`. Configure the hook on each engine container, including vLLM workers, rather than only on the gateway.
+
+[Kubernetes runs `preStop` before sending TERM](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/), and the pod's termination grace period includes the hook. The example reserves 30 seconds for engine shutdown after the wait, plus 15 seconds of scheduling margin. Adjust that margin for your environment. Set `terminationGracePeriodSeconds` above the entire hook plus engine shutdown budget; an exhausted grace period ends in SIGKILL. A tested engine shutdown mode that stops admission and waits for active generations can replace the sleep.
+
+Verify this with long streamed requests during a one-pod rollout: observe the worker leave routing, confirm its existing streams complete, then confirm the engine exits within the pod grace period. Discovery delays and unbounded streams need an explicit operational limit; a fixed sleep is not a guarantee against forced deletion or node failure. See [Worker Draining](../concepts/reliability/graceful-shutdown.md#worker-draining).
 
 With service discovery on, worker auto-recovery (`--remove-unhealthy-workers`) is also on by default: a worker that keeps failing health checks is removed, and discovery registers it again while its pod is still Ready. See [Health Checks](../concepts/reliability/health-checks.md#worker-auto-recovery).
 

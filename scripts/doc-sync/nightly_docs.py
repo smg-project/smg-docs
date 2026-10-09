@@ -355,8 +355,8 @@ def publish(item, repo, base, base_branch):
     if not remote:
         mutate_git("switch", "-c", branch)
         # The publisher, rather than the model, owns commit metadata and DCO.
-        git("config", "user.name", "XinyueZhang369")
-        git("config", "user.email", "zoeyzhang369@gmail.com")
+        git("config", "user.name", "github-actions[bot]")
+        git("config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
         message = f'docs: update {item["concern"]}'[:72]
         mutate_git("commit", "-s", "-m", message)
         mutate_git("push", "origin", f"HEAD:refs/heads/{branch}")
@@ -383,7 +383,7 @@ Scope: **{item["area"]} / {item["concern"]}**. Other concerns are deferred.
 
 - [ ] Tests added/updated (if applicable)
 - [x] Docs updated (if applicable)
-- [x] Commit signed off by XinyueZhang369 <zoeyzhang369@gmail.com>
+- [x] Commit includes a DCO sign-off
 '''
     with tempfile.NamedTemporaryFile(mode="w", suffix=".md") as f:
         f.write(body)

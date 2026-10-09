@@ -186,7 +186,7 @@ See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for 
 
 ## Cache Routing Trace Logs
 
-Setting `SMG_CACHE_TRACE=1` in the gateway's environment turns on a routing-evidence trace (newer than v1.11.0): one line per dispatch attempt on the `smg::cache_trace` target, recording what the routing decision saw — the candidate workers with their load and health, the cache-affinity prediction, the per-worker scores, and the gates that excluded workers. The lines are INFO, so they appear at the default `info` level. All four variables are read once per gateway process, so changing them requires a restart.
+Setting `SMG_CACHE_TRACE=1` in the gateway's environment turns on a routing-evidence trace (newer than v1.11.0): one line per dispatch attempt on the `smg::cache_trace` target, recording what the routing decision saw — the candidate workers with their load and health, the cache-affinity prediction, the per-worker scores, and the gate checks that keep or drop workers. The lines are INFO, so they appear at the default `info` level. All four variables are read once per gateway process, so changing them requires a restart.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
@@ -208,7 +208,7 @@ Each `Cache routing dispatch` line carries a JSON object in its `evidence` field
 - **Selections** (at most 16 per dispatch; overflow sets `truncated`): one entry per worker selection, with the `policy`, the `origin` (`policy`, or the sticky-routing branch when `--routing-key-override` pinned the request), the chosen `worker`, and the cache-aware `prediction` behind it — `event_index_overlap` (KV events, with `overlap_blocks`), `approximate_tree` (with matched and input units), or `approximate_hash_index` (with the matched `level`).
 - **Candidates** (at most 32 per selection, with `candidates_complete`): each candidate's `load`, `healthy`, `overloaded`, and `registry_revision`, observed just before the policy ran (`load_observation_phase` is `before_selection`, bracketed by `observation_started_ns` and `observation_finished_ns`), so the chosen worker's load does not yet count this request.
 - **Scores** (at most 64 per selection), recorded where they are computed: cache-aware affinity entries (`policy_affinity` with each candidate's `device_blocks` and `effective_score`, `approximate_tree` marking the deepest holder) and `expected_wait` entries with the queue, drain-rate, and KV-pressure inputs — also emitted under `least_load` and `power_of_two`, which use the same scorer.
-- **Gates** (at most 32): vetoes with their inputs — workers dropped by the cache-aware eligibility pass, the spill gate with the selected worker's load and both balance thresholds, and the `--least-load-max-waiting-requests` queue cap.
+- **Gates** (at most 32): gate checks with their inputs and verdicts — the workers the cache-aware eligibility pass dropped, a spill-gate entry per candidate checked (its load, the fleet mean, both balance thresholds, and the `spill` verdict), and, under `least_load`, a queue-cap entry per load-reporting candidate (its waiting queue against `--least-load-max-waiting-requests`, with the `eligible` verdict).
 
 With the same `SMG_CACHE_TRACE=1` set on a TokenSpeed gRPC worker, its Python servicer logs a `cache_request_mapping` line joining each received request ID (`parent_id`) to the engine-side IDs it expands to (`child_ids`, one per sample when `n` > 1), so the gateway's `engine_ids` join through to engine logs.
 

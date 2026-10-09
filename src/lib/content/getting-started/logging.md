@@ -191,7 +191,7 @@ Setting `SMG_CACHE_TRACE=1` in the gateway's environment turns on a routing-evid
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `SMG_CACHE_TRACE` | off | `1` logs a `Cache routing dispatch` line per dispatch attempt, and a `Cache routing failure` line (the captured selections plus the response status) when the pipeline returns an error |
-| `SMG_CACHE_TRACE_HEADER` | off | `1` also returns a summary of the dispatch evidence in the `x-smg-cache-trace` response header; see [Response Headers](../reference/api/openai.md#response-headers) |
+| `SMG_CACHE_TRACE_HEADER` | off | `1` returns a summary of the dispatch evidence in the `x-smg-cache-trace` response header, with or without `SMG_CACHE_TRACE=1`; see [Response Headers](../reference/api/openai.md#response-headers) |
 | `SMG_CACHE_TRACE_SAMPLE` | `1` | Log one dispatch line in every `N`; the first dispatch is always logged. Failure lines and the response header are never sampled. `0` or an unparsable value means every dispatch |
 | `SMG_CACHE_TRACE_MAX_BYTES` | unset | Compact any evidence line longer than `B` bytes: each selection's `candidates`, `scores`, and `gates` lists are dropped (their counts remain under `elided`) and the line is marked `capped`, keeping the decision record — IDs, policy, chosen worker, and prediction. Applies to failure lines too. Unset or unparsable means no cap |
 

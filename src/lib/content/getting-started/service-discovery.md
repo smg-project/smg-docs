@@ -37,9 +37,12 @@ SMG keeps a local cache of the matching pods, registers a worker for each Ready 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--service-discovery` | `false` | Enable Kubernetes service discovery |
+| `--discovery-provider` | unset | `--discovery-provider kubernetes` is the newer spelling of `--service-discovery`; give one or the other (newer than v1.11.0) |
 | `--selector` | — | Label selector for worker pods (required unless PD or EPD mode is on) |
 | `--service-discovery-namespace` | (all namespaces) | Kubernetes namespace to watch |
 | `--service-discovery-port` | `80` | Worker port for pods without a `smg.ai/worker-ports` annotation |
+
+On `main` after the v1.11.0 release (smg-project/smg#2833), `--discovery-provider kubernetes` is the newer spelling of `--service-discovery`: either flag selects the Kubernetes provider, the other flags on this page configure it identically, and the same defaults follow (IGW mode and worker auto-recovery turn on). Pass one flag or the other — giving both is rejected at parse time. v1.11.0 has only `--service-discovery`.
 
 Connection mode (HTTP vs gRPC) is probed automatically during worker registration, so no protocol flag is required — the first protocol that responds successfully is used, with HTTP taking priority when both succeed.
 

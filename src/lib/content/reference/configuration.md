@@ -153,7 +153,7 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 |--------|---------|-------------|
 | `--dp-aware` | `false` | Discover each worker's data-parallel size at registration and register one routable worker per DP rank. |
 | `--dp-minimum-tokens-scheduler` | `false` | In the HTTP PD router, pick each prefill and decode DP rank by fewest tracked tokens instead of the worker's registered rank. |
-| `--enable-igw` | `false` | Inference Gateway (IGW) mode: build every router family and choose one per request from the requested model's workers (HTTP or gRPC, regular or disaggregated, external provider), so one gateway serves many models. `--service-discovery` turns it on automatically. |
+| `--enable-igw` | `false` | Inference Gateway (IGW) mode: build every router family and choose one per request from the requested model's workers (HTTP or gRPC, regular or disaggregated, external provider), so one gateway serves many models. `--service-discovery` — or its newer spelling `--discovery-provider kubernetes`, see [Service Discovery (Kubernetes)](#service-discovery-kubernetes) — turns it on automatically. |
 
 ---
 
@@ -360,9 +360,12 @@ Environment-only RDMA settings, read by the gateway. The TokenSpeed worker reads
 
 Watches Kubernetes pods and registers the matching ones as workers. Enabling service discovery automatically enables IGW mode. Discovery is not available with `--backend openai`, `anthropic`, or `gemini`. See [Service Discovery](../concepts/architecture/service-discovery.md).
 
+On `main` after the v1.11.0 release (smg-project/smg#2833), `--discovery-provider kubernetes` selects the same provider as `--service-discovery`: either spelling builds the identical configuration from the detail flags below and carries the same defaults — IGW mode turns on automatically, and `--remove-unhealthy-workers` defaults to `true`. Giving both flags is rejected at parse time rather than resolved by precedence, in the Rust CLI and the Python launcher alike. v1.11.0 has only `--service-discovery`.
+
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--service-discovery` | `false` | Enable Kubernetes service discovery. |
+| `--service-discovery` | `false` | Enable Kubernetes service discovery. The legacy spelling of `--discovery-provider kubernetes`, and the only spelling in v1.11.0. |
+| `--discovery-provider` | unset | Worker discovery provider; `kubernetes` is the only value. Newer than v1.11.0. Give this or `--service-discovery`, not both. |
 | `--selector` | none | Label selector for worker pods, as space-separated `key=value` pairs. Required in regular mode. |
 | `--service-discovery-namespace` | all namespaces | Namespace to watch. Unset watches every namespace, which needs cluster-wide permissions. |
 | `--service-discovery-port` | `80` | Worker port for discovered pods without a `smg.ai/worker-ports` annotation (pods running several servers list their ports there). |
@@ -371,7 +374,7 @@ Watches Kubernetes pods and registers the matching ones as workers. Enabling ser
 | `--encode-selector` | none | Label selector for encode pods in EPD mode. EPD mode needs all three of the encode, prefill, and decode selectors. |
 | `--kv-connector-annotation` | `smg.ai/kv-connector` | Pod annotation that holds the vLLM KV connector name. |
 | `--kv-engine-id-annotation` | `smg.ai/kv-engine-id` | Pod annotation that holds per-worker KV engine IDs. |
-| `--router-selector` | none | Label selector for peer gateway pods in HA mesh mode (format: `key=value`). Takes effect only together with `--service-discovery` and `--enable-mesh`. Each peer's mesh port comes from its `sglang.ai/mesh-port` annotation, or this gateway's `--mesh-port` when the annotation is missing or invalid (an invalid value, including `0`, logs a warning). |
+| `--router-selector` | none | Label selector for peer gateway pods in HA mesh mode (format: `key=value`). Takes effect only together with service discovery (either spelling) and `--enable-mesh`. Each peer's mesh port comes from its `sglang.ai/mesh-port` annotation, or this gateway's `--mesh-port` when the annotation is missing or invalid (an invalid value, including `0`, logs a warning). |
 | `--model-id-from` | unset | Override each discovered worker's model ID from pod metadata: `namespace`, `label:<key>`, or `annotation:<key>`. |
 | `--model-alias` | none | Extra client-facing model name, `<alias>=<canonical>`, one per flag. See [Model Aliases](#model-aliases). |
 
@@ -568,7 +571,7 @@ Active health probes of each worker. See [Health Checks](../concepts/reliability
 | `--health-check-interval-secs` | `60` | Seconds between probes of each worker. |
 | `--health-check-endpoint` | `/health` | HTTP path probed on each worker. |
 | `--disable-health-check` | `false` | Disable all worker health probing. |
-| `--remove-unhealthy-workers` | `true` with `--service-discovery`, otherwise `false` | Recover failed workers by removal: a worker that stays unhealthy long enough to reach `Failed` (about 12 minutes at the default thresholds) is removed from the registry, so service discovery re-registers and re-probes it once its engine returns. Without this, a `Failed` worker stays registered, out of rotation, and probed, and rejoins in place when it answers again. Takes an optional boolean: the bare flag means `true`, and `--remove-unhealthy-workers=false` keeps it off under discovery. The default follows `--service-discovery` because a static fleet has nothing to re-add a removed worker. Alias: `--worker-auto-recovery`. |
+| `--remove-unhealthy-workers` | `true` with service discovery (either spelling), otherwise `false` | Recover failed workers by removal: a worker that stays unhealthy long enough to reach `Failed` (about 12 minutes at the default thresholds) is removed from the registry, so service discovery re-registers and re-probes it once its engine returns. Without this, a `Failed` worker stays registered, out of rotation, and probed, and rejoins in place when it answers again. Takes an optional boolean: the bare flag means `true`, and `--remove-unhealthy-workers=false` keeps it off under discovery. The default follows service discovery (`--service-discovery`, or `--discovery-provider kubernetes` after v1.11.0) because a static fleet has nothing to re-add a removed worker. Alias: `--worker-auto-recovery`. |
 | `--drain-settle-secs` | `5` | Seconds a Ready worker stays in `Draining` before it is removed from the registry. Applies to every removal (Kubernetes deletion, `--remove-unhealthy-workers`, the manual API). A worker spec can override it with `health.drain_settle_secs`. `0` removes immediately without draining. |
 
 ---

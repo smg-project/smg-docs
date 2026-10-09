@@ -82,11 +82,24 @@ SMG routes to pod IPs directly, so it honors the pod's aggregate `Ready` conditi
 
 ### Ownership
 
-Every worker that discovery registers carries two labels, `smg.ai/pod-name` and `smg.ai/pod-uid`. The reconciler only adds and removes workers that carry `smg.ai/pod-uid` and were registered by this gateway, so:
+Every worker that discovery registers carries three provenance labels under the reserved `smg.ai/discovery-` prefix:
+
+| Label | Value | Purpose |
+|-------|-------|---------|
+| `smg.ai/discovery-provider` | `kubernetes` (the only provider) | Ownership: discovery adds and removes only workers carrying its provider value |
+| `smg.ai/discovery-id` | `<pod-uid>:<port>` | Instance identity: a different id at a registered address is a new instance, which is replaced |
+| `smg.ai/discovery-spec-hash` | BLAKE3 fingerprint of the discovered configuration (address, worker type, bootstrap port, model ID override, KV metadata) | Recorded at registration; not matched on |
+
+The reconciler only adds and removes workers that were registered by this gateway and whose `smg.ai/discovery-provider` label says `kubernetes`, so:
 
 - Workers added with `--worker-urls` or through the [worker API](../../reference/api/admin.md) are never touched by discovery.
 - Workers synchronized from mesh peers are left to the gateway that owns them.
-- When a pod is replaced by one with a new UID at the same address (for example, a restart that keeps its IP), the old worker is removed and the new one registered.
+- When a pod is recreated with a new UID at the same address (for example, a rescheduled StatefulSet pod with a stable IP), the `smg.ai/discovery-id` there changes, so the old worker is removed and the new one registered. A container restart — a crash, an OOM kill, a failed liveness probe — keeps the pod's UID and IP, so the worker is the same instance and recovering it is left to [health checks](../reliability/health-checks.md).
+
+Discovery still writes `smg.ai/pod-name` and `smg.ai/pod-uid` on every worker it registers, kept for existing selectors and dashboards; ownership no longer depends on them. The `smg.ai/discovery-` prefix is reserved for the reconciler: do not set these labels on workers you register yourself — a worker labeled `smg.ai/discovery-provider: kubernetes` by hand counts as discovery-owned and is removed or replaced on the next pass.
+
+!!! note "Changed after v1.11.0"
+    The provenance labels are on `main` and newer than v1.11.0 (smg-project/smg#2722). v1.11.0 and earlier stamp only the pod labels and decide ownership by `smg.ai/pod-uid`; they also log removals as `pod unready, gone, terminating, or replaced` instead of the lines shown under [Logs](#logs).
 
 ---
 
@@ -445,7 +458,7 @@ spec:
 2. **Reconcile pass**: SMG finds no registered worker for the pod's address and submits an `AddWorker` job.
 3. **Startup probing**: After `--worker-startup-delay`, registration detects whether the worker speaks HTTP or gRPC, retrying every `--worker-startup-check-interval` seconds until `--worker-startup-timeout-secs`.
 4. **Capability query**: SMG reads the engine's metadata, for example SGLang's `/model_info` endpoint (falling back to the deprecated `/get_model_info` if the new path returns 404).
-5. **Registration**: The worker joins the registry with its `smg.ai/pod-name` and `smg.ai/pod-uid` labels, becomes `Ready`, and background health checks start immediately.
+5. **Registration**: The worker joins the registry with its [provenance labels](#ownership) (`smg.ai/discovery-provider`, `smg.ai/discovery-id`, `smg.ai/discovery-spec-hash`) and the compatibility labels `smg.ai/pod-name` and `smg.ai/pod-uid`, becomes `Ready`, and background health checks start immediately.
 
 ### Removal Flow
 
@@ -526,15 +539,15 @@ INFO Starting K8s service discovery | selector: 'app=sglang-worker'
 INFO Starting K8s worker watcher | selector: 'app=sglang-worker'
 INFO K8s worker store synced, reconciling on change and every 60s
 INFO Reconciling workers: 2 to add, 0 to remove (2 desired)
-INFO Registering worker 10.0.0.5:8000 (Regular) for pod sglang-worker-0
-INFO Registering worker 10.0.0.6:8000 (Regular) for pod sglang-worker-1
+INFO Registering worker 10.0.0.5:8000 (Regular) as <pod-uid>:8000
+INFO Registering worker 10.0.0.6:8000 (Regular) as <pod-uid>:8000
 ```
 
 When a pod is deleted or turns unready:
 
 ```text
 INFO Reconciling workers: 0 to add, 1 to remove (1 desired)
-INFO Removing worker 10.0.0.6:8000 (1 registration(s), pod <pod-uid>): pod unready, gone, terminating, or replaced
+INFO Removing worker 10.0.0.6:8000 (1 registration(s), <pod-uid>:8000): no longer published, or a different instance now holds the address
 INFO Draining 1 worker(s) for 5s before removal
 ```
 

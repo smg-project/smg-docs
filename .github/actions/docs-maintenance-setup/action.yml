@@ -1,0 +1,63 @@
+name: Set up documentation maintenance tools
+description: Prepare Python, gh, and the runner-provided Anthropic key
+inputs:
+  source-ref:
+    description: Immutable source revision, main for initial selection, empty to skip source checkout
+    default: main
+  export-api-key:
+    description: Export the runner Anthropic key only in model jobs
+    default: 'false'
+outputs:
+  source-sha:
+    description: Pinned SMG source revision
+    value: ${{ steps.source.outputs.sha }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+    - name: Export API key from pod environment
+      if: inputs.export-api-key == 'true'
+      shell: bash
+      run: |
+        : "${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in the smg-org-runner-cpu pod environment}"
+        echo "::add-mask::${ANTHROPIC_API_KEY}"
+        echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" >> "$GITHUB_ENV"
+    - name: Install gh CLI if needed
+      shell: bash
+      run: |
+        if ! command -v gh &>/dev/null; then
+          case "$(uname -m)" in
+            x86_64) arch=amd64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "Unsupported runner architecture" >&2; exit 1 ;;
+          esac
+          version=2.74.0
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${version}/gh_${version}_linux_${arch}.tar.gz" \
+            | tar xz --strip-components=2 -C "$HOME/.local/bin" "gh_${version}_linux_${arch}/bin/gh"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        fi
+    - name: Preserve trusted maintenance tools
+      shell: bash
+      run: |
+        python3 -m unittest discover -s scripts/doc-sync -p 'test_*.py' -q
+        cp -R scripts/doc-sync "$RUNNER_TEMP/nightly-docs-tools"
+        printf '/.nightly-source/\n' >> .git/info/exclude
+    - uses: actions/checkout@v7
+      if: inputs.source-ref != ''
+      with:
+        repository: smg-project/smg
+        ref: ${{ inputs.source-ref }}
+        fetch-depth: 0
+        persist-credentials: false
+        path: .nightly-source
+    - name: Pin the separate source checkout
+      if: inputs.source-ref != ''
+      id: source
+      shell: bash
+      run: |
+        export SOURCE_ROOT="$GITHUB_WORKSPACE/.nightly-source"
+        echo "SOURCE_ROOT=$SOURCE_ROOT" >> "$GITHUB_ENV"
+        echo "sha=$(git -C "$SOURCE_ROOT" rev-parse HEAD)" >> "$GITHUB_OUTPUT"

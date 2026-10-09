@@ -99,7 +99,7 @@ The gateway's load monitor collects one report per worker per poll. The source d
 | HTTP, any other runtime without a native route | None | No report. |
 | gRPC SGLang, vLLM, TokenSpeed | `GetLoads` RPC | SGLang reports every DP rank. vLLM reports a single rank, and zeros while it has no stats snapshot (before its first engine step, or always with `--disable-log-stats`). |
 | gRPC TRT-LLM, MLX | None | `GetLoads` is not implemented for these backends. |
-| ZMQ (`ipc://`) vLLM, TokenSpeed | Load attached to the engine's output batches | No request is sent. A rank has no report until it has produced output, and a TokenSpeed build that does not attach load reports nothing. |
+| ZMQ (`ipc://`) vLLM, TokenSpeed, SGLang | Load attached to the engine's output batches | No request is sent. A rank has no report until it has produced output, and a TokenSpeed build that does not attach load reports nothing. SGLang over ZMQ is newer than v1.11.0. |
 
 ### Polling
 

@@ -132,3 +132,52 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/doc-sync -p 't
 ```
 
 The adapted OME files retain Apache-2.0 licensing in [LICENSE](LICENSE).
+
+## Maintaining existing nightly PRs
+
+`docs-pr-maintenance.yml` runs independently every two hours at minute 11 UTC.
+The sweep picks up trusted comments, submitted reviews, and inline replies. Set
+`DOCS_MAINTENANCE_ENABLED=false` to pause it. It selects up to 100 existing
+nightly PRs, including drafts, and runs at most four workers concurrently on
+`smg-org-runner-cpu`, using Fable with the same model and effort as discovery.
+
+Each worker authenticates the bot author, same-repository branch and full concern
+marker; pins docs main, SMG main, PR head and feedback; supplies the introducing source
+commit diff; overlays only the original
+PR's Markdown onto trusted docs main; and repairs that single concern. New files
+outside the original PR are forbidden. The full PR still must be below 1,000
+changed lines, without a page-count cap. Overlapping changes on main require
+human conflict resolution instead of overwriting them.
+
+A fresh read-only model verifies accuracy, scope, placement, related pages and
+addressed review threads. A separate publisher imports only Markdown data,
+reapplies the guards, runs the type check and production build, and appends a
+DCO-signed bot commit with a normal push. Changed PR heads, docs main, or
+feedback invalidate publication. The source revision stays pinned for the whole
+round and is recorded in the result and PR check; an advancing source branch
+invalidates the next sweep's cache rather than discarding completed model work.
+Correct PRs may validate without a repair.
+Draft status stays unchanged; the workflow never approves or merges PRs. Only
+independently verified bot-only review threads can be resolved automatically.
+
+One status comment and a `Docs maintenance` check on the actual PR head record
+the outcome. Unchanged successful work is cached until source, docs, PR content
+or feedback changes. Three unsuccessful content rounds or three incomplete
+operational attempts stop retries and require human attention. `force=true`
+explicitly resumes one PR. Rejections cannot publish; workflow success alone is
+not proof of acceptance—inspect `result.json` and the PR check. Context, full
+patch, review verdict and publication result are retained for 14 days.
+
+After merge, dispatch maintenance directly, with `apply=false` to validate without
+repository writes:
+
+```sh
+gh workflow run docs-pr-maintenance.yml --repo smg-project/smg-docs \
+  --ref main -f pr_number=121 -f apply=false
+```
+
+`force` optionally resumes a stopped PR and `feedback` supplies source-backed
+feedback. Both require one explicit PR number. Manual apply defaults to false;
+scheduled sweeps apply repairs. The workflow uses `GITHUB_TOKEN` with read
+permissions for model work
+and scoped contents/pull-requests/checks write permissions for publication.

@@ -21,7 +21,7 @@ SMG reaches local inference engines over three worker paths, chosen per worker b
 | Path | Worker URL | Engine side | Gateway role |
 |------|------------|-------------|--------------|
 | [gRPC](#grpc-path-token-level-streaming) | `grpc://host:port` | Engine with a gRPC servicer (SGLang, vLLM, TensorRT-LLM, TokenSpeed, MLX) | Full pipeline: chat templates, tokenization, token-aware routing, reasoning and tool parsing |
-| [ZMQ](#zmq-path) | `ipc:///path` | Headless engine core on the same host (vLLM, TokenSpeed) | The same pipeline, plus the request handling the engine's frontend or gRPC servicer would otherwise do |
+| [ZMQ](#zmq-path) | `ipc:///path` | Headless engine core on the same host (vLLM, TokenSpeed, SGLang) | The same pipeline, plus the request handling the engine's frontend or gRPC servicer would otherwise do |
 | [HTTP](#http-path-openai-compatible) | `http://host:port` or `https://host:port` | Engine's OpenAI-compatible server | Proxy: routing, retries, and failover |
 
 ---
@@ -165,6 +165,7 @@ Work that the engine's frontend or gRPC servicer does on the gRPC path moves int
 
 - vLLM (headless EngineCore)
 - TokenSpeed (headless scheduler)
+- SGLang (headless scheduler, dialing in through SMG's SGLang plugin; newer than v1.11.0)
 
 ZMQ workers can't serve as prefill or decode workers and have no KV-event stream. See [ZMQ Direct Workers](../../getting-started/zmq-workers.md) for setup and limits.
 

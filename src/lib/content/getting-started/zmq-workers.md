@@ -12,7 +12,7 @@ When SMG and the inference engine share a host, SMG can connect straight to the 
 
 - Completed the [Getting Started](index.md) guide
 - SMG and the engine on the same host (in containers, they must share a network namespace, as in one pod, and a volume for the socket directory)
-- vLLM or TokenSpeed (see [Supported Engines](#supported-engines))
+- vLLM, TokenSpeed, or SGLang (see [Supported Engines](#supported-engines))
 - A HuggingFace model ID or local model path for SMG's `--model-path`: over ZMQ the engine reports neither its model name nor a tokenizer
 
 </div>
@@ -49,9 +49,9 @@ The engine never sees text, so SMG also does the work that the engine's API serv
 |------|---------------|
 | Tokenization, chat templates, reasoning and tool-call parsing | Same as in [gRPC mode](grpc-workers.md) |
 | String stops | Sends a stop string that encodes to a single token as a stop token ID, and matches longer stop strings on the decoded text and trims them. For Harmony (gpt-oss) models, stops are matched on the parsed channel text |
-| EOS (vLLM) | Attaches the model's EOS token IDs to every request: from `config.json` and `generation_config.json` when `--model-path` is a local directory, otherwise from the tokenizer. TokenSpeed stops at EOS on its own |
+| EOS (vLLM) | Attaches the model's EOS token IDs to every request: from `config.json` and `generation_config.json` when `--model-path` is a local directory, otherwise from the tokenizer. TokenSpeed and SGLang stop at EOS on their own |
 | Default `max_tokens` (vLLM) | Uses the context length the engine reported at handshake minus the prompt length |
-| `n > 1` | Sends `n` single-sample requests and merges the results; an explicit `seed` becomes `seed + i` for sample `i`, so samples differ but stay reproducible |
+| `n > 1` | Sends `n` single-sample requests and merges the results; an explicit `seed` becomes `seed + i` for sample `i`, so samples differ but stay reproducible (vLLM and TokenSpeed; the SGLang wire carries no `seed`) |
 | Data-parallel ranks | Picks the least-loaded engine inside a grouped worker (see [Data-Parallel Engines](#data-parallel-engines)) |
 
 ---
@@ -62,12 +62,13 @@ The engine never sees text, so SMG also does the work that the engine's API serv
 |--------|---------|-------------------------|-------|
 | vLLM | `vllm` | `vllm serve <model> --headless ...` | Assumed when a ZMQ worker declares no runtime |
 | TokenSpeed | `tokenspeed` | `python -m tokenspeed.cli serve --headless ...` | Must be declared. Needs `--grammar-backend` for structured outputs and `--enable-output-logprobs` for logprobs |
+| SGLang | `sglang` | `python -m smg_grpc_servicer.sglang.headless ...` | Must be declared. Newer than v1.11.0. Needs `smg-grpc-servicer[sglang]` (SGLang 0.5.21 or newer): its plugin dials SMG from inside the scheduler, and SGLang itself is unchanged |
 
-Both engines use the same handshake, so SMG can't tell which one dialed in. Declare the runtime with `--backend` (startup workers) or `runtime_type` (worker API). A ZMQ worker without a runtime is treated as vLLM, and SMG logs `runtime_type unspecified for ZMQ worker; defaulting to vLLM EngineCore`.
+All of these engines use the same handshake, so SMG can't tell which one dialed in. Declare the runtime with `--backend` (startup workers) or `runtime_type` (worker API). A ZMQ worker without a runtime is treated as vLLM, and SMG logs `runtime_type unspecified for ZMQ worker; defaulting to vLLM EngineCore`.
 
-SGLang, TensorRT-LLM, and MLX can't use ZMQ in v1.11.0. `smg serve` accepts `--connection-mode zmq` only with `--backend vllm` or `--backend tokenspeed`, and the gateway rejects any other runtime with `ZMQ worker ... has unsupported runtime ...: only vllm and tokenspeed are supported over the ZMQ direct backend`. Connect those engines over [gRPC](grpc-workers.md).
+SGLang over ZMQ is newer than v1.11.0. In v1.11.0, `smg serve` accepts `--connection-mode zmq` only with `--backend vllm` or `--backend tokenspeed`, and the gateway rejects any other runtime with `ZMQ worker ... has unsupported runtime ...: only vllm and tokenspeed are supported over the ZMQ direct backend`; on current main the same checks accept `sglang`, and the error names `only vllm, tokenspeed and sglang`. TensorRT-LLM and MLX can't use ZMQ in either version; connect those engines over [gRPC](grpc-workers.md).
 
-SMG doesn't check engine versions at connect time, and its decoders accept fields that newer engine releases append. SMG's CI runs the ZMQ suites against vLLM 0.27.1 and a pinned TokenSpeed revision.
+SMG doesn't check engine versions at connect time, and its decoders accept fields that newer engine releases append. SMG's CI runs the ZMQ suites against vLLM 0.27.1, SGLang 0.5.21, and a pinned TokenSpeed revision.
 
 ---
 
@@ -99,8 +100,19 @@ SMG doesn't check engine versions at connect time, and its decoders accept field
       --port 30000
     ```
 
-!!! warning "Pass `--router-model-path`"
-    vLLM and TokenSpeed take the model as `--model`, which `smg serve` does not forward to the gateway. Over ZMQ the gateway gets the model name and tokenizer only from its own model path, so without `--router-model-path` the worker registration fails with `ZMQ worker ... has no model identity`.
+=== "SGLang"
+
+    ```bash
+    smg serve \
+      --backend sglang \
+      --connection-mode zmq \
+      --model-path meta-llama/Llama-3.1-8B-Instruct \
+      --host 0.0.0.0 \
+      --port 30000
+    ```
+
+!!! warning "Pass `--router-model-path` for vLLM and TokenSpeed"
+    vLLM and TokenSpeed take the model as `--model`, which `smg serve` does not forward to the gateway. Over ZMQ the gateway gets the model name and tokenizer only from its own model path, so without `--router-model-path` the worker registration fails with `ZMQ worker ... has no model identity`. SGLang takes the model as `--model-path`, which `smg serve` parses itself and forwards, so the SGLang tab needs no `--router-model-path`.
 
 What `smg serve` sets up in ZMQ mode:
 
@@ -126,9 +138,16 @@ python -m tokenspeed.cli serve --headless --model <model> \
   --port <worker port> --dist-init-addr 127.0.0.1:<store port> \
   --data-parallel-address 127.0.0.1 --data-parallel-rpc-port <handshake port> \
   --zmq-engine-index 0 --grammar-backend xgrammar --enable-output-logprobs
+
+# SGLang
+python -m smg_grpc_servicer.sglang.headless \
+  --zmq-handshake-address tcp://127.0.0.1:<handshake port> --zmq-engine-index 0 \
+  --model-path <model> --port <worker port>
 ```
 
-To put several data-parallel engines behind one worker, start the engines yourself and use `smg launch --zmq-engine-count` (see [Data-Parallel Engines](#data-parallel-engines)).
+With `--backend sglang`, the launcher refuses an engine-level `--dp-size` above 1 with `--dp-size > 1 is not supported over the SGLang ZMQ wire yet; use --connection-mode grpc for data parallelism`.
+
+To put several data-parallel vLLM or TokenSpeed engines behind one worker, start the engines yourself and use `smg launch --zmq-engine-count` (see [Data-Parallel Engines](#data-parallel-engines)).
 
 ---
 
@@ -190,6 +209,18 @@ Two paths can hash to the same port; SMG rejects the second worker at registrati
 
     TokenSpeed's grammar backend defaults to none, and then the engine ignores structured-output constraints: a `tool_choice: "required"` or `json_schema` request comes back as free text. Output logprobs are off by default. When several TokenSpeed engines share a host, give each its own `--port`; TokenSpeed derives its internal control ports from it.
 
+=== "SGLang"
+
+    ```bash
+    python -m smg_grpc_servicer.sglang.headless \
+      --zmq-handshake-address tcp://127.0.0.1:22670 \
+      --zmq-engine-index 0 \
+      --model-path meta-llama/Llama-3.1-8B-Instruct \
+      --port 31000
+    ```
+
+    The launcher comes with `pip install "smg-grpc-servicer[sglang]"` and starts SGLang's own scheduler ranks with no HTTP server, tokenizer manager, or detokenizer; the package's plugin dials SMG's handshake from inside the scheduler once the model has loaded. Every flag other than the two `--zmq-*` options is an ordinary SGLang server arg. When several SGLang engines share a host, give each its own `--port`; SGLang derives its internal control ports from it.
+
 Add your usual engine flags, such as `--tensor-parallel-size`.
 
 ### Start the Gateway
@@ -203,7 +234,7 @@ smg launch \
   --port 30000
 ```
 
-Use `--backend tokenspeed` for a TokenSpeed engine. `--model-path` is required: it names the model and loads the tokenizer. SMG binds the sockets as soon as it registers the worker, then waits up to 600 seconds for each handshake message, which gives the engine time to load the model and profile its KV cache. If the handshake fails, the next health probe starts a new attempt.
+Use `--backend tokenspeed` or `--backend sglang` to match the engine. `--model-path` is required: it names the model and loads the tokenizer. SMG binds the sockets as soon as it registers the worker, then waits up to 600 seconds for each handshake message, which gives the engine time to load the model and profile its KV cache. If the handshake fails, the next health probe starts a new attempt.
 
 To serve several engines, list one `ipc://` URL per engine. They are independent workers balanced by `--policy`.
 
@@ -225,7 +256,7 @@ ZMQ-related worker fields:
 | Field | Description |
 |-------|-------------|
 | `url` | `ipc://<path>` (the path is required) |
-| `runtime_type` | `vllm` or `tokenspeed` (`runtime` is accepted as an alias). Unset means vLLM |
+| `runtime_type` | `vllm`, `tokenspeed`, or `sglang` (`runtime` is accepted as an alias). Unset means vLLM |
 | `zmq_handshake_address` | A `tcp://` address to bind for the handshake instead of the derived one. Rejected on non-ZMQ workers |
 | `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); leave `dp_rank` unset |
 | `labels.model_path` | Model ID and tokenizer source, for gateways started without `--model-path` |
@@ -252,6 +283,8 @@ There are two ways to run data parallelism over ZMQ:
 
 - **Replicas:** several single-engine workers, each with its own socket path. The gateway's routing policy spreads requests across them. `smg serve --data-parallel-size N` sets this up.
 - **Grouped worker:** one worker URL and one socket set, with `N` data-parallel engines behind it. The gateway sees one worker and picks the engine (rank) for each request itself.
+
+Replicas work with every ZMQ engine. Grouped workers are a vLLM and TokenSpeed setup: data parallelism over the SGLang ZMQ wire isn't supported yet, and `smg serve` refuses to start an SGLang engine with a data-parallel size above 1 in ZMQ mode (use gRPC for SGLang data parallelism).
 
 ### Configure a Grouped Worker
 
@@ -330,7 +363,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | Registered | The worker starts as `pending`. SMG binds its sockets and starts the handshake right away |
 | Connected | SMG promotes the worker to `ready` the moment the handshake completes, without waiting for the health-check success threshold |
 | Serving | Health probes read a local liveness flag; the engine has no health RPC. `/readiness` stays at 503 with `tokenizer not yet registered` until the model's tokenizer has loaded |
-| Engine lost | SMG marks the connection dead when the engine signals that it died (vLLM does so on a fatal error, TokenSpeed also on shutdown), the socket fails, a request send blocks for 10 seconds, three outputs in a row can't be decoded, or no output arrives for 300 seconds while requests are in flight. In-flight requests fail. The next health probe drops the dead connection, and a later probe binds the sockets again so a restarted engine can reconnect |
+| Engine lost | SMG marks the connection dead when the engine signals that it died (vLLM does so on a fatal error, TokenSpeed also on shutdown, and SGLang whenever its scheduler's event loop exits), the socket fails, a request send blocks for 10 seconds, three outputs in a row can't be decoded, or no output arrives for 300 seconds while requests are in flight. In-flight requests fail. The next health probe drops the dead connection, and a later probe binds the sockets again so a restarted engine can reconnect |
 | Removed | `DELETE /workers/{worker_id}` drains the worker, then removes it; a handshake still in progress is cancelled and its sockets are released |
 
 - Health checks stay on for ZMQ workers even with `--disable-health-check` or a per-worker `disable_health_check`, because the probe is what reconnects a restarted engine. SMG logs `Ignoring disabled health checks for ZMQ worker ...`.
@@ -344,17 +377,17 @@ Rank selection happens inside the connection. Routing policies see the group as 
 
 ### Supported over ZMQ
 
-| Feature | vLLM | TokenSpeed |
-|---------|------|------------|
-| Chat Completions, Completions, Responses, and Messages, including streaming | Yes | Yes |
-| Tool-call and reasoning parsing | Yes | Yes |
-| Structured outputs (`response_format`, constrained `tool_choice`, regex, grammar) | Yes | Yes, with `--grammar-backend` set on the engine |
-| String stops and EOS | Yes | Yes |
-| Harmony (gpt-oss) stop strings | Yes | Yes |
-| Multimodal inputs | Yes, one modality per request | Yes, except models whose processor emits `image_grid_thw` or `video_grid_thw` (MRoPE) |
-| Output logprobs | Yes, including `top_logprobs` | Sampled-token logprobs, with `--enable-output-logprobs`; `top_logprobs` above 1 is rejected |
-| Prompt logprobs | Forwarded to the engine, but no API field requests them in v1.11.0 | Not supported; `token_ids_logprob` is rejected |
-| `n > 1` and sampling `seed` | Yes | Yes |
+| Feature | vLLM | TokenSpeed | SGLang |
+|---------|------|------------|--------|
+| Chat Completions, Completions, Responses, and Messages, including streaming | Yes | Yes | Yes |
+| Tool-call and reasoning parsing | Yes | Yes | Yes |
+| Structured outputs (`response_format`, constrained `tool_choice`, regex, grammar) | Yes | Yes, with `--grammar-backend` set on the engine | Yes |
+| String stops and EOS | Yes | Yes | Yes |
+| Harmony (gpt-oss) stop strings | Yes | Yes | Yes |
+| Multimodal inputs | Yes, one modality per request | Yes, except models whose processor emits `image_grid_thw` or `video_grid_thw` (MRoPE) | No |
+| Output logprobs | Yes, including `top_logprobs` | Sampled-token logprobs, with `--enable-output-logprobs`; `top_logprobs` above 1 is rejected | Yes, including `top_logprobs` |
+| Prompt logprobs | Forwarded to the engine, but no API field requests them in v1.11.0 | Not supported; `token_ids_logprob` is rejected | Yes, requested through `/generate`'s `logprob_start_len`; `token_ids_logprob` is rejected |
+| `n > 1` and sampling `seed` | Yes | Yes | `n > 1` yes; the SGLang wire carries no `seed` |
 
 ### Limits
 
@@ -370,6 +403,8 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | vLLM multimodal | Mixed image and video in one request: `400`, `the vLLM ZMQ backend takes one modality per request ...`. Worker-side media processing (media references) needs a gRPC vLLM worker: `400`, `multimodal_not_supported` |
 | TokenSpeed logprobs | `top_logprobs` above 1, or `token_ids_logprob`: `400`, `... not supported over the TokenSpeed ZMQ backend` |
 | TokenSpeed MRoPE models | `400`: `MRoPE position tensors are not derivable over the TokenSpeed ZMQ wire yet; use the gRPC transport for this model` |
+| SGLang multimodal, hidden states, `token_ids_logprob` | `400` naming the feature, such as `multimodal inputs are not supported over the SGLang ZMQ backend yet` |
+| SGLang data parallelism | The wire has no DP yet; `smg serve` refuses it (see [Data-Parallel Engines](#data-parallel-engines)) |
 
 ---
 
@@ -445,20 +480,20 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
     **Solutions:**
 
     1. `has no model identity`: start SMG with `--model-path` (with `smg serve`, `--router-model-path`), or set a `model_path` label on the worker.
-    2. `has unsupported runtime`: use `vllm` or `tokenspeed`.
+    2. `has unsupported runtime`: use `vllm`, `tokenspeed`, or `sglang` (`sglang` over ZMQ is newer than v1.11.0).
     3. `would bind handshake address ..., already claimed by worker ...`: two socket paths hash to the same port. Rename one, or set `zmq_handshake_address`.
     4. `zmq_handshake_address must be a tcp:// address` or `ZMQ worker URL must be ipc://<path>`: fix the address or URL.
     5. `cannot serve worker type`: ZMQ workers must be `regular`.
     6. `cannot be dp-aware expanded`: drop `--dp-aware`, or use single-engine workers.
 
-??? question "TokenSpeed requests fail or hang"
+??? question "TokenSpeed or SGLang requests fail or hang"
 
     **Symptoms:** The worker connects, but requests error or time out.
 
     **Solutions:**
 
-    1. Look for `runtime_type unspecified for ZMQ worker; defaulting to vLLM EngineCore` in the gateway log. A TokenSpeed worker must be declared with `--backend tokenspeed` or `"runtime_type": "tokenspeed"`, or SMG speaks the vLLM wire protocol to it.
-    2. If structured outputs come back unconstrained or logprobs are missing, start the engine with `--grammar-backend xgrammar` and `--enable-output-logprobs`.
+    1. Look for `runtime_type unspecified for ZMQ worker; defaulting to vLLM EngineCore` in the gateway log. A TokenSpeed or SGLang worker must be declared with `--backend tokenspeed` / `--backend sglang` or an explicit `runtime_type`, or SMG speaks the vLLM wire protocol to it.
+    2. If structured outputs come back unconstrained or logprobs are missing from a TokenSpeed engine, start it with `--grammar-backend xgrammar` and `--enable-output-logprobs`.
 
 ??? question "Readiness reports tokenizer not yet registered"
 

@@ -27,7 +27,7 @@ The default. SMG fetches, decodes, and preprocesses media in Rust, following eac
 
 ### :material-server-network: Worker-Side Processing
 
-vLLM gRPC workers that advertise a media processor receive media URLs instead and run vLLM's own processor, in process or in a Redis sidecar.
+vLLM gRPC workers that advertise a media processor receive media URLs instead and run vLLM's own processor (in process or in a Redis sidecar) or, on the Rust servicer, SMG's own pipeline.
 
 </div>
 
@@ -95,7 +95,7 @@ On the worker path:
 
 - The request carries the unexpanded prompt (one anchor per item) and the media URLs in prompt order.
 - An inline `data:` URL larger than `SMG_IMAGE_MAX_INPUT_BYTES` or `SMG_VIDEO_MAX_INPUT_BYTES` is refused with `media_ref_too_large`.
-- Every URL scheme must be one the selected worker advertises in its `mm_media_ref_schemes` label: `http`, `https`, and `data`, plus `file` when vLLM runs with `--allowed-local-media-path`.
+- Every URL scheme must be one the selected worker advertises in its `mm_media_ref_schemes` label: `http`, `https`, and `data`, plus `file` when vLLM runs with `--allowed-local-media-path` (never with the `smg` processor).
 - Direct ZMQ workers and EPD encode workers never take references.
 
 !!! warning "Routing sees unexpanded prompts on the worker path"
@@ -114,8 +114,8 @@ The servicer reads each setting below from its `--mm-*` flag when the launcher p
 
 | Servicer flag | Env fallback | Default | Description |
 |---------------|--------------|---------|-------------|
-| `--mm-processor` | `SMG_VLLM_MM_PROCESSOR` | `off` | `off`, `inprocess` (fetch and process inside the vLLM process), or `redis` (hand jobs to a sidecar) |
-| `--mm-max-inflight` | `SMG_VLLM_MM_MAX_INFLIGHT` | `64` | Multimodal jobs the worker runs at once, on either path; once as many are waiting, further requests are shed with a retryable error |
+| `--mm-processor` | `SMG_VLLM_MM_PROCESSOR` | `off` | `off`, `inprocess` (fetch and process inside the vLLM process), `redis` (hand jobs to a sidecar), or `smg` (SMG's own pipeline, [Rust servicer](../../getting-started/grpc-workers.md#rust-vllm-servicer) only) |
+| `--mm-max-inflight` | `SMG_VLLM_MM_MAX_INFLIGHT` | `64` | Multimodal jobs the worker runs at once, whichever processor runs; once as many are waiting, further requests are shed with a retryable error |
 | `--mm-max-items` | `SMG_VLLM_MM_MAX_ITEMS` | unset | Overrides the per-modality item limits the worker takes from vLLM's `--limit-mm-per-prompt` |
 | `--mm-max-item-bytes` | `SMG_VLLM_MM_MAX_ITEM_BYTES` | 32 MiB | Cap on one inline `data:` payload |
 | `--mm-redis-url` | `SMG_VLLM_MM_REDIS_URL` | `redis://127.0.0.1:6379/0` | Sidecar Redis (`redis` mode) |
@@ -125,7 +125,7 @@ The servicer reads each setting below from its `--mm-*` flag when the launcher p
 
 `SMG_VLLM_MM_MAX_VIDEO_FRAMES` (env only; default `0`, which leaves it to vLLM's `--media-io-kwargs`) caps the frames a video is sampled to.
 
-The worker advertises its processor in the `mm_processor`, `mm_processor_source`, and `mm_media_ref_schemes` labels, which appear in `GET /workers`. An engine started with `--language-model-only` never advertises one. vLLM's own `--allowed-media-domains`, `--allowed-local-media-path`, `--media-io-kwargs`, `--limit-mm-per-prompt`, and `VLLM_*_FETCH_TIMEOUT` govern fetching on the worker; without `--allowed-media-domains` the worker fetches from any host.
+The worker advertises its processor in the `mm_processor`, `mm_processor_source`, and `mm_media_ref_schemes` labels, which appear in `GET /workers`. An engine started with `--language-model-only` never advertises one. With `inprocess` and `redis`, vLLM's own `--allowed-media-domains`, `--allowed-local-media-path`, `--media-io-kwargs`, `--limit-mm-per-prompt`, and `VLLM_*_FETCH_TIMEOUT` govern fetching on the worker; without `--allowed-media-domains` the worker fetches from any host. The `smg` processor fetches with SMG's own connector instead (see [SMG's Pipeline on the Rust Servicer](#smgs-pipeline-on-the-rust-servicer)).
 
 Failures keep their cause (smg-project/smg#2596). The caller's own mistakes (a bad URL, a disallowed host, an oversized payload) come back as 400. Transient failures (a fetch timeout, a refused connection, an origin 5xx, a saturated worker, a sidecar that is down or overloaded) come back as retryable 503s. A sidecar timeout is not retried, because the worker already spent the whole budget on that input (smg-project/smg#2624).
 
@@ -146,6 +146,22 @@ SMG_VLLM_MM_PROCESSOR=redis SMG_VLLM_MM_REDIS_URL=redis://127.0.0.1:6379/0 \
 - The sidecar takes `--redis-url` (falls back to `SMG_VLLM_MM_REDIS_URL`, then localhost), `--namespace` (falls back to `SMG_VLLM_MM_SIDECAR_NAMESPACE`), `--concurrency` (default `2`), and vLLM's engine flags. It has no timeout flag: the worker's `--mm-sidecar-timeout-ms` travels with each job as its deadline (smg-project/smg#2651).
 - The worker and the sidecar must agree on the model, vLLM version, dtype, video backend, media and processor kwargs, and `--limit-mm-per-prompt` (pass it to both; the sidecar's limit is the one that applies). The worker advertises `mm_processor=redis` only while a sidecar with a matching fingerprint keeps its `hello` key alive (refreshed every 5 seconds, 15-second TTL). SMG reads the label when it registers the worker, so start the sidecar first: a worker registered while no sidecar was up keeps the model on the router path in `auto` until that worker is registered again.
 - Jobs and results travel over Redis lists under `smg:mm:v1:{namespace}`, and results expire after 120 seconds. An encoded result at or above `SMG_VLLM_MM_MAX_RESULT_BYTES` (default 512 MiB, lowered to Redis's `proto-max-bulk-len` when that is smaller) is not pushed; the request fails with a 400 whose message includes `media_too_large`.
+
+### SMG's Pipeline on the Rust Servicer
+
+`--mm-processor smg` runs SMG's own media pipeline — the same fetch, decode, preprocess, and placeholder expansion the router runs for `--mm-processing router` — inside the worker, with no Python on the request path (smg-project/smg#2741). The resulting batches reach the engine as a router-preprocessed request's would. The mode exists only in the [Rust vLLM servicer](../../getting-started/grpc-workers.md#rust-vllm-servicer) and, like that servicer, is newer than v1.11.0; the Python servicer refuses the value at startup with an error pointing to `--servicer-impl rust` / `SMG_VLLM_SERVICER_IMPL=rust`.
+
+```bash
+SMG_VLLM_SERVICER_IMPL=rust SMG_VLLM_MM_PROCESSOR=smg \
+  vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc
+```
+
+- The worker serves the model families SMG's pipeline supports (see [Supported Models](#supported-models)); a multimodal model outside them is refused at startup, while a text-only model ignores the setting as it does the other processors. The router still decides per model whether to forward references at all (see [Where Media Is Processed](#where-media-is-processed)): `smg` changes what runs once references arrive, not which models they are forwarded for.
+- The pipeline reads the model's `config.json` and preprocessor configs from the model directory, or from the tokenizer directory the launcher resolved. The engine's `mm_processor_kwargs` are applied as overrides of the preprocessor config; a key the config has no field for fails the launch rather than being ignored.
+- The worker advertises `mm_processor=smg` and `mm_media_ref_schemes=http,https,data`, and fetches from any host with a fixed 10-second timeout. vLLM's `--allowed-media-domains` and `--allowed-local-media-path` do not apply, and `file` URLs are never accepted.
+- `--mm-max-inflight` and `--mm-max-item-bytes` apply as above. `--mm-max-items` overrides the model's built-in per-request limits rather than vLLM's `--limit-mm-per-prompt`; `SMG_VLLM_MM_MAX_VIDEO_FRAMES` and the Redis sidecar settings are not used.
+- An engine that normalizes pixels on device (vLLM's `mm_device_do_normalize`, on by default for the Qwen-VL family) takes raw `uint8` pixels, and the pipeline writes those for it. A model whose processor produces only normalized floats is refused at startup under that setting: start the engine with `--mm-device-do-normalize=false` or use `inprocess`. Otherwise pixels are written in the engine's own dtype.
+- The in-flight cap, the saturation refusal, and the PD prefill leg's `media_identity` behave as with the Python backends.
 
 ---
 
@@ -251,7 +267,7 @@ Neither setting enables a modality the model does not support. When you raise a 
 | Media fetch | 10 seconds per URL | Fixed |
 
 !!! warning "No domain allowlist on the router path"
-    When SMG preprocesses media, it fetches any `http://` or `https://` URL a request names. If clients are untrusted, restrict the gateway's outbound network access. On the worker path, vLLM's `--allowed-media-domains` applies instead.
+    When SMG preprocesses media, it fetches any `http://` or `https://` URL a request names. If clients are untrusted, restrict the gateway's outbound network access. On the worker path, vLLM's `--allowed-media-domains` applies with the `inprocess` and `redis` processors; a worker running `--mm-processor smg` also fetches from any host, so restrict its outbound access the same way.
 
 ### In-Flight Media Budget
 
@@ -282,9 +298,9 @@ Prefill-decode deployments add three codes, listed under [Prefill-Decode Disaggr
 
 ## Performance
 
-- **Fetch once.** Parts that name the same media with the same settings share one fetch and decode (smg-project/smg#2586).
+- **Fetch once.** Parts of one request whose payload is identical byte for byte — the same URL, inline `data:` URL, bytes, or file path — with the same settings share one fetch and decode, so an image repeated as several identical data URLs is fetched and decoded once (smg-project/smg#2586). Newer than v1.11.0, duplicates are matched by comparing payloads (looked up by their kind and length, falling back to digests once several distinct payloads share one length) rather than hashing every payload up front (smg-project/smg#2767).
 - **Data URL fast path.** `data:image/...` URLs go straight to the base64 decoder without a full URL parse, which matters for large inline images (smg-project/smg#2648).
-- **Parallel preprocessing.** Modality batches are preprocessed concurrently. Within a batch, processors built on the Qwen-VL pipeline (Qwen2-VL through Qwen3-VL, Qwen3-Omni, MiniMax-M3) split the images across cores (smg-project/smg#2582), and video clips run in parallel (smg-project/smg#2595).
+- **Parallel preprocessing.** Modality batches are preprocessed concurrently. Within a batch, processors built on the Qwen-VL pipeline (Qwen2-VL through Qwen3-VL, Qwen3-Omni, MiniMax-M3) split the images across cores (smg-project/smg#2582), and video clips run in parallel (smg-project/smg#2595). Newer than v1.11.0, a batch's still-encoded images are also decoded in parallel on the preprocessing pool before preprocessing starts — a repeated image only once — instead of one photo after another (smg-project/smg#2767).
 - **Pixel cache.** `--mm-pixel-cache-mb` gives SMG a host-memory LRU cache of preprocessed images, keyed by the image's content hash and a fingerprint of the model and its preprocessing config. It serves single-image requests and, for the Qwen2-VL, Qwen2.5-VL, and Qwen3-VL family processors, requests with fewer than 32 images, where each image is cached on its own and a repeated image is preprocessed once (smg-project/smg#2602). The cache is off by default.
 - **JPEG decoding.** When `libturbojpeg` is installed on the gateway host, JPEGs are decoded with libjpeg-turbo using Pillow's defaults, so the pixels match what vLLM computes. Without it, SMG uses a pure-Rust decoder that can differ by a few levels per pixel.
 

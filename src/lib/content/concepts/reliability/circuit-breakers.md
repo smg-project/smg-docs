@@ -117,7 +117,7 @@ The circuit **opens** when:
 consecutive_failures >= failure_threshold
 ```
 
-`consecutive_failures` counts failed requests, not attempts: however many of a request's retries fail on the same worker, that worker's breaker is charged one failure, so the threshold's meaning does not shift with `--retry-max-retries`. Per-request counting applies to HTTP workers in regular mode and to gRPC and ZMQ workers (regular, PD, and EPD dispatch); in PD mode for HTTP workers, every failed attempt still counts individually.
+`consecutive_failures` counts failed requests, not attempts: however many of a request's retries fail on the same worker, that worker's breaker is charged one failure, so the threshold's meaning does not shift with `--retry-max-retries`. Per-request counting applies to HTTP workers in regular mode and to gRPC and ZMQ workers (regular, PD, and EPD dispatch). For HTTP workers in PD mode and for external provider workers, every failed attempt still counts individually.
 
 Per-request counting is newer than v1.12.0. In v1.12.0 and earlier, every failed attempt increments the counter on every path: with the default five attempts per request, two failed requests on one worker can produce the ten failures the default threshold needs.
 

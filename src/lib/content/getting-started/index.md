@@ -352,6 +352,8 @@ Use these when workers are not started via `smg serve`. Each command starts one 
 
     TokenSpeed's default grammar backend is `none`, which makes it reject requests that need constrained decoding, such as `tool_choice` set to `required` or a named function, or a JSON `response_format`. Add `--enable-output-logprobs` if clients request logprobs; without it they come back empty.
 
+    Setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the gRPC worker's environment serves the same contract from the Rust servicer instead of the default Python one (newer than v1.11.0, needs the `smg` wheel); see [Rust TokenSpeed Servicer](grpc-workers.md#rust-tokenspeed-servicer).
+
 === "MLX"
 
     Apple Silicon only. Install the servicer with `pip install "smg-grpc-servicer[mlx]"`.

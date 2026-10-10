@@ -341,6 +341,10 @@ The branch counter and the match-ratio histogram cover string- and token-tree de
 
 With `RUST_LOG=info,smg::policies::cache_aware=debug` (which overrides `--log-level`), each tree and hash decision logs a `Cache-aware selection` line with its `index`, `branch`, `worker` and `model_id` (plus `matched_ratio` and `threshold` for trees), and KV-event decisions log `Event-driven routing: overlap match` or `Event-driven routing: no overlap, expected-wait fallback`.
 
+### Routing Evidence Trace
+
+Setting `SMG_CACHE_TRACE=1` (newer than v1.11.0) records the full evidence behind each decision for requests served by gRPC and ZMQ workers: one INFO JSON line per dispatch attempt on the `smg::cache_trace` target, with the candidates' load and health as observed before selection, the cache prediction (`event_index_overlap`, `approximate_tree`, or `approximate_hash_index`), the per-worker affinity and expected-wait scores, and the gate checks — the workers the eligibility pass dropped, and each candidate's spill-gate verdict with the load and thresholds behind it. `SMG_CACHE_TRACE_HEADER=1` returns a summary in the `x-smg-cache-trace` response header, with or without the log lines; a request that sends `x-smg-cache-trace: 1` gets the same header for itself alone, without any environment variable. See [Cache Routing Trace Logs](../../getting-started/logging.md#cache-routing-trace-logs) for the schema and the sampling and size-cap knobs.
+
 ### Useful PromQL Queries
 
 <div class="grid" markdown>

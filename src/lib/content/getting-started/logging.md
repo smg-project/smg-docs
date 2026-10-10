@@ -150,6 +150,7 @@ Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, wh
 | Target | Level | Message | When |
 |--------|-------|---------|------|
 | `smg::policies::*` | DEBUG | Routing decisions | See [Routing Decision Logs](#routing-decision-logs) |
+| `smg::cache_trace` | INFO | `Cache routing dispatch`, `Cache routing failure` | Per-dispatch routing evidence, with `SMG_CACHE_TRACE=1`; see [Cache Routing Trace Logs](#cache-routing-trace-logs) |
 | `smg::audit` | INFO | `control_plane_audit` | Control-plane requests, when control-plane authentication is configured. The Rust binary logs them by default (turn off with `--disable-audit-logging`); the pip `smg launch` logs them only with `--control-plane-audit-enabled` |
 | `smg_rl` | INFO | `rl.proxy`, `rl.fanout` | RL control plane calls, with `--enable-rl` |
 
@@ -179,7 +180,39 @@ Branch values:
 
 When cache-aware routing uses KV events, it logs `Event-driven routing: overlap match` (`branch` is `event_hit` or `event_spill`) or `Event-driven routing: no overlap, expected-wait fallback`, each with `worker` and `model_id`.
 
-See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for the matching decision counters.
+See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for the matching decision counters. These DEBUG lines name only the branch taken and the worker chosen; for the full evidence behind a decision — candidates, scores, and gates — see [Cache Routing Trace Logs](#cache-routing-trace-logs).
+
+---
+
+## Cache Routing Trace Logs
+
+Setting `SMG_CACHE_TRACE=1` in the gateway's environment turns on a routing-evidence trace (newer than v1.11.0): one line per dispatch attempt on the `smg::cache_trace` target, recording what the routing decision saw — the candidate workers with their load and health, the cache-affinity prediction, the per-worker scores, and the gate checks that keep or drop workers. The lines are INFO, so they appear at the default `info` level. All four variables are read once per gateway process, so changing them requires a restart.
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `SMG_CACHE_TRACE` | off | `1` logs a `Cache routing dispatch` line per dispatch attempt, and a `Cache routing failure` line (the captured selections plus the response status) when the pipeline returns an error |
+| `SMG_CACHE_TRACE_HEADER` | off | `1` returns a summary of the dispatch evidence in the `x-smg-cache-trace` response header, with or without `SMG_CACHE_TRACE=1`; see [Response Headers](../reference/api/openai.md#response-headers) |
+| `SMG_CACHE_TRACE_SAMPLE` | `1` | Log one dispatch line in every `N`; the first dispatch is always logged. Failure lines and the response header are never sampled. `0` or an unparsable value means every dispatch |
+| `SMG_CACHE_TRACE_MAX_BYTES` | unset | Compact any evidence line longer than `B` bytes: each selection's `candidates`, `scores`, and `gates` lists are dropped (their counts remain under `elided`) and the line is marked `capped`, keeping the decision record — IDs, policy, chosen worker, and prediction. Applies to failure lines too. Unset or unparsable means no cap |
+
+A single request can also ask for its own record without any environment variable: sending `x-smg-cache-trace: 1` as a request header returns that request's summary in the `x-smg-cache-trace` response header, with or without the process-wide switches. With both variables unset, evidence is captured only for the requests that ask, and the request header adds no log lines; when the summary exceeds the header limit, the omission line is DEBUG rather than INFO.
+
+The trace is recorded by the gRPC pipeline, so it covers requests served by gRPC (`grpc://`) and ZMQ (`ipc://`) workers under any routing policy; requests relayed to HTTP workers emit nothing.
+
+```bash
+SMG_CACHE_TRACE=1 SMG_CACHE_TRACE_SAMPLE=100 SMG_CACHE_TRACE_MAX_BYTES=8192 \
+  smg launch --worker-urls grpc://worker:50051 --policy cache_aware
+```
+
+Each `Cache routing dispatch` line carries a JSON object in its `evidence` field:
+
+- **Dispatch**: `schema` (`1`), `router_epoch` (one UUID per gateway process), `dispatch_timestamp_ns`, `root_id` (the request ID also returned in `x-request-id`), a unique `dispatch_id`, the retry `attempt`, `engine_ids` (the backend request IDs this dispatch sends, at most 32, with `engine_ids_complete`; PD fan-out sub-requests appear as `{id}-{index}`), and `mode` (`single`, `prefill_decode`, or `encode_prefill_decode`).
+- **Selections** (at most 16 per dispatch; overflow sets `truncated`): one entry per worker selection, with the `policy`, the `origin` (`policy`, or the sticky-routing branch when `--routing-key-override` pinned the request), the chosen `worker`, and the cache-aware `prediction` behind it — `event_index_overlap` (KV events, with `overlap_blocks`), `approximate_tree` (with matched and input units), or `approximate_hash_index` (with the matched `level`).
+- **Candidates** (at most 32 per selection, with `candidates_complete`): each candidate's `load`, `healthy`, `overloaded`, and `registry_revision`, observed just before the policy ran (`load_observation_phase` is `before_selection`, bracketed by `observation_started_ns` and `observation_finished_ns`), so the chosen worker's load does not yet count this request. Each candidate also carries the backend cache epochs it reported when it registered (`backend_cache_epochs`, with `backend_cache_epoch` set when there is exactly one); a health failure withdraws them until the worker registers again, and they are no proof against an undetected engine restart.
+- **Scores** (at most 64 per selection), recorded where they are computed: cache-aware affinity entries (`policy_affinity` with each candidate's `device_blocks` and `effective_score`, `approximate_tree` marking the deepest holder) and `expected_wait` entries with the queue, drain-rate, and KV-pressure inputs — also emitted under `least_load` and `power_of_two`, which use the same scorer.
+- **Gates** (at most 32): gate checks with their inputs and verdicts — the workers the cache-aware eligibility pass dropped, a spill-gate entry per candidate checked (its load, the fleet mean, both balance thresholds, and the `spill` verdict), and, under `least_load`, a queue-cap entry per load-reporting candidate (its waiting queue against `--least-load-max-waiting-requests`, with the `eligible` verdict).
+
+With the same `SMG_CACHE_TRACE=1` set on a TokenSpeed gRPC worker, its Python servicer logs a `cache_request_mapping` line joining each received request ID (`parent_id`) to the engine-side IDs it expands to (`child_ids`, one per sample when `n` > 1), so the gateway's `engine_ids` join through to engine logs.
 
 ---
 

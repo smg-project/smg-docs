@@ -8,7 +8,7 @@ Complete reference for the Prometheus metrics SMG exports. Metrics are grouped b
 
 A series appears on `/metrics` only after the first event that records it, and several groups exist only when the feature that produces them is enabled. Each entry says when it is emitted.
 
-Unreleased: current main publishes the overload-shed, retry, and circuit-breaker transition families at zero before their first event — the overload and retry families at gateway start-up, each worker's breaker transitions when the worker is registered — so `absent()` alerts stay quiet on a healthy process and `increase()` catches the first event after a restart. No tagged release includes this yet; in releases these families appear only on their first event. Their entries below list the exact series.
+Unreleased: current main publishes the overload-shed, retry, and circuit-breaker transition families at zero before their first event — the overload and retry families at gateway start-up, each worker's breaker transitions when the worker is registered — so `absent()` alerts stay quiet on a healthy process and `increase()` catches the first event after a restart. In v1.11.0 these families appear only on their first event. Their entries below list the exact series.
 
 ---
 

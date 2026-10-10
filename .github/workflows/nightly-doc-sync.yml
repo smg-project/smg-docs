@@ -239,12 +239,14 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    name: 'Document: ${{ matrix.concern }}'
+    name: 'Document: item ${{ matrix.item_index }}'
     env:
       GH_TOKEN: ${{ github.token }}
       BASE_SHA: ${{ needs.plan.outputs.base_sha }}
       BASE_BRANCH: ${{ github.event.repository.default_branch }}
-      ITEM_JSON: ${{ toJSON(matrix) }}
+      ITEM_INDEX: ${{ matrix.item_index }}
+      PLAN_REPORT: nightly-docs-plan/nightly-docs-discovery-report.json
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
     steps:
       # Load automation from the immutable workflow revision, then the setup
       # action switches to the same clean default-branch snapshot for all jobs.
@@ -264,6 +266,10 @@ jobs:
         with:
           docs-sha: ${{ needs.plan.outputs.base_sha }}
           source-ref: ${{ needs.plan.outputs.source_sha }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: nightly-docs-discovery-report
+          path: ${{ runner.temp }}/nightly-docs-plan
       - name: Save the single concern
         env:
           NIGHTLY_ITEM: ${{ runner.temp }}/nightly-docs-item.json
@@ -307,12 +313,14 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    name: 'Validate and publish: ${{ matrix.concern }}'
+    name: 'Validate and publish: item ${{ matrix.item_index }}'
     env:
       GH_TOKEN: ${{ github.token }}
       BASE_SHA: ${{ needs.plan.outputs.base_sha }}
       BASE_BRANCH: ${{ github.event.repository.default_branch }}
-      ITEM_JSON: ${{ toJSON(matrix) }}
+      ITEM_INDEX: ${{ matrix.item_index }}
+      PLAN_REPORT: nightly-docs-plan/nightly-docs-discovery-report.json
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
     steps:
       # Only data crosses the job boundary. No writer scripts, Git metadata,
       # hooks, config, or review verdicts are reused in this privileged job.
@@ -332,6 +340,10 @@ jobs:
         with:
           docs-sha: ${{ needs.plan.outputs.base_sha }}
           source-ref: ${{ needs.plan.outputs.source_sha }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: nightly-docs-discovery-report
+          path: ${{ runner.temp }}/nightly-docs-plan
       - name: Find this concern's artifact
         id: artifact
         env:

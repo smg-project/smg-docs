@@ -336,8 +336,11 @@ All 24 registered tool-call parsers. For auto-detection, the longest matching pa
 ### Tool Execution Flow
 
 1. **Parse**: the resolved parser extracts calls from the model output. Text outside the calls stays in `content`.
-2. **Return**: Chat Completions returns the calls in `tool_calls` with `finish_reason: "tool_calls"`, unless the engine stopped for `length` or an error. The Messages API returns `tool_use` blocks with `stop_reason: "tool_use"`, unless the engine stopped for `length`: the truncated turn reports `max_tokens` because the call may be cut short (smg-project/smg#2718; before that change it reported `tool_use`).
+2. **Return**: Chat Completions returns the calls in `tool_calls` with `finish_reason: "tool_calls"`, unless the engine stopped for `length` or an error. The Messages API returns `tool_use` blocks with `stop_reason: "tool_use"`, unless the engine stopped for `length`: the truncated turn reports `max_tokens` because the call may be cut short.
 3. **Execute (Responses API)**: on `/v1/responses`, the gateway runs calls to MCP tools itself, appends the results to the conversation, and resumes generation. The request's `max_tool_calls`, capped by the gateway, bounds the loop. See [MCP](../extensibility/mcp.md).
+
+!!! note "Unreleased"
+    The `length` exception for the Messages API is a recent change on SMG `main`. Earlier builds reported `tool_use` even when the engine stopped for `length`.
 
 ---
 

@@ -267,6 +267,22 @@ def validate_diff(item, base):
     return total > 0
 
 
+def item_matrix(items):
+    """Keep proposal text out of job outputs subject to GitHub secret masking."""
+    return {"include": [{"item_index": i} for i in range(len(items))]}
+
+
+def planned_item(report, index, base, source):
+    """Load one proposal from this run's report, bound to both pinned snapshots."""
+    if report.get('base_sha') != base or report.get('source_sha') != source:
+        raise ValueError('Plan report does not match pinned snapshots')
+    selected = report.get('selected')
+    if (not isinstance(selected, list) or type(index) is not int
+            or not 0 <= index < len(selected)):
+        raise ValueError('Invalid plan item index')
+    return validate_item(selected[index])
+
+
 def validate_reader_docs(base):
     """Reject code-change citations in added/rewritten prose, not untouched text."""
     citation = re.compile(
@@ -425,8 +441,13 @@ def main():
     elif args.command == "review":
         record_review(os.environ["REVIEW_JSON"])
     else:
-        item = validate_item(json.loads(os.environ["ITEM_JSON"]))
         base = os.environ["BASE_SHA"]
+        if os.getenv('PLAN_REPORT'):
+            report_path = Path(os.environ['RUNNER_TEMP']) / os.environ['PLAN_REPORT']
+            item = planned_item(json.loads(report_path.read_text()),
+                                int(os.environ['ITEM_INDEX']), base, os.environ['SOURCE_SHA'])
+        else:
+            item = validate_item(json.loads(os.environ["ITEM_JSON"]))
         if args.command == "evidence":
             path = Path(os.environ["NIGHTLY_ITEM"])
             path.write_text(json.dumps(item) + "\n")

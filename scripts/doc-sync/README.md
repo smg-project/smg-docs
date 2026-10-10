@@ -32,6 +32,10 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    independent read-only accuracy, scope, placement, and related-page consistency review, run `pnpm check` and `pnpm build`,
    and publish. Successful writers remain publishable if another writer fails.
 
+Writer/publisher matrices carry only numeric item indices. Proposal text and
+source evidence travel in the run's discovery-report artifact, checked against
+both pinned snapshots, so GitHub secret masking cannot suppress the job matrix.
+
 Every job in this workflow uses the CPU runner set. Separate PR CI jobs on
 `ubuntu-latest` run mocked Python tests, lint, type checks, and builds without
 model calls.

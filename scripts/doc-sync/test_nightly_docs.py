@@ -45,6 +45,20 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(first["branch"], renamed["branch"])
         self.assertEqual(len(self.plan([proposal()])), 1)
 
+    def test_job_matrix_contains_only_indices_and_report_retains_evidence(self):
+        items = [proposal(evidence='Authorization: Bearer example-token'), proposal(concern='other')]
+        matrix = docs.item_matrix(items)
+        self.assertEqual(matrix, {'include': [{'item_index': 0}, {'item_index': 1}]})
+        self.assertNotIn('Bearer', json.dumps(matrix))
+        report = {'base_sha': 'b' * 40, 'source_sha': 'c' * 40, 'selected': items}
+        self.assertEqual(docs.planned_item(report, 0, 'b' * 40, 'c' * 40)['evidence'], items[0]['evidence'])
+        for index in [-1, 2, True, '0']:
+            with self.subTest(index=index), self.assertRaisesRegex(ValueError, 'index'):
+                docs.planned_item(report, index, 'b' * 40, 'c' * 40)
+        for base, source in [('d' * 40, 'c' * 40), ('b' * 40, 'd' * 40)]:
+            with self.assertRaisesRegex(ValueError, 'snapshots'):
+                docs.planned_item(report, 0, base, source)
+
     def test_empty_plan_is_valid(self):
         self.assertEqual(self.plan([]), [])
 

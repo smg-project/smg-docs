@@ -795,9 +795,10 @@ stored without an ID get a generated `msg_` ID.
 
 Conversations provide persistent storage for multi-turn interactions, enabling chat history to be maintained across multiple requests.
 
-The conversation endpoints report errors as `{"error": "<message>"}`, except for the
-structured `item_already_in_conversation` error described under
-[Create Conversation Items](#create-conversation-items).
+The conversation endpoints report errors as `{"error": "<message>"}`, except for two
+structured errors: `item_already_in_conversation` under
+[Create Conversation Items](#create-conversation-items) and the `invalid_value` rejection
+of a bad `include` query under [Get Conversation Item](#get-conversation-item).
 
 ### Create Conversation
 

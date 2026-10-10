@@ -84,7 +84,9 @@ smg launch \
   --cb-timeout-duration-secs 60
 ```
 
-A worker's circuit opens after 10 consecutive failures (`408`, `500`, `502`, `503`, `504`, or no response). A `429` from a worker is capacity pushback: it can still be retried, but it never opens or closes the circuit. See [What Counts as a Failure](../concepts/reliability/circuit-breakers.md#what-counts-as-a-failure). `--cb-window-duration-secs` is accepted but not used by the breaker.
+A worker's circuit opens after 10 consecutive failed requests (`408`, `500`, `502`, `503`, `504`, or no response). A `429` from a worker is capacity pushback: it can still be retried, but it never opens or closes the circuit. See [What Counts as a Failure](../concepts/reliability/circuit-breakers.md#what-counts-as-a-failure). `--cb-window-duration-secs` is accepted but not used by the breaker.
+
+A request that is retried on the same worker charges that worker's breaker once, however many of its attempts fail there. Per-request counting is newer than v1.12.0 and covers HTTP workers in regular mode and gRPC and ZMQ workers; in PD mode for HTTP workers, and on every path in v1.12.0 and earlier, each failed attempt counts, so one request's retries can add several failures to a worker's counter. See [State Transitions](../concepts/reliability/circuit-breakers.md#state-transitions).
 
 Disable only for controlled testing:
 

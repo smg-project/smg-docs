@@ -73,7 +73,7 @@ Each worker has its own circuit breaker with three states:
 
 **Normal operation** - requests flow through.
 
-- Each failure increments a consecutive-failure counter
+- Each failed request increments a consecutive-failure counter
 - A success resets the counter to zero
 - Opens when the counter reaches `--cb-failure-threshold`
 
@@ -117,6 +117,10 @@ The circuit **opens** when:
 consecutive_failures >= failure_threshold
 ```
 
+`consecutive_failures` counts failed requests, not attempts: however many of a request's retries fail on the same worker, that worker's breaker is charged one failure, so the threshold's meaning does not shift with `--retry-max-retries`. Per-request counting applies to HTTP workers in regular mode and to gRPC and ZMQ workers (regular, PD, and EPD dispatch); in PD mode for HTTP workers, every failed attempt still counts individually.
+
+Per-request counting is newer than v1.12.0. In v1.12.0 and earlier, every failed attempt increments the counter on every path: with the default five attempts per request, two failed requests on one worker can produce the ten failures the default threshold needs.
+
 A single successful request resets `consecutive_failures` to zero. `--cb-window-duration-secs` is accepted and validated but is not consumed by the state machine — failures are tracked with a running consecutive-failure counter rather than a sliding window.
 
 ### Open → Half-Open
@@ -135,7 +139,7 @@ If any request fails during half-open, the circuit reopens immediately and the o
 
 ## What Counts as a Failure
 
-The breaker learns from the status of each response a worker sends back. Since v1.10, capacity pushback is not a failure:
+The breaker classifies outcomes by the status of the response a worker sends back. Since v1.10, capacity pushback is not a failure:
 
 | Worker outcome | Recorded as |
 |----------------|-------------|
@@ -168,7 +172,7 @@ The `resilience` block of a worker spec (for example, in a `POST /workers` reque
 |-------|---------|-------------|
 | `capacity_status_codes` | `[429]` | Statuses treated as capacity pushback, which record no breaker sample |
 | `retryable_status_codes` | `[408, 429, 500, 502, 503, 504]` | Statuses that count as breaker failures (codes also listed in `capacity_status_codes` are skipped). Despite the name, it does not change which responses the gateway retries |
-| `cb_failure_threshold` | `--cb-failure-threshold` | Consecutive failures that open the circuit |
+| `cb_failure_threshold` | `--cb-failure-threshold` | Consecutive failed requests that open the circuit |
 | `cb_success_threshold` | `--cb-success-threshold` | Consecutive half-open successes that close the circuit |
 | `cb_timeout_secs` | `--cb-timeout-duration-secs` | Seconds the circuit stays open before it moves to half-open |
 
@@ -190,13 +194,15 @@ smg launch \
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--cb-failure-threshold` | `10` | Consecutive failures before circuit opens |
+| `--cb-failure-threshold` | `10` | Consecutive failed requests before the circuit opens |
 | `--cb-success-threshold` | `3` | Consecutive successes in half-open state to close circuit |
 | `--cb-timeout-duration-secs` | `60` | Seconds before open circuit transitions to half-open |
 | `--cb-window-duration-secs` | `120` | Accepted and validated (must be `> 0`) but not consumed by the state machine; see *Closed → Open* |
 | `--disable-circuit-breaker` | `false` | Breakers never open: the failure threshold is raised to its maximum. Outcomes are still counted in the metrics |
 
 The thresholds must be at least `1`, and the durations must be greater than `0`.
+
+`--cb-failure-threshold` counts failed requests (newer than v1.12.0; earlier releases count failed attempts); see [State Transitions](#state-transitions).
 
 ### Configuration Examples
 
@@ -368,6 +374,7 @@ groups:
 ### Retries
 
 - For local workers, each retry attempt runs worker selection again, so a worker whose circuit is open is skipped.
+- A request's retries on the same worker charge its breaker once; see [State Transitions](#state-transitions) for the paths this covers and the v1.12.0 behavior.
 - If every worker is unavailable, the attempt gets 503 `no_available_workers`.
 - A half-open worker is selected like any other; its outcomes decide whether the circuit closes or reopens.
 - A 429 from a worker is retried when retries are enabled, but leaves that worker's breaker untouched.

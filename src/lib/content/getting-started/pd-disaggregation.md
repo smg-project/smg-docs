@@ -433,7 +433,7 @@ curl http://localhost:30000/v1/chat/completions \
   }'
 ```
 
-PD mode serves Chat Completions, Completions, the Anthropic Messages API, and the Responses API on both transports. `/v1/messages/count_tokens` works with HTTP workers and goes to a single prefill worker.
+PD mode serves Chat Completions, Completions, the Anthropic Messages API, and the Responses API on both transports; a MoRI-IO pair serves Chat Completions and Completions only. `/v1/messages/count_tokens` works with HTTP workers and goes to a single prefill worker.
 
 ---
 

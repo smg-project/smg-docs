@@ -450,6 +450,16 @@ class PublicationTests(unittest.TestCase):
         return pr
 
 
+    def test_original_citations_can_be_loaded_but_not_republished(self):
+        ctx = {**self.ctx, 'files': {str(self.path): 'See smg-project/smg#2924.\n'}}
+        self.assertTrue(m.restore(ctx))
+        bundle = json.dumps({'base_sha': self.base, 'key': self.item['key'], 'files': ctx['files']})
+        with self.assertRaisesRegex(ValueError, 'code-change references'):
+            m.restore(ctx, bundle)
+        clean = json.dumps({'base_sha': self.base, 'key': self.item['key'],
+                            'files': {str(self.path): 'Set the cache byte budget.\n'}})
+        self.assertTrue(m.restore(ctx, clean))
+
     def test_publication_preserves_history_and_exact_reviewed_tree(self):
         self.path.write_text('Fixed PR\n\nSecond paragraph.\n')
         m.docs.validate_diff(self.item, self.base)

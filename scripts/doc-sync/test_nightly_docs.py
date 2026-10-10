@@ -45,6 +45,20 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(first["branch"], renamed["branch"])
         self.assertEqual(len(self.plan([proposal()])), 1)
 
+    def test_job_matrix_contains_only_indices_and_report_retains_evidence(self):
+        items = [proposal(evidence='Authorization: Bearer example-token'), proposal(concern='other')]
+        matrix = docs.item_matrix(items)
+        self.assertEqual(matrix, {'include': [{'item_index': 0}, {'item_index': 1}]})
+        self.assertNotIn('Bearer', json.dumps(matrix))
+        report = {'base_sha': 'b' * 40, 'source_sha': 'c' * 40, 'selected': items}
+        self.assertEqual(docs.planned_item(report, 0, 'b' * 40, 'c' * 40)['evidence'], items[0]['evidence'])
+        for index in [-1, 2, True, '0']:
+            with self.subTest(index=index), self.assertRaisesRegex(ValueError, 'index'):
+                docs.planned_item(report, index, 'b' * 40, 'c' * 40)
+        for base, source in [('d' * 40, 'c' * 40), ('b' * 40, 'd' * 40)]:
+            with self.assertRaisesRegex(ValueError, 'snapshots'):
+                docs.planned_item(report, 0, base, source)
+
     def test_empty_plan_is_valid(self):
         self.assertEqual(self.plan([]), [])
 
@@ -198,6 +212,33 @@ class GitGuardTests(unittest.TestCase):
         self.assertEqual(set(self.git("diff", "--cached", "--name-only").splitlines()),
                          {str(self.path), str(new)})
 
+    def test_reader_docs_reject_code_change_references_in_repaired_prose(self):
+        for reference in ['https://github.com/smg-project/smg/pull/2924',
+                          'https://github.com/smg-project/smg/commit/abcdef',
+                          'https://github.com/smg-project/smg/blob/main/config.rs',
+                          'smg-project/smg#2924', 'PR #2924', 'issue #2603']:
+            with self.subTest(reference=reference):
+                self.path.write_text('See ' + reference + ' for the behavior.\n')
+                with self.assertRaisesRegex(ValueError, 'code-change references'):
+                    docs.export_bundle(self.item, self.base, Path('bundle.json'))
+
+    def test_reader_docs_leave_untouched_legacy_citations_alone(self):
+        self.path.write_text('Historical reference: smg-project/smg#2603.\n\nOld guidance.\n')
+        self.git('add', str(self.path))
+        self.git('commit', '-qm', 'Existing documentation')
+        base = self.git('rev-parse', 'HEAD')
+        self.path.write_text('Historical reference: smg-project/smg#2603.\n\nUpdated guidance.\n')
+        docs.validate_diff(self.item, base)
+        docs.validate_reader_docs(base)
+
+    def test_reader_docs_allow_documentation_and_release_links(self):
+        self.path.write_text('Configure the byte budget.\n\n'
+            'Unreleased: oversized inputs are not cached.\n\n'
+            '[Cache sizing](../sizing.md) and '
+            '[Release](https://github.com/smg-project/smg/releases/tag/v1.12.0).\n')
+        docs.validate_diff(self.item, self.base)
+        docs.validate_reader_docs(self.base)
+
     def test_many_documentation_files_for_one_concern_are_allowed(self):
         paths = []
         for i in range(20):
@@ -303,15 +344,21 @@ class GitGuardTests(unittest.TestCase):
             "git", "show", "--first-parent", "--no-ext-diff", "--no-textconv", source])
         with self.assertRaises(UnicodeDecodeError):
             raw.decode("utf-8")
-        for command in ("context", "evidence"):
+        for command in ("context", "evidence", "evidence-report"):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 env = {"SOURCE_ROOT": os.getcwd(), "GITHUB_REPOSITORY": "test/repo",
                        "NIGHTLY_CONTEXT": str(root / "context.json"), "MAX_PRS": "100",
                        "NIGHTLY_ITEM": str(root / "item.json"), "BASE_SHA": self.base,
-                       "ITEM_JSON": json.dumps(proposal(source_sha=source))}
+                       "ITEM_JSON": json.dumps(proposal(source_sha=source)), "PLAN_REPORT": ""}
+                if command == 'evidence-report':
+                    report = {'base_sha': self.base, 'source_sha': source,
+                              'selected': [proposal(source_sha=source)]}
+                    (root / 'report.json').write_text(json.dumps(report))
+                    env.update(PLAN_REPORT='report.json', RUNNER_TEMP=str(root),
+                               ITEM_INDEX='0', SOURCE_SHA=source, ITEM_JSON='invalid legacy input')
                 with patch.dict(os.environ, env), \
-                        patch("sys.argv", ["nightly_docs.py", command]), \
+                        patch("sys.argv", ["nightly_docs.py", "evidence" if command == "evidence-report" else command]), \
                         patch.object(docs, "existing_prs", return_value=[]):
                     docs.main()
                 output = (root / "nightly-docs-sources" / f"{source}.patch"
@@ -391,7 +438,7 @@ class GitGuardTests(unittest.TestCase):
         self.assertNotIn("XinyueZhang369", calls[0][1])
         self.assertNotIn("zoeyzhang369@gmail.com", calls[0][1])
         self.assertIn("https://github.com/smg-project/smg/commit/", calls[0][1])
-        self.assertIn("--draft", calls[0][0])
+        self.assertNotIn("--draft", calls[0][0])
         self.assertEqual(calls[0][0][calls[0][0].index("--title") + 1],
                          "docs: " + self.item["title"][7:])
         self.assertTrue(self.git("log", "-1", "--format=%s").startswith("docs: "))

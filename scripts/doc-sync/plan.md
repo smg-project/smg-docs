@@ -106,3 +106,8 @@ introduced the behavior or made the documentation stale. Never substitute an
 older related commit merely because it touched the subsystem directory. Read
 that primary commit's supplied diff. If no eligible commit supports attribution,
 report the gap in remaining_work rather than creating a falsely attributed item.
+
+Propose user-facing task/reference documentation, not a code-change report.
+Keep source citations in evidence only. The eventual pages must explain service
+behavior without PR/commit links, use concise prose, and place changed or new
+release behavior in its own paragraph within the canonical section.

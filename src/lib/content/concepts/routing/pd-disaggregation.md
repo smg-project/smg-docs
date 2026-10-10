@@ -143,7 +143,7 @@ A restarted vLLM process without a pinned `engine_id` comes back with a new KV e
 #### MoRI-IO (HTTP)
 
 !!! note "Availability"
-    MoRI-IO support is on `main` and newer than v1.11.0: it came with smg-project/smg#2732, concurrent WRITE dispatch with smg-project/smg#2742, and data-parallel rank pinning with smg-project/smg#2798. v1.11.0 does not recognize `MoRIIOConnector`. It handles such workers as passthrough, so it neither tags the prefill leg nor checks a handoff, and it pairs READ and WRITE engines alike under the transport `moriioconnector`. A MoRI-IO decode engine behind v1.11.0 therefore runs without its KV, as described below.
+    MoRI-IO support, including concurrent WRITE dispatch and data-parallel rank pinning, is on `main` and newer than v1.11.0. v1.11.0 does not recognize `MoRIIOConnector`. It handles such workers as passthrough, so it neither tags the prefill leg nor checks a handoff, and it pairs READ and WRITE engines alike under the transport `moriioconnector`. A MoRI-IO decode engine behind v1.11.0 therefore runs without its KV, as described below.
 
 vLLM's `MoRIIOConnector` moves the KV cache over RDMA with MoRI-IO in one of two modes. In READ mode (`"read_mode": true` in `kv_connector_extra_config` on both engines), the decode engine pulls the KV after the prefill leg returns. In WRITE mode, the default, the prefill engine pushes the KV into blocks the decode engine allocates. SMG sends the legs sequentially by default in both modes; a WRITE pair can opt into concurrent dispatch with the decode worker's `moriio_write_dispatch` label (see below).
 
@@ -433,7 +433,7 @@ On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longe
 | 400 | `moriio_fanout_unsupported` | MoRI-IO: `n>1`, a batched prompt or prompt embeddings, or beam search |
 | 400 | `moriio_request_id_reserved` | MoRI-IO: a request id carries the connector's peer-address markers |
 | 501 | `moriio_route_unsupported` | MoRI-IO: the route is not `/v1/chat/completions` or `/v1/completions` |
-| 502 | `moriio_handoff_invalid` | MoRI-IO: the prefill returned no usable handoff — missing, foreign, or with fields the decode engine cannot parse. Sequential dispatch sends no decode leg; concurrent dispatch drops the one already sent |
+| 502 | `moriio_handoff_invalid` | MoRI-IO: the prefill returned no usable handoff — missing, foreign, from a data-parallel rank other than the pinned one, or with fields the decode engine cannot parse. Sequential dispatch sends no decode leg; concurrent dispatch drops the one already sent |
 | 501 | `moriio_grpc_pd_unsupported` | gRPC: MoRI-IO PD is supported only by the HTTP PD router |
 
 The `moriio_*` codes are newer than v1.11.0.

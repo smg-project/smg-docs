@@ -267,9 +267,37 @@ def validate_diff(item, base):
     return total > 0
 
 
+def item_matrix(items):
+    """Keep proposal text out of job outputs subject to GitHub secret masking."""
+    return {"include": [{"item_index": i} for i in range(len(items))]}
+
+
+def planned_item(report, index, base, source):
+    """Load one proposal from this run's report, bound to both pinned snapshots."""
+    if report.get('base_sha') != base or report.get('source_sha') != source:
+        raise ValueError('Plan report does not match pinned snapshots')
+    selected = report.get('selected')
+    if (not isinstance(selected, list) or type(index) is not int
+            or not 0 <= index < len(selected)):
+        raise ValueError('Invalid plan item index')
+    return validate_item(selected[index])
+
+
+def validate_reader_docs(base):
+    """Reject code-change citations in added/rewritten prose, not untouched text."""
+    citation = re.compile(
+        r"github\.com/[^/\s)]+/[^/\s)]+/(?:pull|issues|commit|commits|compare|blob)/"
+        r"|\b[\w.-]+/[\w.-]+#\d+"
+        r"|\b(?:PR|pull request|issue)\s*#\d+", re.IGNORECASE)
+    for line in git("diff", "--cached", "--unified=0", base, "--", DOC_ROOT).splitlines():
+        if line.startswith('+') and not line.startswith('+++') and citation.search(line[1:]):
+            raise ValueError("Documentation must explain service behavior without code-change references")
+
+
 def export_bundle(item, base, output):
     """Writer output is untrusted data; never transfer its scripts or .git."""
     validate_diff(item, base)
+    validate_reader_docs(base)
     changed = git("diff", "--cached", "--name-only", base).splitlines()
     payload = {"base_sha": base, "key": item["key"],
                "files": {path: Path(path).read_text() for path in changed}}
@@ -340,6 +368,7 @@ def publish(item, repo, base, base_branch):
     if not validate_diff(item, base):
         print("No documentation gap to publish.")
         return
+    validate_reader_docs(base)
     # Never overwrite an existing branch, even after a prior push/PR API failure.
     # In that case reuse it only if its exact tree and parent match this run.
     branch = item["branch"]
@@ -389,7 +418,7 @@ Scope: **{item["area"]} / {item["concern"]}**. Other concerns are deferred.
         f.write(body)
         f.flush()
         url = run("gh", "pr", "create", "--repo", repo, "--base", base_branch,
-                  "--head", branch, "--title", "docs: " + item["title"][7:], "--body-file", f.name, "--draft")
+                  "--head", branch, "--title", "docs: " + item["title"][7:], "--body-file", f.name)
     print(url)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
@@ -412,8 +441,13 @@ def main():
     elif args.command == "review":
         record_review(os.environ["REVIEW_JSON"])
     else:
-        item = validate_item(json.loads(os.environ["ITEM_JSON"]))
         base = os.environ["BASE_SHA"]
+        if os.getenv('PLAN_REPORT'):
+            report_path = Path(os.environ['RUNNER_TEMP']) / os.environ['PLAN_REPORT']
+            item = planned_item(json.loads(report_path.read_text()),
+                                int(os.environ['ITEM_INDEX']), base, os.environ['SOURCE_SHA'])
+        else:
+            item = validate_item(json.loads(os.environ["ITEM_JSON"]))
         if args.command == "evidence":
             path = Path(os.environ["NIGHTLY_ITEM"])
             path.write_text(json.dumps(item) + "\n")

@@ -116,9 +116,11 @@ The gateway is the `smg` package in `model_gateway/`. It builds two binaries fro
 | Profile | Select with | Settings | Notes |
 |---------|-------------|----------|-------|
 | `dev` | default | `opt-level = 0` for workspace crates, `opt-level = 2` for dependencies | Day-to-day development |
-| `release` | `--release` | `opt-level = "z"`, fat LTO, `codegen-units = 1`, symbols kept | Slow to compile; symbols stay so CPU profiles are readable (smg-project/smg#1582) |
+| `release` | `--release` | `opt-level = "z"`, fat LTO, `codegen-units = 1`, symbols kept; compute-heavy crates at `opt-level = 3` (see below) | Slow to compile; symbols stay so CPU profiles are readable (smg-project/smg#1582) |
 | `ci` | `--profile ci` | `opt-level = 2`, thin LTO, 16 codegen units, stripped | What CI builds wheels with; a faster optimized build |
 | `bench` | `cargo bench` | `opt-level = 3`, thin LTO | Benchmarks |
+
+The release profile's size optimization is not uniform: `[profile.release.package.<name>]` overrides in the workspace `Cargo.toml` build the compute-heavy crates for speed instead (smg-project/smg#2768). The workspace's own `llm-multimodal` (image preprocessing), `llm-tokenizer` (encode, per-token decode, stop-sequence scan), and `kv-index` (the cache-aware routing trees) compile at `opt-level = 3`, along with their hot dependencies (`image`, `zune-jpeg`, `png`, `fast_image_resize`, `base64`, `blake3`, `tokenizers`, `aho-corasick`, `onig_sys`); the tiktoken encode path (`tiktoken-rs`, `fancy-regex`, `regex-automata`) compiles at `opt-level = 2`. smg-project/smg#2768 measured those paths running 25-50% slower when built for size, for about 1.5 MB of binary growth from the overrides. When profiling a release build, remember that a generic function is compiled by the crate that instantiates it, at that crate's opt-level: a generic entry point in an overridden crate only benefits once it hands the work to a non-generic inner function.
 
 ### Cargo.lock and `--locked`
 

@@ -68,7 +68,7 @@ All of these engines use the same handshake, so SMG can't tell which one dialed 
 
 SGLang over ZMQ is newer than v1.11.0. In v1.11.0, `smg serve` accepts `--connection-mode zmq` only with `--backend vllm` or `--backend tokenspeed`, and the gateway rejects any other runtime with `ZMQ worker ... has unsupported runtime ...: only vllm and tokenspeed are supported over the ZMQ direct backend`; on current main the same checks accept `sglang`, and the error names `only vllm, tokenspeed and sglang`. TensorRT-LLM and MLX can't use ZMQ in either version; connect those engines over [gRPC](grpc-workers.md).
 
-SMG doesn't check engine versions at connect time, and its decoders accept fields that newer engine releases append. SMG's CI runs the ZMQ suites against vLLM 0.27.1, SGLang 0.5.21, and a pinned TokenSpeed revision.
+SMG doesn't check engine versions at connect time, and its decoders accept fields that newer engine releases append. SMG's CI runs the ZMQ suites against vLLM 0.31.0, SGLang 0.5.21, and a pinned TokenSpeed revision.
 
 ---
 

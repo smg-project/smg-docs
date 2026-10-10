@@ -32,7 +32,7 @@ Boundary-aligned prefix matching that tokenizes only the suffix on hit. Ideal fo
 
 ### :material-memory: Bounded Memory
 
-L0 is capped by entry count — and, on main after the v1.12.0 release, by a byte budget too — and L1 by an approximate byte budget. An L0 entry holds the input text and its plain token IDs (in v1.12.0 and earlier, its full encoding, with no byte bound).
+L0 is capped by entry count and by a byte budget, L1 by an approximate byte budget. An L0 entry holds the input text and its plain token IDs.
 
 </div>
 
@@ -102,7 +102,7 @@ Identical prompts repeated across a batch hit L0. Prompts that share a template 
 
 - Hash-based O(1) lookup, keyed on the whole input text
 - An entry holds the input text and its plain token IDs, so its size grows with input length
-- Approximate LRU eviction when full (samples 8 entries uniformly from an index of all keys and evicts the least recently used)
+- Approximate LRU eviction when full (samples 8 entries uniformly and evicts the least recently used of them)
 
 **Best for**: Identical requests, repeated batch inputs
 
@@ -348,7 +348,7 @@ Maximum number of entries in the L0 cache.
 
 #### `--tokenizer-cache-l0-max-memory`
 
-Byte budget for the L0 cache — texts, token IDs, and a 128-byte per-entry overhead (on main after the v1.12.0 release, smg-project/smg#2924).
+Byte budget for the L0 cache: the cached texts, their token IDs, and a 128-byte per-entry overhead.
 
 | Option | `--tokenizer-cache-l0-max-memory` |
 |--------|----------------------------------|
@@ -357,6 +357,9 @@ Byte budget for the L0 cache — texts, token IDs, and a 128-byte per-entry over
 </div>
 
 </div>
+
+!!! note "Unreleased"
+    The L0 byte budget is available on current main but is not yet part of a tagged release. Builds without `--tokenizer-cache-l0-max-memory` bound L0 by entry count only, and each entry keeps the input's full encoding — watch process memory when raising the entry cap there.
 
 ### L1 Cache Configuration
 
@@ -396,9 +399,9 @@ Maximum memory for the L1 cache in bytes.
 
 ### L0 Cache Sizing
 
-On main after the v1.12.0 release, L0 is bounded two ways (smg-project/smg#2924): by entry count (`--tokenizer-cache-l0-max-entries`) and by a byte budget (`--tokenizer-cache-l0-max-memory`, default 256 MB). An entry keeps the input text and its plain token IDs — nothing else the encoding carried — and is charged the text's length in bytes plus 4 bytes per token plus a fixed 128-byte overhead. Inserts evict until both bounds hold, and an input whose entry alone would exceed a quarter of the budget is not cached at all, so a few huge prompts cannot claim the whole cache. As with L1, the budget is an estimate of cache contents, not a cap on process memory.
+L0 is bounded two ways: by entry count (`--tokenizer-cache-l0-max-entries`) and by a byte budget (`--tokenizer-cache-l0-max-memory`, default 256 MB). An entry keeps the input text and its plain token IDs and is charged the text's length in bytes plus 4 bytes per token plus a fixed 128-byte overhead. Inserts evict until both bounds hold, and an input whose entry alone would exceed a quarter of the budget is not cached at all, so a few huge prompts cannot claim the whole cache. As with L1, the budget is an estimate of cache contents, not a cap on process memory.
 
-Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that actually repeat in your traffic; the byte budget then caps what those entries can cost. In v1.12.0 and earlier the entry cap is the only bound and an entry keeps the full input text and its encoding — roughly 2 MB per entry was observed for large inputs (smg-project/smg#2603) — so watch process memory when you raise the entry cap.
+Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that actually repeat in your traffic; the byte budget then caps what those entries can cost.
 
 ### L1 Cache Sizing
 
@@ -553,12 +556,9 @@ Use these signals when tuning `--tokenizer-cache-l0-max-entries`,
   from reuse of large prompts: a high hit ratio with little reused volume
   saves little tokenization work.
 - Each L0 entry keeps the input text and its plain token IDs, and the byte
-  budget bounds their total (on main after the v1.12.0 release,
-  smg-project/smg#2924). In v1.12.0 and earlier an entry keeps the full
-  encoding and only the entry cap bounds L0 — the out-of-memory investigation
-  that led to these metrics (smg-project/smg#2603) observed entries of roughly
-  2 MB for large inputs — so there, watch `smg_allocator_allocated_bytes`
-  when raising `max-entries`.
+  budget bounds their total, so L0 evictions can also mean the byte budget is
+  full: a workload of large prompts may need a higher
+  `--tokenizer-cache-l0-max-memory` before a higher `max-entries` helps.
 
 ---
 

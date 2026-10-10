@@ -46,6 +46,21 @@ When no control-plane API keys and no JWT settings are configured, the routes ab
 
 The same fallback applies when control-plane auth is configured but fails to initialize at startup, for example because OIDC discovery fails. SMG then logs `Failed to initialize control plane auth: <error>. Falling back to simple API key auth.`
 
+#### Default posture
+
+With no key configured at all, which is what the quick-start commands and the Kubernetes recipe give you, the gateway is open: anything that can reach it can list the backends with their addresses (`GET /workers`, `GET /get_loads`), register or remove backends by URL (`POST /workers`, `PUT`/`PATCH`/`DELETE /workers/{id}`), drop the engines' prefix caches (`POST /flush_cache`), start and stop the engines' profilers (`POST /start_profile`, `POST /stop_profile`), manage parsers, WASM modules and tokenizers, and send inference requests. Two read-only routes are public in every configuration and name each backend by its address as well: `GET /loads` (the backends' live loads) and `GET /engine_metrics` (the engines' own metrics). The metrics listener (`--prometheus-port`, `29000` by default, bound to `0.0.0.0`, or to `::` when `--host` is an IPv6 address) has no authentication in any configuration and names each backend by its address in its per-worker series.
+
+SMG keeps this default so a local start stays one command, but it says so: when a plane is open, the first log lines carry one `WARN` record whose message starts with `SECURITY POSTURE: this gateway runs without authentication`, with a field per open surface (`control_plane`, `data_plane`, and `metrics_listener` with its bound address) naming the routes and the flag that closes them. It is silent once both planes are keyed. To close them:
+
+| Surface | Flag |
+|---------|------|
+| Control plane routes (the list above) | `--control-plane-api-keys id:name:admin:<key>`, or `--jwt-issuer` with `--jwt-audience`; the shared `--api-key` also gates them |
+| Serving routes (`/v1/chat/completions` and the rest) | `--api-key <key>`, or `--tenant-api-key tenant:<key>` per tenant |
+| Metrics listener | No credential exists: bind it to a private address with `--prometheus-host` and fence the port with a network policy ([Monitoring](monitoring.md#enable-metrics)) |
+| Public read-only routes (`GET /loads`, `GET /engine_metrics`, `/v1/models`, `/get_server_info`, `/get_model_info` and the health routes) | No credential exists: fence the gateway's port with a network policy |
+
+In Kubernetes, a gateway that discovers its workers never needs `POST /workers` from outside, so there is no reason to leave the control plane open there: set control-plane keys, and restrict the gateway's ports with a NetworkPolicy to the clients and the scraper that need them.
+
 ---
 
 ## Option A: API keys

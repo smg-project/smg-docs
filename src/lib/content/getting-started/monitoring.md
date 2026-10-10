@@ -34,6 +34,9 @@ smg launch \
 
 At startup SMG logs `Metrics server listening on <address> (/metrics)`. The port must be greater than `0`: `--prometheus-port 0` is rejected at startup even though `--help` describes it as an OS-assigned port. If the port is already in use, SMG fails at startup with `failed to bind metrics server on <address>`.
 
+!!! warning "The metrics listener has no authentication"
+    `/metrics` answers anyone who can reach the port, in every configuration (`--api-key` and the control-plane keys do not apply to it), and its per-worker series name each backend by its address. Bind it to a private address with `--prometheus-host`, and in Kubernetes fence the port with a NetworkPolicy that admits only the scraper. See [Default posture](control-plane-auth.md#default-posture).
+
 ### Verify metrics endpoint
 
 ```bash

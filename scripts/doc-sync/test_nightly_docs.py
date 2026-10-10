@@ -344,15 +344,21 @@ class GitGuardTests(unittest.TestCase):
             "git", "show", "--first-parent", "--no-ext-diff", "--no-textconv", source])
         with self.assertRaises(UnicodeDecodeError):
             raw.decode("utf-8")
-        for command in ("context", "evidence"):
+        for command in ("context", "evidence", "evidence-report"):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 env = {"SOURCE_ROOT": os.getcwd(), "GITHUB_REPOSITORY": "test/repo",
                        "NIGHTLY_CONTEXT": str(root / "context.json"), "MAX_PRS": "100",
                        "NIGHTLY_ITEM": str(root / "item.json"), "BASE_SHA": self.base,
-                       "ITEM_JSON": json.dumps(proposal(source_sha=source))}
+                       "ITEM_JSON": json.dumps(proposal(source_sha=source)), "PLAN_REPORT": ""}
+                if command == 'evidence-report':
+                    report = {'base_sha': self.base, 'source_sha': source,
+                              'selected': [proposal(source_sha=source)]}
+                    (root / 'report.json').write_text(json.dumps(report))
+                    env.update(PLAN_REPORT='report.json', RUNNER_TEMP=str(root),
+                               ITEM_INDEX='0', SOURCE_SHA=source, ITEM_JSON='invalid legacy input')
                 with patch.dict(os.environ, env), \
-                        patch("sys.argv", ["nightly_docs.py", command]), \
+                        patch("sys.argv", ["nightly_docs.py", "evidence" if command == "evidence-report" else command]), \
                         patch.object(docs, "existing_prs", return_value=[]):
                     docs.main()
                 output = (root / "nightly-docs-sources" / f"{source}.patch"

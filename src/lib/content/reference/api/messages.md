@@ -163,7 +163,7 @@ Define each tool with a JSON Schema `input_schema`:
 }
 ```
 
-A tool call comes back as a `tool_use` block, with `stop_reason` set to `tool_use`:
+A tool call comes back as a `tool_use` block, with `stop_reason` set to `tool_use` (unless generation was cut off at the token limit; see [gRPC and ZMQ Workers](#grpc-and-zmq-workers)):
 
 ```json
 {
@@ -322,10 +322,13 @@ How the response is built:
 
 - **Tool calls and reasoning** are extracted by SMG's tool and reasoning parsers, which SMG picks for the model or you set with `--tool-call-parser` and `--reasoning-parser`. A `thinking` block comes first, then text, then `tool_use` blocks. Thinking blocks carry an empty `signature`.
 - **`tool_use` ids** use Anthropic's `toolu_` prefix: a parser id of the form `call_<suffix>` is returned as `toolu_<suffix>`, the same in streaming and non-streaming responses. Model-specific id formats are returned unchanged (smg-project/smg#2111).
-- **`stop_reason`** is `tool_use` when the output has tool calls, `stop_sequence` when one of `stop_sequences` ended generation (the matched string is in `stop_sequence`), `max_tokens` when the token limit was reached, and `end_turn` otherwise.
+- **`stop_reason`** is `max_tokens` when the engine stopped at the token limit, `tool_use` when the output has tool calls, `stop_sequence` when one of `stop_sequences` ended generation (the matched string is in `stop_sequence`), and `end_turn` otherwise — checked in that order, so a turn truncated after a tool call started reports `max_tokens`, not `tool_use`, because the call may be cut short mid-arguments; the parsed `tool_use` blocks stay in `content`.
 - **`usage`** reports `cache_creation_input_tokens` and `cache_read_input_tokens` as `0`, never `null`. In a stream, `message_start` carries zero counters, and the final `message_delta` carries `output_tokens` and, once the engine has reported it, `input_tokens` (smg-project/smg#2269).
 - **Context window**: when the selected worker advertises its context length, SMG rejects a prompt with more tokens than the window with `400` `context_length_exceeded` before dispatch. In PD mode the smaller of the prefill and decode windows applies. Whether the prompt plus `max_tokens` must fit is left to the engine (smg-project/smg#2618).
 - **Tenant rate limiting**, when enabled, covers this endpoint; see [Tenant Rate Limiting](../tenant-rate-limiting.md).
+
+!!! note "Unreleased"
+    The `max_tokens`-first `stop_reason` order is a recent change on SMG `main`. Earlier builds checked tool calls first, so a turn truncated after a tool call started reported `tool_use`.
 
 ---
 

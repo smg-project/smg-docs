@@ -93,6 +93,8 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     TokenSpeed's grammar backend defaults to none, so without `--grammar-backend xgrammar` it doesn't enforce forced tool calls or `response_format`. Add `--enable-output-logprobs` if clients request `logprobs`; TokenSpeed leaves output logprobs off by default.
 
+    This starts the default Python servicer. Passing `--servicer-impl rust` (or setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment) serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
+
 === "MLX"
 
     ```bash
@@ -157,7 +159,7 @@ SMG_SGLANG_SERVICER_IMPL=rust python -m sglang.launch_server \
   --smg-grpc-mode
 ```
 
-`SMG_SGLANG_SERVICER_IMPL` defaults to `python`, and a value other than `python` or `rust` fails startup. Unlike vLLM, there is no flag: `--servicer-impl` stays scoped to the vLLM gRPC servicer, and `smg serve` rejects `--servicer-impl rust` for every other backend. For SGLang the selection surface is the worker's environment — exporting the variable before `smg serve --backend sglang --connection-mode grpc` reaches its workers too, since worker environments inherit the shell's, and no flag clears an inherited value the way `--servicer-impl python` does for vLLM.
+`SMG_SGLANG_SERVICER_IMPL` defaults to `python`, and a value other than `python` or `rust` fails startup. `smg serve`'s `--servicer-impl` stays scoped to vLLM: it rejects `rust` for every other backend. Exporting the variable before `smg serve --backend sglang --connection-mode grpc` reaches its workers too, since worker environments inherit the shell's, and no `smg serve` flag clears an inherited value the way `--servicer-impl python` does for vLLM.
 
 In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servicer.SglangGrpcServer`, which needs the `smg` wheel installed alongside `smg-grpc-servicer[sglang]`) before any Python gRPC machinery exists: the Rust server speaks the gRPC contract on the worker's host and port, the scheduler runs headless in a spawned child over a same-host msgpack ZMQ connection, and Python keeps only the process lifecycle. As with vLLM, that ZMQ hop is inside the worker — the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md), and the gateway cannot tell the two implementations apart.
 
@@ -168,6 +170,41 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 - SGLang's HTTP sidecar (profiling, `/metrics`) is not started, so nothing listens on `--port + 1`.
 
 `Embed`, `FlushCache` and profiling answer as on the Python servicer, and `SubscribeKvEvents` relays the ZMQ publisher SGLang was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
+
+### Rust TokenSpeed Servicer
+
+TokenSpeed gRPC workers have the same choice: a Rust implementation serving the same gRPC contract as the default Python servicer. Like the vLLM and SGLang switches, it is newer than v1.11.0: it exists on current main but not in the v1.11.0 wheels or engine images. Select it with `--servicer-impl rust` on the unchanged entrypoint — the launcher's own flag, which `--help` lists ahead of TokenSpeed's; every other flag is still TokenSpeed's `ServerArgs` — or with the `SMG_TOKENSPEED_SERVICER_IMPL` environment variable:
+
+```bash
+python -m smg_grpc_servicer.tokenspeed \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 50051 \
+  --servicer-impl rust
+
+# The environment form, overridden by the flag when both are given
+SMG_TOKENSPEED_SERVICER_IMPL=rust python -m smg_grpc_servicer.tokenspeed \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 50051
+```
+
+Precedence is the flag, then the environment variable, then `python`; the launcher logs which one decided (`Servicer implementation: rust (source=flag)`), and a value other than `python` or `rust` fails startup. A decision made with the flag is written back to `SMG_TOKENSPEED_SERVICER_IMPL`, so the spawned scheduler child and anything else that reads only the variable agree with it. This launcher is also the process `ts serve` spawns for its gRPC worker. `smg serve` offers no path here: its `--servicer-impl` stays scoped to vLLM, and it drives TokenSpeed workers over `--connection-mode zmq` only — start the worker directly and connect it with `smg launch`.
+
+Unreleased: the `--servicer-impl` flag and the automatic KV-events default below are later additions than the environment variable. On a build that carries the switch but predates them, the environment variable is the only selection surface, and TokenSpeed's KV-event publisher stays off unless `--kv-events-config` turns it on.
+
+In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servicer.TokenSpeedGrpcServer`, which needs the `smg` wheel installed alongside `smg-grpc-servicer`) before any TokenSpeed engine or Python gRPC machinery exists: the Rust server speaks the gRPC contract on the worker's host and port, the scheduler(s) run headless in a spawned child — TokenSpeed's own headless launch, what `ts serve --headless` runs — over a same-host msgpack ZMQ connection, and Python keeps only the process lifecycle. As with vLLM and SGLang, that ZMQ hop is inside the worker: the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md), and the gateway cannot tell the two implementations apart.
+
+What the scheduler's msgpack wire does not carry, the Rust path reports rather than emulates:
+
+- `FlushCache` and profiling answer UNIMPLEMENTED.
+- Ranked `top_logprobs` and prompt logprobs are refused per request.
+- PD and EPD disaggregation stay with the Python servicer.
+- The [RL control plane](rl-control-plane.md) extras stay with the Python servicer: the `rl.*` capability advertisement, the live `weight_version` on generate responses, and `is_paused`.
+
+Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer. `SubscribeKvEvents` relays TokenSpeed's ZMQ KV-event publisher (UNIMPLEMENTED when the publisher is off) — and the Rust path turns that publisher on by itself when the launcher is given no `--kv-events-config`, since cache-aware routing sees nothing of the worker's cache without it. An explicit `--kv-events-config` is kept as given, off included, and `SMG_TOKENSPEED_SERVICER_KV_EVENTS=0` keeps the publisher off without one.
+
+Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake — generous because an engine's first start on a host JIT-compiles and autotunes kernels; a scheduler that died fails fast regardless.
 
 ---
 

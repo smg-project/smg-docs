@@ -72,7 +72,7 @@ POST /v1/responses
 | `model` | string | Yes | Model identifier |
 | `input` | string or array | Yes | Input text or array of input items. Must not be empty. In v1.11.0 and earlier an array must also contain at least one message; see [Input Formats](#input-formats) |
 | `instructions` | string | No | System instructions for the model |
-| `max_output_tokens` | integer | No | Maximum tokens to generate (at least 1) |
+| `max_output_tokens` | integer | No | Maximum tokens to generate (at least 16) |
 | `max_tool_calls` | integer | No | Maximum tool calls SMG executes for this response (at least 1); see [Tool Call Limits](#tool-call-limits) |
 | `temperature` | number | No | Sampling temperature (0-2), default: 1.0 |
 | `top_p` | number | No | Nucleus sampling parameter, greater than 0 and at most 1 |
@@ -87,12 +87,24 @@ POST /v1/responses
 | `reasoning` | object | No | Reasoning configuration |
 | `text` | object | No | Text format for structured outputs |
 | `include` | array | No | Extra output, such as `reasoning.encrypted_content` or `message.output_text.logprobs` |
-| `top_logprobs` | integer | No | Most likely tokens per position (0-20); requires `message.output_text.logprobs` in `include` |
-| `metadata` | object | No | Custom metadata, echoed in the response |
+| `top_logprobs` | integer | No | Most likely tokens per position (0-20) |
+| `metadata` | object | No | Custom metadata, echoed in the response; at most 16 pairs, keys up to 64 characters, string values up to 512 characters |
 | `user` | string | No | End-user identifier |
 
-SMG does not run responses in the background: a `background` field is ignored, and every
-response is returned synchronously or streamed.
+An unknown top-level parameter is rejected with `400` `json_parse_error`: every parameter
+SMG accepts is declared. Besides the fields above and the
+[SGLang extensions](#sglang-extensions), the declared set covers the public API's
+`background`, `service_tier`, `truncation`, `prompt`, `prompt_cache_key`,
+`prompt_cache_retention`, `safety_identifier`, and `context_management`, plus SMG's own
+`request_id` and `priority`. `background` is accepted, but SMG does not run responses in
+the background: every response is returned synchronously or streamed.
+
+These rules match the public API's request contract and are new on main after v1.12.0. In
+v1.12.0 and earlier, unknown top-level parameters (`background` included) are ignored,
+`max_output_tokens` only has to be at least 1, `metadata` is not size-checked, and
+`top_logprobs` without `message.output_text.logprobs` in `include` is rejected with
+`400` — on main that combination is accepted. The input-role, tool, and structured-output
+rules below are likewise new on main and not enforced in v1.12.0 and earlier.
 
 ### Input Formats
 
@@ -117,6 +129,9 @@ response is returned synchronously or streamed.
   ]
 }
 ```
+
+A message's `role` must be `assistant`, `system`, `developer`, or `user`; any other role
+is rejected with `400` before the request reaches a worker.
 
 **Replaying a function call and its result:**
 
@@ -196,6 +211,11 @@ must include a message item.
 }
 ```
 
+A function tool's `parameters` must be a JSON object; any other JSON type is rejected with
+`400` (`invalid_type`). With `strict: true`, OpenAI's own hosted model IDs are additionally
+held to the public API's schema rules; see
+[Text Format](#text-format-structured-outputs).
+
 **Namespaced tools:**
 
 ```json
@@ -257,7 +277,8 @@ reached, the request fails with `424` `connect_mcp_server_failed`.
 `image_generation` run through MCP servers configured to back those built-in types; see
 [MCP](../../concepts/extensibility/mcp.md). The non-preview `web_search` tool is accepted
 with all of its fields, including `external_web_access` (an explicit `false` is kept), and
-forwarded to HTTP workers and external providers.
+forwarded to HTTP workers and external providers. The `local_shell` tool is not supported:
+a request that declares it is rejected with `400` (`tool_not_supported`).
 
 ### Reasoning Configuration
 
@@ -309,6 +330,17 @@ fills it with the reasoning text in version-tagged base64: opaque, not encrypted
 `format.type` is `text`, `json_object`, or `json_schema`. For `json_schema`, `name` must
 not be empty and `schema` must be a JSON object; anything else is rejected with `400`
 before the request reaches a worker.
+
+For model IDs that name one of OpenAI's own hosted models — `gpt-*` (not the open-weight
+`gpt-oss` family), `chatgpt-*`, `codex-*`, the `o1`/`o3`/`o4` reasoning series,
+`computer-use-preview`, or any ID behind an `openai/` route segment, such as
+`openai/gpt-4.1` — SMG also enforces the public API's content rules: a `json_schema`
+format or a function tool with `strict: true` must set `additionalProperties: false` on
+every object node of its schema, and a `json_object` format requires the word "json"
+somewhere in `instructions` or the input text. Self-hosted models are not held to these
+rules: the example above, whose strict schema does not pin `additionalProperties`, is
+accepted for them and passed through to the engine, whose grammar compiler decides what
+it can constrain.
 
 ### Tool Call Limits
 
@@ -763,9 +795,10 @@ stored without an ID get a generated `msg_` ID.
 
 Conversations provide persistent storage for multi-turn interactions, enabling chat history to be maintained across multiple requests.
 
-The conversation endpoints report errors as `{"error": "<message>"}`, except for the
-structured `item_already_in_conversation` error described under
-[Create Conversation Items](#create-conversation-items).
+The conversation endpoints report errors as `{"error": "<message>"}`, except for two
+structured errors: `item_already_in_conversation` under
+[Create Conversation Items](#create-conversation-items) and the `invalid_value` rejection
+of a bad `include` query under [Get Conversation Item](#get-conversation-item).
 
 ### Create Conversation
 
@@ -1045,6 +1078,13 @@ curl http://localhost:30000/v1/conversations/conv_abc123/items \
 ```
 GET /v1/conversations/{conversation_id}/items/{item_id}
 ```
+
+An optional `include` query parameter (repeatable, also accepted as `include[]`) must name
+includable fields: `code_interpreter_call.outputs`, `computer_call_output.output.image_url`,
+`file_search_call.results`, `message.input_image.image_url`, `message.output_text.logprobs`,
+`reasoning.encrypted_content`, `web_search_call.action.sources`, or `web_search_call.results`.
+Any other value is rejected with `400` (`invalid_value`); a valid one is accepted but does
+not change the returned item.
 
 ### Example Request
 

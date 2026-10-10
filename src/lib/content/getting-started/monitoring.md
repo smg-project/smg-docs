@@ -507,13 +507,15 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
 ??? question "Missing metrics"
 
-    1. A series appears only after the first event that records it, so a metric can be absent on an idle gateway. On main after the v1.11.0 release, the overload-shed, retry, and circuit-breaker transition counters are instead published at zero from start-up (smg-project/smg#2914), so for those families absence points at an older gateway or a scrape problem, not inactivity.
+    1. A series appears only after the first event that records it, so a metric can be absent on an idle gateway.
 
-    2. Some groups need their feature enabled: admission metrics need `--max-concurrent-requests`, the `smg_workers_overloaded` gauge needs worker overload protection (`smg_worker_overload_shed_total` does not on main, where it exists at zero from start-up), and PD, discovery, RL, and mesh metrics need their modes. Allocator metrics are absent on musl and MSVC builds.
+    2. Some groups need their feature enabled: admission metrics need `--max-concurrent-requests`, the `smg_workers_overloaded` gauge needs worker overload protection, and PD, discovery, RL, and mesh metrics need their modes. Allocator metrics are absent on musl and MSVC builds.
 
     3. Some metrics only appear for specific paths (for example, TTFT is recorded for streaming responses on the gRPC router).
 
     4. Verify metric names against the [Metrics Reference](../reference/metrics.md). Names such as `smg_router_stage_duration_seconds` and the `smg_db_*` metrics are declared in code but never emitted.
+
+    Unreleased: current main publishes the overload-shed and retry families at zero from start-up — whether or not overload protection is enabled — and each worker's circuit-breaker transition counters at zero when the worker is registered. On a gateway built from main, absence of these families points at a scrape problem rather than inactivity; the [Metrics Reference](../reference/metrics.md) lists the exact series.
 
 ---
 

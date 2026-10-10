@@ -27,3 +27,30 @@ fixed. The publisher can resolve verified bot-only threads; human discussions
 remain open. Do not edit, approve, publish, merge, call GitHub tools, or invoke
 agents. Only Read/Glob/Grep are available. Target 60 turns within the 120-turn
 ceiling, then return the verdict with specific source evidence and limitations.
+
+Write concise official service documentation for users completing a task or
+looking up supported behavior. Explain the behavior, relevant defaults, limits,
+and required actions on the page itself. Never send readers to a pull request,
+issue, commit, source diff, or code file to learn how the service works. Do not
+include source-change URLs, PR/issue numbers, commit hashes, or implementation
+attribution in documentation prose. Keep source evidence in the proposal/PR
+metadata and review verdict only. Links to relevant documentation are useful;
+links to code changes are not documentation.
+
+Keep each paragraph focused on one user question. For newly introduced or
+changed behavior, start a separate paragraph in the relevant existing section;
+do not append a release caveat or a long explanation to an existing paragraph.
+Correct obsolete statements, but keep established behavior and release-specific
+notes in distinct paragraphs. In tables, state the option and default briefly
+and put any necessary release note below the table. Name a released version only
+when tag/release evidence proves it; otherwise use a short standalone
+"Unreleased" note without implying that all versions newer than an old tag
+include the change. Do not repeat the same history throughout a page. Prefer
+short direct sentences, useful headings, and examples over implementation stories.
+
+Treat these writing rules as publication requirements: set
+placement_appropriate=false when the edit includes code-change references,
+requires external PR/code reading, appends new behavior to an existing paragraph,
+or buries useful service information in repetitive history or dense prose.
+Explain the specific required repair in reason. Check the full edited paragraphs,
+including retained text, while leaving unrelated existing documentation alone.

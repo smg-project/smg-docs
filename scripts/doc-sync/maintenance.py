@@ -204,7 +204,7 @@ def signature(pr, details, extra=""):
     substantive = {key: value for key, value in details.items()
                    if key not in {'unresolved_threads', 'protected_threads'}}
     substantive['threads'] = [stable_thread(t) for t in details.get('threads', [])]
-    return hashlib.sha256(json.dumps([pr["head"]["sha"], pr["base"]["sha"],
+    return hashlib.sha256(json.dumps(["reader-docs-v2", pr["head"]["sha"], pr["base"]["sha"],
                                      pr["code_sha"], pr.get("title"), pr.get("body"), substantive, extra], sort_keys=True).encode()).hexdigest()
 
 
@@ -365,7 +365,12 @@ def restore(ctx, bundle=None):
     checkout_code(ctx["code_sha"])
     payload = bundle or json.dumps({"base_sha": ctx["base"], "key": ctx["item"]["key"],
                                    "files": ctx["files"]})
-    return docs.import_bundle(ctx["item"], ctx["base"], payload)
+    changed = docs.import_bundle(ctx["item"], ctx["base"], payload)
+    # Existing PRs may violate the writing policy: allow the original overlay so
+    # the writer can repair it, but enforce the policy on every repaired bundle.
+    if bundle is not None:
+        docs.validate_reader_docs(ctx["base"])
+    return changed
 
 
 def prepare(number, directory, apply, force):

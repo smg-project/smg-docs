@@ -198,6 +198,24 @@ class GitGuardTests(unittest.TestCase):
         self.assertEqual(set(self.git("diff", "--cached", "--name-only").splitlines()),
                          {str(self.path), str(new)})
 
+    def test_reader_docs_reject_code_change_references_in_repaired_prose(self):
+        for reference in ['https://github.com/smg-project/smg/pull/2924',
+                          'https://github.com/smg-project/smg/commit/abcdef',
+                          'https://github.com/smg-project/smg/blob/main/config.rs',
+                          'smg-project/smg#2924', 'PR #2924', 'issue #2603']:
+            with self.subTest(reference=reference):
+                self.path.write_text('See ' + reference + ' for the behavior.\n')
+                with self.assertRaisesRegex(ValueError, 'code-change references'):
+                    docs.export_bundle(self.item, self.base, Path('bundle.json'))
+
+    def test_reader_docs_allow_documentation_and_release_links(self):
+        self.path.write_text('Configure the byte budget.\n\n'
+            'Unreleased: oversized inputs are not cached.\n\n'
+            '[Cache sizing](../sizing.md) and '
+            '[Release](https://github.com/smg-project/smg/releases/tag/v1.12.0).\n')
+        docs.validate_diff(self.item, self.base)
+        docs.validate_reader_docs(self.base)
+
     def test_many_documentation_files_for_one_concern_are_allowed(self):
         paths = []
         for i in range(20):
@@ -391,7 +409,7 @@ class GitGuardTests(unittest.TestCase):
         self.assertNotIn("XinyueZhang369", calls[0][1])
         self.assertNotIn("zoeyzhang369@gmail.com", calls[0][1])
         self.assertIn("https://github.com/smg-project/smg/commit/", calls[0][1])
-        self.assertIn("--draft", calls[0][0])
+        self.assertNotIn("--draft", calls[0][0])
         self.assertEqual(calls[0][0][calls[0][0].index("--title") + 1],
                          "docs: " + self.item["title"][7:])
         self.assertTrue(self.git("log", "-1", "--format=%s").startswith("docs: "))

@@ -267,9 +267,21 @@ def validate_diff(item, base):
     return total > 0
 
 
+def validate_reader_docs(base):
+    """Reject code-change citations in added/rewritten prose, not untouched text."""
+    citation = re.compile(
+        r"github\.com/[^/\s)]+/[^/\s)]+/(?:pull|issues|commit|commits|compare|blob)/"
+        r"|\b[\w.-]+/[\w.-]+#\d+"
+        r"|\b(?:PR|pull request|issue)\s*#\d+", re.IGNORECASE)
+    for line in git("diff", "--cached", "--unified=0", base, "--", DOC_ROOT).splitlines():
+        if line.startswith('+') and not line.startswith('+++') and citation.search(line[1:]):
+            raise ValueError("Documentation must explain service behavior without code-change references")
+
+
 def export_bundle(item, base, output):
     """Writer output is untrusted data; never transfer its scripts or .git."""
     validate_diff(item, base)
+    validate_reader_docs(base)
     changed = git("diff", "--cached", "--name-only", base).splitlines()
     payload = {"base_sha": base, "key": item["key"],
                "files": {path: Path(path).read_text() for path in changed}}
@@ -340,6 +352,7 @@ def publish(item, repo, base, base_branch):
     if not validate_diff(item, base):
         print("No documentation gap to publish.")
         return
+    validate_reader_docs(base)
     # Never overwrite an existing branch, even after a prior push/PR API failure.
     # In that case reuse it only if its exact tree and parent match this run.
     branch = item["branch"]
@@ -389,7 +402,7 @@ Scope: **{item["area"]} / {item["concern"]}**. Other concerns are deferred.
         f.write(body)
         f.flush()
         url = run("gh", "pr", "create", "--repo", repo, "--base", base_branch,
-                  "--head", branch, "--title", "docs: " + item["title"][7:], "--body-file", f.name, "--draft")
+                  "--head", branch, "--title", "docs: " + item["title"][7:], "--body-file", f.name)
     print(url)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:

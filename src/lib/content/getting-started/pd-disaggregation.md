@@ -12,7 +12,7 @@ Prefill-Decode (PD) disaggregation separates the two phases of LLM inference —
 
 - Completed the [Getting Started](index.md) guide
 - At least one prefill worker and one decode worker, each on its own GPUs
-- For vLLM PD: workers started with a `--kv-transfer-config` for NIXL or Mooncake
+- For vLLM PD: workers started with a `--kv-transfer-config` for NIXL, Mooncake, or MoRI-IO (MoRI-IO with HTTP workers only)
 
 </div>
 
@@ -298,6 +298,32 @@ curl -X POST http://localhost:30000/workers \
 
 `kv_engine_id` must match the `engine_id` in the prefill worker's `--kv-transfer-config`, and `bootstrap_port` its `VLLM_MOONCAKE_BOOTSTRAP_PORT`. Without an engine id, SMG cannot mint the handoff and decode recomputes the prompt. On Kubernetes, the `smg.ai/kv-connector` and `smg.ai/kv-engine-id` pod annotations set the same fields (see [Service Discovery](service-discovery.md#pd-disaggregation-discovery)).
 
+For MoRI-IO (RDMA transfer, HTTP workers only, newer than v1.11.0), start the workers with a `--kv-transfer-config` naming the `MoRIIOConnector` and register each leg with the connector plus a `moriio_mode` label — `read` or `write`, matching the engines' `kv_connector_extra_config`. The mode has no default, and both legs of a pair must use the same one:
+
+```bash
+curl -X POST http://localhost:30000/workers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "http://prefill:8000",
+    "worker_type": "prefill",
+    "runtime_type": "vllm",
+    "kv_connector": "MoRIIOConnector",
+    "labels": {"moriio_mode": "write"}
+  }'
+
+curl -X POST http://localhost:30000/workers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "http://decode:8001",
+    "worker_type": "decode",
+    "runtime_type": "vllm",
+    "kv_connector": "MoRIIOConnector",
+    "labels": {"moriio_mode": "write"}
+  }'
+```
+
+SMG expects each engine's MoRI-IO side channel on the worker URL's host and vLLM's default ports. When that does not hold, also set the `moriio_host`, `moriio_handshake_port` (default `6301`), and `moriio_notify_port` (default `61005`) labels, and give the decode worker a `tp_size` label when the two legs' tensor-parallel sizes differ. Legs labeled with different modes never pair (requests fail with 503 `no_compatible_pd_pair`, as under [Check Pairing](#check-pairing)); a pair that is misconfigured in any other way — a missing `moriio_mode` label, or a side channel the prefill cannot reach — fails with 503 `moriio_pair_misconfigured` before either worker is contacted. MoRI-IO serves only `/v1/chat/completions` and `/v1/completions`, and gRPC workers cannot use it. See [MoRI-IO](../concepts/routing/pd-disaggregation.md#mori-io-http) for the transfer modes, the full label table, the requests SMG refuses, and what a v1.11.0 gateway — which does not recognize the connector — does with these workers.
+
 ---
 
 ## TokenSpeed PD and EPD (gRPC)
@@ -379,7 +405,7 @@ Prefill pods advertise their bootstrap port with the `sglang.ai/bootstrap-port` 
 
 ## Check Pairing
 
-SMG pairs a prefill worker only with decode workers that share its KV transfer protocol: the same runtime, the same transport (NIXL or Mooncake), and a matching KV cache layout, as far as the workers report them. Each prefill and decode worker shows its pairing key in `/workers`:
+SMG pairs a prefill worker only with decode workers that share its KV transfer protocol: the same runtime, the same transport (NIXL, Mooncake, or a MoRI-IO mode — READ and WRITE engines count as different transports and never pair), and a matching KV cache layout, as far as the workers report them. Each prefill and decode worker shows its pairing key in `/workers`:
 
 ```bash
 curl -s http://localhost:30000/workers | jq '.workers[] | {url, worker_type, pd_pairing}'
@@ -407,7 +433,7 @@ curl http://localhost:30000/v1/chat/completions \
   }'
 ```
 
-PD mode serves Chat Completions, Completions, the Anthropic Messages API, and the Responses API on both transports. `/v1/messages/count_tokens` works with HTTP workers and goes to a single prefill worker.
+PD mode serves Chat Completions, Completions, the Anthropic Messages API, and the Responses API on both transports; a MoRI-IO pair serves Chat Completions and Completions only. `/v1/messages/count_tokens` works with HTTP workers and goes to a single prefill worker.
 
 ---
 
@@ -417,7 +443,7 @@ PD mode serves Chat Completions, Completions, the Anthropic Messages API, and th
 |---|---------|-----------|
 | **Worker transport** | HTTP or gRPC | HTTP or gRPC |
 | **Dispatch** | Prefill first, then decode | Both workers receive request simultaneously |
-| **KV Transfer** | NIXL or Mooncake (`--kv-transfer-config`) | Mooncake or NIXL (`--disaggregation-transfer-backend`), through the prefill's bootstrap server |
+| **KV Transfer** | NIXL, Mooncake, or MoRI-IO with HTTP workers (`--kv-transfer-config`) | Mooncake or NIXL (`--disaggregation-transfer-backend`), through the prefill's bootstrap server |
 | **Handoff data** | `kv_transfer_params`, relayed or minted by SMG | `bootstrap_host`, `bootstrap_port`, `bootstrap_room`, injected by SMG |
 | **SMG flags** | `--prefill <url>` (NIXL) or `--prefill <url> <bootstrap_port>` (Mooncake) | `--prefill <url> <bootstrap_port>` |
 | **HTTP workers** | Register with `kv_connector` for a KV handoff | No extra registration |

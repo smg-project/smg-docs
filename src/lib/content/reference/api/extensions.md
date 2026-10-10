@@ -18,7 +18,9 @@ SMG endpoint auth is route-group based:
 | Protected routes | `Authorization: Bearer <key>` with the shared `--api-key` or a per-tenant `--tenant-api-key` key; open when neither is set (`/v1/tokenize`, `/generate`, `/v1/chat/completions`, and the other inference routes) |
 | Control-plane routes | With [control-plane auth](../../getting-started/control-plane-auth.md) configured (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`), a control-plane API key or JWT with the admin role. Otherwise only the shared `--api-key` is accepted: per-tenant keys are rejected, a gateway with tenant keys but no `--api-key` answers every control-plane request with `401`, and a gateway with no keys at all leaves these routes open |
 
-With control-plane auth configured, a missing or invalid credential gets `401` and a valid credential without the admin role gets `403`. The shared `--api-key` is not accepted on control-plane routes in that mode. If control-plane auth fails to initialize at startup (for example, when OIDC discovery fails), SMG logs an error and applies the `--api-key` rules instead.
+With control-plane auth configured, a missing or invalid credential gets `401` and a valid credential whose role does not allow the operation gets `403`. The shared `--api-key` is not accepted on control-plane routes in that mode.
+
+If JWT validation fails to initialize at startup (for example, when OIDC discovery fails), the control-plane rules stay in force: keys from `--control-plane-api-keys` keep working, and JWTs and every other token get `401` until the gateway is restarted with a working JWT setup. This holds on current main; in released versions the same failure instead disables control-plane auth, and SMG logs an error and applies the `--api-key` rules above.
 
 ---
 

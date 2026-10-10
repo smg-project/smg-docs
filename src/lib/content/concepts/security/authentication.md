@@ -109,8 +109,10 @@ smg \
 
 Without `--jwt-jwks-uri`, SMG fetches the discovery document at startup. It fetches the key set on first use, caches it for an hour, and fetches it again when a token names a key it doesn't have. The discovery URL and the JWKS URI must use HTTPS (plain HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`), must not point at a private, loopback, link-local, or other internal IP address literal, and must not use a host name ending in `.internal` or `.local`. SMG does not follow redirects on these requests. Tokens must carry a `kid` header that names a key in the set.
 
-!!! warning "A failed JWT setup disables control plane authentication"
-    If SMG cannot set up JWT validation at startup (for example, OIDC discovery fails or a URL is rejected), it logs `Failed to initialize control plane auth` and starts without control plane authentication, including any `--control-plane-api-keys`. The admin routes then fall back to the `--api-key` check, and are open when no gateway key is configured at all.
+If SMG cannot set up JWT validation at startup (for example, OIDC discovery fails or a URL is rejected), control plane authentication stays required: SMG logs `Failed to initialize JWT authentication: <error>` and runs with JWT validation unavailable. Keys from `--control-plane-api-keys` keep working, while JWTs, the shared `--api-key`, and any other token get `401` on control plane routes. SMG does not retry JWT initialization while running; restart the gateway after correcting the configuration or restoring the identity provider. This is the behavior of current main, not yet of any release.
+
+!!! warning "Released versions disable control plane authentication after a failed JWT setup"
+    In released versions, the same failure logs `Failed to initialize control plane auth` and starts the gateway without control plane authentication, including any `--control-plane-api-keys`: the admin routes fall back to the `--api-key` check, and are open when no gateway key is configured at all. On these versions, treat valid JWT settings and a reachable identity provider as startup requirements for a protected control plane.
 
 ### Role Mapping
 

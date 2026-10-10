@@ -80,6 +80,8 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     | TensorRT-LLM | `trtllm-1.3.0rc24`, `trtllm-1.3.0rc23`, `trtllm-1.3.0rc22` | `nvcr.io/nvidia/tensorrt-llm/release` | `nightly-trtllm` |
     | TokenSpeed | `tokenspeed-tml` | `lightseekorg/tokenspeed:tml` | `nightly-tokenspeed` |
 
+    Current main has since moved the vLLM matrix to `v0.31.0`, `v0.27.1`, and `v0.26.0` (dropping `v0.25.0`): `nightly-vllm` is now built on `vllm/vllm-openai:v0.31.0`, and releases cut after that change build `vllm-v0.31.0`, `vllm-v0.27.1`, and `vllm-v0.26.0` tag suffixes instead.
+
     For example, v1.11.0 published `ghcr.io/smg-project/smg:1.11.0-vllm-v0.27.1` and `ghcr.io/smg-project/smg:1.11.0-sglang-v0.5.20`, both built from SMG 1.11.0. The release TokenSpeed image is not: the release workflow builds it from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
 
 === "From Source"
@@ -274,7 +276,7 @@ curl http://localhost:30000/v1/responses \
 
 ## Worker Startup Recipes (Standalone)
 
-Use these when workers are not started via `smg serve`. Each command starts one worker; register it with `smg launch --worker-urls` using a `grpc://` or `http://` URL, as in [Option B](#option-b-launch-gateway-only-with-smg-launch). The SMG engine images for vLLM, SGLang, TensorRT-LLM, and TokenSpeed already contain the engine and the SMG gRPC servicer. SMG v1.11.0's CI starts workers the same way (plus test-specific flags) on vLLM 0.27.1, SGLang 0.5.20, TensorRT-LLM 1.3.0rc24, and a pinned TokenSpeed commit.
+Use these when workers are not started via `smg serve`. Each command starts one worker; register it with `smg launch --worker-urls` using a `grpc://` or `http://` URL, as in [Option B](#option-b-launch-gateway-only-with-smg-launch). The SMG engine images for vLLM, SGLang, TensorRT-LLM, and TokenSpeed already contain the engine and the SMG gRPC servicer. SMG v1.11.0's CI starts workers the same way (plus test-specific flags) on vLLM 0.27.1, SGLang 0.5.20, TensorRT-LLM 1.3.0rc24, and a pinned TokenSpeed commit. On current main the CI's vLLM pin is 0.31.0, matching the refreshed engine-image matrix (see [Install](#install)).
 
 === "vLLM"
 

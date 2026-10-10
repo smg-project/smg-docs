@@ -3,7 +3,8 @@
 The workflow runs at **09:43 UTC daily** (01:43 PST / 02:43 PDT), on
 `smg-org-runner-cpu`. Discovery, writing, and independent review use Claude Code
 with `claude-fable-5`, `xhigh` effort, and the runner's Anthropic credential.
-It opens draft PRs and never merges them.
+It opens ready-for-review PRs only after the independent review and site checks
+pass, and never merges them. Existing drafts keep their status during maintenance.
 
 ## Pipeline
 
@@ -31,9 +32,23 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    independent read-only accuracy, scope, placement, and related-page consistency review, run `pnpm check` and `pnpm build`,
    and publish. Successful writers remain publishable if another writer fails.
 
+Writer/publisher matrices carry only numeric item indices. Proposal text and
+source evidence travel in the run's discovery-report artifact, checked against
+both pinned snapshots, so GitHub secret masking cannot suppress the job matrix.
+
 Every job in this workflow uses the CPU runner set. Separate PR CI jobs on
 `ubuntu-latest` run mocked Python tests, lint, type checks, and builds without
 model calls.
+
+## Writing policy
+
+Generated pages must be concise, self-contained service documentation. Source
+PRs, issues, commits, and code links belong in PR metadata, not reader-facing
+prose. A deterministic guard rejects code-change citations in added or rewritten
+lines. Independent review also checks clarity, concision, and paragraph structure.
+New or changed release behavior gets its own paragraph in the canonical section;
+release versions require evidence, and unshipped changes use an unreleased note.
+Maintenance applies the same policy and invalidates older cached verdicts.
 
 ## Coverage and limits
 

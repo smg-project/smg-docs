@@ -35,6 +35,9 @@ class PolicyTests(unittest.TestCase):
         code = patch.object(m, "current_code", return_value="a" * 40)
         code.start()
         self.addCleanup(code.stop)
+        promotion = patch.object(m, 'promote_draft', return_value=(False, 'Not promoted in this fixture'))
+        self.promotion = promotion.start()
+        self.addCleanup(promotion.stop)
 
     def test_only_the_documentation_repository_is_supported(self):
         self.assertEqual(m.repo(), "smg-project/smg-docs")
@@ -209,8 +212,10 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(m.trusted_feedback(outsider, 'COLLABORATOR'))
         self.assertTrue(m.trusted_feedback({'login': 'claude', '__typename': 'Bot'}, 'NONE'))
         details = {'threads': [], 'unresolved_threads': [], 'protected_threads': []}
-        self.assertEqual(m.signature(pull(), details), m.signature(pull(), {
-            **details, 'unresolved_threads': ['external-thread'], 'protected_threads': ['T']}))
+        blocked = {**details, 'unresolved_threads': ['external-thread'], 'protected_threads': ['T']}
+        self.assertNotEqual(m.signature(pull(), details), m.signature(pull(), blocked))
+        ready = {**pull(), 'draft': False}
+        self.assertEqual(m.signature(ready, details), m.signature(ready, blocked))
 
 
     def test_feedback_filters_outsiders_and_protects_mixed_threads(self):
@@ -303,6 +308,7 @@ class PolicyTests(unittest.TestCase):
                     patch.object(m, 'save_state') as save:
                 m.finish(ctx, root, True)
             publish.assert_not_called()
+            self.promotion.assert_not_called()
             self.assertEqual(save.call_args.args[1]['attempts'], 1)
             self.assertEqual(save.call_args.args[1]['infrastructure_attempts'], 0)
             self.assertFalse(record.call_args.args[2])
@@ -381,6 +387,121 @@ class PolicyTests(unittest.TestCase):
             state = save.call_args.args[1]
             self.assertEqual(m.decision(state, m.signature(pr, fresh)), 'work')
             self.assertEqual(json.loads((root / 'result.json').read_text())['resolved_bot_threads'], [])
+
+
+class PromotionTests(unittest.TestCase):
+    def setUp(self):
+        self.pr = {**pull(), 'node_id': 'PR_test'}
+        self.ctx = {'number': 7, 'head': self.pr['head']['sha'], 'base': self.pr['base']['sha'],
+                    'code_sha': self.pr['code_sha'], 'extra_feedback': '', 'attempts': 1,
+                    'run_url': 'https://example.test/run'}
+        self.details = {'threads': [], 'unresolved_threads': [], 'protected_threads': [],
+                        'comments': [], 'reviews': [], 'failed_checks': [], 'changes_requested': []}
+        self.ctx['feedback'] = self.details
+        self.response = {'data': {'markPullRequestReadyForReview': {'pullRequest': {
+            'id': 'PR_test', 'isDraft': False, 'headRefOid': self.ctx['head']}}}}
+
+    def test_promotes_only_after_feedback_and_head_recheck(self):
+        with patch.object(m, 'feedback', return_value=(self.details, {}, None)), \
+                patch.object(m, 'published_pr', return_value=self.pr) as current, \
+                patch.object(m, 'api', return_value=self.response) as api:
+            promoted, reason = m.promote_draft(self.ctx, self.pr, self.details)
+        self.assertTrue(promoted)
+        current.assert_called_once_with(self.ctx, self.ctx['head'])
+        self.assertEqual(api.call_args.args[2]['variables'], {'id': 'PR_test'})
+        self.assertIn('markPullRequestReadyForReview', api.call_args.args[2]['query'])
+
+    def test_unresolved_threads_change_requests_failures_and_new_comments_block(self):
+        for field, value in [('unresolved_threads', ['human']), ('unresolved_threads', ['outsider']),
+                             ('changes_requested', ['reviewer']), ('failed_checks', [{'name': 'CI'}]),
+                             ('comments', [{'body': 'New concern'}])]:
+            with self.subTest(field=field, value=value), \
+                    patch.object(m, 'feedback', return_value=({**self.details, field: value}, {}, None)), \
+                    patch.object(m, 'api') as api:
+                self.assertFalse(m.promote_draft(self.ctx, self.pr, self.details)[0])
+                api.assert_not_called()
+
+    def test_ready_pr_is_a_noop_and_changed_metadata_blocks(self):
+        with patch.object(m, 'feedback') as feedback, patch.object(m, 'api') as api:
+            self.assertFalse(m.promote_draft(self.ctx, {**self.pr, 'draft': False}, self.details)[0])
+            feedback.assert_not_called()
+            api.assert_not_called()
+        with patch.object(m, 'feedback', return_value=(self.details, {}, None)), \
+                patch.object(m, 'published_pr', return_value={**self.pr, 'body': 'new feedback'}), \
+                patch.object(m, 'api') as api:
+            self.assertFalse(m.promote_draft(self.ctx, self.pr, self.details)[0])
+            api.assert_not_called()
+
+    def test_stale_head_and_mutation_failure_are_not_reported_as_promotion(self):
+        with patch.object(m, 'feedback', return_value=(self.details, {}, None)), \
+                patch.object(m, 'published_pr', side_effect=ValueError('PR changed')), \
+                patch.object(m, 'api') as api, self.assertRaisesRegex(ValueError, 'PR changed'):
+            m.promote_draft(self.ctx, self.pr, self.details)
+        api.assert_not_called()
+        for response in [{'errors': [{'message': 'denied'}]},
+                         {'data': {'markPullRequestReadyForReview': {'pullRequest': {
+                             'isDraft': True, 'headRefOid': self.ctx['head']}}}}]:
+            with self.subTest(response=response), \
+                    patch.object(m, 'feedback', return_value=(self.details, {}, None)), \
+                    patch.object(m, 'published_pr', return_value=self.pr), \
+                    patch.object(m, 'api', return_value=response), self.assertRaises(ValueError):
+                m.promote_draft(self.ctx, self.pr, self.details)
+
+    def test_change_request_requires_approval_or_dismissal_not_a_comment(self):
+        reviews = [{'id': 1, 'user': {'login': 'reviewer'}, 'state': 'CHANGES_REQUESTED'},
+                   {'id': 2, 'user': {'login': 'reviewer'}, 'state': 'COMMENTED'}]
+        self.assertEqual(m.change_requests(reviews), ['reviewer'])
+        for state in ['APPROVED', 'DISMISSED']:
+            self.assertEqual(m.change_requests(reviews + [
+                {'id': 3, 'user': {'login': 'reviewer'}, 'state': state}]), [])
+
+    def test_finish_resolves_verified_bot_thread_before_promotion(self):
+        thread = {'id': 'T', 'number': 1, 'path': 'metrics.md', 'comments': [
+            {'author': {'__typename': 'Bot', 'login': 'claude'}, 'body': 'Fix example'}]}
+        original = {**self.details, 'threads': [thread], 'unresolved_threads': ['T']}
+        ctx = {**self.ctx, 'feedback': original}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'review.json').write_text(json.dumps({
+                **{key: True for key in m.docs.REVIEW_GATES}, 'reason': 'Verified',
+                'addressed_threads': [1]}))
+            with patch.dict(os.environ, {'BUILD_OK': 'true', 'GITHUB_STEP_SUMMARY': str(root / 'summary')}), \
+                    patch.object(m, 'publish_repair', return_value=ctx['head']), \
+                    patch.object(m, 'record_check'), patch.object(m, 'save_state'), \
+                    patch.object(m, 'published_pr', return_value=self.pr), \
+                    patch.object(m, 'feedback', side_effect=[(original, {}, None), (self.details, {}, None)]), \
+                    patch.object(m, 'api', side_effect=[{}, self.response]) as api:
+                m.finish(ctx, root, True)
+            self.assertIn('resolveReviewThread', api.call_args_list[0].args[2]['query'])
+            self.assertIn('markPullRequestReadyForReview', api.call_args_list[1].args[2]['query'])
+            result = json.loads((root / 'result.json').read_text())
+            self.assertEqual(result['resolved_bot_threads'], ['T'])
+            self.assertTrue(result['marked_ready'])
+
+    def test_finish_gates_promotion_and_records_actual_result(self):
+        for apply, build, accurate in [(False, True, True), (True, False, True),
+                                       (True, True, False), (True, True, True)]:
+            with self.subTest(apply=apply, build=build, accurate=accurate), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / 'review.json').write_text(json.dumps({
+                    **{key: True for key in m.docs.REVIEW_GATES}, 'accurate': accurate,
+                    'reason': 'Verified', 'addressed_threads': []}))
+                with patch.dict(os.environ, {'BUILD_OK': str(build).lower(),
+                                              'GITHUB_STEP_SUMMARY': str(root / 'summary')}), \
+                        patch.object(m, 'publish_repair', return_value=self.ctx['head']), \
+                        patch.object(m, 'live_match'), patch.object(m, 'record_check'), \
+                        patch.object(m, 'published_pr', return_value=self.pr), \
+                        patch.object(m, 'save_state') as save, \
+                        patch.object(m, 'promote_draft', return_value=(True, 'Marked ready')) as promote:
+                    m.finish(self.ctx, root, apply)
+                expected = apply and build and accurate
+                self.assertEqual(promote.call_count, int(expected))
+                self.assertEqual(json.loads((root / 'result.json').read_text())['marked_ready'], expected)
+                if expected:
+                    state = save.call_args.args[1]
+                    self.assertEqual(m.decision(state, m.signature(
+                        {**self.pr, 'draft': False}, self.details)), 'cached')
+                    self.assertIn('Marked ready', (root / 'summary').read_text())
 
 
 class PublicationTests(unittest.TestCase):

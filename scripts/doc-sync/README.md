@@ -4,7 +4,7 @@ The workflow runs at **09:43 UTC daily** (01:43 PST / 02:43 PDT), on
 `smg-org-runner-cpu`. Discovery, writing, and independent review use Claude Code
 with `claude-fable-5`, `xhigh` effort, and the runner's Anthropic credential.
 It opens ready-for-review PRs only after the independent review and site checks
-pass, and never merges them. Existing drafts keep their status during maintenance.
+pass, and never merges them. Maintenance can also promote validated drafts once review comments are resolved.
 
 ## Pipeline
 
@@ -172,8 +172,13 @@ feedback invalidate publication. The source revision stays pinned for the whole
 round and is recorded in the result and PR check; an advancing source branch
 invalidates the next sweep's cache rather than discarding completed model work.
 Correct PRs may validate without a repair.
-Draft status stays unchanged; the workflow never approves or merges PRs. Only
-independently verified bot-only review threads can be resolved automatically.
+After a passing review and build, maintenance marks drafts ready for review if
+all review threads are resolved, no outstanding change request or failed check
+remains, and fresh feedback still matches the reviewed snapshot. Only
+independently verified bot-only review threads can be resolved automatically;
+human threads require manual resolution. Dry runs never change draft status.
+The workflow never approves or merges PRs. The result records `marked_ready`
+and the reason promotion occurred or was deferred.
 
 One status comment and a `Docs maintenance` check on the actual PR head record
 the outcome. Unchanged successful work is cached until source, docs, PR content

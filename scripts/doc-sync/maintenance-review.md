@@ -54,3 +54,8 @@ requires external PR/code reading, appends new behavior to an existing paragraph
 or buries useful service information in repetitive history or dense prose.
 Explain the specific required repair in reason. Check the full edited paragraphs,
 including retained text, while leaving unrelated existing documentation alone.
+
+A correct new note does not repair a contradictory summary elsewhere on the
+same page. Re-read the section introductions, overview tables and troubleshooting
+statements on every allowlisted page; qualify obsolete generalizations too.
+Readers should not have to find a later exception to interpret an earlier claim.

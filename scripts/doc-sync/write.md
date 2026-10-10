@@ -60,3 +60,8 @@ when tag/release evidence proves it; otherwise use a short standalone
 "Unreleased" note without implying that all versions newer than an old tag
 include the change. Do not repeat the same history throughout a page. Prefer
 short direct sentences, useful headings, and examples over implementation stories.
+
+A correct new note does not repair a contradictory summary elsewhere on the
+same page. Re-read the section introductions, overview tables and troubleshooting
+statements on every allowlisted page; qualify obsolete generalizations too.
+Readers should not have to find a later exception to interpret an earlier claim.

@@ -120,7 +120,7 @@ The prefill worker's KV connector decides how SMG tags the prefill leg and what 
 |-------------------|-------------|---------------------------------|
 | `NixlConnector` | `{"do_remote_decode": true, "do_remote_prefill": false}` | The params the prefill response returns (for example `remote_engine_id`, `remote_request_id`, `remote_block_ids`, `remote_host`/`remote_port`, `tp_size`), forwarded verbatim |
 | `MooncakeConnector` | The same tag plus a `transfer_id` that SMG mints | Synthesized by SMG, because Mooncake pushes the KV and returns nothing: `{"do_remote_decode": false, "do_remote_prefill": true}` plus `transfer_id`, `remote_engine_id` (the prefill's KV engine id), and `remote_bootstrap_addr` = `http://<bootstrap_host>:<bootstrap_port>` (port 8998 when the worker has none) |
-| `MoRIIOConnector` (HTTP) | The same tag plus a minted `transfer_id`, `remote_dp_size: 1`, and the decode's TP as `remote_tp_size` when the decode has a `tp_size` label. WRITE mode also names the decode's side channel: `remote_host`, `remote_handshake_port`, `remote_notify_port`. The leg also gets `ignore_eos: true` and loses `stop` and `stop_token_ids` | The params the prefill response returns, forwarded verbatim only after SMG checks that they carry the minted `transfer_id` and the prefill peer (`remote_engine_id`, `remote_block_ids`, `remote_host`, `remote_handshake_port`, `remote_notify_port`), each in a shape the decode engine parses. Under concurrent WRITE dispatch, minted up front by SMG instead: `{"do_remote_decode": false, "do_remote_prefill": true}` plus the minted `transfer_id`, `remote_dp_size: 1`, the prefill's side channel (`remote_host`, `remote_handshake_port`, `remote_notify_port`), and the prefill's `tp_size` label as `remote_tp_size` when set. See [MoRI-IO](#mori-io-http) |
+| `MoRIIOConnector` (HTTP) | The same tag plus a minted `transfer_id`, the decode's `dp_size` as `remote_dp_size` (with the pinned `remote_dp_rank` on a data-parallel pair), and the decode's TP as `remote_tp_size` when the decode has a `tp_size` label. WRITE mode also names the decode's side channel: `remote_host`, `remote_handshake_port`, `remote_notify_port`. The leg also gets `ignore_eos: true` and loses `stop` and `stop_token_ids` | The params the prefill response returns, forwarded verbatim only after SMG checks that they carry the minted `transfer_id` and the prefill peer (`remote_engine_id`, `remote_block_ids`, `remote_host`, `remote_handshake_port`, `remote_notify_port`), each in a shape the decode engine parses. Under concurrent WRITE dispatch, minted up front by SMG instead: `{"do_remote_decode": false, "do_remote_prefill": true}` plus the minted `transfer_id`, the prefill's `dp_size` as `remote_dp_size` (with the pinned `remote_dp_rank` on a data-parallel pair), the prefill's side channel (`remote_host`, `remote_handshake_port`, `remote_notify_port`), and the prefill's `tp_size` label as `remote_tp_size` when set. See [MoRI-IO](#mori-io-http) |
 | None or another connector | No tag ("passthrough") | Whatever `kv_transfer_params` the prefill response returns, if any |
 
 The handoff falls back to a local recompute in these cases:
@@ -143,7 +143,7 @@ A restarted vLLM process without a pinned `engine_id` comes back with a new KV e
 #### MoRI-IO (HTTP)
 
 !!! note "Availability"
-    MoRI-IO support is on `main` and newer than v1.11.0: it came with smg-project/smg#2732, and concurrent WRITE dispatch with smg-project/smg#2742. v1.11.0 does not recognize `MoRIIOConnector`. It handles such workers as passthrough, so it neither tags the prefill leg nor checks a handoff, and it pairs READ and WRITE engines alike under the transport `moriioconnector`. A MoRI-IO decode engine behind v1.11.0 therefore runs without its KV, as described below.
+    MoRI-IO support, including concurrent WRITE dispatch and data-parallel rank pinning, is on `main` and newer than v1.11.0. v1.11.0 does not recognize `MoRIIOConnector`. It handles such workers as passthrough, so it neither tags the prefill leg nor checks a handoff, and it pairs READ and WRITE engines alike under the transport `moriioconnector`. A MoRI-IO decode engine behind v1.11.0 therefore runs without its KV, as described below.
 
 vLLM's `MoRIIOConnector` moves the KV cache over RDMA with MoRI-IO in one of two modes. In READ mode (`"read_mode": true` in `kv_connector_extra_config` on both engines), the decode engine pulls the KV after the prefill leg returns. In WRITE mode, the default, the prefill engine pushes the KV into blocks the decode engine allocates. SMG sends the legs sequentially by default in both modes; a WRITE pair can opt into concurrent dispatch with the decode worker's `moriio_write_dispatch` label (see below).
 
@@ -162,6 +162,7 @@ HTTP vLLM workers report none of the MoRI-IO settings, so set them as worker lab
 | `moriio_notify_port` | `61005` | The engine's `notify_port` |
 | `moriio_write_dispatch` | `sequential` | `sequential` or `concurrent`: whether SMG sends the two WRITE legs one after the other or at once. Honored on the decode worker; a READ pair stays sequential. Any other value on either worker refuses the pair |
 | `tp_size` | Unset: both legs have the same TP | The decode engine's tensor-parallel size, sent to the prefill as `remote_tp_size`. Under concurrent dispatch, the prefill worker's value is likewise sent to the decode leg. With vLLM `0.30.1rc1.dev396+gac68c3087`, a TP4 prefill with a TP8 decode worked in READ mode, but in WRITE mode the decode request never completed, through vllm-router as well: only half of the decode ranks received KV (vllm-project/vllm#60101). Until that is fixed, use READ mode or the same TP on both engines |
+| `dp_size` | `1` | The engine's data-parallel size (vLLM's `--data-parallel-size`). Both legs of a pair must have the same value, and a value of `0` or a non-integer refuses the pair. Above 1, SMG pins both legs of each request to one rank (see below) |
 
 ```bash
 curl -X POST http://localhost:30000/workers \
@@ -176,9 +177,11 @@ curl -X POST http://localhost:30000/workers \
 
 The engines do not need `proxy_ip` and `proxy_ping_port`, which only register them with vllm-router.
 
+A pair may run data-parallel engines. Register each engine once, with a `dp_size` label — not one worker per rank, as `--dp-aware` does, which MoRI-IO refuses because independently placed legs could pick different ranks. When `dp_size` is above 1, SMG pins both legs of each request to one rank, chosen round-robin per request: each leg carries the `x-data-parallel-rank` header, by which vLLM's API server runs the request on that engine core, and the params SMG mints name the rank as `remote_dp_rank` (see [Connector Modes](#connector-modes)). Both legs go to the same rank because a WRITE decode engine sends its notification from the rank the prefill ran on — which is why both engines must have that rank, hence the equal `dp_size` requirement.
+
 Before either leg is contacted, SMG refuses:
 
-- **A misconfigured pair** with 503 `moriio_pair_misconfigured`: a leg that is not a `MoRIIOConnector` worker, legs in different modes, a worker with DP>1, a missing, unparsable, or invalid label (including a `moriio_write_dispatch` value other than `sequential` or `concurrent`), or, in WRITE mode, a decode side channel the prefill cannot reach: a loopback or unspecified decode host (`localhost`, `127.0.0.1`, `0.0.0.0`, `[::]`) while the prefill is not, or the prefill's own side channel. Under concurrent dispatch the decode engine dials the prefill's side channel as labeled, so the same refusal applies to a loopback or unspecified prefill host while the decode is not. The reason is in the gateway log. [Pairing](#prefilldecode-pairing) already keeps READ and WRITE workers apart, because their transports are `moriio-read` and `moriio-write`.
+- **A misconfigured pair** with 503 `moriio_pair_misconfigured`: a leg that is not a `MoRIIOConnector` worker, legs in different modes or with different `dp_size` values, a leg registered one worker per data-parallel rank (as `--dp-aware` registers them), a missing, unparsable, or invalid label (including a `moriio_write_dispatch` value other than `sequential` or `concurrent`, and a `dp_size` of `0` or not an integer), or, in WRITE mode, a decode side channel the prefill cannot reach: a loopback or unspecified decode host (`localhost`, `127.0.0.1`, `0.0.0.0`, `[::]`) while the prefill is not, or the prefill's own side channel. Under concurrent dispatch the decode engine dials the prefill's side channel as labeled, so the same refusal applies to a loopback or unspecified prefill host while the decode is not. The reason is in the gateway log. [Pairing](#prefilldecode-pairing) already keeps READ and WRITE workers apart, because their transports are `moriio-read` and `moriio-write`.
 - **Requests that would share one handoff** with 400 `moriio_fanout_unsupported`: `n>1`, a batched `prompt` or `prompt_embeds` list, and `use_beam_search`.
 - **Request ids carrying peer addresses** with 400 `moriio_request_id_reserved`: the connector reads its peer from markers in the request id (`___prefill_addr_`, `___decode_addr_`) before the explicit fields, and vLLM takes the request id from `X-Request-Id` or, without that header, from the body's `request_id`. SMG checks every `X-Request-Id` value it forwards and the body field.
 - **Other routes** with 501 `moriio_route_unsupported`: only `/v1/chat/completions` and `/v1/completions` are supported.
@@ -190,6 +193,7 @@ The connector returns a handoff only when the prefill leg ends at its one-token 
 - `remote_host` is a non-empty string without whitespace. It is **not** compared with the prefill worker's `moriio_host` label: a hostname or an address on another interface is accepted, and a sequential decode leg dials the address the prefill engine reports. A concurrent decode leg was already told the label.
 - `remote_handshake_port` and `remote_notify_port` are non-zero ports, each written as a number or a string.
 - `remote_dp_size`, `remote_dp_size_local`, `remote_dp_rank`, `tp_size`, and `remote_tp_size`, when present and not `null`, parse as integer counts, as a number or a decimal string.
+- On a pinned pair (`dp_size` above 1), `remote_dp_rank` equals the pinned data-parallel rank. The producer names the rank the prefill ran on, and the decode leg went to the pinned one, so a handoff that omits the rank or names another fails the request.
 
 The gRPC pipeline does not speak MoRI-IO and refuses such pairs with 501 `moriio_grpc_pd_unsupported`.
 
@@ -256,7 +260,7 @@ Token counting generates nothing, so SMG sends it to a single prefill worker and
 | `--decode-policy` | `--policy` | Routing policy for the decode leg |
 | `--pd-pairing-mode` | `lenient` | `off`, `lenient`, or `strict`: how strictly the legs must share a KV transfer protocol. See [Pairing](#prefilldecode-pairing) |
 | `--pd-admission-wait-secs` | `30` | gRPC only: how long a dispatch waits for a free decode slot before it is shed |
-| `--dp-aware` | off | Register one worker per data-parallel rank. vLLM Mooncake needs it to mint engine ids for DP>1 prefill workers |
+| `--dp-aware` | off | Register one worker per data-parallel rank. vLLM Mooncake needs it to mint engine ids for DP>1 prefill workers. [MoRI-IO](#mori-io-http) legs refuse per-rank workers: register each engine once, with a `dp_size` label |
 | `--model-path`, `--tokenizer-path` | — | gRPC only: a tokenizer SMG loads at startup, also used for workers that report no tokenizer or model path |
 
 The startup worker lists may be empty: add legs at runtime with `POST /workers` and `"worker_type": "prefill"` or `"decode"` (see [Worker Management](../../reference/api/admin.md)). For every option, see the [configuration reference](../../reference/configuration.md#pd-disaggregation-configuration).
@@ -429,7 +433,7 @@ On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longe
 | 400 | `moriio_fanout_unsupported` | MoRI-IO: `n>1`, a batched prompt or prompt embeddings, or beam search |
 | 400 | `moriio_request_id_reserved` | MoRI-IO: a request id carries the connector's peer-address markers |
 | 501 | `moriio_route_unsupported` | MoRI-IO: the route is not `/v1/chat/completions` or `/v1/completions` |
-| 502 | `moriio_handoff_invalid` | MoRI-IO: the prefill returned no usable handoff — missing, foreign, or with fields the decode engine cannot parse. Sequential dispatch sends no decode leg; concurrent dispatch drops the one already sent |
+| 502 | `moriio_handoff_invalid` | MoRI-IO: the prefill returned no usable handoff — missing, foreign, from a data-parallel rank other than the pinned one, or with fields the decode engine cannot parse. Sequential dispatch sends no decode leg; concurrent dispatch drops the one already sent |
 | 501 | `moriio_grpc_pd_unsupported` | gRPC: MoRI-IO PD is supported only by the HTTP PD router |
 
 The `moriio_*` codes are newer than v1.11.0.

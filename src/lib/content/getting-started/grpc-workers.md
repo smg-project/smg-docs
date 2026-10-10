@@ -186,6 +186,9 @@ smg launch \
 !!! note "How the gateway finds the tokenizer"
     The gateway needs each model's tokenizer to apply chat templates, count tokens, and parse tool calls. When a worker registers, SMG loads the tokenizer from the `tokenizer_path` or `model_path` the worker reports (vLLM, SGLang, TokenSpeed and MLX report one), and falls back to `--tokenizer-path` or `--model-path`. If that path doesn't load on the gateway host, for example because it's a directory on the worker's machine, SMG fetches the tokenizer files from the worker over gRPC. TensorRT-LLM workers report no path, so pass `--model-path` or `--tokenizer-path` for them. `--disable-tokenizer-autoload` turns all of this off; tokenizers then come only from the [tokenizer API](../reference/api/admin.md).
 
+!!! warning "The gateway-to-worker gRPC hop is plaintext"
+    The gateway dials gRPC workers without TLS: a `grpcs://` URL fails to connect, and the Python launcher's client-certificate flags apply to HTTP workers only. To encrypt and authenticate this hop, run the gateway and the workers in a service mesh. See [Gateway to gRPC Workers](tls.md#gateway-to-grpc-workers).
+
 The API is still OpenAI-compatible, so clients send the same requests as with HTTP workers:
 
 ```bash
@@ -370,6 +373,7 @@ export TIKTOKEN_ENCODINGS_BASE=/opt/tiktoken   # contains o200k_base.tiktoken
 |---------|-------|----------|
 | 404 `model_not_found` | No registered worker serves the requested model name | Check `GET /v1/models` and send a served model name or alias |
 | 503 `no_available_workers` | Every worker for the model is unhealthy or has an open circuit breaker | Check worker health and logs |
+| A `grpcs://` worker never registers; the log repeats `grpc health check failed ... gRPC connection failed: transport error` | The gateway's gRPC channel has no TLS | Use `grpc://`, and a service mesh when the hop must be encrypted ([Gateway to gRPC Workers](tls.md#gateway-to-grpc-workers)) |
 | 500 `tokenizer_not_found` | The model's tokenizer didn't load | Check the gateway logs; pass `--model-path` or set a `tokenizer_path` label |
 | Tool calls or reasoning left in `content` | No parser matched the model name | Set `--tool-call-parser` / `--reasoning-parser` or a per-model label |
 

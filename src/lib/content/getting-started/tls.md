@@ -24,7 +24,8 @@ SMG supports TLS configurations for securing communications:
 | Configuration | Purpose | Status |
 |---------------|---------|--------|
 | **Server TLS** | HTTPS for client → gateway communication | Available |
-| **Client mTLS** | Mutual TLS for gateway → worker communication | Python launcher only |
+| **Client mTLS** | Mutual TLS for gateway → HTTP worker communication | Python launcher only |
+| **gRPC worker transport** | Gateway → gRPC worker (`grpc://`) connections | Plaintext; mTLS through a service mesh |
 
 !!! info "Client mTLS"
     The client certificate flags (`--client-cert-path`, `--client-key-path`, and `--ca-cert-paths`) exist only in the Python launcher: `smg launch` from pip, and the container image. The Rust `smg` binary has no client certificate flags in v1.11.0. See [Client mTLS to Workers](#client-mtls-to-workers).
@@ -128,9 +129,24 @@ smg launch \
 
 - These flags belong to the Python launcher (`smg launch` from pip, and the container image). The Rust `smg` binary does not accept them.
 - SMG reads the files at startup. Setting only one of `--client-cert-path` and `--client-key-path`, or passing a file it can't read, stops startup.
-- The certificate and CAs apply to the gateway's HTTP connections: requests to HTTP workers and external providers, and worker health checks. gRPC workers (`grpc://`, `grpcs://`) don't use them.
+- The certificate and CAs apply to the gateway's HTTPS connections only: the per-worker clients that send requests, health probes and admin calls to HTTP workers, and the shared client for external providers and model discovery. gRPC workers (`grpc://`, `grpcs://`) don't use them; see [Gateway to gRPC Workers](#gateway-to-grpc-workers).
 
 If you run the Rust binary, terminate mTLS toward the workers outside SMG, for example with a service mesh (such as Istio) or a sidecar proxy.
+
+---
+
+## Gateway to gRPC Workers
+
+The connection from the gateway to a gRPC worker (a `grpc://` URL, or a pod that service discovery registered) is plaintext, and neither end can be configured otherwise today:
+
+- The gateway builds every gRPC channel with the same keep-alive and window profile and attaches no TLS configuration to it: no server-certificate verification, no CA bundle and no client certificate. `--client-cert-path`, `--client-key-path` and `--ca-cert-paths` act on the HTTPS clients above and change nothing on a gRPC dial. A `grpcs://` URL is accepted, but the dial fails at once: the log shows `grpc health check failed for explicitly configured worker URL grpcs://...: gRPC connection failed: transport error`, the registration is retried, and the worker never registers.
+- The vLLM gRPC entrypoint, and the TokenSpeed and MLX servicers, listen on an insecure port only. The SGLang servicer accepts `--ssl-certfile` and `--ssl-keyfile` (and `--ssl-ca-certs` to require client certificates), but since the gateway presents no certificate on gRPC, that does not give you a mutually authenticated hop either.
+
+Native TLS on the gRPC channel is not scheduled. The supported way to encrypt and authenticate this hop is a service mesh: run the gateway and the workers with sidecar proxies (for example Istio or Linkerd) in strict mutual-TLS mode. The gateway keeps dialing `grpc://` to its local proxy, and the proxies secure the connection between the pods. What to check in the mesh configuration:
+
+- **HTTP/2 passthrough.** The proxies must treat the worker port as gRPC (HTTP/2), for example through a Service port named `grpc-<name>` or `appProtocol: grpc`, so the long-lived streams are proxied as streams rather than buffered: one `Generate` stream per in-flight request, and, under a cache-aware routing policy (the only configuration in which the gateway subscribes), one `SubscribeKvEvents` stream per worker, open for as long as the worker is registered, which carries the KV cache events and the worker's load records.
+- **Pod-IP destinations.** Service discovery registers each pod as `grpc://<pod-ip>:<port>`, not by Service name. Confirm that the mesh applies mutual TLS to connections addressed directly to the pod IPs of workloads in the mesh, or pass `--worker-urls` with names the mesh routes.
+- **Keepalive and idle timeouts.** The gateway sends an HTTP/2 keepalive ping every 30 seconds on each channel and expects the answer within 10 seconds; a connect attempt is bounded at 10 seconds. The local proxy answers the pings itself, so a worker that dies behind a live proxy is noticed by failing requests and by the health probe (every `--health-check-interval-secs` seconds, 60 by default, after `--health-failure-threshold` consecutive failures, 3 by default), not by the keepalive. On the `SubscribeKvEvents` stream the Rust servicer sends a load-only heartbeat after one second of silence, and every five seconds on an idle engine, so a proxy's per-stream idle timeout (Envoy's default is five minutes) does not reset it; the Python servicers send nothing while the engine is idle, so behind such a timeout an idle worker's subscription is reset at that cadence, and the gateway reconnects with backoff and resubscribes from its last sequence.
 
 ---
 

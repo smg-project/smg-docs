@@ -208,6 +208,15 @@ class GitGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'code-change references'):
                     docs.export_bundle(self.item, self.base, Path('bundle.json'))
 
+    def test_reader_docs_leave_untouched_legacy_citations_alone(self):
+        self.path.write_text('Historical reference: smg-project/smg#2603.\n\nOld guidance.\n')
+        self.git('add', str(self.path))
+        self.git('commit', '-qm', 'Existing documentation')
+        base = self.git('rev-parse', 'HEAD')
+        self.path.write_text('Historical reference: smg-project/smg#2603.\n\nUpdated guidance.\n')
+        docs.validate_diff(self.item, base)
+        docs.validate_reader_docs(base)
+
     def test_reader_docs_allow_documentation_and_release_links(self):
         self.path.write_text('Configure the byte budget.\n\n'
             'Unreleased: oversized inputs are not cached.\n\n'

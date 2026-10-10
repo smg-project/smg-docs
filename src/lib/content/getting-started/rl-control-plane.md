@@ -187,7 +187,7 @@ Response for one SGLang worker (`labels` trimmed):
 
 `GET /v1/rl/workers/{id}` returns one row, or `404` with `worker_not_found` for an unknown ID. For a DP-aware worker, any rank's ID works, and `dp_ranks` counts the ranks that share its engine address.
 
-SMG reads labels from the engine when a worker registers. For an HTTP SGLang worker it reads `tp_size`, `version`, `weight_version`, and more from `/server_info`. For an HTTP vLLM worker it reads only model and version metadata (`/v1/models` and `/version`), so `tp_size`, `dp_size`, and `pp_size` stay `null` unless you set them. Set or override labels with the `labels` field of `POST /workers` (see [Multiple Workers](multiple-workers.md)):
+SMG reads labels from the engine when a worker registers. For an HTTP SGLang worker it reads `tp_size`, `version`, `weight_version`, and more from `/server_info`. For an HTTP vLLM worker it reads only model and version metadata (`/v1/models` and `/version`), so `tp_size`, `dp_size`, and `pp_size` stay `null` unless you set them. For a TokenSpeed gRPC worker it reads a curated set of the engine's server args over gRPC, which newer than v1.11.0 includes `rl.*` capability labels a new-enough engine advertises itself (see [Capabilities](#capabilities)). Set or override labels with the `labels` field of `POST /workers` (see [Multiple Workers](multiple-workers.md)):
 
 ```bash
 curl -X POST http://localhost:30000/workers \
@@ -201,7 +201,7 @@ curl -X POST http://localhost:30000/workers \
 
 ### Capabilities
 
-`capabilities` comes from a static per-engine table:
+`capabilities` starts from a static per-engine table:
 
 | Field | SGLang | vLLM | Other engines |
 |---|---|---|---|
@@ -215,6 +215,10 @@ curl -X POST http://localhost:30000/workers \
 `pause_modes` lists the `mode` values the engine's pause route accepts, `update_from` lists the weight sources it can refit from, and `reports_weight_version` says whether it reports a weight version after a refit.
 
 Worker labels override the table. `rl.pause_modes` and `rl.update_from` take comma-separated lists. `rl.abort`, `rl.flush_cache`, `rl.sleep_wake`, and `rl.reports_weight_version` are `true` when the value is `true` (in any case) and `false` for any other value. `source` is `static`, or `label` when at least one `rl.*` label overrode the table.
+
+In v1.11.0, the only `rl.*` labels are the ones you set. Newer than v1.11.0, a TokenSpeed gRPC worker can bring them itself: an engine new enough to advertise its RL capabilities reports its control endpoint and capability keys in its server info, and SMG reads `rl.control_url`, `rl.pause_modes`, `rl.update_from`, `rl.abort`, `rl.flush_cache`, `rl.sleep_wake`, and `rl.reports_weight_version` from it into worker labels when the worker registers. The worker's discovery row then reports the advertised capabilities with `source` as `label`, without you setting anything; labels you set with `POST /workers` still win over advertised ones. The worker must run a new-enough Python servicer (`python -m smg_grpc_servicer.tokenspeed`); the Rust implementation (`SMG_TOKENSPEED_SERVICER_IMPL=rust`) does not forward the advertisement. An older TokenSpeed engine advertises nothing and keeps the static all-`none` row, and when the engine's advertisement fails, the worker logs a warning and registers without `rl.*` labels. Credential-looking server args, such as the engine's in-engine RL control API key, are stripped before the server info leaves the engine, so they never become labels.
+
+`rl.control_url` is where the engine's own SGLang-compatible control app listens. SMG records it only as a worker label: the control plane still cannot proxy a gRPC worker ([HTTP workers only](#what-m1-does-not-do)), so read the label from discovery and send pause and refit calls to that address directly.
 
 ---
 

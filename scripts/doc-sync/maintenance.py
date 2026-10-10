@@ -135,6 +135,15 @@ def substantive_comment(comment):
     return True
 
 
+def change_requests(reviews):
+    """A comment-only review does not dismiss an earlier change request."""
+    latest = {}
+    for review in sorted(reviews, key=lambda review: review['id']):
+        if review['state'] in {'APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'}:
+            latest[review['user']['login']] = review['state']
+    return sorted(author for author, state in latest.items() if state == 'CHANGES_REQUESTED')
+
+
 def feedback(pr):
     """Read all feedback, including unresolved threads, with bounded graph pages."""
     number = pr["number"]
@@ -181,7 +190,8 @@ def feedback(pr):
                            for r in reviews if trusted_feedback(r['user'], r.get('author_association'))
                            and (r["body"] or r["state"] == "CHANGES_REQUESTED")],
                "threads": threads, "failed_checks": failed_checks,
-               "unresolved_threads": unresolved, "protected_threads": protected}
+               "unresolved_threads": unresolved, "protected_threads": protected,
+               "changes_requested": change_requests(reviews)}
     if len(json.dumps(details).encode()) > 2 * 1024 * 1024:
         raise ValueError("Feedback exceeds 2 MiB; human triage required")
     return details, state, state_id
@@ -204,8 +214,12 @@ def signature(pr, details, extra=""):
     substantive = {key: value for key, value in details.items()
                    if key not in {'unresolved_threads', 'protected_threads'}}
     substantive['threads'] = [stable_thread(t) for t in details.get('threads', [])]
+    # Resolving even an untrusted thread can unblock draft promotion. Track IDs,
+    # never feed untrusted comment bodies to the model.
+    if pr.get('draft'):
+        substantive['unresolved_threads'] = sorted(details.get('unresolved_threads', []))
     return hashlib.sha256(json.dumps(["reader-docs-v2", pr["head"]["sha"], pr["base"]["sha"],
-                                     pr["code_sha"], pr.get("title"), pr.get("body"), substantive, extra], sort_keys=True).encode()).hexdigest()
+                                     pr["code_sha"], pr.get("title"), pr.get("body"), pr.get("draft"), substantive, extra], sort_keys=True).encode()).hexdigest()
 
 
 def decision(state, digest, force=False):
@@ -480,6 +494,35 @@ def record_check(ctx, head, accepted, reason):
                    "summary": f"Reviewed SMG source: `{ctx.get('code_sha', 'unavailable')}`.\n\n" + reason[:59000]}})
 
 
+def promote_draft(ctx, current, expected_details):
+    """Promote only the validated head after every review discussion is resolved."""
+    if not current.get('draft'):
+        return False, 'PR is already ready for review.'
+    fresh, _, _ = feedback(current)
+    if fresh['unresolved_threads'] or fresh.get('changes_requested'):
+        return False, 'Draft retained: unresolved review threads or outstanding change requests.'
+    pinned = {**current, 'code_sha': ctx['code_sha']}
+    if (fresh.get('failed_checks')
+            or signature(pinned, fresh, ctx['extra_feedback']) !=
+            signature(pinned, expected_details, ctx['extra_feedback'])):
+        return False, 'Draft retained: feedback or checks changed after validation.'
+    # Recheck the head/base and PR metadata immediately before the mutation.
+    latest = published_pr(ctx, current['head']['sha'])
+    if signature({**latest, 'code_sha': ctx['code_sha']}, fresh, ctx['extra_feedback']) != signature(
+            pinned, fresh, ctx['extra_feedback']):
+        return False, 'Draft retained: PR metadata changed after validation.'
+    response = api('graphql', 'POST', {
+        'query': 'mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id})'
+                 '{pullRequest{id isDraft headRefOid}}}',
+        'variables': {'id': latest['node_id']}})
+    if response.get('errors'):
+        raise ValueError('GitHub rejected draft promotion')
+    promoted = response['data']['markPullRequestReadyForReview']['pullRequest']
+    if promoted['isDraft'] or promoted['headRefOid'] != current['head']['sha']:
+        raise ValueError('Draft promotion did not confirm the validated PR head')
+    return True, 'Marked ready for review after validation and resolution of all review threads.'
+
+
 def finish(ctx, directory, apply):
     """Publish bounded progress and record an honest success/failure verdict."""
     raw = (directory / 'review.json').read_text() if (directory / 'review.json').exists() else os.getenv("REVIEW_JSON", "")
@@ -490,6 +533,7 @@ def finish(ctx, directory, apply):
     technical = os.getenv("BUILD_OK") == "true"
     accepted = technical and all(verdict[key] for key in docs.REVIEW_GATES)
     resolved = []
+    promoted, promotion_reason = False, 'Draft promotion requires an applied, accepted review and passing build.'
     reason = verdict["reason"]
     if not technical:
         reason += "\nDocumentation type check or production build did not pass."
@@ -520,10 +564,17 @@ def finish(ctx, directory, apply):
                 api("graphql", "POST", {"query": "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}",
                                         "variables": {"id": thread}})
                 resolved.append(thread)
+                if 'unresolved_threads' in expected_details:
+                    expected_details['unresolved_threads'] = [
+                        value for value in expected_details['unresolved_threads'] if value != thread]
                 expected_details["threads"] = [t for t in expected_details["threads"] if t["id"] != thread]
             for index, thread in enumerate(expected_details["threads"], 1):
                 thread["number"] = index
         current = published_pr(ctx, head)
+        if accepted:
+            promoted, promotion_reason = promote_draft(ctx, current, expected_details)
+            if promoted:
+                current = {**current, 'draft': False}
         attempts = 0 if accepted else ctx["attempts"]
         state = {"phase": "ready" if accepted else ("needs-human" if attempts >= MAX_ATTEMPTS else "needs-repair"),
                  "attempts": attempts, "infrastructure_attempts": 0,
@@ -535,13 +586,14 @@ def finish(ctx, directory, apply):
     result = {"number": ctx["number"], "applied": apply, "published": head != ctx['head'],
               "accepted": accepted, "head": head, "code_sha": ctx["code_sha"],
               "base": ctx["base"], "review_base": ctx.get("review_base", ctx["base"]),
-              "reason": reason, "resolved_bot_threads": resolved}
+              "reason": reason, "resolved_bot_threads": resolved,
+              "marked_ready": promoted, "promotion_reason": promotion_reason}
     (directory / "result.json").write_text(json.dumps(result, indent=2))
     publication = ('dry run, no repository writes' if not apply else
                    ('repair published' if head != ctx['head'] else 'no repair published'))
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
         summary.write(f"PR #{ctx['number']}: {'validated' if accepted else 'needs repair'}; "
-                      f"{publication}.\n\n"
+                      f"{publication}. {promotion_reason}\n\n"
                       f"<pre>{html.escape(reason)}</pre>\n")
 
 

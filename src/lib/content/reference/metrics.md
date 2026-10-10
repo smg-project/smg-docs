@@ -815,7 +815,7 @@ Consecutive successes per worker.
 
 ### Retry Metrics
 
-Unreleased: current main publishes these three families at gateway start-up: `smg_worker_retries_total` and `smg_worker_retries_exhausted_total` at zero for every combination of the three `worker_type` values and ten `endpoint` values, and the `attempt="1"` series of `smg_worker_retry_backoff_seconds` as an empty distribution (a `_count` of 0; later attempts still appear on their first backoff).
+Unreleased: current main publishes these three families at gateway start-up: `smg_worker_retries_total` and `smg_worker_retries_exhausted_total` at zero for every combination of the `regular`, `prefill`, and `decode` worker types and the ten `endpoint` values, and the `attempt="1"` series of `smg_worker_retry_backoff_seconds` as an empty distribution (a `_count` of 0; later attempts still appear on their first backoff). The external-provider series (`worker_type="external"`) are not pre-published: each appears on its first respective event — `smg_worker_retries_total` on the first retry against a provider, `smg_worker_retries_exhausted_total` on the first exhaustion.
 
 #### `smg_worker_retries_total`
 
@@ -825,7 +825,7 @@ Retry attempts.
 |------|--------|
 | Counter | `worker_type`, `endpoint` |
 
-`worker_type` is `regular`, `prefill`, or `decode`; a PD retry counts once for the `prefill` and once for the `decode` worker type. `endpoint` is the retried route reduced to `chat`, `generate`, `completions`, `rerank`, `responses`, `decisions`, `systemone`, `messages`, `audio_transcriptions`, or `other` — a narrower set than `smg_router_requests_total` uses.
+`worker_type` is `regular`, `prefill`, or `decode` for self-hosted workers, or `external` for requests proxied to an [external provider](../getting-started/external-providers.md); a PD retry counts once for the `prefill` and once for the `decode` worker type. `endpoint` is the retried route reduced to `chat`, `generate`, `completions`, `rerank`, `responses`, `decisions`, `systemone`, `messages`, `audio_transcriptions`, or `other` — a narrower set than `smg_router_requests_total` uses.
 
 #### `smg_worker_retries_exhausted_total`
 

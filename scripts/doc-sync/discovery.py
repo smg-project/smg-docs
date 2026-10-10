@@ -298,7 +298,7 @@ def main():
         selected, deferred = report['selected'], report['deferred']
         Path(os.environ["REPORT_OUTPUT"]).write_text(json.dumps(report, indent=2))
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-            output.write("matrix=" + json.dumps({"include": selected}) + "\n")
+            output.write("matrix=" + json.dumps(docs.item_matrix(selected)) + "\n")
             output.write(f"count={len(selected)}\n")
             output.write(f"complete={str(report['complete']).lower()}\n")
             output.write("missing=" + ", ".join(report['missing_shards']) + "\n")

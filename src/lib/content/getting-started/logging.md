@@ -186,7 +186,7 @@ See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for 
 
 ## Cache Routing Trace Logs
 
-Setting `SMG_CACHE_TRACE=1` in the gateway's environment turns on a routing-evidence trace (newer than v1.11.0): one line per dispatch attempt on the `smg::cache_trace` target, recording what the routing decision saw — the candidate workers with their load and health, the cache-affinity prediction, the per-worker scores, and the gate checks that keep or drop workers. The lines are INFO, so they appear at the default `info` level. All four variables are read once per gateway process, so changing them requires a restart.
+Setting `SMG_CACHE_TRACE=1` in the gateway's environment turns on a routing-evidence trace: one line per dispatch attempt on the `smg::cache_trace` target, recording what the routing decision saw — the candidate workers with their load and health, the cache-affinity prediction, the per-worker scores, and the gate checks that keep or drop workers. The lines are INFO, so they appear at the default `info` level. All four variables are read once per gateway process, so changing them requires a restart.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
@@ -194,6 +194,8 @@ Setting `SMG_CACHE_TRACE=1` in the gateway's environment turns on a routing-evid
 | `SMG_CACHE_TRACE_HEADER` | off | `1` returns a summary of the dispatch evidence in the `x-smg-cache-trace` response header, with or without `SMG_CACHE_TRACE=1`; see [Response Headers](../reference/api/openai.md#response-headers) |
 | `SMG_CACHE_TRACE_SAMPLE` | `1` | Log one dispatch line in every `N`; the first dispatch is always logged. Failure lines and the response header are never sampled. `0` or an unparsable value means every dispatch |
 | `SMG_CACHE_TRACE_MAX_BYTES` | unset | Compact any evidence line longer than `B` bytes: each selection's `candidates`, `scores`, and `gates` lists are dropped (their counts remain under `elided`) and the line is marked `capped`, keeping the decision record — IDs, policy, chosen worker, and prediction. Applies to failure lines too. Unset or unparsable means no cap |
+
+The trace is documented from current SMG `main`; a tagged release may include it only partially or not at all. On a build without it, these variables are ignored and no `smg::cache_trace` lines appear.
 
 A single request can also ask for its own record without any environment variable: sending `x-smg-cache-trace: 1` as a request header returns that request's summary in the `x-smg-cache-trace` response header, with or without the process-wide switches. With both variables unset, evidence is captured only for the requests that ask, and the request header adds no log lines; when the summary exceeds the header limit, the omission line is DEBUG rather than INFO.
 

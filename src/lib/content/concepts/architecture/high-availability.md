@@ -636,7 +636,7 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 | Startup fails with `Invalid mesh peer URL` (Python CLI) or `Invalid value for field 'mesh_peer_urls'` (Rust binary) | A peer address is a hostname | Pass `IP:port`; on Kubernetes, use router discovery |
 | Startup fails with `mesh advertise address cannot be unspecified` | `--mesh-host` is `0.0.0.0` and `--mesh-advertise-host` is unset | Set `--mesh-advertise-host` to the node's IP |
 | Startup fails with `mesh port cannot be 0` | `--mesh-port 0` | Use a fixed port |
-| Startup fails naming a `--mesh-tls-*` flag | The three mesh TLS flags were not all set, or a file is unreadable | Set `--mesh-tls-ca-cert`, `--mesh-tls-cert`, and `--mesh-tls-key` together, each a readable PEM file; see [Mesh mTLS](#mesh-mtls) |
+| Startup fails naming a `--mesh-tls-*` flag or a `mesh_tls_*` field | The three mesh TLS flags were not all set, or a file is unreadable | Set `--mesh-tls-ca-cert`, `--mesh-tls-cert`, and `--mesh-tls-key` together, each a readable PEM file; see [Mesh mTLS](#mesh-mtls) |
 | A joining router logs `No peer address available to connect` every round | Its bootstrap peer was unreachable in the first gossip round and is not retried | Start the bootstrap router, then restart this one |
 | A router stays out of the mesh after a restart or partition | Peers marked it `DOWN` and no longer probe it | Restart it under a new name, or use router discovery; see [Node Status States](#node-status-states) |
 | Routers appear under both their pod name and another name in the `Status:` log | `--mesh-server-name` differs from the pod name under router discovery | Set `--mesh-server-name=$(POD_NAME)` |

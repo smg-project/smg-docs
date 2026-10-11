@@ -64,7 +64,7 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     `--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, now a deprecated alias. In this mode SGLang also opens an HTTP sidecar on `--port + 1` (move it with `--smg-http-sidecar-port`).
 
-    This starts the default Python servicer. Setting `SMG_SGLANG_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
+    This starts the default Python servicer. Passing `--servicer-impl rust` (or setting `SMG_SGLANG_SERVICER_IMPL=rust` in the worker's environment) serves the same contract from Rust instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
 
 === "TensorRT-LLM"
 
@@ -149,9 +149,17 @@ Misconfiguration fails loudly instead of silently serving Python: `smg serve --s
 
 ### Rust SGLang Servicer
 
-SGLang gRPC workers have the same choice: a Rust implementation serving the same gRPC contract as the default Python servicer. Like the vLLM switch, it is newer than v1.11.0: it exists on current main but not in the v1.11.0 wheels or engine images. One environment variable selects it on the unchanged entrypoint — every SGLang server flag stays the same:
+SGLang gRPC workers have the same choice: a Rust implementation serving the same gRPC contract as the default Python servicer. Like the vLLM switch, it is newer than v1.11.0: it exists on current main but not in the v1.11.0 wheels or engine images. Select it with `--servicer-impl rust` on the unchanged entrypoint — a flag the `smg-grpc-servicer` package adds to SGLang's parser as an `sglang.srt.plugins` plugin; every other flag is still SGLang's — or with the `SMG_SGLANG_SERVICER_IMPL` environment variable:
 
 ```bash
+python -m sglang.launch_server \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 50051 \
+  --smg-grpc-mode \
+  --servicer-impl rust
+
+# The environment form, overridden by the flag when both are given
 SMG_SGLANG_SERVICER_IMPL=rust python -m sglang.launch_server \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
@@ -159,7 +167,13 @@ SMG_SGLANG_SERVICER_IMPL=rust python -m sglang.launch_server \
   --smg-grpc-mode
 ```
 
-`SMG_SGLANG_SERVICER_IMPL` defaults to `python`, and a value other than `python` or `rust` fails startup. `smg serve`'s `--servicer-impl` stays scoped to vLLM: it rejects `rust` for every other backend. Exporting the variable before `smg serve --backend sglang --connection-mode grpc` reaches its workers too, since worker environments inherit the shell's, and no `smg serve` flag clears an inherited value the way `--servicer-impl python` does for vLLM.
+Precedence is the flag, then the environment variable, then `python`; the launcher logs which one decided (`Servicer implementation: rust (source=flag)`), and a value other than `python` or `rust` fails startup. A decision made with the flag is written back to `SMG_SGLANG_SERVICER_IMPL`, so the headless scheduler child and anything else that reads only the variable agree with it — `--servicer-impl python` overrides an inherited `rust`.
+
+The flag joins both of SGLang's launchers: `python -m sglang.launch_server --help` lists it, while `sglang serve --help` prints its listing before SGLang loads plugins, so the flag is missing from that help but still accepted. An `SGLANG_PLUGINS` setting that leaves out the `smg-servicer` plugin only removes the flag; the environment variable works regardless.
+
+`smg serve`'s `--servicer-impl` stays scoped to vLLM: it rejects `rust` for every other backend. Exporting the variable before `smg serve --backend sglang --connection-mode grpc` reaches its workers too, since worker environments inherit the shell's, and no `smg serve` flag clears an inherited value the way `--servicer-impl python` does for vLLM.
+
+Unreleased: the `--servicer-impl` flag is a later addition than the environment variable. On a build that carries the switch but predates the flag, the environment variable is the only selection surface.
 
 In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servicer.SglangGrpcServer`, which needs the `smg` wheel installed alongside `smg-grpc-servicer[sglang]`) before any Python gRPC machinery exists: the Rust server speaks the gRPC contract on the worker's host and port, the scheduler runs headless in a spawned child over a same-host msgpack ZMQ connection, and Python keeps only the process lifecycle. As with vLLM, that ZMQ hop is inside the worker — the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md), and the gateway cannot tell the two implementations apart.
 

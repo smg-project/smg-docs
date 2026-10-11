@@ -327,8 +327,8 @@ How the response is built:
 - **Context window**: when the selected worker advertises its context length, SMG rejects a prompt with more tokens than the window with `400` `context_length_exceeded` before dispatch. In PD mode the smaller of the prefill and decode windows applies. Whether the prompt plus `max_tokens` must fit is left to the engine (smg-project/smg#2618).
 - **Tenant rate limiting**, when enabled, covers this endpoint; see [Tenant Rate Limiting](../tenant-rate-limiting.md).
 
-!!! note "Unreleased"
-    The `max_tokens`-first `stop_reason` order is a recent change on SMG `main`. Earlier builds checked tool calls first, so a turn truncated after a tool call started reported `tool_use`.
+!!! note "Changed in v1.12.0"
+    The `max_tokens`-first `stop_reason` order is new in v1.12.0. In v1.11.0 and earlier, tool calls were checked first, so a turn truncated after a tool call started reported `tool_use`.
 
 ---
 

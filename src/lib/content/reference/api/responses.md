@@ -517,7 +517,7 @@ curl http://localhost:30000/v1/responses \
 
 ```
 event: response.created
-data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_abc123","object":"response","created_at":1705312345,"status":"in_progress","model":"meta-llama/Llama-3.1-8B-Instruct","output":[]}}
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_abc123","object":"response","created_at":1705312345,"status":"in_progress","background":false,"model":"meta-llama/Llama-3.1-8B-Instruct","output":[]}}
 
 event: response.in_progress
 data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_abc123","object":"response","status":"in_progress"}}

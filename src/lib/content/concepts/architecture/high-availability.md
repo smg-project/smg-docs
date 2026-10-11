@@ -150,13 +150,41 @@ Router 2 has no workers of its own; it imports router 1's workers through the me
 | `--mesh-advertise-host` | `--mesh-host` | IP address that peers dial. Required when `--mesh-host` is an unspecified address such as `0.0.0.0` |
 | `--mesh-port` | `39527` | Mesh port, used for both binding and advertising. `0` is rejected |
 | `--mesh-peer-urls` | (none) | Bootstrap peer as `IP:port`. Only the first entry is used |
+| `--mesh-tls-ca-cert` | (none) | CA certificate (PEM) that peers' certificates must chain to. Set the three `--mesh-tls-*` flags together |
+| `--mesh-tls-cert` | (none) | This node's certificate (PEM), with the node's mesh IP as a SAN |
+| `--mesh-tls-key` | (none) | This node's private key (PKCS#8 PEM) |
 | `--router-selector` | (none) | Label selector for [Kubernetes router discovery](#kubernetes-router-discovery). Takes effect only with `--service-discovery` |
+
+The three `--mesh-tls-*` flags are newer than v1.12.0: current main has them, no released version does. See [Mesh mTLS](#mesh-mtls).
 
 !!! note "Mesh addresses must be IP addresses"
     `--mesh-host`, `--mesh-advertise-host`, and `--mesh-peer-urls` are parsed as socket addresses and never resolved through DNS. A hostname such as `smg-0.smg-mesh:39527` fails at startup: the Python CLI reports `Invalid mesh peer URL`, the Rust binary `Invalid value for field 'mesh_peer_urls'`. With the default `--mesh-host 0.0.0.0`, the router also refuses to start until `--mesh-advertise-host` names a routable IP, so peers never try to dial an unspecified address. On Kubernetes, use [router discovery](#kubernetes-router-discovery) instead of peer URLs.
 
-!!! warning "The mesh port is not authenticated"
-    Mesh traffic is plaintext gRPC and peers are not authenticated: v1.11 has no option to enable TLS on the mesh port. Anything that can reach the mesh port can join the cluster and publish workers to every router, so expose the port only to other routers (for example with a firewall rule or a Kubernetes NetworkPolicy).
+!!! warning "Without mesh mTLS, the mesh port is not authenticated"
+    Without the `--mesh-tls-*` flags, mesh traffic is plaintext gRPC and peers are not authenticated: anything that can reach the mesh port can join the cluster and publish workers to every router, so expose the port only to other routers (for example with a firewall rule or a Kubernetes NetworkPolicy). Released versions (v1.12.0 and earlier) have no option to enable TLS on the mesh port; on current main, [mesh mTLS](#mesh-mtls) authenticates and encrypts it.
+
+### Mesh mTLS
+
+Unreleased: mesh mTLS is on current main only, newer than v1.12.0.
+
+Give every router the mesh CA, its own certificate, and its key to encrypt and mutually authenticate all mesh traffic — gossip probes and sync streams, in both directions:
+
+```bash
+smg launch --enable-mesh \
+    --mesh-advertise-host 10.0.0.11 \
+    --mesh-tls-ca-cert /etc/smg/mesh/ca.pem \
+    --mesh-tls-cert /etc/smg/mesh/node.pem \
+    --mesh-tls-key /etc/smg/mesh/node-key.pem
+```
+
+With the three flags, the mesh listener serves TLS with the node's certificate and accepts only peers whose certificates chain to `--mesh-tls-ca-cert`, and every dial to a peer presents this node's certificate and verifies the peer's against the same CA. A peer that presents no certificate, or one from another CA, cannot join the cluster.
+
+- **Set all three flags, or none.** A partial set stops startup: the Rust binary rejects it as a flag-parsing error naming the missing `--mesh-tls-*` flag, the Python launcher with `mesh_tls_ca_cert, mesh_tls_cert and mesh_tls_key come together`. Each file must also be readable at startup.
+- **Certificates name the node by IP.** Peers are dialed by IP address (see the note above), so the TLS server name a dialer verifies is the peer's mesh IP: issue each node's certificate with its `--mesh-advertise-host` address as an IP SAN. IPv4 and IPv6 addresses both work. The key must be PKCS#8 PEM.
+- **Turn it on cluster-wide.** TLS is not negotiated per connection: a router with the flags dials every peer over TLS and its listener requires TLS, so a mixed cluster's routers cannot reach each other. Set the flags on every router.
+- **No automatic rotation.** The gateway does not watch the files for changes, and the mesh listener keeps the certificate it loaded at startup; restart a router to serve a renewed certificate.
+
+Without the flags, a mesh-enabled gateway starts, but its first log lines carry the `SECURITY POSTURE` warning ([Control Plane Auth](../../getting-started/control-plane-auth.md#default-posture)) with the mesh named in the `control_plane` field: `OPEN: the mesh listener on <address> gossips membership and state with any peer that connects, in clear text; give it --mesh-tls-ca-cert, --mesh-tls-cert and --mesh-tls-key (peers then need a certificate from that CA)`. The warning appears even when the serving and control planes are keyed.
 
 ### Python Entrypoint
 
@@ -583,7 +611,7 @@ Spread routers across zones so that a zone outage leaves routers that hold the s
 
 ### :material-lock: Protect the Mesh Port
 
-Expose the mesh port only to other routers. It carries plaintext, unauthenticated gRPC.
+Expose the mesh port only to other routers. Without [mesh mTLS](#mesh-mtls) (current main only) it carries plaintext, unauthenticated gRPC.
 
 </div>
 
@@ -608,6 +636,7 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 | Startup fails with `Invalid mesh peer URL` (Python CLI) or `Invalid value for field 'mesh_peer_urls'` (Rust binary) | A peer address is a hostname | Pass `IP:port`; on Kubernetes, use router discovery |
 | Startup fails with `mesh advertise address cannot be unspecified` | `--mesh-host` is `0.0.0.0` and `--mesh-advertise-host` is unset | Set `--mesh-advertise-host` to the node's IP |
 | Startup fails with `mesh port cannot be 0` | `--mesh-port 0` | Use a fixed port |
+| Startup fails naming a `--mesh-tls-*` flag | The three mesh TLS flags were not all set, or a file is unreadable | Set `--mesh-tls-ca-cert`, `--mesh-tls-cert`, and `--mesh-tls-key` together, each a readable PEM file; see [Mesh mTLS](#mesh-mtls) |
 | A joining router logs `No peer address available to connect` every round | Its bootstrap peer was unreachable in the first gossip round and is not retried | Start the bootstrap router, then restart this one |
 | A router stays out of the mesh after a restart or partition | Peers marked it `DOWN` and no longer probe it | Restart it under a new name, or use router discovery; see [Node Status States](#node-status-states) |
 | Routers appear under both their pod name and another name in the `Status:` log | `--mesh-server-name` differs from the pod name under router discovery | Set `--mesh-server-name=$(POD_NAME)` |

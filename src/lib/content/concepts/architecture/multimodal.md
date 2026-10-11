@@ -106,11 +106,13 @@ On the worker path:
 A vLLM gRPC worker processes references when its servicer runs a media processor:
 
 ```bash
-SMG_VLLM_MM_PROCESSOR=inprocess \
-  vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc --allowed-media-domains example.com
+vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc --mm-processor inprocess \
+  --allowed-media-domains example.com
 ```
 
-The servicer reads each setting below from its `--mm-*` flag when the launcher passes the flags through (smg-project/smg#2626), and otherwise from the matching `SMG_VLLM_MM_*` variable. vLLM's gRPC launcher (`vllm serve --grpc`) does not pass them, so set the variables; a value read from a variable logs a deprecation warning, and env support is due to end in the next minor release.
+The servicer reads each setting below from its `--mm-*` flag, falling back to the matching `SMG_VLLM_MM_*` variable, then to the default. Installing `smg-grpc-servicer` puts the flags on both stock launchers — `vllm serve --grpc` and `python -m vllm.entrypoints.grpc_server` — through a vLLM plugin that defines them while vLLM builds its command line. On a launcher that offers a flag, a value read from the variable instead logs a deprecation warning, and that env support is due to end in the next minor release. A launcher without the flags — for example `VLLM_PLUGINS` set without `smg-servicer`, which removes the flags but not the variables — reads each variable quietly as its supported setting.
+
+The flags on the stock launchers are newer than v1.12.0. In v1.12.0 and earlier, those launchers take no `--mm-*` flags, so set the variables there; v1.12.0 logs the deprecation warning for every value it reads from a variable.
 
 | Servicer flag | Env fallback | Default | Description |
 |---------------|--------------|---------|-------------|
@@ -139,8 +141,8 @@ pip install "smg-grpc-servicer[vllm,vllm-redis]"
 python -m smg_grpc_servicer.vllm.mm_sidecar --model Qwen/Qwen3-VL-8B-Instruct \
   --redis-url redis://127.0.0.1:6379/0 --allowed-media-domains example.com
 
-SMG_VLLM_MM_PROCESSOR=redis SMG_VLLM_MM_REDIS_URL=redis://127.0.0.1:6379/0 \
-  vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc
+vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc \
+  --mm-processor redis --mm-redis-url redis://127.0.0.1:6379/0
 ```
 
 - The sidecar takes `--redis-url` (falls back to `SMG_VLLM_MM_REDIS_URL`, then localhost), `--namespace` (falls back to `SMG_VLLM_MM_SIDECAR_NAMESPACE`), `--concurrency` (default `2`), and vLLM's engine flags. It has no timeout flag: the worker's `--mm-sidecar-timeout-ms` travels with each job as its deadline (smg-project/smg#2651).

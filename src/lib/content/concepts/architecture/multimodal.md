@@ -154,8 +154,8 @@ vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc \
 `--mm-processor smg` runs SMG's own media pipeline — the same fetch, decode, preprocess, and placeholder expansion the router runs for `--mm-processing router` — inside the worker, with no Python on the request path (smg-project/smg#2741). The resulting batches reach the engine as a router-preprocessed request's would. The mode exists only in the [Rust vLLM servicer](../../getting-started/grpc-workers.md#rust-vllm-servicer) and, like that servicer, is newer than v1.11.0; the Python servicer refuses the value at startup with an error pointing to `--servicer-impl rust` / `SMG_VLLM_SERVICER_IMPL=rust`.
 
 ```bash
-SMG_VLLM_SERVICER_IMPL=rust SMG_VLLM_MM_PROCESSOR=smg \
-  vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc
+vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc \
+  --servicer-impl rust --mm-processor smg
 ```
 
 - The worker serves the model families SMG's pipeline supports (see [Supported Models](#supported-models)); a multimodal model outside them is refused at startup, while a text-only model ignores the setting as it does the other processors. The router still decides per model whether to forward references at all (see [Where Media Is Processed](#where-media-is-processed)): `smg` changes what runs once references arrive, not which models they are forwarded for.

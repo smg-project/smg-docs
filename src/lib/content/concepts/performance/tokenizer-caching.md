@@ -270,8 +270,27 @@ Chat templates use Jinja2 syntax with access to:
 | `tools` | Optional array of tool definitions |
 | `documents` | Optional array of document context |
 | `bos_token`, `eos_token`, `unk_token`, `pad_token` | The tokenizer's special tokens, when it defines them |
+| `strftime_now` | Function that writes the render time: `strftime_now(format)` |
 
 Keys in a request's `chat_template_kwargs` are passed to the template as extra variables.
+
+`strftime_now(format)` returns the current local time written with the given
+strftime format — for example, `{{ strftime_now('%Y-%m-%d') }}` writes a date
+such as `2026-10-07`. HuggingFace Transformers provides the same function, so
+checkpoint templates that print today's date (often guarded with
+`{% if strftime_now is defined %}`) render the same prompt on SMG as on the
+engine. All calls in one render see the same instant. An invalid format fails
+the render with an error naming `strftime_now`.
+
+To make a prompt that writes the date reproducible, set `SOURCE_DATE_EPOCH`
+(seconds since the Unix epoch, the reproducible-builds convention) in SMG's
+environment: every render then uses that instant, expressed in local time. SMG
+reads the variable once, at the first render; when it is unset or not an
+integer, each render uses the clock.
+
+`strftime_now` is newer than v1.12.0. In v1.12.0 and earlier the name is
+undefined: a template that guards it with `is defined` skips its date line, and
+an unguarded call fails the render.
 
 #### Template Examples
 

@@ -788,10 +788,12 @@ With a valid `X-SMG-Routing-Tokens` hint, the text-routing policies (`cache_awar
 | Header | When SMG sets it | Documented in |
 |--------|------------------|---------------|
 | `x-request-id` | On API responses: the request ID SMG used, whether received or generated | [Logging](../../getting-started/logging.md) |
-| `x-smg-routed-worker-id` | On inference responses from HTTP workers: the URL of the worker that served the request, with an `@<rank>` suffix for data-parallel workers. For a prefill/decode pair it names the decode worker | [Sticky Sessions and Routing Keys](../../concepts/routing/sticky-sessions.md#routed-worker-header) |
+| `x-smg-routed-worker-id` | On inference responses: the registered URL of the worker that served the request, with an `@<rank>` suffix for data-parallel workers. For a prefill/decode pair it names the decode worker. From gRPC and ZMQ workers, only successful responses carry it, and Responses API responses do not | [Sticky Sessions and Routing Keys](../../concepts/routing/sticky-sessions.md#routed-worker-header) |
 | `X-SMG-Error-Code` | On errors the gateway generates in its standard error envelope, with the same value as `error.code`; request-validation `400` errors do not carry it. SMG drops this header from worker responses, so it always marks a gateway decision | — |
 | `X-SMG-Preempted` | `true` on the `503` returned to a request preempted by the priority scheduler | [Priority Scheduler](../priority-scheduler.md) |
 | `Retry-After` | On `429` and `503` responses that ask the client to back off: concurrency limits, worker overload, the priority scheduler, and tenant rate limits | [Rate Limiting](../../concepts/reliability/rate-limiting.md) |
+
+In v1.11.0 and earlier, only responses from HTTP workers carry `x-smg-routed-worker-id`; responses served by gRPC and ZMQ workers do not.
 
 ---
 

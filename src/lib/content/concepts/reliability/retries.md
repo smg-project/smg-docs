@@ -74,6 +74,8 @@ A worker that has returned a success status and started streaming its response i
 
 HTTP-router responses relayed from a worker carry an `x-smg-routed-worker-id` header with the URL of the worker that produced them (the decode worker in PD mode), so a client can see where the final attempt landed.
 
+Responses served by gRPC and ZMQ workers carry the same header when the final attempt succeeds, naming that attempt's worker by its registered `grpc://` or `ipc://` URL (the decode worker in PD mode). Their error responses, and Responses API responses, do not carry it. In v1.11.0 and earlier, only HTTP-worker responses carry the header.
+
 ### Where Retries Apply
 
 | Traffic | Router retries |

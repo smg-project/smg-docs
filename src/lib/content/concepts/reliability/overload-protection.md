@@ -116,9 +116,9 @@ A field the backend leaves out reads as `0`, so that signal never trips. `--work
 
 ### When a Worker Goes Completely Silent
 
-Failing open covers a missing report, not a missing worker. A gRPC worker whose KV-event stream has pushed load records is expected to stay in contact: when nothing is heard from such a worker on any channel — no load record, no answered load poll, no passed health probe, no token or completion — for `--worker-stale-secs` seconds (default `15`), the gateway excludes it from routing as unreachable until it is heard from again. The check runs every 250 ms, so the exclusion lands at the threshold itself; the veto is logged as `Worker vetoed by liveness` with the cause `load records stopped`.
+Failing open covers a missing report, not a missing worker. A gRPC worker whose KV-event stream has pushed load records is expected to stay in contact: when nothing is heard from such a worker on any channel — no load record, no answered load poll, no passed health probe, no token or completion — for `--worker-stale-secs` seconds (default `15`), the gateway excludes it from routing as unreachable until it is heard from again. A periodic check applies the exclusion once the threshold has passed, not at the exact instant it elapses; the veto is logged as `Worker vetoed by liveness` with the cause `load records stopped`.
 
-Load records ride the KV-event stream the gateway subscribes to on each gRPC worker when a cache-aware policy is configured (the default), and the regular load poll takes over whenever the records pause, so a reachable worker that has pushed records is heard from well inside the threshold. Total silence past it means a dead or one-way link the transport has not reported yet: a one-way network cut leaves the gRPC connection open until the keepalive verdict tens of seconds later, and a load poll that times out counts as a slow worker, not a dead one.
+Load records ride the KV-event stream the gateway subscribes to on each gRPC worker when a cache-aware policy is configured (the default), and the regular load poll takes over whenever the records pause, so a reachable worker that has pushed records is heard from well inside the threshold. Total silence past the threshold points to a dead or one-way connection that has not yet surfaced as a transport failure.
 
 - **Only workers that have pushed a load record are judged.** HTTP and ZMQ workers, gRPC workers whose servicer predates pushed load records, and a stream that is still connecting are never excluded for silence; answering the load poll and the health probes is all that is expected of them.
 - **Any contact clears the exclusion.** The next load record, answered poll, passed health probe, token, or completion re-admits the worker at once (logged as `Worker re-admitted by liveness`). A worker that is still streaming tokens is never considered silent.
@@ -127,7 +127,7 @@ Load records ride the KV-event stream the gateway subscribes to on each gRPC wor
 
 Tune the threshold with `--worker-stale-secs`, and keep it above `--load-monitor-interval`: the default `15` is past the default ten-second poll, so a stream whose records stop while the worker still answers polls is never excluded for silence alone. `0` disables the rule. The Python launchers accept the flag too.
 
-Unreleased: the rule is on current main, newer than v1.12.0. In v1.12.0 and earlier, silence alone never takes a worker out of routing — a one-way cut is noticed only when the transport reports a connection failure, for an open connection at the keepalive verdict, or as the worker's health probes fail.
+Unreleased: the rule is on current main, newer than v1.12.0. In v1.12.0 and earlier, silence alone never takes a worker out of routing; an unreachable worker is noticed only through transport failures or failing health probes.
 
 ---
 

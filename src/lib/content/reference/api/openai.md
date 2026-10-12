@@ -793,8 +793,6 @@ With a valid `X-SMG-Routing-Tokens` hint, the text-routing policies (`cache_awar
 | `X-SMG-Preempted` | `true` on the `503` returned to a request preempted by the priority scheduler | [Priority Scheduler](../priority-scheduler.md) |
 | `Retry-After` | On `429` and `503` responses that ask the client to back off: concurrency limits, worker overload, the priority scheduler, and tenant rate limits | [Rate Limiting](../../concepts/reliability/rate-limiting.md) |
 
-In v1.11.0 and earlier, responses served by gRPC and ZMQ workers do not carry `x-smg-routed-worker-id`.
-
 ---
 
 ## Rate Limiting

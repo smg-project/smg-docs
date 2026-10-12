@@ -246,7 +246,9 @@ The hint header format is in the [Request Headers reference](../../reference/api
 
 Inference responses from HTTP workers carry `x-smg-routed-worker-id`: the URL of the worker that served the request, as registered with the gateway, including the `@<rank>` suffix for data-parallel workers. For a prefill/decode pair it names the decode worker. Compare it across turns to confirm that a conversation sticks.
 
-Responses served by gRPC and ZMQ workers carry the header too, on streaming and non-streaming requests alike, with the same decode-worker rule. The value keeps the worker's registered scheme: `grpc://` for a gRPC worker, `ipc://` for a ZMQ worker. On this path only successful responses are stamped; error responses and Responses API responses do not carry the header. In v1.11.0 and earlier, responses from gRPC and ZMQ workers never carry it.
+Responses served by gRPC and ZMQ workers carry the header too, on streaming and non-streaming requests alike, with the same decode-worker rule. The value keeps the worker's registered scheme: `grpc://` for a gRPC worker, `ipc://` for a ZMQ worker. From these workers, only successful responses carry the header; error responses and Responses API responses do not.
+
+In v1.11.0 and earlier, responses from gRPC and ZMQ workers never carry it.
 
 ```bash
 curl -s -D - -o /dev/null http://localhost:30000/v1/chat/completions \

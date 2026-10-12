@@ -86,7 +86,7 @@ The gateway layer handles cross-cutting concerns before requests reach the route
 
 | Component | Function |
 |-----------|----------|
-| **Admission Control** | Off by default. `--max-concurrent-requests` caps concurrent requests gateway-wide, with a bounded FIFO queue; the priority scheduler admits by priority class instead |
+| **Admission Control** | On by default: caps in-flight requests gateway-wide (1024 per available core, at least 4096; `--max-concurrent-requests` overrides it, `0` disables it), with a bounded FIFO queue; the priority scheduler admits by priority class instead |
 | **Authentication** | Bearer API keys (`--api-key`, `--tenant-api-key`) on inference routes; control-plane API keys or JWT/OIDC with the admin role on control-plane routes |
 | **Tenant Resolution** | Identifies the tenant from its API key, a trusted header (`--trust-tenant-header`), or the client IP |
 | **WASM Plugins** | Custom request transformation logic |
@@ -95,6 +95,8 @@ The gateway layer handles cross-cutting concerns before requests reach the route
 | **OpenTelemetry** | Distributed tracing spans |
 
 Per-tenant token and request budgets ([tenant rate limiting](../reliability/tenant-rate-limiting.md)) are enforced later, inside the gRPC router, not in this middleware.
+
+On-by-default admission is newer than v1.12.0; in v1.12.0 and earlier, admission control is off until `--max-concurrent-requests` is set above `0`. See [Rate Limiting](../reliability/rate-limiting.md).
 
 ---
 

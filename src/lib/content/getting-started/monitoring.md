@@ -206,7 +206,7 @@ If you deploy with the SMG Helm chart, set `router.metrics.serviceMonitor.enable
 | `smg_mcp_tool_duration_seconds` | Histogram | Tool execution time |
 | `smg_mcp_servers_active` | Gauge | Connected MCP servers |
 
-Several of these exist only when their feature is on: admission metrics need `--max-concurrent-requests` (the multimodal rejection reasons need `--multimodal-max-inflight-bytes` instead), the `smg_workers_overloaded` gauge needs worker overload protection, and PD metrics need PD mode.
+Several of these exist only when their feature is on: the multimodal rejection reasons need `--multimodal-max-inflight-bytes`, the `smg_workers_overloaded` gauge needs worker overload protection, and PD metrics need PD mode. Admission metrics are on by default and vanish only with `--max-concurrent-requests 0` (newer than v1.12.0; in v1.12.0 and earlier they instead need `--max-concurrent-requests` above `0`).
 
 Unreleased: current main publishes `smg_worker_overload_shed_total` at zero for every stage from start-up, whether or not overload protection is enabled, so the series exist before any shed; only the gauge still waits for protection to flag a worker. See [Overload Protection Metrics](../reference/metrics.md#overload-protection-metrics).
 
@@ -511,7 +511,7 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
     1. A series appears only after the first event that records it, so a metric can be absent on an idle gateway.
 
-    2. Some groups need their feature enabled: admission metrics need `--max-concurrent-requests`, the `smg_workers_overloaded` gauge needs worker overload protection, and PD, discovery, RL, and mesh metrics need their modes. Allocator metrics are absent on musl and MSVC builds.
+    2. Some groups need their feature enabled: the `smg_workers_overloaded` gauge needs worker overload protection, and PD, discovery, RL, and mesh metrics need their modes. Admission metrics are on by default and are absent only with `--max-concurrent-requests 0` (in v1.12.0 and earlier they instead need `--max-concurrent-requests` above `0`). Allocator metrics are absent on musl and MSVC builds.
 
     3. Some metrics only appear for specific paths (for example, TTFT is recorded for streaming responses on the gRPC router).
 

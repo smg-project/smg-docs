@@ -4,7 +4,9 @@ title: Rate Limiting
 
 # Rate Limiting
 
-Rate limiting in SMG is gateway admission control. The gateway caps how many requests it runs at once, keeps a bounded number of extra requests waiting in a first-in, first-out queue, and turns the rest away with a status code and a `Retry-After` header that tell clients to back off. It is off by default; setting `--max-concurrent-requests` above `0` turns it on.
+Rate limiting in SMG is gateway admission control. The gateway caps how many requests it runs at once, keeps a bounded number of extra requests waiting in a first-in, first-out queue, and turns the rest away with a status code and a `Retry-After` header that tell clients to back off. It is on by default: with `--max-concurrent-requests` unset, the gateway bounds requests in flight at 1024 per available core, with a floor of 4096, so an overloaded gateway sheds excess requests instead of queueing them without bound. Set `--max-concurrent-requests` to size the cap yourself, or to `0` to turn admission control off.
+
+On-by-default admission is newer than v1.12.0. In v1.12.0 and earlier, admission control is off until `--max-concurrent-requests` is set above `0`, and any value `<= 0` turns it off.
 
 !!! warning "Behavior changed in v1.10"
     - A permit is held for the full response lifetime, including streaming bodies.
@@ -22,7 +24,7 @@ Rate limiting in SMG is gateway admission control. The gateway caps how many req
 
 ### :material-gauge: Standing-Concurrency Cap
 
-At most `--max-concurrent-requests` requests hold a permit at once, from admission until the last byte of the response.
+At most `--max-concurrent-requests` requests — by default, a host-derived bound — hold a permit at once, from admission until the last byte of the response.
 
 </div>
 
@@ -99,7 +101,7 @@ The FIFO handoff applies in both refill modes; in v1.11.0 and earlier it applies
 
 ### Token Bucket and Refill
 
-Permits come from a token bucket whose capacity is `--max-concurrent-requests`. Admission takes a token, and releasing the permit puts it back. `--rate-limit-tokens-per-second` decides whether the bucket also refills over time:
+Permits come from a token bucket whose capacity is `--max-concurrent-requests`, or the host-derived bound when it is unset. Admission takes a token, and releasing the permit puts it back. `--rate-limit-tokens-per-second` decides whether the bucket also refills over time:
 
 | Behavior | Unset or `0` (default) | Positive rate `N` |
 |----------|------------------------|-------------------|
@@ -111,7 +113,7 @@ Permits come from a token bucket whose capacity is `--max-concurrent-requests`. 
 !!! note "Changed after v1.11.0"
     In v1.11.0 and earlier, a positive rate bypasses the FIFO queue: waiters poll for tokens, a new arrival can take a refilled token ahead of them, and a queued request is shed with 503 after at most `1/N` seconds (or `--queue-timeout-secs`, if shorter). On main after the v1.11.0 release (smg-project/smg#2733), refilled tokens go to the oldest waiter like returned ones, so the queue order and wait bound above apply in both modes.
 
-With the default, the bucket's free tokens always equal `--max-concurrent-requests` minus the requests in flight. Leave the rate unset unless you want burst-rate behavior.
+With the default (no refill), the bucket's free tokens always equal its capacity minus the requests in flight. Leave the rate unset unless you want burst-rate behavior.
 
 ### With the Priority Scheduler
 
@@ -119,7 +121,7 @@ When `--priority-scheduler-enabled` is set and the scheduler starts, it replaces
 
 - The scheduler's slots and per-class queues handle concurrency and queueing. `--queue-size` and `--queue-timeout-secs` are not used.
 - `--max-concurrent-requests` no longer caps concurrency. The scheduler only uses it as a fallback capacity while no healthy worker is registered.
-- A positive `--rate-limit-tokens-per-second` (with `--max-concurrent-requests` above `0`) becomes a plain request-rate check in front of the scheduler. Tokens refill at that rate and are not returned when responses finish; a request that finds the bucket empty is shed with 429 `scheduler_queue_full` and `Retry-After: 2`.
+- A positive `--rate-limit-tokens-per-second` (unless `--max-concurrent-requests` is `0`, which removes the bucket) becomes a plain request-rate check in front of the scheduler. Tokens refill at that rate and are not returned when responses finish; a request that finds the bucket empty is shed with 429 `scheduler_queue_full` and `Retry-After: 2`.
 
 If the scheduler fails to start, the gateway logs an error and falls back to the limiter described on this page. See [Priority Scheduling](priority-scheduling.md).
 
@@ -139,10 +141,12 @@ smg launch \
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--max-concurrent-requests` | `-1` (disabled) | Maximum requests holding a permit at once. A permit lasts for the full response, streaming included. Any value `<= 0` turns admission control off. |
+| `--max-concurrent-requests` | `-1` (host-derived bound) | Maximum requests holding a permit at once. A permit lasts for the full response, streaming included. `-1`, the default, derives the bound from the host: 1024 per available core, at least 4096. `0` turns admission control off. |
 | `--queue-size` | `100` | Maximum requests waiting for a permit. `0` disables the queue. |
 | `--queue-timeout-secs` | `60` | Longest time a request waits in the queue before it is shed with 503. Must be `> 0` when `--queue-size` is above `0`. |
 | `--rate-limit-tokens-per-second` | unset (no refill) | Tokens added to the bucket per second. Unset or `0` means no refill, so `--max-concurrent-requests` alone bounds requests in flight. Must be `>= 0`. |
+
+The host-derived default counts available cores as the async runtime sees them, cgroup CPU quotas included (see [Runtime Configuration](../../reference/configuration.md#runtime-configuration)). It is newer than v1.12.0: in v1.12.0 and earlier the default `-1` disables admission control, as does any other value `<= 0`.
 
 The limits apply per gateway process. With several gateway replicas in front of the same workers, the fleet-wide cap is the per-replica value times the number of replicas.
 
@@ -315,12 +319,12 @@ Leave `--rate-limit-tokens-per-second` unset. Set it only to reproduce the pre-v
 
 === "Disabled"
 
-    The default. Requests are forwarded without an admission cap:
+    Turn admission control off entirely; requests in flight are then unbounded:
 
     ```bash
     smg launch \
       --worker-urls http://w1:8000 http://w2:8000 \
-      --max-concurrent-requests=-1
+      --max-concurrent-requests 0
     ```
 
 ---

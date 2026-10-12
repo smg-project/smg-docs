@@ -222,7 +222,7 @@ Admission decisions of the concurrency limiter.
 
 Values: `allowed`, `rejected`
 
-Recorded when `--max-concurrent-requests` is set. With the priority scheduler enabled, only rejections by the `--rate-limit-tokens-per-second` limiter are counted here; the scheduler's own outcomes are in `smg_scheduler_admit_total`.
+Recorded unless admission control is off (`--max-concurrent-requests 0`; in v1.12.0 and earlier it is off by default and this metric instead needs `--max-concurrent-requests` above `0`). With the priority scheduler enabled, only rejections by the `--rate-limit-tokens-per-second` limiter are counted here; the scheduler's own outcomes are in `smg_scheduler_admit_total`.
 
 ```promql
 # Rejection ratio
@@ -233,11 +233,13 @@ sum(rate(smg_http_rate_limit_total{result="rejected"}[5m])) / sum(rate(smg_http_
 
 ### Admission Queue Metrics
 
-When `--max-concurrent-requests` is set and the priority scheduler is off, every request to an inference route holds an admission token for its full lifetime, streaming body included. A request that finds no free token waits in a FIFO queue of `--queue-size` slots (default `100`) for up to `--queue-timeout-secs` (default `60`). These metrics expose that queue.
+Unless admission control is off (`--max-concurrent-requests 0`) or the priority scheduler is on, every request to an inference route holds an admission token for its full lifetime, streaming body included. The bucket holds `--max-concurrent-requests` tokens, or by default 1024 per available core with a floor of 4096. A request that finds no free token waits in a FIFO queue of `--queue-size` slots (default `100`) for up to `--queue-timeout-secs` (default `60`). These metrics expose that queue.
+
+On-by-default admission is newer than v1.12.0; in v1.12.0 and earlier these metrics need `--max-concurrent-requests` above `0`.
 
 #### `smg_admission_inflight`
 
-Requests currently holding an admission token. Compare it with `--max-concurrent-requests` to see how close the gateway is to its concurrency cap.
+Requests currently holding an admission token. Compare it with the in-flight bound to see how close the gateway is to its concurrency cap.
 
 | Type | Labels |
 |------|--------|

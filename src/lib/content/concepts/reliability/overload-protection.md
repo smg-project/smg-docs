@@ -120,12 +120,12 @@ Failing open covers a missing report, not a missing worker. A gRPC worker that h
 
 - **Only workers that have pushed a load record are judged.** HTTP and ZMQ workers, gRPC workers whose servicer does not push load records, and a stream that is still connecting are never excluded for silence; answering the load poll and the health probes is all that is expected of them.
 - **Any contact clears the exclusion.** The next load record, answered poll, passed health probe, token, or completion re-admits the worker at once. A worker that is still streaming tokens is never considered silent.
-- **The exclusion steers rather than refuses.** It only applies to selection: requests go to the other candidates while it lasts, and requests already running on the worker are unaffected. When this rule has excluded every candidate, the request is still routed to the least-loaded of them that is healthy and whose circuit breaker is not open. Silence alone never rejects a request; a rejection can still come from [shedding](#shedding-requests) when every candidate is also overloaded.
+- **The exclusion steers rather than refuses.** It only applies to selection: requests go to the other candidates while it lasts, and requests already running on the worker are unaffected. Even when this rule has excluded every candidate, the request is still routed to the least-loaded of them that is healthy, whose circuit breaker is not open, and that overload [shedding](#shedding-requests) does not rule out. Silence alone never rejects a request; shedding is independent of this rule, and a request whose every candidate is also overloaded can still be shed rather than steered.
 - **Independent of overload protection.** The rule runs whether or not overload protection is enabled, and it never changes the worker's health status — the health checker keeps its own state machine.
 
-Tune the threshold with `--worker-stale-secs`, and keep it above `--load-monitor-interval`: the default `15` is past the default ten-second poll, so a worker whose records stop while it still answers polls is never excluded for silence alone. `0` disables the rule. The Python launchers accept the flag too.
+Keep `--worker-stale-secs` above `--load-monitor-interval`: the default `15` is past the default ten-second poll, so a worker whose records stop while it still answers polls is never excluded for silence alone. `0` disables the rule. The Python launchers accept the flag too.
 
-Unreleased: this rule is on current main, newer than v1.12.0.
+Unreleased: this rule is not yet part of a tagged SMG release.
 
 ---
 

@@ -61,6 +61,14 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 m.eligible(pr)
 
+    def test_legacy_branch_is_eligible_only_with_matching_concern_hash(self):
+        pr = pull()
+        pr["head"]["ref"] = pr["head"]["ref"].replace("docs/", "codex/", 1)
+        self.assertEqual(m.eligible(pr)[0], "a" * 40)
+        pr["head"]["ref"] += "0"
+        with self.assertRaisesRegex(ValueError, "branch"):
+            m.eligible(pr)
+
     def test_budget_survives_own_push_and_force_is_explicit(self):
         state = {"phase": "needs-repair", "attempts": 3, "signature": "old"}
         self.assertEqual(m.decision(state, "new-head"), "needs-human")
@@ -635,6 +643,24 @@ class PublicationTests(unittest.TestCase):
         self.assertTrue(m.restore(ctx))
         self.assertEqual(self.path.read_text(), 'Unfixed PR\n')
         self.assertEqual(self.code_git('rev-parse', 'HEAD'), self.source)
+
+    def test_legacy_context_and_repair_preserve_original_branch(self):
+        legacy = self.item["branch"].replace("docs/", "codex/", 1)
+        self.git('push', '-q', 'origin', self.head + ':refs/heads/' + legacy)
+        pr = self.pull(self.item, self.head)
+        pr['head']['ref'] = legacy
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'smg-project/smg-docs',
+                'GITHUB_SHA': 'c' * 40, 'GITHUB_RUN_ID': '1'}), \
+                patch.object(m.docs, 'mutate_git'), \
+                patch.object(m, 'feedback', return_value=({'threads': []}, {}, None)):
+            ctx = m.context(pr)
+        self.assertEqual(ctx['item']['branch'], legacy)
+        self.path.write_text('Fixed legacy PR\n')
+        m.docs.validate_diff(ctx['item'], self.base)
+        with patch.object(m, 'live_match'):
+            head = m.publish_repair(ctx)
+        self.assertEqual(self.git('ls-remote', 'origin', 'refs/heads/' + legacy).split()[0], head)
+        self.assertEqual(self.git('ls-remote', 'origin', 'refs/heads/' + self.item['branch']).split()[0], self.head)
 
     def test_entire_pr_size_guard_applies_before_repair(self):
         self.git('checkout', '--detach', self.head)

@@ -28,7 +28,7 @@ SMG supports flexible logging configuration via CLI flags or environment variabl
 |------|---------|-------------|
 | `--log-level` | `info` | Log level for SMG's own crates: `debug`, `info`, `warn`, `error` |
 | `--log-json` | `false` | Output logs as JSON |
-| `--log-dir` | None | Directory for daily log files (enables file logging) |
+| `--log-dir` | None | Directory for daily log files (enables file logging); created at start-up when missing — an existing path must be a writable directory (see [File Logging](#file-logging)) |
 | `--log-mm-timing` | `false` | Log per-request multimodal timing at INFO (see [Multimodal Timing Logs](#multimodal-timing-logs)) |
 
 ### Environment Variable
@@ -224,6 +224,12 @@ smg launch \
 - **Non-blocking I/O**: a background thread writes the files; if it falls more than 128,000 lines behind, new file lines are dropped rather than slowing requests
 - **Directory creation**: SMG creates the directory if it does not exist
 
+### Log Directory Requirements
+
+An existing `--log-dir` must be a directory SMG can write. A missing one is created at start-up, so it must sit under a directory SMG can write; a relative path resolves against the working directory. Any other path — an existing file, a directory SMG cannot write, a path under a file or under an unwritable directory — is refused at startup with a configuration error naming `log_dir`, the path, and the reason, before the gateway binds its port.
+
+Refusing to start is newer than v1.12.0. In v1.12.0 and earlier, a directory SMG cannot create is reported on stderr as `Failed to create log directory: <error>` and SMG runs with logging disabled entirely, stdout included; an existing directory SMG cannot write its log file to makes startup panic with `initializing rolling file appender failed`.
+
 ### Example Directory Structure
 
 ```
@@ -276,7 +282,7 @@ volumes:
   smg-logs:
 ```
 
-The image runs as the non-root user `smg` (UID 65532), so `--log-dir` must be writable by that user. `/var/log/smg` does not exist in the image, so Docker creates the new named volume owned by root; change its owner to UID 65532 before the first start, or SMG fails at startup with `initializing rolling file appender failed`.
+The image runs as the non-root user `smg` (UID 65532), so `--log-dir` must be writable by that user. `/var/log/smg` does not exist in the image, so Docker creates the new named volume owned by root; change its owner to UID 65532 before the first start, or SMG refuses to start with a configuration error naming `log_dir` as not writable (in v1.12.0 and earlier, a startup panic: `initializing rolling file appender failed`).
 
 ---
 
@@ -553,7 +559,7 @@ ls -la /tmp/smg-logs/
     smg launch --log-level info ...
     ```
 
-    4. If `--log-dir` names a directory SMG cannot create, SMG prints `Failed to create log directory: <error>` to stderr and runs with logging disabled, stdout included. If the directory exists but SMG cannot create its log file there, startup fails with `initializing rolling file appender failed`.
+    4. An unusable `--log-dir` does not silently disable logging: SMG refuses to start with a configuration error naming `log_dir` (see [Log Directory Requirements](#log-directory-requirements)), so a gateway that is running still logs to stdout. In v1.12.0 and earlier, if `--log-dir` names a directory SMG cannot create, SMG prints `Failed to create log directory: <error>` to stderr and runs with logging disabled, stdout included; if the directory exists but SMG cannot create its log file there, startup fails with `initializing rolling file appender failed`.
 
 ??? question "Logs not in JSON format"
 
@@ -562,7 +568,7 @@ ls -la /tmp/smg-logs/
     smg launch --log-json --worker-urls http://worker:8000
     ```
 
-    2. Lines printed before logging is set up are plain text: the startup banner goes to stdout ahead of the JSON logs, and errors such as `Failed to create log directory` go to stderr
+    2. Lines printed before logging is set up are plain text: the startup banner goes to stdout ahead of the JSON logs, and startup errors, such as a refused `--log-dir`, go to stderr
 
 ??? question "File logs not appearing"
 

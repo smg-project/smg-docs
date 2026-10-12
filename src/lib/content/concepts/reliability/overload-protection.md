@@ -110,9 +110,24 @@ The gateway's load monitor collects one report per worker per poll. The source d
 
 ### When a Worker Does Not Report
 
-Overload protection **fails open**. A poll that produces no report (an unsupported backend, a timeout, an error, or an empty report) clears the worker's veto: no fresh signal means no opinion, and the worker stays routable. The veto is also cleared when a worker leaves `Ready`, is removed, or is replaced (`PUT` or `PATCH` on `/workers/{worker_id}`), and for every worker when the monitor has to rebuild its state (logged as a warning).
+Overload protection **fails open**. A poll that produces no report (an unsupported backend, a timeout, an error, or an empty report) clears the worker's veto: no fresh signal means no opinion, and overload protection on its own leaves the worker routable. Whether the worker is reachable at all is judged separately; see [When a Worker Goes Completely Silent](#when-a-worker-goes-completely-silent). The veto is also cleared when a worker leaves `Ready`, is removed, or is replaced (`PUT` or `PATCH` on `/workers/{worker_id}`), and for every worker when the monitor has to rebuild its state (logged as a warning).
 
 A field the backend leaves out reads as `0`, so that signal never trips. `--worker-overload-token-usage` only works for backends that report KV usage.
+
+### When a Worker Goes Completely Silent
+
+Failing open covers a missing report, not a missing worker. A gRPC worker whose KV-event stream has pushed load records is expected to stay in contact: when nothing is heard from such a worker on any channel — no load record, no answered load poll, no passed health probe, no token or completion — for `--worker-stale-secs` seconds (default `15`), the gateway excludes it from routing as unreachable until it is heard from again. The check runs every 250 ms, so the exclusion lands at the threshold itself; the veto is logged as `Worker vetoed by liveness` with the cause `load records stopped`.
+
+Load records ride the KV-event stream the gateway subscribes to on each gRPC worker when a cache-aware policy is configured (the default), and the regular load poll takes over whenever the records pause, so a reachable worker that has pushed records is heard from well inside the threshold. Total silence past it means a dead or one-way link the transport has not reported yet: a one-way network cut leaves the gRPC connection open until the keepalive verdict tens of seconds later, and a load poll that times out counts as a slow worker, not a dead one.
+
+- **Only workers that have pushed a load record are judged.** HTTP and ZMQ workers, gRPC workers whose servicer predates pushed load records, and a stream that is still connecting are never excluded for silence; answering the load poll and the health probes is all that is expected of them.
+- **Any contact clears the exclusion.** The next load record, answered poll, passed health probe, token, or completion re-admits the worker at once (logged as `Worker re-admitted by liveness`). A worker that is still streaming tokens is never considered silent.
+- **The exclusion steers rather than refuses.** The veto only applies to selection: requests go to the other candidates while it lasts, and requests already running on the worker are unaffected. A request whose every candidate this rule has excluded is still routed — to the least-loaded of them that is healthy with a closed circuit breaker — rather than refused.
+- **Independent of overload protection.** The rule runs whether or not overload protection is enabled, and it never changes the worker's health status — the health checker keeps its own state machine.
+
+Tune the threshold with `--worker-stale-secs`, and keep it above `--load-monitor-interval`: the default `15` is past the default ten-second poll, so a stream whose records stop while the worker still answers polls is never excluded for silence alone. `0` disables the rule. The Python launchers accept the flag too.
+
+Unreleased: the rule is on current main, newer than v1.12.0. In v1.12.0 and earlier, silence alone never takes a worker out of routing — a one-way cut is noticed only when the transport reports a connection failure, for an open connection at the keepalive verdict, or as the worker's health probes fail.
 
 ---
 

@@ -23,8 +23,8 @@ Both endpoints go through the same authentication and admission control as the o
 
 | Backend | Configure with | `/v1/messages` | `/v1/messages/count_tokens` |
 |---------|----------------|----------------|-----------------------------|
-| [gRPC workers](../../getting-started/grpc-workers.md) | `grpc://` worker URLs | SMG renders, tokenizes, and parses ([details](#grpc-and-zmq-workers)) | `501 Not Implemented` |
-| [ZMQ workers](../../getting-started/zmq-workers.md) | `ipc://` worker URLs | Same as gRPC workers | `501 Not Implemented` |
+| [gRPC workers](../../getting-started/grpc-workers.md) | `grpc://` worker URLs | SMG renders, tokenizes, and parses ([details](#grpc-and-zmq-workers)) | Counted by SMG itself ([details](#backend-support)) |
+| [ZMQ workers](../../getting-started/zmq-workers.md) | `ipc://` worker URLs | Same as gRPC workers | Same as gRPC workers |
 | HTTP workers | `http://` or `https://` worker URLs | Forwarded to the worker | Forwarded to one worker |
 | [HTTP PD](../../getting-started/pd-disaggregation.md) | `--pd-disaggregation` with HTTP workers | Prefill/decode dual dispatch | Forwarded to one prefill worker |
 | Anthropic API | `--backend anthropic` | Forwarded to the Anthropic API, with an optional SMG-run [MCP tool loop](#mcp-tools) | `501 Not Implemented` |
@@ -32,6 +32,8 @@ Both endpoints go through the same authentication and admission control as the o
 HTTP workers must implement the Messages API themselves; SMG forwards the request without translating it.
 
 In IGW mode (`--enable-igw`), SMG picks the backend per request from the workers that serve the requested `model`. A model served by an external Anthropic worker goes to the Anthropic API backend (see [External Providers](../../getting-started/external-providers.md)). The other external providers answer `/v1/messages` with `501`.
+
+Token counting on gRPC and ZMQ workers is newer than v1.12.0 (v1.12.0 and earlier answer `501 Not Implemented`); see [Backend Support](#backend-support).
 
 ---
 
@@ -228,20 +230,20 @@ data: {"type":"message_stop"}
 POST /v1/messages/count_tokens
 ```
 
-Returns the number of input tokens a Messages request would use, without generating. SMG does not count the tokens itself: it forwards the request to a worker that implements the endpoint and relays the worker's response (smg-project/smg#2638).
+Returns the number of input tokens a Messages request would use, without generating. Who counts depends on the backend: on gRPC and ZMQ workers, SMG counts the tokens itself from the model's tokenizer; on HTTP workers, it forwards the request to a worker that implements the endpoint and relays the worker's response. See [Backend Support](#backend-support).
 
 ### Request Body
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `model` | string | Yes | Model ID; selects the worker. |
+| `model` | string | Yes | Model ID; selects the worker (HTTP) or the tokenizer (gRPC/ZMQ). |
 | `messages` | array | Yes | Conversation, in the same format as `/v1/messages`. |
 | `system` | string or array | No | System prompt. |
 | `tools` | array | No | Tool definitions. |
 | `tool_choice` | object | No | Tool selection. |
 | `thinking` | object | No | Thinking configuration. |
 
-There is no `max_tokens`. Any other field, such as `context_management` or `mcp_servers`, is forwarded to the worker unchanged.
+There is no `max_tokens`. Any other field, such as `context_management` or `mcp_servers`, is forwarded unchanged to HTTP workers; on gRPC and ZMQ backends such fields are accepted but take no part in the count, which uses only the fields above.
 
 ### Example
 
@@ -270,9 +272,15 @@ curl http://localhost:30000/v1/messages/count_tokens \
 |------------|----------|
 | HTTP workers | Routed like any other request (routing policy, retries, circuit breaker, load tracking) to one worker's `/v1/messages/count_tokens`. `404` (`model_not_found`) when no worker serves the model. |
 | HTTP PD | Sent to one prefill worker. No decode worker is involved and no bootstrap fields are added. `503` (`no_prefill_servers`) when no prefill worker is available. |
-| gRPC or ZMQ workers | `501 Not Implemented` |
+| gRPC or ZMQ workers | Answered by SMG itself from the model's tokenizer; no worker takes part, so regular, PD (`--pd-disaggregation`), and EPD (`--epd-disaggregation`) deployments all serve it. See below. |
 | Anthropic API backend | `501 Not Implemented` |
-| IGW mode | A model with an external worker goes to that provider's backend (`501`). Otherwise SMG chooses between the model's HTTP and HTTP PD workers; a model with neither, including an unknown model, gets `404` (smg-project/smg#2659). |
+| IGW mode | A model with an external worker goes to that provider's backend (`501`). Otherwise any of the model's self-hosted pools answers — gRPC, ZMQ, HTTP, and PD alike, a disaggregated pool qualifying by its prefill workers alone. A model no pool serves, including an unknown model, gets `404` (`model_not_found`). |
+
+On gRPC and ZMQ backends, SMG renders the request through the model's chat template exactly as `/v1/messages` renders it — the same tool filtering by `tool_choice` and the same media placeholders — and returns the rendered prompt's token count. Media is not fetched: an image counts as the placeholder the template writes for it, and a document counts as its text (a document source with no text is refused, as `/v1/messages` refuses it).
+
+That path refuses a request the way `/v1/messages` would. An unknown model gets `404` (`model_not_found`), even when a removed worker's tokenizer is still registered. A served model whose tokenizer the gateway has not finished loading gets `503` (`tokenizer_not_ready`) with a `Retry-After: 1` header; under `--disable-tokenizer-autoload`, a missing tokenizer gets `500` (`tokenizer_not_found`). A request that does not render gets `400` (`process_messages_failed`), and a rendered prompt that fails to encode gets `500` (`tokenization_failed`).
+
+Gateway-side counting is newer than v1.12.0. In v1.12.0 and earlier, gRPC and ZMQ workers answer `/v1/messages/count_tokens` with `501 Not Implemented`, and IGW mode picks only among the model's HTTP and HTTP PD workers.
 
 ---
 
@@ -451,7 +459,11 @@ The standard envelope names the HTTP status in `type` and repeats `code` in the 
 }
 ```
 
-A few gateway answers are plain text instead: the `404` when no router serves the request in IGW mode, the `501` from a backend that does not serve the endpoint, and the `/v1/messages/count_tokens` answer to a body that does not parse (`400` for invalid JSON, `415` without `Content-Type: application/json`, `422` for a missing field or a field of the wrong type).
+A few gateway answers are plain text instead: the `404` when no router serves the request in IGW mode and the `501` from a backend that does not serve the endpoint.
+
+A `/v1/messages/count_tokens` body that does not parse or fails validation is refused with the same `400` `invalid_request_error` envelope as a `/v1/messages` body.
+
+That envelope is newer than v1.12.0: in v1.12.0 and earlier, the count_tokens answer to a body that does not parse is plain text (`400` for invalid JSON, `415` without `Content-Type: application/json`, `422` for a missing field or a field of the wrong type).
 
 Errors that SMG detects before the stream starts are returned as ordinary HTTP error responses, not as a stream, even when `stream` is `true`. After the stream has started, the gRPC path and SMG's MCP tool loop report a failure as an Anthropic `error` event and end the stream. The MCP tool loop starts its stream before it first calls the model, so even an upstream error on that first call arrives this way:
 

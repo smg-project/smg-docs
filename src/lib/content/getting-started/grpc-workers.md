@@ -167,9 +167,9 @@ SMG_SGLANG_SERVICER_IMPL=rust python -m sglang.launch_server \
   --smg-grpc-mode
 ```
 
-Precedence is the flag, then the environment variable, then `python`; the launcher logs which one decided (`Servicer implementation: rust (source=flag)`), and a value other than `python` or `rust` fails startup. A decision made with the flag is written back to `SMG_SGLANG_SERVICER_IMPL`, so the scheduler processes the launcher starts and anything else that reads only the variable agree with it — `--servicer-impl python` overrides an inherited `rust`.
+Precedence is the flag, then the environment variable, then `python`; the launcher logs which one decided (`Servicer implementation: rust (source=flag)`), and a value other than `python` or `rust` fails startup. A decision made with the flag is written back to `SMG_SGLANG_SERVICER_IMPL`, so the scheduler processes that the launcher starts and anything else that reads only the variable agree with it — `--servicer-impl python` overrides an inherited `rust`.
 
-The flag joins both of SGLang's launchers: `python -m sglang.launch_server --help` lists it, while `sglang serve --help` prints its listing before SGLang loads plugins, so the flag is missing from that help but still accepted. An `SGLANG_PLUGINS` setting that leaves out the `smg-servicer` plugin only removes the flag; the environment variable works regardless.
+The flag joins both of SGLang's launchers: `python -m sglang.launch_server --help` lists it, while `sglang serve --help` prints the help before SGLang loads plugins, so the flag is missing from that listing but still accepted. An `SGLANG_PLUGINS` setting that leaves out the `smg-servicer` plugin only removes the flag; the environment variable works regardless.
 
 `smg serve`'s `--servicer-impl` stays scoped to vLLM: it rejects `rust` for every other backend. Exporting the variable before `smg serve --backend sglang --connection-mode grpc` reaches its workers too, since worker environments inherit the shell's, and no `smg serve` flag clears an inherited value the way `--servicer-impl python` does for vLLM.
 

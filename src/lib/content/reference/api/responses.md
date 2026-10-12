@@ -565,8 +565,8 @@ Reasoning streams first, as its own item. A streamed `function_call` item opens 
 `"status": "in_progress"` and closes with its final status.
 
 **Terminal events.** Exactly one of these ends the stream, unless an internal SMG error
-cuts it short with an error frame or a [background](#background-mode) response cancelled
-or deleted mid-stream ends it without one:
+cuts it short with an error frame, or cancelling or deleting a
+[background](#background-mode) response mid-stream ends it without one:
 
 | Event | `response.status` |
 |-------|-------------------|
@@ -637,8 +637,9 @@ curl http://localhost:30000/v1/responses \
 The request returns `200` at once with a `queued` Response object — a fresh `resp_` ID,
 `"status": "queued"`, an empty `output`, `usage` and `completed_at` `null`,
 `"background": true`, and the request's parameters echoed — and the generation runs on
-the gateway in a task of its own behind that ID. Poll
-[`GET /v1/responses/{id}`](#get-response) to follow the stored object from `queued`
+the gateway behind that ID.
+
+Poll [`GET /v1/responses/{id}`](#get-response) to follow the stored object from `queued`
 through `in_progress` to `completed`, `incomplete`, `failed`, or `cancelled`, and stop it
 with [`POST /v1/responses/{id}/cancel`](#cancel-response). [Deleting](#delete-response)
 the response while it runs also stops it and discards the result. The input items are
@@ -652,14 +653,16 @@ response is never added to a conversation, and nothing of it is retained after t
 window.
 
 A generation that fails leaves the stored object `failed` with the failure's `code` and
-`message`; a task that ends without storing a result, or panics, leaves `failed` with
-code `server_error`.
+`message`; one that ends without reporting a result leaves `failed` with code
+`server_error`.
 
 **Streaming.** With `"stream": true` the stream opens with `response.created` — whose
 response object already reads `"status": "queued"` and `"background": true` — followed by
 `response.queued` and `response.in_progress`, then continues like a regular stream to its
-terminal event. The work runs behind the stored ID either way: a client that disconnects
-early does not stop the generation, and the terminal object is stored and can be polled.
+terminal event.
+
+The work still runs behind the stored ID: a client that disconnects early does not stop
+the generation, and the terminal object is stored and can be polled.
 A cancel or a [delete](#delete-response) ends the stream without a terminal event; after
 a cancel the `cancelled` object is read by polling. A background stream that fails before
 it opens returns the plain error, and the stored record is closed as `failed` with it.
@@ -746,15 +749,15 @@ POST /v1/responses/{response_id}/cancel
 Cancels a [background](#background-mode) response. Behavior depends on the connection
 mode:
 
-- **gRPC workers**: A `queued` or `in_progress` background response is cancelled and the `cancelled` Response object is returned. When the response runs on this gateway, its task is stopped — and its engine stream dropped — before the answer. When no task runs it here (another gateway sharing the history backend runs it, or it was lost to a gateway restart), the stored record is closed as `cancelled`, and the gateway running it drops the work within its 2-second watch of the record. A second cancel returns the same `cancelled` object. A response that already ended returns `400`: `response_already_completed` for `completed` or `incomplete`, `response_already_failed` for `failed`. A response not created with `background: true` returns `400` `cancellation_not_supported`, and an unknown ID `404` `response_not_found`.
+- **gRPC workers**: A `queued` or `in_progress` background response is cancelled and the `cancelled` Response object is returned. When the response runs on this gateway, generation is stopped before the answer. When this gateway is not running it (another gateway sharing the history backend is, or the work was lost to a restart), the stored record is closed as `cancelled`; the gateway running it re-reads the record every 2 seconds and drops the work once it sees the record closed. A second cancel returns the same `cancelled` object. A response that already ended returns `400`: `response_already_completed` for `completed` or `incomplete`, `response_already_failed` for `failed`. A response not created with `background: true` returns `400` `cancellation_not_supported`, and an unknown ID `404` `response_not_found`.
 - **HTTP workers**: The request is sent to every registered worker; SMG returns the first successful answer, otherwise the last error. Whether cancellation succeeds depends on backend support.
 
-Cancelling background responses on gRPC workers is new on main after v1.12.0. In v1.12.0
-and earlier nothing runs in the background, so gRPC workers refuse every cancel: a stored
-`completed` response returns `400` `response_already_completed`, a `failed` one `400`
-`response_already_failed`, any other stored response `400` `cancellation_not_supported`
-(`Background mode is not supported. Synchronous and streaming responses cannot be
-cancelled.`), and an unknown ID `404` `response_not_found`.
+In v1.12.0 and earlier, where [background mode](#background-mode) is not available, gRPC
+workers refuse every cancel: a stored `completed` response returns `400`
+`response_already_completed`, a `failed` one `400` `response_already_failed`, any other
+stored response `400` `cancellation_not_supported` (`Background mode is not supported.
+Synchronous and streaming responses cannot be cancelled.`), and an unknown ID `404`
+`response_not_found`.
 
 ### Path Parameters
 
@@ -833,9 +836,9 @@ curl -X DELETE http://localhost:30000/v1/responses/resp_abc123def456
 
 Deleting a [background](#background-mode) response that is still `queued` or
 `in_progress` also stops it: the record is removed at once, and the gateway running the
-generation — this one or another sharing the history backend — drops the work within its
-2-second watch of the record. Nothing is stored under the ID again, so the result is
-discarded and a later `GET` returns `404`.
+generation — this one or another sharing the history backend — re-reads the record every
+2 seconds and drops the work once it finds the record gone. Nothing is stored under the
+ID again, so the result is discarded and a later `GET` returns `404`.
 
 An unknown ID returns `404` with code `not_found`.
 

@@ -42,6 +42,7 @@ class PlanningTests(unittest.TestCase):
     def test_old_backlog_is_eligible_and_key_is_stable(self):
         first = self.plan([proposal()])[0]
         renamed = self.plan([proposal(title="[Docs] Another title")])[0]
+        self.assertTrue(first["branch"].startswith("docs/nightly-docs-"))
         self.assertEqual(first["branch"], renamed["branch"])
         self.assertEqual(len(self.plan([proposal()])), 1)
 
@@ -121,6 +122,16 @@ class PlanningTests(unittest.TestCase):
         for state, merged in [("open", False), ("closed", False), ("closed", True)]:
             with self.subTest(state=state, merged=merged):
                 self.assertEqual(self.plan([proposal()], self.context([pr(item, state, merged=merged)])), [])
+
+    def test_legacy_branches_still_prevent_duplicates_and_count_toward_quota(self):
+        item = docs.validate_item(proposal())
+        for prefix in docs.BRANCH_PREFIXES:
+            existing = pr(item, state="closed", body="", files=[],
+                          branch=prefix + item["branch"].rsplit("-", 1)[1],
+                          created_at="2026-10-12T10:00:00Z")
+            with self.subTest(prefix=prefix):
+                self.assertEqual(self.plan([proposal()], self.context([existing])), [])
+                self.assertEqual(docs.daily_remaining([existing], "2026-10-12"), 99)
 
     def test_open_human_pr_reserves_paths_without_marker(self):
         item = docs.validate_item(proposal())
@@ -221,6 +232,50 @@ class GitGuardTests(unittest.TestCase):
                 self.path.write_text('See ' + reference + ' for the behavior.\n')
                 with self.assertRaisesRegex(ValueError, 'code-change references'):
                     docs.export_bundle(self.item, self.base, Path('bundle.json'))
+
+    def test_reader_preflight_reports_locations_and_accepts_a_real_repair(self):
+        self.path.write_text('First line.\n\nSee PR #2924 for the behavior.\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            report, output = Path(tmp) / 'report.json', Path(tmp) / 'output'
+            with patch.dict(os.environ, {'GITHUB_OUTPUT': str(output)}):
+                docs.reader_docs_preflight(self.item, self.base, report)
+            self.assertEqual(json.loads(report.read_text())['violations'], [
+                {'path': str(self.path), 'line': 3, 'rule': 'code-change-reference'}])
+            self.assertIn('+See PR #2924', json.loads(report.read_text())['patch'])
+            self.assertEqual(output.read_text(), 'repair_needed=true\nchanged=true\n')
+            with self.assertRaisesRegex(ValueError, r':3'):
+                docs.export_bundle(self.item, self.base, Path(tmp) / 'bundle.json')
+            self.path.write_text('First line.\n\nThe gateway waits for a healthy worker.\n')
+            docs.export_bundle(self.item, self.base, Path(tmp) / 'bundle.json')
+
+    def test_reader_preflight_does_not_repair_scope_failures(self):
+        self.path.write_text('See PR #2924.\n')
+        Path('outside.txt').write_text('Unplanned edit')
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / 'report.json'
+            with patch.dict(os.environ, {'GITHUB_OUTPUT': str(Path(tmp) / 'output')}), \
+                    self.assertRaisesRegex(ValueError, 'allowlist'):
+                docs.reader_docs_preflight(self.item, self.base, report)
+            self.assertFalse(report.exists())
+
+    def test_reader_preflight_skips_clean_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report, output = Path(tmp) / 'report.json', Path(tmp) / 'output'
+            with patch.dict(os.environ, {'GITHUB_OUTPUT': str(output)}):
+                docs.reader_docs_preflight(self.item, self.base, report)
+            self.assertEqual(json.loads(report.read_text()), {'violations': [], 'patch': ''})
+            self.assertEqual(output.read_text(), 'repair_needed=false\nchanged=false\n')
+
+    def test_reader_preflight_edits_changed_prose_without_citations(self):
+        self.path.write_text('The gateway waits for a healthy worker.\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            report, output = Path(tmp) / 'report.json', Path(tmp) / 'output'
+            with patch.dict(os.environ, {'GITHUB_OUTPUT': str(output)}):
+                docs.reader_docs_preflight(self.item, self.base, report)
+            data = json.loads(report.read_text())
+            self.assertEqual(data['violations'], [])
+            self.assertIn('+The gateway waits', data['patch'])
+            self.assertEqual(output.read_text(), 'repair_needed=false\nchanged=true\n')
 
     def test_reader_docs_leave_untouched_legacy_citations_alone(self):
         self.path.write_text('Historical reference: smg-project/smg#2603.\n\nOld guidance.\n')

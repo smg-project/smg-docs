@@ -59,3 +59,25 @@ A correct new note does not repair a contradictory summary elsewhere on the
 same page. Re-read the section introductions, overview tables and troubleshooting
 statements on every allowlisted page; qualify obsolete generalizations too.
 Readers should not have to find a later exception to interpret an earlier claim.
+
+Before finishing, read each edited section as service documentation rather than
+an implementation report. Put the user action or supported behavior first. Split
+long paragraphs when they mix setup, limitations, recovery and release history;
+keep release availability in its own short paragraph. Do not paste internal log
+messages or explain helper plumbing unless it helps the user operate the service.
+Qualifying an obsolete sentence does not permit appending a new feature tutorial
+or historical caveat to that sentence. Prefer a short paragraph below the table
+or existing paragraph, and link to the canonical explanation instead of repeating it.
+
+Never turn a configured timeout or periodic check into an exact wall-clock
+promise. Follow the timer and scheduling code, not just comments: a 250 ms sweep
+checks a threshold on a subsequent sweep; it does not guarantee action at the
+threshold instant. State the threshold and observable behavior without an
+unsupported maximum detection or completion time.
+
+A supported nondefault configuration that contradicts an unconditional sentence
+is an accuracy failure, not a non-material nuance. Require the sentence to name
+its condition or exception. Apply the same rule to retained historical claims:
+if another pre-existing mechanism contradicts “only”, qualify or remove that
+comparison. Feedback is not fully addressed when a requested substantive
+qualification is absent from the final prose.

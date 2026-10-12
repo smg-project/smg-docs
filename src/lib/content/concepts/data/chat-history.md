@@ -284,7 +284,7 @@ smg --history-backend oracle \
 
 ## Schema Migrations
 
-At startup, the PostgreSQL and Oracle backends create their tables if they don't exist, then compare the database's recorded schema version (the `_schema_versions` table) with the migrations SMG ships. SMG applies pending migrations only when auto-migration is on. Otherwise it refuses to start and prints the SQL to apply by hand. A new, empty database has pending migrations too, so turn auto-migration on for the first start:
+At startup, the PostgreSQL and Oracle backends create their tables if they don't exist, then compare the database's recorded schema version (the `_schema_versions` table) with the migrations SMG ships. SMG applies pending migrations only when auto-migration is on. Otherwise it refuses to start and prints the SQL to apply by hand:
 
 ```bash
 DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
@@ -292,6 +292,10 @@ DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
 ```
 
 `DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
+
+A new, empty Oracle database has pending migrations too, so turn auto-migration on for its first start. A new PostgreSQL database needs the same in v1.12.0 and earlier.
+
+Newer than v1.12.0: a fresh PostgreSQL database (one without SMG's `responses` table) starts without auto-migration. The first start creates the history tables in their final shape and records them at the latest schema version, so no migration is pending. The whole bootstrap runs in one transaction under a schema lock, so several gateways starting together against one empty database take turns and all come up. An existing PostgreSQL database at an older schema version is unchanged: startup still refuses while migrations are pending unless auto-migration is on or the printed SQL has been applied by hand.
 
 ---
 

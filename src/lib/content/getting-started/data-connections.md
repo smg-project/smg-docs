@@ -57,7 +57,7 @@ smg \
   --postgres-pool-max-size 16
 ```
 
-On a new database, also set `DB_AUTO_MIGRATE=true` for the first start; see [Schema migrations](#schema-migrations).
+In v1.12.0 and earlier, also set `DB_AUTO_MIGRATE=true` for the first start on a new database; newer than v1.12.0, a fresh database starts without it. See [Schema migrations](#schema-migrations).
 
 ### Redis
 
@@ -91,7 +91,7 @@ smg \
 
 ## Schema migrations
 
-PostgreSQL and Oracle track a schema version and refuse to start while migrations are pending, printing the SQL to apply by hand. A new database has pending migrations, so set `DB_AUTO_MIGRATE=true` (or `1`) to let SMG apply them at startup:
+PostgreSQL and Oracle track a schema version and refuse to start while migrations are pending, printing the SQL to apply by hand. Set `DB_AUTO_MIGRATE=true` (or `1`) to let SMG apply them at startup:
 
 ```bash
 DB_AUTO_MIGRATE=true smg launch \
@@ -101,6 +101,8 @@ DB_AUTO_MIGRATE=true smg launch \
 ```
 
 A `--schema-config` file can set `auto_migrate` instead. See [Chat History](../concepts/data/chat-history.md#schema-migrations).
+
+A new, empty Oracle database has pending migrations on its first start, so it needs auto-migration too; so does a new PostgreSQL database in v1.12.0 and earlier. Newer than v1.12.0, a fresh PostgreSQL database starts at the latest schema version with no auto-migration needed, and gateways starting together on one empty database take turns creating the schema and all come up.
 
 ---
 

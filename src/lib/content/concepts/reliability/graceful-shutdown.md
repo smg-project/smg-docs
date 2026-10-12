@@ -198,6 +198,10 @@ spec:
 !!! warning "Kubernetes timeout"
     Kubernetes will force-kill the pod after `terminationGracePeriodSeconds`. Set this **higher** than `--shutdown-grace-period-secs` to ensure SMG has time to complete its graceful shutdown.
 
+Unreleased: the bundled Helm chart on current main wires this contract itself. It passes `router.shutdownGracePeriodSeconds` (default `180`) to the gateway as `--shutdown-grace-period-secs` and renders the router pod's `terminationGracePeriodSeconds` as that value plus `router.terminationGraceMarginSeconds` (default `30`) — 210 seconds by default — so a rolling update no longer cuts off the drain. The chart also points the router's readiness probe at `/readiness` and its liveness probe at `/health` (override the routes with `router.readinessProbe.path` and `router.livenessProbe.path`), so the Service stops sending new connections to a pod that is draining or otherwise not ready to serve (see [Gateway Probe Endpoints](health-checks.md#gateway-probe-endpoints) for every reason). Both forms the chart renders — the Deployment and, with `router.mesh.enabled`, the StatefulSet — get this wiring. Released charts probe readiness on `/health` and leave the pod at Kubernetes' default 30-second termination grace, so there apply the manual configuration above.
+
+The chart's `/readiness` probe has one consequence for deployments that register all workers at runtime through the admin API (`POST /workers`), with no `workers`, `router.workerUrls`, or `router.serviceDiscovery` configured: the router starts with no healthy worker, so `/readiness` answers `503`, the pod never becomes Ready, and the Service never lists it as an endpoint — a registration sent through the Service therefore cannot reach it. Such deployments set `router.readinessProbe.path: /health`, or register workers through a port-forward to the pod.
+
 ---
 
 ## Sizing the Grace Period

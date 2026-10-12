@@ -226,7 +226,9 @@ smg launch \
 
 ### Log Directory Requirements
 
-An existing `--log-dir` must be a directory SMG can write. A missing one is created at start-up, so it must sit under a directory SMG can write; a relative path resolves against the working directory. Any other path — an existing file, a directory SMG cannot write, a path under a file or under an unwritable directory — is refused at startup with a configuration error naming `log_dir`, the path, and the reason, before the gateway binds its port.
+An existing `--log-dir` must be a directory SMG can write. A missing one is created at start-up, so it must sit under a directory SMG can write; a relative path resolves against the working directory.
+
+Any other path — an existing file, a directory SMG cannot write, a path under a file or under an unwritable directory — is refused at startup with a configuration error naming `log_dir`, the path, and the reason, before the gateway binds its port.
 
 Refusing to start is newer than v1.12.0. In v1.12.0 and earlier, a directory SMG cannot create is reported on stderr as `Failed to create log directory: <error>` and SMG runs with logging disabled entirely, stdout included; an existing directory SMG cannot write its log file to makes startup panic with `initializing rolling file appender failed`.
 
@@ -282,7 +284,7 @@ volumes:
   smg-logs:
 ```
 
-The image runs as the non-root user `smg` (UID 65532), so `--log-dir` must be writable by that user. `/var/log/smg` does not exist in the image, so Docker creates the new named volume owned by root; change its owner to UID 65532 before the first start, or SMG refuses to start with a configuration error naming `log_dir` as not writable (in v1.12.0 and earlier, a startup panic: `initializing rolling file appender failed`).
+The image runs as the non-root user `smg` (UID 65532), so `--log-dir` must be writable by that user. `/var/log/smg` does not exist in the image, so Docker creates the new named volume owned by root; change its owner to UID 65532 before the first start, or SMG refuses to start with a configuration error naming `log_dir` as not writable (see [Log Directory Requirements](#log-directory-requirements)).
 
 ---
 
@@ -559,7 +561,7 @@ ls -la /tmp/smg-logs/
     smg launch --log-level info ...
     ```
 
-    4. An unusable `--log-dir` does not silently disable logging: SMG refuses to start with a configuration error naming `log_dir` (see [Log Directory Requirements](#log-directory-requirements)), so a gateway that is running still logs to stdout. In v1.12.0 and earlier, if `--log-dir` names a directory SMG cannot create, SMG prints `Failed to create log directory: <error>` to stderr and runs with logging disabled, stdout included; if the directory exists but SMG cannot create its log file there, startup fails with `initializing rolling file appender failed`.
+    4. An unusable `--log-dir` does not silently disable logging: SMG refuses to start with a configuration error naming `log_dir`, so a gateway that is running still logs to stdout. v1.12.0 and earlier behaved differently; see [Log Directory Requirements](#log-directory-requirements).
 
 ??? question "Logs not in JSON format"
 

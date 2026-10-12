@@ -96,8 +96,9 @@ def eligible(pr):
             or pr["base"]["ref"] != "main"):
         raise ValueError("Not an eligible, open, same-repository nightly docs PR")
     key = ":".join(match.groups())
-    expected = "codex/nightly-docs-" + hashlib.sha256(key.encode()).hexdigest()[:16]
-    if pr["head"]["ref"] != expected:
+    expected = {prefix + hashlib.sha256(key.encode()).hexdigest()[:16]
+                for prefix in docs.BRANCH_PREFIXES}
+    if pr["head"]["ref"] not in expected:
         raise ValueError("PR branch does not match its original concern")
     return match.groups()
 
@@ -365,6 +366,8 @@ def context(pr):
                                   "canonical_pages": sorted(files.keys() & {
                                   page["path"] for page in docs.doc_inventory(base)}),
                                   "new_page_reason": "Preserve the original concern's page scope; reviewer must verify placement."}})
+    # Repairs must update the authenticated original branch, including legacy PRs.
+    item["branch"] = pr["head"]["ref"]
     return {"number": pr["number"], "head": head, "base": base, "code_sha": code, "item": item,
             "files": files, "source_patch": source_patch.splitlines(), "feedback": details, "state": state, "state_id": state_id,
             "extra_feedback": extra, "signature": signature(pr, details, extra),

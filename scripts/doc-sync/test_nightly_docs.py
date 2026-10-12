@@ -42,6 +42,7 @@ class PlanningTests(unittest.TestCase):
     def test_old_backlog_is_eligible_and_key_is_stable(self):
         first = self.plan([proposal()])[0]
         renamed = self.plan([proposal(title="[Docs] Another title")])[0]
+        self.assertTrue(first["branch"].startswith("docs/nightly-docs-"))
         self.assertEqual(first["branch"], renamed["branch"])
         self.assertEqual(len(self.plan([proposal()])), 1)
 
@@ -121,6 +122,16 @@ class PlanningTests(unittest.TestCase):
         for state, merged in [("open", False), ("closed", False), ("closed", True)]:
             with self.subTest(state=state, merged=merged):
                 self.assertEqual(self.plan([proposal()], self.context([pr(item, state, merged=merged)])), [])
+
+    def test_legacy_branches_still_prevent_duplicates_and_count_toward_quota(self):
+        item = docs.validate_item(proposal())
+        for prefix in docs.BRANCH_PREFIXES:
+            existing = pr(item, state="closed", body="", files=[],
+                          branch=prefix + item["branch"].rsplit("-", 1)[1],
+                          created_at="2026-10-12T10:00:00Z")
+            with self.subTest(prefix=prefix):
+                self.assertEqual(self.plan([proposal()], self.context([existing])), [])
+                self.assertEqual(docs.daily_remaining([existing], "2026-10-12"), 99)
 
     def test_open_human_pr_reserves_paths_without_marker(self):
         item = docs.validate_item(proposal())

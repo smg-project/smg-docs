@@ -3,6 +3,8 @@
 The workflow runs at **09:43 UTC daily** (01:43 PST / 02:43 PDT), on
 `smg-org-runner-cpu`. Discovery, writing, and independent review use Claude Code
 with `claude-fable-5`, `xhigh` effort, and the runner's Anthropic credential.
+New documentation PR branches use `docs/nightly-docs-<concern-hash>`. Maintenance
+continues to update existing `codex/nightly-docs-*` PRs on their original branches.
 It opens ready-for-review PRs only after the independent review and site checks
 pass, and never merges them. Maintenance can also promote validated drafts once review comments are resolved.
 

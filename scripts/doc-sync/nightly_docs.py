@@ -22,6 +22,8 @@ MAX_LINES = 1000
 MAX_PRS = 100
 SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 MARKER = "<!-- nightly-docs:"
+BRANCH_PREFIXES = ("docs/nightly-docs-", "codex/nightly-docs-")
+HISTORY_BRANCH_PREFIXES = ("docs/smg-sync-",) + BRANCH_PREFIXES
 REVIEW_GATES = ("single_concern", "accurate", "placement_appropriate", "related_docs_consistent")
 
 
@@ -125,7 +127,7 @@ def validate_item(item):
         raise ValueError("Only handwritten documentation Markdown is allowed")
     key = f'{item["source_sha"]}:{item["area"]}:{item["concern"]}'
     digest = hashlib.sha256(key.encode()).hexdigest()[:16]
-    return {**item, "key": key, "branch": f'codex/nightly-docs-{digest}'}
+    return {**item, "key": key, "branch": f'{BRANCH_PREFIXES[0]}{digest}'}
 
 
 def open_pr_files(repo, numbers):
@@ -159,7 +161,7 @@ def existing_prs(repo):
     for pr in prs:
         body = pr.get("body") or ""
         if pr["state"] != "open" and not (MARKER in body or LEGACY_MARKER in body
-                or pr["head"]["ref"].startswith(("docs/smg-sync-", "codex/nightly-docs-"))):
+                or pr["head"]["ref"].startswith(HISTORY_BRANCH_PREFIXES)):
             continue
         result.append({"number": pr["number"], "title": pr["title"], "created_at": pr["created_at"],
                        "body": body, "state": pr["state"],
@@ -170,8 +172,10 @@ def existing_prs(repo):
 
 def covered(item, prs):
     marker = f'{MARKER}{item["key"]} -->'
+    branches = {prefix + hashlib.sha256(item["key"].encode()).hexdigest()[:16]
+                for prefix in BRANCH_PREFIXES}
     for pr in prs:
-        if marker in pr["body"] or pr["branch"] == item["branch"]:
+        if marker in pr["body"] or pr["branch"] in branches:
             return True
         if pr["state"] == "open" and set(item["doc_paths"]) & set(pr["files"]):
             return True
@@ -182,7 +186,7 @@ def daily_remaining(prs, today=None):
     today = today or datetime.now(timezone.utc).date().isoformat()
     used = sum(pr.get("created_at", "").startswith(today) and
                (MARKER in pr["body"] or LEGACY_MARKER in pr["body"] or
-                pr["branch"].startswith(("docs/smg-sync-", "codex/nightly-docs-")))
+                pr["branch"].startswith(HISTORY_BRANCH_PREFIXES))
                for pr in prs)
     return max(0, MAX_PRS - used)
 

@@ -565,8 +565,8 @@ Reasoning streams first, as its own item. A streamed `function_call` item opens 
 `"status": "in_progress"` and closes with its final status.
 
 **Terminal events.** Exactly one of these ends the stream, unless an internal SMG error
-cuts it short with an error frame or a cancelled [background](#background-mode) response
-ends it without one:
+cuts it short with an error frame or a [background](#background-mode) response cancelled
+or deleted mid-stream ends it without one:
 
 | Event | `response.status` |
 |-------|-------------------|
@@ -640,9 +640,10 @@ The request returns `200` at once with a `queued` Response object — a fresh `r
 the gateway in a task of its own behind that ID. Poll
 [`GET /v1/responses/{id}`](#get-response) to follow the stored object from `queued`
 through `in_progress` to `completed`, `incomplete`, `failed`, or `cancelled`, and stop it
-with [`POST /v1/responses/{id}/cancel`](#cancel-response). The input items are stored with
-the queued record, so [List Response Input Items](#list-response-input-items) answers from
-the first poll.
+with [`POST /v1/responses/{id}/cancel`](#cancel-response). [Deleting](#delete-response)
+the response while it runs also stops it and discards the result. The input items are
+stored with the queued record, so
+[List Response Input Items](#list-response-input-items) answers from the first poll.
 
 With `"store": false`, the response still runs in the background and is polled the same
 way: its record — input items included — holds the terminal object for roughly 10
@@ -659,9 +660,9 @@ response object already reads `"status": "queued"` and `"background": true` — 
 `response.queued` and `response.in_progress`, then continues like a regular stream to its
 terminal event. The work runs behind the stored ID either way: a client that disconnects
 early does not stop the generation, and the terminal object is stored and can be polled.
-A cancel ends the stream without a terminal event; the `cancelled` object is read by
-polling. A background stream that fails before it opens returns the plain error, and the
-stored record is closed as `failed` with it.
+A cancel or a [delete](#delete-response) ends the stream without a terminal event; after
+a cancel the `cancelled` object is read by polling. A background stream that fails before
+it opens returns the plain error, and the stored record is closed as `failed` with it.
 
 **In-flight cap.** A gateway runs at most `--max-background-responses` background
 responses at once (default 1024); one beyond is rejected with `429`
@@ -829,6 +830,12 @@ curl -X DELETE http://localhost:30000/v1/responses/resp_abc123def456
   "deleted": true
 }
 ```
+
+Deleting a [background](#background-mode) response that is still `queued` or
+`in_progress` also stops it: the record is removed at once, and the gateway running the
+generation — this one or another sharing the history backend — drops the work within its
+2-second watch of the record. Nothing is stored under the ID again, so the result is
+discarded and a later `GET` returns `404`.
 
 An unknown ID returns `404` with code `not_found`.
 

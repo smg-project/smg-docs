@@ -22,6 +22,8 @@ MAX_LINES = 1000
 MAX_PRS = 100
 SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 MARKER = "<!-- nightly-docs:"
+BRANCH_PREFIXES = ("docs/nightly-docs-", "codex/nightly-docs-")
+HISTORY_BRANCH_PREFIXES = ("docs/smg-sync-",) + BRANCH_PREFIXES
 REVIEW_GATES = ("single_concern", "accurate", "placement_appropriate", "related_docs_consistent")
 
 
@@ -125,7 +127,7 @@ def validate_item(item):
         raise ValueError("Only handwritten documentation Markdown is allowed")
     key = f'{item["source_sha"]}:{item["area"]}:{item["concern"]}'
     digest = hashlib.sha256(key.encode()).hexdigest()[:16]
-    return {**item, "key": key, "branch": f'codex/nightly-docs-{digest}'}
+    return {**item, "key": key, "branch": f'{BRANCH_PREFIXES[0]}{digest}'}
 
 
 def open_pr_files(repo, numbers):
@@ -159,7 +161,7 @@ def existing_prs(repo):
     for pr in prs:
         body = pr.get("body") or ""
         if pr["state"] != "open" and not (MARKER in body or LEGACY_MARKER in body
-                or pr["head"]["ref"].startswith(("docs/smg-sync-", "codex/nightly-docs-"))):
+                or pr["head"]["ref"].startswith(HISTORY_BRANCH_PREFIXES)):
             continue
         result.append({"number": pr["number"], "title": pr["title"], "created_at": pr["created_at"],
                        "body": body, "state": pr["state"],
@@ -170,8 +172,10 @@ def existing_prs(repo):
 
 def covered(item, prs):
     marker = f'{MARKER}{item["key"]} -->'
+    branches = {prefix + hashlib.sha256(item["key"].encode()).hexdigest()[:16]
+                for prefix in BRANCH_PREFIXES}
     for pr in prs:
-        if marker in pr["body"] or pr["branch"] == item["branch"]:
+        if marker in pr["body"] or pr["branch"] in branches:
             return True
         if pr["state"] == "open" and set(item["doc_paths"]) & set(pr["files"]):
             return True
@@ -182,7 +186,7 @@ def daily_remaining(prs, today=None):
     today = today or datetime.now(timezone.utc).date().isoformat()
     used = sum(pr.get("created_at", "").startswith(today) and
                (MARKER in pr["body"] or LEGACY_MARKER in pr["body"] or
-                pr["branch"].startswith(("docs/smg-sync-", "codex/nightly-docs-")))
+                pr["branch"].startswith(HISTORY_BRANCH_PREFIXES))
                for pr in prs)
     return max(0, MAX_PRS - used)
 
@@ -283,15 +287,45 @@ def planned_item(report, index, base, source):
     return validate_item(selected[index])
 
 
-def validate_reader_docs(base):
-    """Reject code-change citations in added/rewritten prose, not untouched text."""
+def reader_doc_violations(base):
+    """Locate citations on added lines so the writer can make a bounded repair."""
     citation = re.compile(
         r"github\.com/[^/\s)]+/[^/\s)]+/(?:pull|issues|commit|commits|compare|blob)/"
         r"|\b[\w.-]+/[\w.-]+#\d+"
         r"|\b(?:PR|pull request|issue)\s*#\d+", re.IGNORECASE)
-    for line in git("diff", "--cached", "--unified=0", base, "--", DOC_ROOT).splitlines():
-        if line.startswith('+') and not line.startswith('+++') and citation.search(line[1:]):
-            raise ValueError("Documentation must explain service behavior without code-change references")
+    violations = []
+    for path in git("diff", "--cached", "--name-only", base, "--", DOC_ROOT).splitlines():
+        number = None
+        for line in git("diff", "--cached", "--unified=0", base, "--", path).splitlines():
+            hunk = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+            if hunk:
+                number = int(hunk[1])
+            elif number is not None and line.startswith('+'):
+                if citation.search(line[1:]):
+                    violations.append({'path': path, 'line': number, 'rule': 'code-change-reference'})
+                number += 1
+            elif number is not None and line.startswith(' '):
+                number += 1
+    return violations
+
+
+def validate_reader_docs(base):
+    """Reject code-change citations in edited prose, not untouched legacy text."""
+    violations = reader_doc_violations(base)
+    if violations:
+        locations = ', '.join(f"{v['path']}:{v['line']}" for v in violations[:20])
+        raise ValueError("Documentation must explain service behavior without code-change references: " + locations)
+
+
+def reader_docs_preflight(item, base, report):
+    """Prepare bounded editing input; scope and size failures stay fatal."""
+    changed = validate_diff(item, base)
+    violations = reader_doc_violations(base)
+    patch = git("diff", "--cached", "--unified=3", base, "--", DOC_ROOT)
+    Path(report).write_text(json.dumps({'violations': violations, 'patch': patch}, indent=2) + '\n')
+    with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+        out.write(f"repair_needed={str(bool(violations)).lower()}\n")
+        out.write(f"changed={str(changed).lower()}\n")
 
 
 def export_bundle(item, base, output):
@@ -427,7 +461,7 @@ Scope: **{item["area"]} / {item["concern"]}**. Other concerns are deferred.
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["context", "plan", "evidence", "check", "export", "import", "review", "publish"])
+    parser.add_argument("command", choices=["context", "plan", "evidence", "check", "preflight", "export", "import", "review", "publish"])
     args = parser.parse_args()
     repo = os.environ["GITHUB_REPOSITORY"]
     if args.command == "context":
@@ -460,6 +494,8 @@ def main():
                 changed = validate_diff(item, base)
             with open(os.environ["GITHUB_OUTPUT"], "a") as out:
                 out.write(f"changed={str(changed).lower()}\n")
+        elif args.command == "preflight":
+            reader_docs_preflight(item, base, os.environ["READER_REPORT"])
         elif args.command == "export":
             export_bundle(item, base, os.environ["BUNDLE_PATH"])
         else:

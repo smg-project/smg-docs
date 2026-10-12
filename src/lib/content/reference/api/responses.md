@@ -783,7 +783,7 @@ A response that cannot be cancelled gets a `400 Bad Request` error:
 ```json
 {
   "error": {
-    "type": "Bad Request",
+    "type": "invalid_request_error",
     "code": "cancellation_not_supported",
     "message": "Only responses created with 'background': true can be cancelled.",
     "param": null

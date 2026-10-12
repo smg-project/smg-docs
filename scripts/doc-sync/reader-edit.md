@@ -9,6 +9,7 @@ Remove every reported code-change citation without moving it to another line or
 replacing it with a hash or source-file reference. Documentation must stand alone.
 
 Apply these edits to the changed paragraphs, including their retained text:
+
 - Start a separate paragraph for newly introduced behavior or release availability.
   Correct obsolete claims, but do not append release caveats to setup instructions,
   existing paragraphs or table cells.

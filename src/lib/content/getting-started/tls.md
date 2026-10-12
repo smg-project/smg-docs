@@ -26,12 +26,12 @@ SMG supports TLS configurations for securing communications:
 | **Server TLS** | HTTPS for client → gateway communication | Available |
 | **Client mTLS** | Mutual TLS for gateway → HTTP worker communication | Python launcher only |
 | **gRPC worker transport** | Gateway → gRPC worker (`grpc://`) connections | Plaintext; mTLS through a service mesh |
-| **Mesh mTLS** | Mutual TLS for router ↔ router mesh communication | Newer than v1.12.0 (current main only) |
+| **Mesh mTLS** | Mutual TLS for router ↔ router gossip probes and sync streams | Newer than v1.12.0 (current main only) |
 
 !!! info "Client mTLS"
     The client certificate flags (`--client-cert-path`, `--client-key-path`, and `--ca-cert-paths`) exist only in the Python launcher: `smg launch` from pip, and the container image. The Rust `smg` binary has no client certificate flags in v1.11.0. See [Client mTLS to Workers](#client-mtls-to-workers).
 
-Routers that form a [high-availability mesh](../concepts/architecture/high-availability.md) exchange membership and worker state on the mesh port. On current main (newer than v1.12.0; released versions have no TLS option on the mesh port), `--mesh-tls-ca-cert`, `--mesh-tls-cert`, and `--mesh-tls-key` encrypt that traffic and require every peer to present a certificate from the mesh CA. See [Mesh mTLS](../concepts/architecture/high-availability.md#mesh-mtls) for the certificate requirements and examples.
+Routers that form a [high-availability mesh](../concepts/architecture/high-availability.md) exchange membership and worker state on the mesh port. On current main (newer than v1.12.0; released versions have no TLS option on the mesh port), `--mesh-tls-ca-cert`, `--mesh-tls-cert`, and `--mesh-tls-key` encrypt the mesh's gossip probes and sync streams and require every peer to present a certificate from the mesh CA. The `SUSPECTED`/`DOWN` updates that follow a failed probe use a plaintext path that an mTLS mesh refuses, so they are not delivered. See [Mesh mTLS](../concepts/architecture/high-availability.md#mesh-mtls) for the certificate requirements, examples, and this failure-detection limitation.
 
 ---
 

@@ -167,7 +167,7 @@ The three `--mesh-tls-*` flags are newer than v1.12.0: current main has them, no
 
 Unreleased: mesh mTLS is on current main only, newer than v1.12.0.
 
-Give every router the mesh CA, its own certificate, and its key to encrypt and mutually authenticate all mesh traffic — gossip probes and sync streams, in both directions:
+Give every router the mesh CA, its own certificate, and its key to encrypt and mutually authenticate the mesh's gossip probes and sync streams, in both directions:
 
 ```bash
 smg launch --enable-mesh \
@@ -177,11 +177,12 @@ smg launch --enable-mesh \
     --mesh-tls-key /etc/smg/mesh/node-key.pem
 ```
 
-With the three flags, the mesh listener serves TLS with the node's certificate and accepts only peers whose certificates chain to `--mesh-tls-ca-cert`, and every dial to a peer presents this node's certificate and verifies the peer's against the same CA. A peer that presents no certificate, or one from another CA, cannot join the cluster.
+With the three flags, the mesh listener serves TLS with the node's certificate and accepts only peers whose certificates chain to `--mesh-tls-ca-cert`, and every probe and sync-stream dial to a peer presents this node's certificate and verifies the peer's against the same CA. A peer that presents no certificate, or one from another CA, cannot join the cluster.
 
 - **Set all three flags, or none.** A partial set stops startup: the Rust binary rejects it as a flag-parsing error naming the missing `--mesh-tls-*` flag, the Python launcher with `mesh_tls_ca_cert, mesh_tls_cert and mesh_tls_key come together`. Each file must also be readable at startup.
 - **Certificates name the node by IP.** Peers are dialed by IP address (see the note above), so the TLS server name a dialer verifies is the peer's mesh IP: issue each node's certificate with its `--mesh-advertise-host` address as an IP SAN. IPv4 and IPv6 addresses both work. The key must be PKCS#8 PEM.
-- **Turn it on cluster-wide.** TLS is not negotiated per connection: a router with the flags dials every peer over TLS and its listener requires TLS, so a mixed cluster's routers cannot reach each other. Set the flags on every router.
+- **Turn it on cluster-wide.** TLS is not negotiated per connection: a router with the flags makes its probe and sync-stream dials over TLS and its listener requires TLS, so a mixed cluster's routers cannot reach each other. Set the flags on every router.
+- **Failure-status updates are not delivered.** The `SUSPECTED` and `DOWN` updates that follow a failed probe, and a graceful-leave announcement, go out over a separate plaintext dial that a TLS-serving listener refuses — including the detecting router's own listener, which is where the transition is recorded. On an mTLS cluster, an unreachable router therefore stays `ALIVE` and keeps being probed; only [Kubernetes router discovery](#kubernetes-router-discovery) still marks routers `SUSPECTED` and `DOWN`, through its own watch. See [Membership and Failure Detection](#membership-and-failure-detection).
 - **No automatic rotation.** The gateway does not watch the files for changes, and the mesh listener keeps the certificate it loaded at startup; restart a router to serve a renewed certificate.
 
 Without the flags, a mesh-enabled gateway starts, but its first log lines carry the `SECURITY POSTURE` warning ([Control Plane Auth](../../getting-started/control-plane-auth.md#default-posture)) with the mesh named in the `control_plane` field: `OPEN: the mesh listener on <address> gossips membership and state with any peer that connects, in clear text; give it --mesh-tls-ca-cert, --mesh-tls-cert and --mesh-tls-key (peers then need a certificate from that CA)`. The warning appears even when the serving and control planes are keyed.
@@ -260,16 +261,19 @@ smg launch --enable-mesh \
 
 1. **Probe**: Every second, each router pings one random peer that is not `DOWN` or `LEAVING`. The ping carries the sender's membership table, and the receiver adopts any entry with a higher version.
 2. **Indirect probe**: If the ping fails, the router asks up to three other `ALIVE` peers to ping the target (ping-req).
-3. **Suspect, then down**: If no probe reaches the target, it moves from `ALIVE` to `SUSPECTED`, or from `SUSPECTED` to `DOWN`, and the new status is broadcast to every `ALIVE` peer.
+3. **Suspect, then down**: If no probe reaches the target, it moves from `ALIVE` to `SUSPECTED`, or from `SUSPECTED` to `DOWN`, and the new status is broadcast to every `ALIVE` peer. On an mTLS mesh this update is not delivered; see the warning below.
 4. **Sync stream**: After a successful probe of an `ALIVE` peer, the router whose name sorts first opens the pair's sync stream if none is open.
+
+!!! warning "With mesh mTLS, `SUSPECTED` and `DOWN` updates are not delivered"
+    The status update of step 3 travels over a separate plaintext dial, not over the mTLS channels that probes and sync streams use. On a cluster running [mesh mTLS](#mesh-mtls) (current main only), every listener refuses that plaintext dial — including the detecting router's own listener, which is where the transition is recorded — so an unreachable router is never marked `SUSPECTED` or `DOWN`: it stays `ALIVE` in every membership table and keeps being probed, and the detecting router logs `Failed to broadcast to <name>` after each failed probe. [Kubernetes router discovery](#kubernetes-router-discovery) is unaffected: it marks routers `SUSPECTED` and `DOWN` through its own watch of their pods. A graceful-leave (`LEAVING`) announcement uses the same plaintext path.
 
 ### Node Status States
 
 | Status | Description |
 |--------|-------------|
 | `ALIVE` | Reachable. Every router starts in this state |
-| `SUSPECTED` | A probe failed: neither the direct ping nor any indirect ping reached the router. Still probed. Router discovery also sets it for a known pod that is not Ready, unless that router is already `DOWN` |
-| `DOWN` | A probe failed again while `SUSPECTED`, or the router's pod was deleted or is terminating. Peers stop probing it |
+| `SUSPECTED` | A probe failed: neither the direct ping nor any indirect ping reached the router (plaintext mesh; see the warning above). Still probed. Router discovery also sets it for a known pod that is not Ready, unless that router is already `DOWN` |
+| `DOWN` | A probe failed again while `SUSPECTED` (plaintext mesh), or the router's pod was deleted or is terminating. Peers stop probing it |
 | `LEAVING` | The node announced a graceful leave. Peers stop probing it. The v1.11 gateway does not announce it during shutdown |
 | `INIT` | Defined in the protocol but not used |
 
@@ -639,6 +643,7 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 | Startup fails naming a `--mesh-tls-*` flag or a `mesh_tls_*` field | The three mesh TLS flags were not all set, or a file is unreadable | Set `--mesh-tls-ca-cert`, `--mesh-tls-cert`, and `--mesh-tls-key` together, each a readable PEM file; see [Mesh mTLS](#mesh-mtls) |
 | A joining router logs `No peer address available to connect` every round | Its bootstrap peer was unreachable in the first gossip round and is not retried | Start the bootstrap router, then restart this one |
 | A router stays out of the mesh after a restart or partition | Peers marked it `DOWN` and no longer probe it | Restart it under a new name, or use router discovery; see [Node Status States](#node-status-states) |
+| With mesh mTLS, a dead router stays `ALIVE` and the log shows `Failed to broadcast to <name>` | `SUSPECTED`/`DOWN` updates are sent in plain text, which TLS listeners refuse | Expected on current main; router discovery still marks pods through its watch; see [Membership and Failure Detection](#membership-and-failure-detection) |
 | Routers appear under both their pod name and another name in the `Status:` log | `--mesh-server-name` differs from the pod name under router discovery | Set `--mesh-server-name=$(POD_NAME)` |
 | Log shows `Router selector configured but mesh is not enabled` | `--router-selector` without `--enable-mesh` | Add `--enable-mesh` |
 | No `Router node discovery enabled` log line | `--router-selector` without `--service-discovery` | Add `--service-discovery` |

@@ -34,7 +34,7 @@ Routes to the worker with the lowest expected wait: queued token work over throu
 
 ### :material-scale-balance: Power of Two
 
-Samples two workers and routes to the one with the lower expected wait. Near-least-load placement for two load reads per request.
+Samples two workers and routes to the one with the lower expected wait; a flag can switch the comparison to in-flight request counts. Near-least-load placement for two load reads per request.
 
 </div>
 
@@ -81,7 +81,7 @@ Forwards every request to the single available worker without reading load or ca
 | `random` | :material-close: | :material-close: | :material-close: | O(1) | Testing |
 | `passthrough` | :material-close: | :material-close: | :material-close: | O(1) | Single worker |
 
-Complexity is the selection cost per request over `n` available workers. [Sticky sessions](sticky-sessions.md) (`--routing-key-override`) add session affinity on top of any policy.
+Complexity is the selection cost per request over `n` available workers; `power_of_two` becomes O(n) with [`--power-of-two-load-metric least_requests`](#comparison-metric), which scans every available worker. [Sticky sessions](sticky-sessions.md) (`--routing-key-override`) add session affinity on top of any policy.
 
 ---
 
@@ -89,7 +89,7 @@ Complexity is the selection cost per request over `n` available workers. [Sticky
 
 Load-aware policies read one or both of two signals:
 
-- **In-flight requests.** The gateway counts the requests it has sent to each worker that have not finished yet; a streamed response counts until its body ends. The count is kept for every request under every policy, on the HTTP, gRPC and PD paths alike, and is exported as `smg_worker_requests_active`. Each gateway replica counts only its own traffic. `prefix_hash` and the `cache_aware` spill gate compare these counts, and `least_load` and `power_of_two` fall back to them for workers without a load report.
+- **In-flight requests.** The gateway counts the requests it has sent to each worker that have not finished yet; a streamed response counts until its body ends. The count is kept for every request under every policy, on the HTTP, gRPC and PD paths alike, and is exported as `smg_worker_requests_active`. Each gateway replica counts only its own traffic. `prefix_hash` and the `cache_aware` spill gate compare these counts, `least_load` and `power_of_two` fall back to them for workers without a load report, and [`--power-of-two-load-metric`](#comparison-metric) can make them `power_of_two`'s primary comparison.
 - **Load reports.** The gateway polls each worker's load every `--load-monitor-interval` seconds (default `10`). HTTP workers are asked for `/v1/loads` whatever the engine, falling back to the engine's Prometheus `/metrics` (SGLang, vLLM) when that route does not answer; gRPC and ZMQ workers report over their engine connection (`GetLoads`). A report carries the worker's waiting requests and KV-cache usage, plus queued tokens and generation throughput where the engine exposes them. `least_load`, `power_of_two` and `cache_aware` read these reports. See [Load Monitoring](../../reference/configuration.md#load-monitoring-configuration) for the polling options.
 
 In `least_load`, `power_of_two` and `cache_aware`, scores that tie exactly are broken uniformly at random, so equally idle workers share traffic instead of the first worker taking every tie.

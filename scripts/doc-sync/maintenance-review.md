@@ -74,3 +74,10 @@ promise. Follow the timer and scheduling code, not just comments: a 250 ms sweep
 checks a threshold on a subsequent sweep; it does not guarantee action at the
 threshold instant. State the threshold and observable behavior without an
 unsupported maximum detection or completion time.
+
+A supported nondefault configuration that contradicts an unconditional sentence
+is an accuracy failure, not a non-material nuance. Require the sentence to name
+its condition or exception. Apply the same rule to retained historical claims:
+if another pre-existing mechanism contradicts “only”, qualify or remove that
+comparison. Feedback is not fully addressed when a requested substantive
+qualification is absent from the final prose.

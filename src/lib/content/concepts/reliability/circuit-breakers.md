@@ -87,7 +87,7 @@ Each worker has its own circuit breaker with three states:
 
 - No new requests are sent to the worker
 - With no other worker available, requests get 503 `no_available_workers`
-- Moves to half-open after `--cb-timeout-duration-secs`
+- Moves to half-open after `--cb-timeout-duration-secs`, or at once when the worker is promoted back to `Ready`
 
 </div>
 
@@ -126,6 +126,10 @@ A single successful request resets `consecutive_failures` to zero. `--cb-window-
 ### Open → Half-Open
 
 Once the circuit has been open for `--cb-timeout-duration-secs`, the next check of the worker's state (for example, during worker selection) moves it to half-open.
+
+A promotion back to `Ready` is a second trigger, newer than v1.12.0: when a demoted worker's [health checks](health-checks.md) pass again and promote it — or any other path returns it to `Ready` — its open circuit moves to half-open at once, so the worker takes traffic as soon as its health returns instead of waiting out the timeout. The trial is the same one the timeout starts: `--cb-success-threshold` consecutive successes close the circuit, and any failure reopens it for a full timeout. In v1.12.0 and earlier, a worker promoted by its probes stayed unroutable until the open timeout passed.
+
+A promotion also resets the consecutive-failure count of a circuit the outage left closed, so the first failure after the worker's return does not open the circuit on the outage's account. Each promotion starts at most one trial: passing probes on a worker that is already `Ready` are not a promotion, so a circuit that reopens during the trial waits for its open timeout or for the worker's next demotion and promotion.
 
 ### Half-Open → Closed
 
@@ -296,8 +300,9 @@ Once every worker for the model has an open circuit, requests get 503 `no_availa
 | `smg_worker_cb_outcomes_total` | Counter | `worker`, `outcome` | Recorded outcomes, `success` or `failure`. Capacity pushback records nothing |
 | `smg_worker_cb_consecutive_failures` | Gauge | `worker` | Current consecutive-failure count |
 | `smg_worker_cb_consecutive_successes` | Gauge | `worker` | Current consecutive-success count |
+| `smg_worker_cb_health_readmissions_total` | Counter | `worker` | Open circuits moved to half-open by a promotion back to `Ready` instead of by the open timeout. Published at zero for each worker |
 
-The `worker` label is the worker URL.
+The `worker` label is the worker URL. `smg_worker_cb_health_readmissions_total` is newer than v1.12.0; see [State Transitions](#state-transitions).
 
 ### Useful PromQL Queries
 
@@ -386,8 +391,10 @@ Circuit breakers and health checks are independent gates: health checks probe wo
 | Health Check | Circuit Breaker | Receives traffic? |
 |--------------|-----------------|-------------------|
 | Passing | Closed or half-open | Yes |
-| Passing | Open | No, until the open timeout passes and the circuit moves to half-open |
+| Passing | Open | No, until the circuit moves to half-open — at the open timeout, or at once when a promotion back to `Ready` readmits it |
 | Failing | Any | No |
+
+The gates exclude a worker independently, but recovery is coupled: a promotion back to `Ready` puts the worker's open circuit on trial immediately, while an open circuit on a worker that is already `Ready` waits out `--cb-timeout-duration-secs`. See [State Transitions](#state-transitions) for the trial rules and the v1.12.0 behavior.
 
 ---
 

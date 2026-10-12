@@ -341,6 +341,10 @@ Health checks and circuit breakers are independent gates, and a worker is select
 | Health check | Background probes | Its state is anything other than `Ready` |
 | Circuit breaker | Real request outcomes | Its circuit is open (closed and half-open circuits allow requests) |
 
+The gates exclude a worker independently, but recovery is coupled (newer than v1.12.0): a promotion back to `Ready` readmits the worker's circuit breaker. An open circuit moves to half-open at once instead of waiting out `--cb-timeout-duration-secs`, so a recovered worker — an engine restarted on the same address, for example — takes traffic as soon as its probes promote it, and a circuit the outage left closed forgets its consecutive-failure count. In v1.12.0 and earlier, a probe-promoted worker stayed unroutable until its circuit's open timeout passed.
+
+The trial follows the usual [half-open rules](circuit-breakers.md#state-transitions): `--cb-success-threshold` consecutive successes close the circuit, and one failure reopens it for a full timeout. Passing probes on a worker that is already `Ready` are not a promotion and start no new trial, so a flapping worker gets one trial per demotion-and-promotion cycle.
+
 **Key differences**:
 
 - **Health checks**: Proactive background monitoring (no request impact)

@@ -110,7 +110,9 @@ vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc --mm-processor inprocess \
   --allowed-media-domains example.com
 ```
 
-The servicer reads each setting below from its `--mm-*` flag, falling back to the matching `SMG_VLLM_MM_*` variable, then to the default. Installing `smg-grpc-servicer` puts the flags on both stock launchers — `vllm serve --grpc` and `python -m vllm.entrypoints.grpc_server` — through a vLLM plugin that defines them while vLLM builds its command line. On a launcher that offers a flag, a value read from the variable instead logs a deprecation warning, and that env support is due to end in the next minor release. A launcher without the flags — for example `VLLM_PLUGINS` set without `smg-servicer`, which removes the flags but not the variables — reads each variable quietly as its supported setting.
+The servicer reads each setting below from its `--mm-*` flag, falling back to the matching `SMG_VLLM_MM_*` variable, then to the default. Installing `smg-grpc-servicer` puts the flags on both stock launchers — `vllm serve --grpc` and `python -m vllm.entrypoints.grpc_server` — through a vLLM plugin.
+
+On a launcher that offers a flag, a value read from the variable instead logs a deprecation warning, and that env support is due to end in the next minor release. A launcher without the flags — for example `VLLM_PLUGINS` set without `smg-servicer`, which removes the flags but not the variables — reads each variable quietly as its supported setting.
 
 The flags on the stock launchers are newer than v1.12.0. In v1.12.0 and earlier, those launchers take no `--mm-*` flags, so set the variables there; v1.12.0 logs the deprecation warning for every value it reads from a variable.
 

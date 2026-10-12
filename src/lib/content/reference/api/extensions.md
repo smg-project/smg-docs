@@ -58,6 +58,9 @@ These run behind protected-route auth middleware:
 | `POST` | `/v1/classify` | Classification endpoint |
 | `POST` | `/v1/embeddings` | OpenAI-compatible embeddings endpoint |
 | `POST` | `/v1/interactions` | Gemini Interactions API; only the Gemini provider backend serves it, other backends answer `501` |
+| `POST` | `/v1/systemone` | Native System One API; only regular HTTP workers serve it, deployments without a regular HTTP worker for the model answer `501` |
+
+`/v1/systemone` relays a non-streaming System One request to a regular HTTP worker's own `/v1/systemone`; request fields SMG does not know are forwarded unchanged, and the worker's response — status, headers, and body, backend errors included — is returned as is. Before relaying, SMG checks that `model` names a served model (unknown models answer `404`), that `state` is text or structured JSON, and that `questions` maps at least one name to a question, with at least one criterion on each `score` question; a body that fails these checks answers `400`. Available since v1.12.0.
 
 These pages cover the other inference endpoints, which use the same auth:
 

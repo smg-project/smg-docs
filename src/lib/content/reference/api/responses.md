@@ -79,7 +79,7 @@ POST /v1/responses
 | `stream` | boolean | No | Enable streaming responses |
 | `stream_options` | object | No | Streaming options, such as `include_obfuscation` |
 | `store` | boolean | No | Store response for later retrieval, default: true |
-| `background` | boolean | No | Answer a `queued` object at once and generate behind its ID, default: false; requires storage. See [Background Mode](#background-mode) |
+| `background` | boolean | No | Answer a `queued` object at once and generate behind its ID, default: false. See [Background Mode](#background-mode) |
 | `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, and built-in tool types |
 | `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` requires `tools` |
 | `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
@@ -644,11 +644,15 @@ with [`POST /v1/responses/{id}/cancel`](#cancel-response). The input items are s
 the queued record, so [List Response Input Items](#list-response-input-items) answers from
 the first poll.
 
-A background response must be stored: `"background": true` with `"store": false` is
-rejected with `400` (`Invalid 'store': background mode requires the response to be
-stored. Set 'store' to true or omit it when 'background' is true.`). A generation that
-fails leaves the stored object `failed` with the failure's `code` and `message`; a task
-that ends without storing a result, or panics, leaves `failed` with code `server_error`.
+With `"store": false`, the response still runs in the background and is polled the same
+way: its record — input items included — holds the terminal object for roughly 10
+minutes after the response ends, then it is deleted and the ID answers `404`. Such a
+response is never added to a conversation, and nothing of it is retained after the
+window.
+
+A generation that fails leaves the stored object `failed` with the failure's `code` and
+`message`; a task that ends without storing a result, or panics, leaves `failed` with
+code `server_error`.
 
 **Streaming.** With `"stream": true` the stream opens with `response.created` — whose
 response object already reads `"status": "queued"` and `"background": true` — followed by
@@ -727,7 +731,8 @@ retrievable through SMG. An unknown ID returns `404` with code `not_found`.
 
 A [background](#background-mode) response is retrievable from the moment its `queued`
 object is answered; the stored object moves through `in_progress` to its terminal status
-as the generation runs.
+as the generation runs. One created with `"store": false` stays retrievable for roughly
+10 minutes after it ends, then its record is deleted and the ID returns `404`.
 
 ---
 

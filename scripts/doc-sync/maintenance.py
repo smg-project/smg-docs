@@ -647,6 +647,8 @@ def main():
     ctx = json.loads((directory / "context.json").read_text())
     if command == "restore":
         restore(ctx)
+    elif command == "preflight":
+        docs.reader_docs_preflight(ctx["item"], ctx["base"], os.environ["READER_REPORT"])
     elif command == "export":
         for path in ctx['item']['doc_paths']:
             if Path(path).is_file():

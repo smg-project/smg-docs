@@ -114,6 +114,36 @@ jobs:
             --add-dir ${{ github.workspace }}/.nightly-source
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Check reader-facing documentation before export
+        id: writing
+        env:
+          READER_REPORT: ${{ runner.temp }}/reader-docs-report.json
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/maintenance.py" preflight
+      - name: Repair code-change citations once
+        if: steps.writing.outputs.repair_needed == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          allowed_bots: 'claude,coderabbitai,github-actions'
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: >-
+            Follow ${{ runner.temp }}/nightly-docs-tools/maintenance-write.md and
+            ${{ runner.temp }}/nightly-docs-tools/reader-repair.md.
+            The violation report is ${{ runner.temp }}/reader-docs-report.json.
+          claude_args: >-
+            --model claude-fable-5
+            --effort xhigh
+            --max-turns 30
+            --tools "Read,Glob,Grep,Edit,Write"
+            --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Preserve writing diagnostics
+        if: always() && steps.writing.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-maintenance-writing-${{ inputs.number }}
+          path: ${{ runner.temp }}/reader-docs-report.json
+          retention-days: 14
+          if-no-files-found: error
       - name: Export documentation data only
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/maintenance.py" export
       - uses: actions/upload-artifact@v7

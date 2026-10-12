@@ -283,15 +283,43 @@ def planned_item(report, index, base, source):
     return validate_item(selected[index])
 
 
-def validate_reader_docs(base):
-    """Reject code-change citations in added/rewritten prose, not untouched text."""
+def reader_doc_violations(base):
+    """Locate citations on added lines so the writer can make a bounded repair."""
     citation = re.compile(
         r"github\.com/[^/\s)]+/[^/\s)]+/(?:pull|issues|commit|commits|compare|blob)/"
         r"|\b[\w.-]+/[\w.-]+#\d+"
         r"|\b(?:PR|pull request|issue)\s*#\d+", re.IGNORECASE)
-    for line in git("diff", "--cached", "--unified=0", base, "--", DOC_ROOT).splitlines():
-        if line.startswith('+') and not line.startswith('+++') and citation.search(line[1:]):
-            raise ValueError("Documentation must explain service behavior without code-change references")
+    violations = []
+    for path in git("diff", "--cached", "--name-only", base, "--", DOC_ROOT).splitlines():
+        number = None
+        for line in git("diff", "--cached", "--unified=0", base, "--", path).splitlines():
+            hunk = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+            if hunk:
+                number = int(hunk[1])
+            elif number is not None and line.startswith('+'):
+                if citation.search(line[1:]):
+                    violations.append({'path': path, 'line': number, 'rule': 'code-change-reference'})
+                number += 1
+            elif number is not None and line.startswith(' '):
+                number += 1
+    return violations
+
+
+def validate_reader_docs(base):
+    """Reject code-change citations in edited prose, not untouched legacy text."""
+    violations = reader_doc_violations(base)
+    if violations:
+        locations = ', '.join(f"{v['path']}:{v['line']}" for v in violations[:20])
+        raise ValueError("Documentation must explain service behavior without code-change references: " + locations)
+
+
+def reader_docs_preflight(item, base, report):
+    """Only citation failures are repairable; scope and size failures stay fatal."""
+    validate_diff(item, base)
+    violations = reader_doc_violations(base)
+    Path(report).write_text(json.dumps({'violations': violations}, indent=2) + '\n')
+    with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+        out.write(f"repair_needed={str(bool(violations)).lower()}\n")
 
 
 def export_bundle(item, base, output):
@@ -427,7 +455,7 @@ Scope: **{item["area"]} / {item["concern"]}**. Other concerns are deferred.
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["context", "plan", "evidence", "check", "export", "import", "review", "publish"])
+    parser.add_argument("command", choices=["context", "plan", "evidence", "check", "preflight", "export", "import", "review", "publish"])
     args = parser.parse_args()
     repo = os.environ["GITHUB_REPOSITORY"]
     if args.command == "context":
@@ -460,6 +488,8 @@ def main():
                 changed = validate_diff(item, base)
             with open(os.environ["GITHUB_OUTPUT"], "a") as out:
                 out.write(f"changed={str(changed).lower()}\n")
+        elif args.command == "preflight":
+            reader_docs_preflight(item, base, os.environ["READER_REPORT"])
         elif args.command == "export":
             export_bundle(item, base, os.environ["BUNDLE_PATH"])
         else:

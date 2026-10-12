@@ -314,12 +314,14 @@ def validate_reader_docs(base):
 
 
 def reader_docs_preflight(item, base, report):
-    """Only citation failures are repairable; scope and size failures stay fatal."""
-    validate_diff(item, base)
+    """Prepare bounded editing input; scope and size failures stay fatal."""
+    changed = validate_diff(item, base)
     violations = reader_doc_violations(base)
-    Path(report).write_text(json.dumps({'violations': violations}, indent=2) + '\n')
+    patch = git("diff", "--cached", "--unified=3", base, "--", DOC_ROOT)
+    Path(report).write_text(json.dumps({'violations': violations, 'patch': patch}, indent=2) + '\n')
     with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
         out.write(f"repair_needed={str(bool(violations)).lower()}\n")
+        out.write(f"changed={str(changed).lower()}\n")
 
 
 def export_bundle(item, base, output):

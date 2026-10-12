@@ -202,11 +202,13 @@ scheduled sweeps apply repairs. The workflow uses `GITHUB_TOKEN` with read
 permissions for model work
 and scoped contents/pull-requests/checks write permissions for publication.
 
-### Bounded citation repair
+### Bounded reader-facing editing
 
 Nightly and maintenance writers run a preflight check before exporting Markdown.
-An edited line containing a code-change citation produces a path/line diagnostic
-and gets one narrowly scoped Fable repair pass. The original diagnostics are
-retained as an artifact. Export still rejects remaining citations, scope/size
-violations are immediately fatal, and independent review and site checks remain
-mandatory. Unchanged legacy citations do not trigger this repair.
+It records the draft diff and path/line diagnostics for code-change citations.
+Every nonempty draft gets one focused Fable editing pass to repair citations,
+separate release notes, and shorten dense implementation narration. No-change
+writers skip it. The original draft/diagnostics are retained as an artifact.
+Export still rejects remaining citations, scope/size violations are immediately
+fatal, and independent review and site checks remain mandatory. Untouched legacy
+citations are not rejected. The editor may only change the original concern.

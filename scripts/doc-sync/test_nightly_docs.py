@@ -230,7 +230,8 @@ class GitGuardTests(unittest.TestCase):
                 docs.reader_docs_preflight(self.item, self.base, report)
             self.assertEqual(json.loads(report.read_text())['violations'], [
                 {'path': str(self.path), 'line': 3, 'rule': 'code-change-reference'}])
-            self.assertEqual(output.read_text(), 'repair_needed=true\n')
+            self.assertIn('+See PR #2924', json.loads(report.read_text())['patch'])
+            self.assertEqual(output.read_text(), 'repair_needed=true\nchanged=true\n')
             with self.assertRaisesRegex(ValueError, r':3'):
                 docs.export_bundle(self.item, self.base, Path(tmp) / 'bundle.json')
             self.path.write_text('First line.\n\nThe gateway waits for a healthy worker.\n')
@@ -251,8 +252,19 @@ class GitGuardTests(unittest.TestCase):
             report, output = Path(tmp) / 'report.json', Path(tmp) / 'output'
             with patch.dict(os.environ, {'GITHUB_OUTPUT': str(output)}):
                 docs.reader_docs_preflight(self.item, self.base, report)
-            self.assertEqual(json.loads(report.read_text()), {'violations': []})
-            self.assertEqual(output.read_text(), 'repair_needed=false\n')
+            self.assertEqual(json.loads(report.read_text()), {'violations': [], 'patch': ''})
+            self.assertEqual(output.read_text(), 'repair_needed=false\nchanged=false\n')
+
+    def test_reader_preflight_edits_changed_prose_without_citations(self):
+        self.path.write_text('The gateway waits for a healthy worker.\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            report, output = Path(tmp) / 'report.json', Path(tmp) / 'output'
+            with patch.dict(os.environ, {'GITHUB_OUTPUT': str(output)}):
+                docs.reader_docs_preflight(self.item, self.base, report)
+            data = json.loads(report.read_text())
+            self.assertEqual(data['violations'], [])
+            self.assertIn('+The gateway waits', data['patch'])
+            self.assertEqual(output.read_text(), 'repair_needed=false\nchanged=true\n')
 
     def test_reader_docs_leave_untouched_legacy_citations_alone(self):
         self.path.write_text('Historical reference: smg-project/smg#2603.\n\nOld guidance.\n')

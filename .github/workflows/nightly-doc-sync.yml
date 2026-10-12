@@ -292,8 +292,8 @@ jobs:
         env:
           READER_REPORT: ${{ runner.temp }}/reader-docs-report.json
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" preflight
-      - name: Repair code-change citations once
-        if: steps.writing.outputs.repair_needed == 'true'
+      - name: Polish reader-facing documentation once
+        if: steps.writing.outputs.changed == 'true'
         uses: anthropics/claude-code-action@v1
         with:
           allowed_bots: 'claude,coderabbitai,github-actions'
@@ -301,8 +301,10 @@ jobs:
           github_token: ${{ github.token }}
           prompt: >-
             Follow ${{ runner.temp }}/nightly-docs-tools/write.md and
-            ${{ runner.temp }}/nightly-docs-tools/reader-repair.md.
-            The violation report is ${{ runner.temp }}/reader-docs-report.json.
+            ${{ runner.temp }}/nightly-docs-tools/reader-edit.md.
+            The draft and violation report is ${{ runner.temp }}/reader-docs-report.json.
+            NIGHTLY_ITEM is ${{ runner.temp }}/nightly-docs-item.json;
+            the source patch is ${{ runner.temp }}/nightly-docs-source.patch.
           claude_args: >-
             --model claude-fable-5
             --effort xhigh

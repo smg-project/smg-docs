@@ -102,7 +102,9 @@ DB_AUTO_MIGRATE=true smg launch \
 
 A `--schema-config` file can set `auto_migrate` instead. See [Chat History](../concepts/data/chat-history.md#schema-migrations).
 
-A new, empty Oracle database has pending migrations on its first start, so it needs auto-migration too; so does a new PostgreSQL database in v1.12.0 and earlier. Newer than v1.12.0, a fresh PostgreSQL database starts at the latest schema version with no auto-migration needed, and gateways starting together on one empty database take turns creating the schema and all come up.
+A new, empty Oracle database has pending migrations on its first start, so it needs auto-migration too; so does a new PostgreSQL database in v1.12.0 and earlier.
+
+Newer than v1.12.0, a fresh PostgreSQL database starts at the latest schema version with no auto-migration needed, and gateways starting together on one empty database take turns creating the schema and all come up.
 
 ---
 

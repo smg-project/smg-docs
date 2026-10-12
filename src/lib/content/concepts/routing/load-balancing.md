@@ -184,7 +184,9 @@ Before it uses a request's bucket, the policy checks balance. The load it compar
 
 ## Power of Two Choices
 
-Samples two distinct available workers at random and routes to the one with the lower expected wait, using the same formula as [`least_load`](#least-load): queued token work over throughput plus the KV-pressure penalty, with credit for requests sent since the last load report. If neither sampled worker has a load report, it compares their in-flight requests. It approaches least-load placement while reading only two workers' load per request. The expected wait is the default comparison; [`--power-of-two-load-metric`](#comparison-metric) can switch it to the gateway's own in-flight request counts.
+Samples two distinct available workers at random and routes to the one with the lower expected wait, using the same formula as [`least_load`](#least-load): queued token work over throughput plus the KV-pressure penalty, with credit for requests sent since the last load report. If neither sampled worker has a load report, it compares their in-flight requests. It approaches least-load placement while reading only two workers' load per request.
+
+The expected wait is the default comparison; [`--power-of-two-load-metric`](#comparison-metric) can switch it to the gateway's own in-flight request counts.
 
 ```bash
 smg --policy power_of_two --worker-urls http://w1:8000 http://w2:8000
@@ -228,7 +230,9 @@ smg --policy power_of_two --worker-urls http://w1:8000 http://w2:8000
 smg --policy power_of_two --power-of-two-load-metric requests --worker-urls http://w1:8000 http://w2:8000
 ```
 
-Both in-flight metrics compare the gateway's own per-worker request counts (see [Load Signals](#load-signals)), read without any load report, so they balance on a live signal even where load reports are coarse or absent; only a tie goes on to the expected-wait score. `least_requests` gives up the policy's O(1) selection: it samples no pair and scans every available worker's count. Whatever the metric, a single available worker is selected directly.
+Both in-flight metrics compare the gateway's own per-worker request counts (see [Load Signals](#load-signals)), read without any load report, so they balance on a live signal even where load reports are coarse or absent; only a tie goes on to the expected-wait score.
+
+`least_requests` gives up the policy's O(1) selection: it samples no pair and scans every available worker's count. Whatever the metric, a single available worker is selected directly.
 
 `--power-of-two-load-metric` is newer than v1.12.0. In v1.12.0 and earlier the comparison is always the expected wait.
 

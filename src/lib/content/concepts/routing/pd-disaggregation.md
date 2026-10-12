@@ -235,11 +235,13 @@ See [Multimodal](../architecture/multimodal.md) for media processing modes and t
 | Chat Completions (`/v1/chat/completions`), Completions (`/v1/completions`), `/generate` | :material-check: | :material-check: |
 | Anthropic Messages (`/v1/messages`) | :material-check: | :material-check: |
 | Responses (`/v1/responses`) | :material-check: proxied; stored-response features belong to the engine | :material-check: |
-| Messages token counting (`/v1/messages/count_tokens`) | :material-check: one prefill worker, no decode leg | :material-close: 501 |
+| Messages token counting (`/v1/messages/count_tokens`) | :material-check: one prefill worker, no decode leg | :material-check: answered by SMG, no leg involved |
 | Rerank (`/v1/rerank`) | :material-check: | :material-close: |
 | Embeddings, classification | :material-close: | :material-close: |
 
-Token counting generates nothing, so SMG sends it to a single prefill worker and adds no bootstrap fields. See the [Messages API](../../reference/api/messages.md).
+Token counting generates nothing. Over HTTP, SMG sends it to a single prefill worker and adds no bootstrap fields. Over gRPC, SMG answers it from the model's tokenizer and contacts no leg at all. See the [Messages API](../../reference/api/messages.md#count-tokens).
+
+Gateway-side token counting on gRPC PD is newer than v1.12.0: v1.12.0 and earlier answer `/v1/messages/count_tokens` on gRPC PD with `501 Not Implemented`.
 
 ---
 

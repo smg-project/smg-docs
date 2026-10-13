@@ -427,6 +427,30 @@ bash crates/wasm/tests/fixtures/build_fixtures.sh   # adds the wasm32-wasip2 tar
 cargo test --locked -p smg-wasm
 ```
 
+### Bellwether Fixture Tests
+
+The tests named `bellwether_*` in `crates/tokenizer/tests/`, `crates/symphony/tests/`, and `model_gateway/tests/` compare the tokenizer's encode and incremental decode, Symphony's output parsers, and the gateway's chat-template rendering with reference fixtures recorded by [bellwether](https://github.com/smg-project/bellwether): for each model at a pinned Hugging Face revision, what the checkpoint's own template and tokenizer produce. The tests are opt-in: without the `BELLWETHER_FIXTURES` environment variable each one prints a skip notice and passes, so a plain `cargo test` never exercises them.
+
+CI runs them in the `Bellwether Fixtures` workflow when a PR touches the code they judge — `crates/protocols/`, `crates/tokenizer/`, `crates/symphony/`, `model_gateway/src/routers/grpc/`, or the `bellwether_*` test files — or `Cargo.toml`, `Cargo.lock`, or the fixture pin. The fixtures come from the bellwether commit in `.github/versions/bellwether.ref`; a PR that changes that hash runs against the new fixtures.
+
+To reproduce the lane locally, check out bellwether at the pinned commit and unpack the fixture tree with [uv](https://docs.astral.sh/uv/); bellwether is public, so no token is needed, and the unpack step fetches bellwether's compressed sets itself:
+
+```bash
+# Check out bellwether at the commit CI pins
+git clone https://github.com/smg-project/bellwether.git .bellwether
+git -C .bellwether checkout "$(cat .github/versions/bellwether.ref)"
+
+# Unpack the fixture tree into the plain JSON Lines the tests read
+uv run --locked --project .bellwether bellwether unpack \
+  --fixtures .bellwether/fixtures --out .bellwether/fixtures-plain
+
+# Run every bellwether_* test against the unpacked tree
+BELLWETHER_FIXTURES=$PWD/.bellwether/fixtures-plain \
+  cargo test --locked -p llm-tokenizer -p smg -p smg-symphony --test 'bellwether_*' -- --nocapture
+```
+
+Keep the three packages in one `cargo test` invocation, as CI does: on the first run the tests download each model's tokenizer files from Hugging Face (into the gitignored `.tokenizer_cache/bellwether/`), and under `cargo test -p llm-tokenizer` alone that download has no TLS backend. Pointing `BELLWETHER_FIXTURES` at bellwether's raw `fixtures/` directory fails the run: its benchmark sets are compressed, and the tests read the unpacked tree only.
+
 ### Python Bindings
 
 The Python package in `bindings/python` wraps the gateway (`smg launch`, `smg serve`). Build it into a virtualenv and run its unit tests:
@@ -641,6 +665,7 @@ Crate versions follow [Semantic Versioning](https://semver.org/). `make check-ve
 | `e2e-*` | GPU lanes against real engines, and CPU lanes against third-party providers | [End-to-End Tests](#end-to-end-tests) |
 | `go-unit-tests`, `go-bindings-e2e` | The Go bindings | [Go Bindings](#go-bindings) |
 | `finish` | Fails if any job above failed; required for merge | — |
+| `Bellwether Fixtures` | The `bellwether_*` fixture tests, when the protocol, tokenizer, or Symphony crates, the gRPC router, or the dependency manifests change | [Bellwether Fixture Tests](#bellwether-fixture-tests) |
 | `benchmark-*`, `benchmarks` | Performance; advisory | [Benchmarks](#benchmarks) |
 
 On pull requests, a `detect-changes` job skips work whose inputs did not change: the Rust `unit-tests` job runs only when Rust code, manifests, or lint configuration change, and each e2e lane only when its paths do. Forks can run CI on their own runners by setting repository variables such as `SMG_RUNNER_CPU` and `SMG_RUNNER_GPU_1`; see [Running CI on your own runners](https://github.com/smg-project/smg/blob/main/CONTRIBUTING.md#running-ci-on-your-own-runners).

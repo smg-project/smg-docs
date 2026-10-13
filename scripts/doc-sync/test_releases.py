@@ -12,7 +12,8 @@ import releases
 import nightly_docs as docs
 import maintenance
 import discovery
-from test_nightly_docs import proposal, pr, GitGuardTests
+import test_nightly_docs as fixtures
+from test_nightly_docs import proposal, pr
 from test_maintenance import pull
 
 
@@ -113,9 +114,9 @@ class ReleaseTests(unittest.TestCase):
 
 class ReleaseGitTests(unittest.TestCase):
     # Reuse the Git fixture without importing its test class into discovery twice.
-    setUp = GitGuardTests.setUp
-    cleanup = GitGuardTests.cleanup
-    git = GitGuardTests.git
+    setUp = fixtures.GitGuardTests.setUp
+    cleanup = fixtures.GitGuardTests.cleanup
+    git = fixtures.GitGuardTests.git
 
     def test_post_release_commit_and_wrong_checkout_cannot_reach_writer(self):
         release = {'sha': self.base}
@@ -140,7 +141,3 @@ class ReleaseGitTests(unittest.TestCase):
         self.path.write_text('The shutdown grace period defaults to 180 seconds.\n')
         docs.validate_diff(self.item, self.base)
         docs.validate_reader_docs(self.base)
-
-
-# unittest discovers imported TestCase classes too.
-del GitGuardTests

@@ -388,7 +388,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | Harmony (gpt-oss) stop strings | Yes | Yes | Yes |
 | Multimodal inputs | Yes, one modality per request | Yes, except models whose processor emits `image_grid_thw` or `video_grid_thw` (MRoPE) | No |
 | Output logprobs | Yes, including `top_logprobs` | Sampled-token logprobs, with `--enable-output-logprobs`; `top_logprobs` above 1 is rejected | Yes, including `top_logprobs` |
-| Prompt logprobs | Forwarded to the engine, but no API field requests them in v1.11.0 | Not supported; `token_ids_logprob` is rejected | Yes, requested through `/generate`'s `logprob_start_len`; `token_ids_logprob` is rejected |
+| Prompt logprobs | Forwarded to the engine, but no API field requests them | Not supported; `token_ids_logprob` is rejected | Yes, requested through `/generate`'s `logprob_start_len`; `token_ids_logprob` is rejected |
 | `n > 1` and sampling `seed` | Yes | Yes | `n > 1` yes; the SGLang wire carries no `seed` |
 
 ### Limits

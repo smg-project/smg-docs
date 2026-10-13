@@ -29,6 +29,8 @@ env:
 
 jobs:
   prepare:
+    env:
+      GH_TOKEN: ${{ github.token }}
     runs-on: smg-org-runner-cpu
     timeout-minutes: 15
     permissions:
@@ -258,6 +260,8 @@ jobs:
           name: docs-maintenance-review-${{ inputs.number }}
           path: ${{ runner.temp }}/docs-maintenance
       - name: Revalidate the reviewed documentation bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/maintenance.py" import
       - name: Require the independent accuracy and scope verdict
         id: verdict

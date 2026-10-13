@@ -42,10 +42,9 @@ changed behavior, start a separate paragraph in the relevant existing section;
 do not append a release caveat or a long explanation to an existing paragraph.
 Correct obsolete statements, but keep established behavior and release-specific
 notes in distinct paragraphs. In tables, state the option and default briefly
-and put any necessary release note below the table. Name a released version only
-when tag/release evidence proves it; otherwise use a short standalone
-"Unreleased" note without implying that all versions newer than an old tag
-include the change. Do not repeat the same history throughout a page. Prefer
+and put any necessary release note below the table. Name a version only when release evidence proves it and the distinction
+helps a user act; otherwise describe the pinned stable release directly.
+Defer behavior that is not released; do not add an Unreleased note. Omit history that does not help a user act. Prefer
 short direct sentences, useful headings, and examples over implementation stories.
 
 Treat these writing rules as publication requirements: set
@@ -81,3 +80,22 @@ its condition or exception. Apply the same rule to retained historical claims:
 if another pre-existing mechanism contradicts “only”, qualify or remove that
 comparison. Feedback is not fully addressed when a requested substantive
 qualification is absent from the final prose.
+
+Use code changes to discover documentation gaps, then write the current user-facing
+contract of the pinned published stable SMG release. Describe supported parameters,
+defaults, limits, behavior and user actions directly. Do not narrate the bug that was
+fixed, implementation history, or old-versus-new behavior in ordinary service docs.
+Historical failure explanations belong only in release notes or troubleshooting
+when they help users take a specific action. Keep necessary version-specific
+migration advice brief and separate from the current contract.
+
+SOURCE_ROOT is the stable release checkout, not development main. Only behavior
+implemented in that checkout is publishable. Never add an Unreleased/current-main
+section or imply an unreleased feature is available. Do not infer release inclusion
+from dates or version-bump commits. If a source change or supporting behavior is not
+in the pinned release, defer it; do not manufacture a released substitute. Existing
+docs may describe development behavior and are not proof of release availability.
+
+Reject unreleased claims, unnecessary historical failure narratives, and
+implementation-change reports even when their description of development main
+is technically correct. Review the stable-release user-facing contract.

@@ -1,3 +1,31 @@
+Changing a version heading or surrounding sentence can change the meaning of
+retained text. Recheck EVERY retained clause under the new version context. An
+old-release limitation must not become a present-tense limitation of the current
+release. If users still need that limitation, anchor it explicitly to the old
+version in a separate short paragraph; otherwise state the verified current
+contract. A closed PR is a deduplication record, not an instruction to freeze
+inaccurate prose. Do not recreate a declined proposal, but do make the minimal
+qualification needed so this concern does not misattribute old behavior to the
+current release. If that cannot be done within scope, narrow or defer the concern.
+
+Before exporting, search and read EVERY mention of this concern on EVERY allowed
+page, including sections outside the edited hunk. Updating a reference table is
+incomplete if startup recipes, introductions, examples, or cross-references still
+use the previous value or frame the same released behavior as current main.
+Remove obsolete CI-version inventories from user setup instructions; do not leave
+them behind as supposedly unrelated history when they describe this same concern.
+Check the complete resulting page for contradictions, not only the diff. Include
+all required same-concern corrections in this PR. Do not add unrelated features.
+
+Use the existing reference as the primary answer. When the concern makes a table
+row, default, command, or section summary stale, replace that answer with the
+verified stable-release value; do not preserve it and add a corrective note below.
+Reconcile the surrounding version heading so it does not label a current value as
+an older release. A separate paragraph is for a distinct user-facing behavior or
+necessary migration action, not a substitute for updating the reference itself.
+Do not retain obsolete examples for historical interest; update examples for this
+concern unless users specifically need them for an actionable migration.
+
 Read repository guidance if present and the maintenance context JSON named in the
 invocation. The working directory is pinned SMG docs main with the existing PR's
 Markdown overlaid. The separate SMG checkout is read-only source evidence at
@@ -28,7 +56,7 @@ only. Target 60 turns investigating and editing within the 120-turn ceiling.
 Current source proves current behavior, not release history. Do not invent a
 release boundary from a commit date or neighboring text. Require readable
 release-specific evidence before adding or retaining an edited historical
-comparison; otherwise describe verified current behavior with an explicit unreleased note when needed.
+comparison; otherwise describe only the verified stable-release contract without a historical comparison.
 Follow helpers and fallback paths before claiming an entire request bypasses a
 cache, emits a metric, or cannot retry. Check user-facing validation, not only
 internal setters or isolated tests.
@@ -47,10 +75,9 @@ changed behavior, start a separate paragraph in the relevant existing section;
 do not append a release caveat or a long explanation to an existing paragraph.
 Correct obsolete statements, but keep established behavior and release-specific
 notes in distinct paragraphs. In tables, state the option and default briefly
-and put any necessary release note below the table. Name a released version only
-when tag/release evidence proves it; otherwise use a short standalone
-"Unreleased" note without implying that all versions newer than an old tag
-include the change. Do not repeat the same history throughout a page. Prefer
+and put any necessary release note below the table. Name a version only when release evidence proves it and the distinction
+helps a user act; otherwise describe the pinned stable release directly.
+Defer behavior that is not released; do not add an Unreleased note. Omit history that does not help a user act. Prefer
 short direct sentences, useful headings, and examples over implementation stories.
 
 A correct new note does not repair a contradictory summary elsewhere on the
@@ -72,3 +99,18 @@ promise. Follow the timer and scheduling code, not just comments: a 250 ms sweep
 checks a threshold on a subsequent sweep; it does not guarantee action at the
 threshold instant. State the threshold and observable behavior without an
 unsupported maximum detection or completion time.
+
+Use code changes to discover documentation gaps, then write the current user-facing
+contract of the pinned published stable SMG release. Describe supported parameters,
+defaults, limits, behavior and user actions directly. Do not narrate the bug that was
+fixed, implementation history, or old-versus-new behavior in ordinary service docs.
+Historical failure explanations belong only in release notes or troubleshooting
+when they help users take a specific action. Keep necessary version-specific
+migration advice brief and separate from the current contract.
+
+SOURCE_ROOT is the stable release checkout, not development main. Only behavior
+implemented in that checkout is publishable. Never add an Unreleased/current-main
+section or imply an unreleased feature is available. Do not infer release inclusion
+from dates or version-bump commits. If a source change or supporting behavior is not
+in the pinned release, defer it; do not manufacture a released substitute. Existing
+docs may describe development behavior and are not proof of release availability.

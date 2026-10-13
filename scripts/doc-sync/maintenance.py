@@ -15,6 +15,7 @@ import sys
 import time
 
 import nightly_docs as docs
+import releases
 
 STATE = "<!-- docs-maintenance-state:"
 CHECK = "Docs maintenance"
@@ -63,8 +64,8 @@ def current_base():
 
 
 def current_code():
-    """Read the immutable source revision separately from the documentation base."""
-    return api(f"repos/{docs.SOURCE_REPO}/git/ref/heads/main")["object"]["sha"]
+    """Resolve the latest published stable source revision, never development main."""
+    return releases.latest_stable()["sha"]
 
 
 def checkout_code(sha):
@@ -81,6 +82,7 @@ def get_pr(number):
     pr = api(f"repos/{repo()}/pulls/{number}")
     pr["base"]["sha"] = current_base()
     pr["code_sha"] = current_code()
+    pr["source_release"] = releases.latest_stable()
     return pr
 
 
@@ -98,7 +100,7 @@ def eligible(pr):
     key = ":".join(match.groups())
     expected = {prefix + hashlib.sha256(key.encode()).hexdigest()[:16]
                 for prefix in docs.BRANCH_PREFIXES}
-    if pr["head"]["ref"] not in expected:
+    if not any(re.fullmatch(re.escape(branch) + r"(?:-retry-\d+)?", pr["head"]["ref"]) for branch in expected):
         raise ValueError("PR branch does not match its original concern")
     return match.groups()
 
@@ -219,7 +221,7 @@ def signature(pr, details, extra=""):
     # never feed untrusted comment bodies to the model.
     if pr.get('draft'):
         substantive['unresolved_threads'] = sorted(details.get('unresolved_threads', []))
-    return hashlib.sha256(json.dumps(["reader-docs-v2", pr["head"]["sha"], pr["base"]["sha"],
+    return hashlib.sha256(json.dumps(["released-contract-v1", pr["head"]["sha"], pr["base"]["sha"],
                                      pr["code_sha"], pr.get("title"), pr.get("body"), pr.get("draft"), substantive, extra], sort_keys=True).encode()).hexdigest()
 
 
@@ -303,7 +305,10 @@ def select(number, force):
             print(f"Skipping closed PR #{pr['number']}")
             return None
         try:
-            eligible(pr)
+            source, _, _ = eligible(pr)
+            if not releases.contains(source, code):
+                print(f"Deferring PR #{pr['number']}: source change is not in the latest stable release")
+                return None
             details, state, _ = feedback(pr)
         except ValueError as error:
             if number:
@@ -333,6 +338,10 @@ def context(pr):
     docs.mutate_git("fetch", "--no-tags", "origin", base, head)
     # Verify the original concern against an immutable snapshot of current SMG.
     code = checkout_code(pr["code_sha"])
+    if pr.get('source_release'):
+        releases.verify(pr['source_release'])
+        if pr['source_release']['sha'] != code:
+            raise ValueError('Maintenance source must match its pinned stable release')
     try:
         docs.source_git("merge-base", "--is-ancestor", source, code)
     except subprocess.CalledProcessError as error:
@@ -368,6 +377,7 @@ def context(pr):
                                   "new_page_reason": "Preserve the original concern's page scope; reviewer must verify placement."}})
     # Repairs must update the authenticated original branch, including legacy PRs.
     item["branch"] = pr["head"]["ref"]
+    item['source_release'] = pr.get('source_release')
     return {"number": pr["number"], "head": head, "base": base, "code_sha": code, "item": item,
             "files": files, "source_patch": source_patch.splitlines(), "feedback": details, "state": state, "state_id": state_id,
             "extra_feedback": extra, "signature": signature(pr, details, extra),
@@ -393,7 +403,16 @@ def restore(ctx, bundle=None):
 def prepare(number, directory, apply, force):
     """Reserve an operational attempt; charge content only after validation finishes."""
     pr = get_pr(number)
-    eligible(pr)
+    directory.mkdir(parents=True, exist_ok=True)
+    if pr['state'] != 'open':
+        (directory / 'context.json').write_text(json.dumps({'number': number, 'deferred': 'PR is closed'}))
+        output(work='false', cached='false')
+        return
+    source, _, _ = eligible(pr)
+    if not releases.contains(source, pr['code_sha']):
+        (directory / 'context.json').write_text(json.dumps({'number': number, 'deferred': 'Source change is unreleased'}))
+        output(work='false', cached='false')
+        return
     try:
         ctx = context(pr)
         reject_secrets(json.dumps(ctx))
@@ -648,6 +667,8 @@ def main():
         prepare(number, directory, apply, force)
         return
     ctx = json.loads((directory / "context.json").read_text())
+    if command in {"restore", "preflight", "export", "import", "finish"}:
+        docs.verify_item_release(ctx["item"])
     if command == "restore":
         restore(ctx)
     elif command == "preflight":

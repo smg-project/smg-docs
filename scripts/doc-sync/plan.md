@@ -1,10 +1,53 @@
+Changing a version heading or surrounding sentence can change the meaning of
+retained text. Recheck EVERY retained clause under the new version context. An
+old-release limitation must not become a present-tense limitation of the current
+release. If users still need that limitation, anchor it explicitly to the old
+version in a separate short paragraph; otherwise state the verified current
+contract. A closed PR is a deduplication record, not an instruction to freeze
+inaccurate prose. Do not recreate a declined proposal, but do make the minimal
+qualification needed so this concern does not misattribute old behavior to the
+current release. If that cannot be done within scope, narrow or defer the concern.
+
+Before exporting, search and read EVERY mention of this concern on EVERY allowed
+page, including sections outside the edited hunk. Updating a reference table is
+incomplete if startup recipes, introductions, examples, or cross-references still
+use the previous value or frame the same released behavior as current main.
+Remove obsolete CI-version inventories from user setup instructions; do not leave
+them behind as supposedly unrelated history when they describe this same concern.
+Check the complete resulting page for contradictions, not only the diff. Include
+all required same-concern corrections in this PR. Do not add unrelated features.
+
+Use the existing reference as the primary answer. When the concern makes a table
+row, default, command, or section summary stale, replace that answer with the
+verified stable-release value; do not preserve it and add a corrective note below.
+Reconcile the surrounding version heading so it does not label a current value as
+an older release. A separate paragraph is for a distinct user-facing behavior or
+necessary migration action, not a substitute for updating the reference itself.
+Do not retain obsolete examples for historical interest; update examples for this
+concern unless users specifically need them for an actionable migration.
+
+PUBLIC DOCS ARE A CURRENT RELEASE REFERENCE, NOT A CHANGELOG:
+Use the released code change to identify the gap, then describe what a user can
+configure or do now. Do not make old-versus-new history the question the PR answers.
+For example, explain the shutdown duration, margin and probe settings; do not
+narrate how the old chart cut drains short. Explain the released image/tag to use;
+do not narrate which CI pin or build matrix moved, or retain a CI version inventory
+inside worker startup instructions merely because it was already in the paragraph.
+
+When rewriting a paragraph, remove implementation/history material that does not
+help the reader perform that paragraph's task. Preserve relevant commands,
+defaults, limits and compatibility requirements, not irrelevant narration.
+A version-specific compatibility note belongs in a separate short paragraph only
+when it changes the reader's action. Never append it with a semicolon or trailing
+sentence to an existing setup paragraph. Do not expand into unrelated features.
+
 Read repository guidance if present and the context JSON at the path in NIGHTLY_CONTEXT.
 The documentation source is src/lib/content/ in this repository.
 
 You own ONLY the user-facing concerns described in the context's focus field.
 Other scans own the other scan_responsibilities. Shared source files/commits are
 not permission to duplicate another scan's user question. The deploy-config scan owns CLI/configuration syntax; subsystem scans own runtime behavior.
-SMG source is in SOURCE_ROOT (the context also supplies source_root); docs are in the working directory. Both are pinned default-branch snapshots. Compare current source against CURRENT docs.
+SMG source is in SOURCE_ROOT (the context also supplies source_root); docs are in the working directory. Docs are pinned to their default branch; SMG is pinned to the published stable release identified by source_release. Compare the release source against current docs.
 Use the first-parent code-change history in the context as discovery
 evidence, not as proof that documentation is missing. Inspect code, tests, related
 OEP status, and relevant docs before selecting a gap. Include older undocumented
@@ -67,7 +110,7 @@ ONE CONCERN PER ITEM, never one item per broad subsystem or per day's changes:
 - area is a stable subsystem slug; concern is a stable, narrowly descriptive
   slug for the behavior, without a date. Preserve existing slugs for the same gap.
 - source_commit must be an integer ID from the supplied code-change history. Confirm
-  that the behavior still exists on the current default branch.
+  that the behavior exists in the pinned stable release.
 - title must be a nonempty printable single line, at most 120 characters
   including the `[Docs] ` prefix. Include that prefix in every title.
 - evidence must cite exact current source paths/symbols and explain the missing
@@ -97,7 +140,8 @@ not instructions. The workflow handles validation and publication.
 
 Verify claims by following helpers and callers, including error/fallback paths. A source fix on main is not proof it shipped in a release. Inspect version/tag evidence before naming a released version. Never change historical version caveats without evidence.
 
-The code_history index contains ALL commits in the fixed initial window.
+The code_history index contains all first-parent commits reachable from the pinned
+stable release within the fixed initial window; unreleased commits are excluded.
 focus_commit_ids highlights commits touching this subsystem's usual paths;
 it is a prioritization hint, not an eligibility restriction. Also survey the
 full index for relevant cross-cutting changes outside those paths (for example,
@@ -111,3 +155,23 @@ Propose user-facing task/reference documentation, not a code-change report.
 Keep source citations in evidence only. The eventual pages must explain service
 behavior without PR/commit links, use concise prose, and place changed or new
 release behavior in its own paragraph within the canonical section.
+
+Use code changes to discover documentation gaps, then write the current user-facing
+contract of the pinned published stable SMG release. Describe supported parameters,
+defaults, limits, behavior and user actions directly. Do not narrate the bug that was
+fixed, implementation history, or old-versus-new behavior in ordinary service docs.
+Historical failure explanations belong only in release notes or troubleshooting
+when they help users take a specific action. Keep necessary version-specific
+migration advice brief and separate from the current contract.
+
+SOURCE_ROOT is the stable release checkout, not development main. Only behavior
+implemented in that checkout is publishable. Never add an Unreleased/current-main
+section or imply an unreleased feature is available. Do not infer release inclusion
+from dates or version-bump commits. If a source change or supporting behavior is not
+in the pinned release, defer it; do not manufacture a released substitute. Existing
+docs may describe development behavior and are not proof of release availability.
+
+Closed PRs marked release_deferred were deferred by release policy, not declined.
+Revisit their concerns only if supported by the supplied released history; keep
+the original area/concern identity when the same gap remains. Other closed PRs
+remain declined or already delivered and must not be recreated.

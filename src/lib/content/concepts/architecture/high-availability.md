@@ -156,7 +156,7 @@ Router 2 has no workers of its own; it imports router 1's workers through the me
     `--mesh-host`, `--mesh-advertise-host`, and `--mesh-peer-urls` are parsed as socket addresses and never resolved through DNS. A hostname such as `smg-0.smg-mesh:39527` fails at startup: the Python CLI reports `Invalid mesh peer URL`, the Rust binary `Invalid value for field 'mesh_peer_urls'`. With the default `--mesh-host 0.0.0.0`, the router also refuses to start until `--mesh-advertise-host` names a routable IP, so peers never try to dial an unspecified address. On Kubernetes, use [router discovery](#kubernetes-router-discovery) instead of peer URLs.
 
 !!! warning "The mesh port is not authenticated"
-    Mesh traffic is plaintext gRPC and peers are not authenticated: v1.11 has no option to enable TLS on the mesh port. Anything that can reach the mesh port can join the cluster and publish workers to every router, so expose the port only to other routers (for example with a firewall rule or a Kubernetes NetworkPolicy).
+    Mesh traffic is plaintext gRPC and peers are not authenticated: v1.12 has no option to enable TLS on the mesh port. Anything that can reach the mesh port can join the cluster and publish workers to every router, so expose the port only to other routers (for example with a firewall rule or a Kubernetes NetworkPolicy).
 
 ### Python Entrypoint
 
@@ -242,7 +242,7 @@ smg launch --enable-mesh \
 | `ALIVE` | Reachable. Every router starts in this state |
 | `SUSPECTED` | A probe failed: neither the direct ping nor any indirect ping reached the router. Still probed. Router discovery also sets it for a known pod that is not Ready, unless that router is already `DOWN` |
 | `DOWN` | A probe failed again while `SUSPECTED`, or the router's pod was deleted or is terminating. Peers stop probing it |
-| `LEAVING` | The node announced a graceful leave. Peers stop probing it. The v1.11 gateway does not announce it during shutdown |
+| `LEAVING` | The node announced a graceful leave. Peers stop probing it. The v1.12 gateway does not announce it during shutdown |
 | `INIT` | Defined in the protocol but not used |
 
 !!! warning "A `DOWN` router is not probed again"
@@ -258,7 +258,7 @@ smg launch --enable-mesh \
 | Redial backoff after a failed probe of the same peer | 1 second, doubling up to 60 seconds |
 | Sync stream idle timeout | 60 seconds |
 
-These values are fixed; v1.11 has no flags to tune them.
+These values are fixed; v1.12 has no flags to tune them.
 
 ---
 
@@ -356,7 +356,7 @@ Not synchronized: event-driven cache-aware routing (KV events), which each route
 | Key prefix | Channel | Delivery | Carries |
 |------------|---------|----------|---------|
 | `worker:` | CRDT | Last-writer-wins by Lamport timestamp, then replica. Resent until each peer acknowledges; relayed through peers | One key per worker, written only by the router that owns it |
-| `rl:` | CRDT | Epoch-max-wins | Rate-limit counter shards. Registered, but nothing writes to it in v1.11 |
+| `rl:` | CRDT | Epoch-max-wins | Rate-limit counter shards. Registered, but nothing writes to it in v1.12 |
 | `td:` | Stream, broadcast | Best effort, once per gossip round, to directly connected peers | Cache-tree deltas, one entry per model per round |
 | `tree:req:`, `tree:page:` | Stream, targeted | Retried after 5 seconds without progress, up to 3 times | Cache-tree repair requests and pages |
 
@@ -518,7 +518,7 @@ How Pods map to node status:
 ## Monitoring
 
 !!! note "No HTTP API for mesh state"
-    Earlier releases served mesh state under `/ha/*`. Those routes were removed, and v1.11 has no HTTP endpoint for mesh membership or sync state. Use the metrics below, the router logs, and each router's `GET /workers` list.
+    Earlier releases served mesh state under `/ha/*`. Those routes were removed, and v1.12 has no HTTP endpoint for mesh membership or sync state. Use the metrics below, the router logs, and each router's `GET /workers` list.
 
 ### Mesh Metrics
 

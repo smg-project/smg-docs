@@ -1,3 +1,12 @@
+Use the existing reference as the primary answer. When the concern makes a table
+row, default, command, or section summary stale, replace that answer with the
+verified stable-release value; do not preserve it and add a corrective note below.
+Reconcile the surrounding version heading so it does not label a current value as
+an older release. A separate paragraph is for a distinct user-facing behavior or
+necessary migration action, not a substitute for updating the reference itself.
+Do not retain obsolete examples for historical interest; update examples for this
+concern unless users specifically need them for an actionable migration.
+
 Read repository guidance if present and the maintenance context JSON named in the
 invocation. The working directory is pinned SMG docs main with the existing PR's
 Markdown overlaid. The separate SMG checkout is read-only source evidence at

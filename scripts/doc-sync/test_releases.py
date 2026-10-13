@@ -89,6 +89,18 @@ class ReleaseTests(unittest.TestCase):
                 self.assertIn('unreleased', (Path(directory) / 'context.json').read_text())
             feedback.assert_not_called()
 
+    def test_maintenance_rechecks_release_before_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            item = {**docs.validate_item(proposal()), 'source_release': {'id': 12, 'sha': 'a' * 40}}
+            (Path(directory) / 'context.json').write_text(json.dumps({'item': item}))
+            with patch.dict(os.environ, {'MAINTENANCE_DIR': directory}), \
+                    patch('sys.argv', ['maintenance.py', 'finish']), \
+                    patch.object(releases, 'verify', side_effect=ValueError('Pinned release changed')), \
+                    patch.object(maintenance, 'finish') as finish:
+                with self.assertRaisesRegex(ValueError, 'release changed'):
+                    maintenance.main()
+                finish.assert_not_called()
+
     def test_retry_branch_preserves_concern_authentication(self):
         p = pull()
         p['head']['ref'] += '-retry-155'

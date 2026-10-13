@@ -667,6 +667,8 @@ def main():
         prepare(number, directory, apply, force)
         return
     ctx = json.loads((directory / "context.json").read_text())
+    if command in {"restore", "preflight", "export", "import", "finish"}:
+        docs.verify_item_release(ctx["item"])
     if command == "restore":
         restore(ctx)
     elif command == "preflight":

@@ -214,6 +214,7 @@ smg/
 │   ├── radix_tree/             # smg-radix-tree: prefix-membership radix tree
 │   ├── reasoning_parser/       # reasoning-parser: reasoning output extraction
 │   ├── rl/                     # smg-rl: RL control plane
+│   ├── symphony/               # smg-symphony: parses model output into content, reasoning, and tool-call events
 │   ├── tokenizer/              # llm-tokenizer: tokenizers, caching, and chat templates
 │   ├── tool_parser/            # tool-parser: tool-call parsing
 │   ├── wasm/                   # smg-wasm: WebAssembly runtime for plugins
@@ -431,7 +432,7 @@ cargo test --locked -p smg-wasm
 
 The tests named `bellwether_*` in `crates/tokenizer/tests/`, `crates/symphony/tests/`, and `model_gateway/tests/` compare the tokenizer's encode and incremental decode, Symphony's output parsers, and the gateway's chat-template rendering with reference fixtures recorded by [bellwether](https://github.com/smg-project/bellwether): for each model at a pinned Hugging Face revision, what the checkpoint's own template and tokenizer produce. The tests are opt-in: without the `BELLWETHER_FIXTURES` environment variable each one prints a skip notice and passes, so a plain `cargo test` never exercises them.
 
-CI runs them in the `Bellwether Fixtures` workflow when a PR touches the code they judge — `crates/protocols/`, `crates/tokenizer/`, `crates/symphony/`, `model_gateway/src/routers/grpc/`, or the `bellwether_*` test files — or `Cargo.toml`, `Cargo.lock`, or the fixture pin. The fixtures come from the bellwether commit in `.github/versions/bellwether.ref`; a PR that changes that hash runs against the new fixtures.
+CI runs them in the `Bellwether Fixtures` workflow when a PR touches the code they cover — `crates/protocols/`, `crates/tokenizer/`, `crates/symphony/`, `model_gateway/src/routers/grpc/`, or the `bellwether_*` test files — or `Cargo.toml`, `Cargo.lock`, or the fixture pin. The fixtures come from the bellwether commit in `.github/versions/bellwether.ref`; a PR that changes that hash runs against the new fixtures.
 
 To reproduce the lane locally, check out bellwether at the pinned commit and unpack the fixture tree with [uv](https://docs.astral.sh/uv/); bellwether is public, so no token is needed, and the unpack step fetches bellwether's compressed sets itself:
 
@@ -449,7 +450,9 @@ BELLWETHER_FIXTURES=$PWD/.bellwether/fixtures-plain \
   cargo test --locked -p llm-tokenizer -p smg -p smg-symphony --test 'bellwether_*' -- --nocapture
 ```
 
-Keep the three packages in one `cargo test` invocation, as CI does: on the first run the tests download each model's tokenizer files from Hugging Face (into the gitignored `.tokenizer_cache/bellwether/`), and under `cargo test -p llm-tokenizer` alone that download has no TLS backend. Pointing `BELLWETHER_FIXTURES` at bellwether's raw `fixtures/` directory fails the run: its benchmark sets are compressed, and the tests read the unpacked tree only.
+Keep the three packages in one `cargo test` invocation, as CI does: on the first run the tests download each model's tokenizer files from Hugging Face (into the gitignored `.tokenizer_cache/bellwether/`), and under `cargo test -p llm-tokenizer` alone that download has no TLS backend.
+
+Pointing `BELLWETHER_FIXTURES` at bellwether's raw `fixtures/` directory fails the run: its benchmark sets are compressed, and the tests read the unpacked tree only.
 
 ### Python Bindings
 

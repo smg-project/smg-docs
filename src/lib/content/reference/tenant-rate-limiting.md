@@ -6,7 +6,9 @@ title: Tenant Rate Limiting Reference
 
 Precise contract for per-tenant token/request rate limiting: every configuration knob, the YAML policy schema, and the exact response shape. For how it works conceptually — the reserve/settle model, retry handling, `n>1` accounting — see [Tenant Rate Limiting](../concepts/reliability/tenant-rate-limiting.md).
 
-Tenant rate limiting is **disabled by default** and, when enabled, only enforced on the **gRPC router's** Chat, Generate, Completion, Messages, and Decisions endpoints (Harmony-mode chat included). The gRPC router serves both gRPC- and [ZMQ-connected](../getting-started/zmq-workers.md) workers (`--connection-mode zmq`, `ipc://` worker URLs), so enforcement does not depend on the worker transport. It does not apply to the Responses endpoint, embeddings, classify, audio transcriptions, or the HTTP/external-provider routers.
+Tenant rate limiting is **disabled by default** and, when enabled, only enforced on the **gRPC router's** Chat, Generate, Completion, Messages, and Decisions endpoints (Harmony-mode chat included). The gRPC router serves both gRPC- and [ZMQ-connected](../getting-started/zmq-workers.md) workers (`--connection-mode zmq`, `ipc://` worker URLs); for Chat, Generate, Completion, and Messages, enforcement does not depend on the worker transport. Tenant rate limiting does not apply to the Responses endpoint, embeddings, classify, audio transcriptions, or the HTTP/external-provider routers.
+
+Decisions is the one endpoint where the worker transport matters: the gRPC router serves it only on gRPC-connected SGLang workers, and a Decisions request for a model with no such worker is rejected with **501** (`X-SMG-Error-Code: decisions_not_supported`) before any reservation is made.
 
 ---
 

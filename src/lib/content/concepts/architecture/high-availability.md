@@ -497,7 +497,7 @@ smg launch --enable-mesh \
 | Setting | Requirement |
 |---------|-------------|
 | `--enable-mesh` | Required. Without it the router logs `Router selector configured but mesh is not enabled` and skips router discovery |
-| `--service-discovery` | Required. In v1.11 router discovery is configured through service discovery, so `--router-selector` alone does nothing. It also starts worker discovery; set `--selector` for your worker pods |
+| `--service-discovery` | Required. Router discovery is configured through service discovery, so `--router-selector` alone does nothing. It also starts worker discovery; set `--selector` for your worker pods |
 | `--router-selector` | Required. Space-separated `key=value` labels, all of which a Pod must carry. Without a selector, router discovery does not start |
 | `--service-discovery-namespace` | Namespace watched for router Pods, shared with worker discovery. Unset watches all namespaces |
 | `--mesh-server-name` | Must equal the pod name, because discovery registers each peer under its pod name |

@@ -1,3 +1,13 @@
+Changing a version heading or surrounding sentence can change the meaning of
+retained text. Recheck EVERY retained clause under the new version context. An
+old-release limitation must not become a present-tense limitation of the current
+release. If users still need that limitation, anchor it explicitly to the old
+version in a separate short paragraph; otherwise state the verified current
+contract. A closed PR is a deduplication record, not an instruction to freeze
+inaccurate prose. Do not recreate a declined proposal, but do make the minimal
+qualification needed so this concern does not misattribute old behavior to the
+current release. If that cannot be done within scope, narrow or defer the concern.
+
 Before exporting, search and read EVERY mention of this concern on EVERY allowed
 page, including sections outside the edited hunk. Updating a reference table is
 incomplete if startup recipes, introductions, examples, or cross-references still

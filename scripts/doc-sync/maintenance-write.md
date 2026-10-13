@@ -1,3 +1,12 @@
+Before exporting, search and read EVERY mention of this concern on EVERY allowed
+page, including sections outside the edited hunk. Updating a reference table is
+incomplete if startup recipes, introductions, examples, or cross-references still
+use the previous value or frame the same released behavior as current main.
+Remove obsolete CI-version inventories from user setup instructions; do not leave
+them behind as supposedly unrelated history when they describe this same concern.
+Check the complete resulting page for contradictions, not only the diff. Include
+all required same-concern corrections in this PR. Do not add unrelated features.
+
 Use the existing reference as the primary answer. When the concern makes a table
 row, default, command, or section summary stale, replace that answer with the
 verified stable-release value; do not preserve it and add a corrective note below.

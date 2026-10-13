@@ -62,11 +62,13 @@ The engine never sees text, so SMG also does the work that the engine's API serv
 |--------|---------|-------------------------|-------|
 | vLLM | `vllm` | `vllm serve <model> --headless ...` | Assumed when a ZMQ worker declares no runtime |
 | TokenSpeed | `tokenspeed` | `python -m tokenspeed.cli serve --headless ...` | Must be declared. Needs `--grammar-backend` for structured outputs and `--enable-output-logprobs` for logprobs |
-| SGLang | `sglang` | `python -m smg_grpc_servicer.sglang.headless ...` | Must be declared. Newer than v1.11.0. Needs `smg-grpc-servicer[sglang]` (SGLang 0.5.21 or newer): its plugin dials SMG from inside the scheduler, and SGLang itself is unchanged |
+| SGLang | `sglang` | `python -m smg_grpc_servicer.sglang.headless ...` | Must be declared. Needs `smg-grpc-servicer[sglang]` (SGLang 0.5.21 or newer): its plugin dials SMG from inside the scheduler, and SGLang itself is unchanged |
 
 All of these engines use the same handshake, so SMG can't tell which one dialed in. Declare the runtime with `--backend` (startup workers) or `runtime_type` (worker API). A ZMQ worker without a runtime is treated as vLLM, and SMG logs `runtime_type unspecified for ZMQ worker; defaulting to vLLM EngineCore`.
 
-SGLang over ZMQ is newer than v1.11.0. In v1.11.0, `smg serve` accepts `--connection-mode zmq` only with `--backend vllm` or `--backend tokenspeed`, and the gateway rejects any other runtime with `ZMQ worker ... has unsupported runtime ...: only vllm and tokenspeed are supported over the ZMQ direct backend`; on current main the same checks accept `sglang`, and the error names `only vllm, tokenspeed and sglang`. TensorRT-LLM and MLX can't use ZMQ in either version; connect those engines over [gRPC](grpc-workers.md).
+These are the only three ZMQ runtimes: `smg serve` accepts `--connection-mode zmq` only with `--backend vllm`, `--backend tokenspeed`, or `--backend sglang`, and the gateway rejects any other runtime with `ZMQ worker ... has unsupported runtime ...: only vllm, tokenspeed and sglang are supported over the ZMQ direct backend`. TensorRT-LLM and MLX can't use ZMQ; connect those engines over [gRPC](grpc-workers.md).
+
+SGLang over ZMQ requires SMG v1.12.0 or newer.
 
 SMG doesn't check engine versions at connect time, and its decoders accept fields that newer engine releases append. SMG's CI runs the ZMQ suites against vLLM 0.31.0, SGLang 0.5.21, and a pinned TokenSpeed revision.
 
@@ -480,7 +482,7 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
     **Solutions:**
 
     1. `has no model identity`: start SMG with `--model-path` (with `smg serve`, `--router-model-path`), or set a `model_path` label on the worker.
-    2. `has unsupported runtime`: use `vllm`, `tokenspeed`, or `sglang` (`sglang` over ZMQ is newer than v1.11.0).
+    2. `has unsupported runtime`: use `vllm`, `tokenspeed`, or `sglang` (`sglang` over ZMQ needs v1.12.0 or newer).
     3. `would bind handshake address ..., already claimed by worker ...`: two socket paths hash to the same port. Rename one, or set `zmq_handshake_address`.
     4. `zmq_handshake_address must be a tcp:// address` or `ZMQ worker URL must be ipc://<path>`: fix the address or URL.
     5. `cannot serve worker type`: ZMQ workers must be `regular`.

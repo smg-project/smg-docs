@@ -288,7 +288,7 @@ class GitGuardTests(unittest.TestCase):
 
     def test_reader_docs_allow_documentation_and_release_links(self):
         self.path.write_text('Configure the byte budget.\n\n'
-            'Unreleased: oversized inputs are not cached.\n\n'
+            'Oversized inputs are not cached.\n\n'
             '[Cache sizing](../sizing.md) and '
             '[Release](https://github.com/smg-project/smg/releases/tag/v1.12.0).\n')
         docs.validate_diff(self.item, self.base)
@@ -380,7 +380,8 @@ class GitGuardTests(unittest.TestCase):
         source = self.git("rev-parse", "HEAD")
         with tempfile.TemporaryDirectory() as directory, \
                 patch.object(docs, "existing_prs", return_value=[]), \
-                patch.dict(os.environ, {"SOURCE_ROOT": os.getcwd()}):
+                patch.object(docs.releases, "verify"), \
+                patch.dict(os.environ, {"SOURCE_ROOT": os.getcwd(), "SMG_RELEASE_JSON": json.dumps({"sha": source})}):
             output = Path(directory) / "context.json"
             docs.prepare("test/repo", output)
             context = json.loads(output.read_text())
@@ -405,16 +406,17 @@ class GitGuardTests(unittest.TestCase):
                 env = {"SOURCE_ROOT": os.getcwd(), "GITHUB_REPOSITORY": "test/repo",
                        "NIGHTLY_CONTEXT": str(root / "context.json"), "MAX_PRS": "100",
                        "NIGHTLY_ITEM": str(root / "item.json"), "BASE_SHA": self.base,
-                       "ITEM_JSON": json.dumps(proposal(source_sha=source)), "PLAN_REPORT": ""}
+                       "ITEM_JSON": json.dumps(proposal(source_sha=source, source_release={"sha": source})), "PLAN_REPORT": "",
+                       "SMG_RELEASE_JSON": json.dumps({"sha": source})}
                 if command == 'evidence-report':
-                    report = {'base_sha': self.base, 'source_sha': source,
+                    report = {'base_sha': self.base, 'source_sha': source, 'source_release': {'sha': source},
                               'selected': [proposal(source_sha=source)]}
                     (root / 'report.json').write_text(json.dumps(report))
                     env.update(PLAN_REPORT='report.json', RUNNER_TEMP=str(root),
                                ITEM_INDEX='0', SOURCE_SHA=source, ITEM_JSON='invalid legacy input')
                 with patch.dict(os.environ, env), \
                         patch("sys.argv", ["nightly_docs.py", "evidence" if command == "evidence-report" else command]), \
-                        patch.object(docs, "existing_prs", return_value=[]):
+                        patch.object(docs, "existing_prs", return_value=[]), patch.object(docs.releases, "verify"):
                     docs.main()
                 output = (root / "nightly-docs-sources" / f"{source}.patch"
                           if command == "context" else root / "nightly-docs-source.patch")

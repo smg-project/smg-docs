@@ -29,6 +29,8 @@ env:
 
 jobs:
   prepare:
+    env:
+      GH_TOKEN: ${{ github.token }}
     runs-on: smg-org-runner-cpu
     timeout-minutes: 15
     permissions:

@@ -160,7 +160,7 @@ def deferred_queue(scans, deferred, prs):
                 continue
             # Keep file-blocked work, but never queue an already-open,
             # merged, or deliberately declined instance of this concern.
-            if any(f"{docs.MARKER}{item['key']} -->" in pr['body'] or item['branch'] == pr['branch']
+            if any(docs.same_concern(item, pr)
                    for pr in prs):
                 continue
             queued_concerns.append(item)
@@ -184,6 +184,7 @@ def build_report(scans, context):
         queued = prior + queued
     queued = pending_candidates(queued, context)
     return {'base_sha': context['base_sha'], 'source_sha': context['source_sha'],
+            'source_release': context.get('source_release'),
             'source_repo': docs.SOURCE_REPO, 'initial_since': docs.INITIAL_SINCE,
             'eligible_commits': len(context['code_history']),
             'available_pr_slots': context.get('max_prs', docs.MAX_PRS),
@@ -204,7 +205,7 @@ def pending_candidates(proposals, context):
     for proposal in proposals:
         item = docs.validate_item(proposal)
         identity = (item['area'], item['concern'])
-        if any(f"{docs.MARKER}{item['key']} -->" in pr['body'] or item['branch'] == pr['branch']
+        if any(docs.same_concern(item, pr)
                for pr in context.get('existing_prs', [])):
             continue
         if item['source_sha'] in history and identity not in seen:

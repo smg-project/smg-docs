@@ -13,6 +13,8 @@ import re
 import subprocess
 import tempfile
 
+import releases
+
 
 DOC_ROOT = "src/lib/content/"
 SOURCE_REPO = "smg-project/smg"
@@ -24,6 +26,7 @@ SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 MARKER = "<!-- nightly-docs:"
 BRANCH_PREFIXES = ("docs/nightly-docs-", "codex/nightly-docs-")
 HISTORY_BRANCH_PREFIXES = ("docs/smg-sync-",) + BRANCH_PREFIXES
+DEFERRED_LABEL = "docs-awaiting-release"
 REVIEW_GATES = ("single_concern", "accurate", "placement_appropriate", "related_docs_consistent")
 
 
@@ -166,16 +169,30 @@ def existing_prs(repo):
         result.append({"number": pr["number"], "title": pr["title"], "created_at": pr["created_at"],
                        "body": body, "state": pr["state"],
                        "merged": bool(pr["merged_at"]),
-                       "branch": pr["head"]["ref"], "files": files_by_pr.get(pr["number"], [])})
+                       "branch": pr["head"]["ref"], "files": files_by_pr.get(pr["number"], []),
+                       "release_deferred": pr["state"] == "closed" and not pr["merged_at"]
+                       and any(label["name"] == DEFERRED_LABEL for label in pr.get("labels", []))})
     return result
 
 
-def covered(item, prs):
+def same_concern(item, pr):
+    if pr.get('release_deferred'):
+        return False
     marker = f'{MARKER}{item["key"]} -->'
-    branches = {prefix + hashlib.sha256(item["key"].encode()).hexdigest()[:16]
-                for prefix in BRANCH_PREFIXES}
+    digest = hashlib.sha256(item['key'].encode()).hexdigest()[:16]
+    return marker in pr['body'] or any(re.fullmatch(re.escape(prefix + digest) + r'(?:-retry-\d+)?', pr['branch'])
+                                      for prefix in BRANCH_PREFIXES)
+
+
+def publication_branch(item, prs):
+    deferred = [pr['number'] for pr in prs if pr.get('release_deferred')
+                and f'{MARKER}{item["key"]} -->' in pr['body']]
+    return item['branch'] + (f'-retry-{max(deferred)}' if deferred else '')
+
+
+def covered(item, prs):
     for pr in prs:
-        if marker in pr["body"] or pr["branch"] in branches:
+        if same_concern(item, pr):
             return True
         if pr["state"] == "open" and set(item["doc_paths"]) & set(pr["files"]):
             return True
@@ -194,6 +211,10 @@ def daily_remaining(prs, today=None):
 def prepare(repo, output):
     # A fixed initial cutoff keeps unfinished work eligible as the backlog ages.
     source_sha = source_git("rev-parse", "HEAD")
+    release = json.loads(os.environ['SMG_RELEASE_JSON'])
+    releases.verify(release)
+    if release['sha'] != source_sha:
+        raise ValueError('Source checkout must match the pinned stable release')
     history = source_git("log", "--first-parent", "--since=" + INITIAL_SINCE,
                         "--format=%H %cs %s", source_sha)
     sources = Path(output).parent / "nightly-docs-sources"
@@ -206,7 +227,7 @@ def prepare(repo, output):
     if not 1 <= requested <= MAX_PRS:
         raise ValueError("max_prs must be between 1 and 100")
     context = {"base_sha": git("rev-parse", "HEAD"), "source_sha": source_sha,
-               "source_repo": SOURCE_REPO, "source_root": os.environ["SOURCE_ROOT"],
+               "source_release": release, "source_repo": SOURCE_REPO, "source_root": os.environ["SOURCE_ROOT"],
                "initial_since": INITIAL_SINCE, "requested_max_prs": requested, "max_prs": min(requested, daily_remaining(prs)),
                "code_history": history.splitlines(), "source_diffs": str(sources),
                "existing_prs": prs, "doc_inventory": doc_inventory("HEAD"),
@@ -284,11 +305,22 @@ def planned_item(report, index, base, source):
     if (not isinstance(selected, list) or type(index) is not int
             or not 0 <= index < len(selected)):
         raise ValueError('Invalid plan item index')
-    return validate_item(selected[index])
+    return {**validate_item(selected[index]), "source_release": report.get("source_release")}
+
+
+def verify_item_release(item):
+    release = item.get('source_release')
+    if not release:
+        raise ValueError('Missing pinned stable release evidence')
+    releases.verify(release)
+    if source_git('rev-parse', 'HEAD') != release['sha']:
+        raise ValueError('Source checkout does not match the pinned stable release')
+    source_git('merge-base', '--is-ancestor', item['source_sha'], release['sha'])
 
 
 def reader_doc_violations(base):
     """Locate citations on added lines so the writer can make a bounded repair."""
+    unreleased = re.compile(r"\bunreleased\b|\bcurrent main\b|\bnot yet (?:in |part of )?(?:a |any )?release", re.IGNORECASE)
     citation = re.compile(
         r"github\.com/[^/\s)]+/[^/\s)]+/(?:pull|issues|commit|commits|compare|blob)/"
         r"|\b[\w.-]+/[\w.-]+#\d+"
@@ -303,6 +335,8 @@ def reader_doc_violations(base):
             elif number is not None and line.startswith('+'):
                 if citation.search(line[1:]):
                     violations.append({'path': path, 'line': number, 'rule': 'code-change-reference'})
+                if unreleased.search(line[1:]):
+                    violations.append({'path': path, 'line': number, 'rule': 'unreleased-behavior'})
                 number += 1
             elif number is not None and line.startswith(' '):
                 number += 1
@@ -314,7 +348,7 @@ def validate_reader_docs(base):
     violations = reader_doc_violations(base)
     if violations:
         locations = ', '.join(f"{v['path']}:{v['line']}" for v in violations[:20])
-        raise ValueError("Documentation must explain service behavior without code-change references: " + locations)
+        raise ValueError("Documentation must explain service behavior without code-change references or unreleased behavior: " + locations)
 
 
 def reader_docs_preflight(item, base, report):
@@ -405,7 +439,7 @@ def publish(item, repo, base, base_branch):
     validate_reader_docs(base)
     # Never overwrite an existing branch, even after a prior push/PR API failure.
     # In that case reuse it only if its exact tree and parent match this run.
-    branch = item["branch"]
+    branch = publication_branch(item, prs)
     tree = git("write-tree")
     remote = git("ls-remote", "--heads", "origin", f"refs/heads/{branch}")
     if remote:
@@ -431,6 +465,8 @@ def publish(item, repo, base, base_branch):
 ## Why we need it
 
 Source change: https://github.com/{SOURCE_REPO}/commit/{item["source_sha"]}
+
+Documentation targets the pinned published stable release.
 
 {item["evidence"]}
 
@@ -482,6 +518,7 @@ def main():
                                 int(os.environ['ITEM_INDEX']), base, os.environ['SOURCE_SHA'])
         else:
             item = validate_item(json.loads(os.environ["ITEM_JSON"]))
+        verify_item_release(item)
         if args.command == "evidence":
             path = Path(os.environ["NIGHTLY_ITEM"])
             path.write_text(json.dumps(item) + "\n")

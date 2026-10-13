@@ -1,3 +1,18 @@
+PUBLIC DOCS ARE A CURRENT RELEASE REFERENCE, NOT A CHANGELOG:
+Use the released code change to identify the gap, then describe what a user can
+configure or do now. Do not make old-versus-new history the question the PR answers.
+For example, explain the shutdown duration, margin and probe settings; do not
+narrate how the old chart cut drains short. Explain the released image/tag to use;
+do not narrate which CI pin or build matrix moved, or retain a CI version inventory
+inside worker startup instructions merely because it was already in the paragraph.
+
+When rewriting a paragraph, remove implementation/history material that does not
+help the reader perform that paragraph's task. Preserve relevant commands,
+defaults, limits and compatibility requirements, not irrelevant narration.
+A version-specific compatibility note belongs in a separate short paragraph only
+when it changes the reader's action. Never append it with a semicolon or trailing
+sentence to an existing setup paragraph. Do not expand into unrelated features.
+
 Read repository guidance if present and the single concern JSON in NIGHTLY_ITEM.
 Read the supplied source-commit patch, current implementation and tests under SOURCE_ROOT, and docs in the working directory.
 Update ONLY the listed doc_paths to address exactly this one concern.

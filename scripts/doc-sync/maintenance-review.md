@@ -9,7 +9,7 @@ Reject if any same-concern correction is missing, including a required page
 outside the allowlist. Reject unverified defaults, redundant SMG version framing,
 PR/code references, historical failure narratives or unrelated changes. Search
 related working-version pages; released snapshots can legitimately differ.
-For version-context-* cleanup the source commit is a verification baseline;
+For `version-context-*` cleanup the source commit is a verification baseline;
 otherwise verify that it introduced the documented behavior.
 
 Mark a thread addressed only when EVERY substantive concern is fixed and verified.

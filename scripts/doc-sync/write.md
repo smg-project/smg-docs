@@ -6,7 +6,7 @@ pages and all same-concern mentions, including tables, introductions and example
 If required corrections lie outside the allowlist, leave the tree unchanged and
 explain which paths are missing. Never knowingly export an incomplete fix.
 
-For version-context-* concerns, verify behavior against the pinned checkout and
+For `version-context-*` concerns, verify behavior against the pinned checkout and
 remove redundant release framing; the chosen source commit is the verification
 baseline, not necessarily the introducing change. Otherwise verify the primary
 source patch actually introduces the documented behavior. Unsupported, already

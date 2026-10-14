@@ -326,6 +326,8 @@ A failed shared-memory write falls back to inline and is counted in `smg_mm_shm_
 | SGLang, TensorRT-LLM (gRPC) | :material-check: | Inline only | Inline only |
 | vLLM, TokenSpeed (direct ZMQ) | :material-check: | Inline only | Inline only |
 
+SGLang workers reached over the direct ZMQ backend take no media on any transport mode (see [Direct ZMQ Backends](#direct-zmq-backends)).
+
 ### RDMA Pixel Lane
 
 The RDMA lane stages each pixel tensor in a pre-registered host-memory arena and hands the TokenSpeed worker a small descriptor; the worker pulls the pixels with a one-sided RDMA read.
@@ -346,7 +348,9 @@ vLLM workers receive the pixel tensor as float32 unless `SMG_VLLM_ENCODER_INPUT_
 
 ### Direct ZMQ Backends
 
-vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-preprocessed media, sent inline (smg-project/smg#2056, #2539). Media references, shared memory, and RDMA are not available on this wire. TokenSpeed over ZMQ refuses media whose tensors include `image_grid_thw` or `video_grid_thw` (the M-RoPE families, such as Qwen-VL); serve those models over gRPC. See [ZMQ Workers](../../getting-started/zmq-workers.md).
+vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-preprocessed media, sent inline. Media references, shared memory, and RDMA are not available on this wire. TokenSpeed over ZMQ refuses media whose tensors include `image_grid_thw` or `video_grid_thw` (the M-RoPE families, such as Qwen-VL); serve those models over gRPC.
+
+SGLang workers reached over the direct ZMQ backend take no media: a request with images — the one modality SGLang takes over gRPC — is refused with a 400 (`multimodal inputs are not supported over the SGLang ZMQ backend yet`). Serve vision SGLang models over gRPC. See [ZMQ Workers](../../getting-started/zmq-workers.md).
 
 ### Prefill-Decode Disaggregation
 

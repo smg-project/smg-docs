@@ -32,12 +32,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-check:
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 10
+    outputs:
+      needed: ${{ steps.release.outputs.needed }}
+      release: ${{ steps.release.outputs.release }}
+      base: ${{ steps.base.outputs.sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/docs-maintenance-setup
+        with:
+          source-ref: ''
+      - name: Pin documentation base
+        id: base
+        run: echo "sha=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+      - name: Detect a newly published release needing a snapshot audit
+        id: release
+        run: python3 scripts/doc-sync/snapshots.py detect
+
+  release-snapshot:
+    needs: release-check
+    if: needs.release-check.outputs.needed == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/docs-release-snapshot.yml
+    with:
+      release-json: ${{ needs.release-check.outputs.release }}
+      docs-sha: ${{ needs.release-check.outputs.base }}
+      dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets: inherit
+
   prepare:
+    needs: release-check
     permissions:
       actions: read
       contents: read
       pull-requests: read
-    if: github.repository == 'smg-project/smg-docs' && (github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    if: needs.release-check.outputs.needed != 'true' && github.repository == 'smg-project/smg-docs' && (github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: smg-org-runner-cpu
     timeout-minutes: 45
     outputs:
@@ -84,6 +123,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm exec wrangler types
+          pnpm test:docs
           pnpm check
           pnpm build
       - name: Gather code history and existing documentation PRs
@@ -441,6 +481,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm exec wrangler types
+          pnpm test:docs
           pnpm check
           pnpm build
       - name: Publish one documentation PR

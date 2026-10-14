@@ -5,7 +5,7 @@ inputs:
     description: Immutable docs default-branch commit to document
     required: true
   source-ref:
-    description: Immutable SMG release commit (empty resolves latest stable release)
+    description: Immutable SMG commit (empty resolves main)
     default: ''
 outputs:
   source-sha:
@@ -45,11 +45,11 @@ runs:
       run: |
         python3 -m unittest discover -s scripts/doc-sync -p 'test_*.py' -q
         python3 scripts/doc-sync/prepare_source.py "$SOURCE_SHA" "$RUNNER_TEMP/nightly-docs-tools"
-    - name: Resolve the latest published stable SMG release
+    - name: Resolve the current SMG main revision
       if: inputs.source-ref == ''
       id: release
       shell: bash
-      run: python3 "$RUNNER_TEMP/nightly-docs-tools/releases.py"
+      run: python3 "$RUNNER_TEMP/nightly-docs-tools/releases.py" --main
     - uses: actions/checkout@v7
       with:
         repository: smg-project/smg

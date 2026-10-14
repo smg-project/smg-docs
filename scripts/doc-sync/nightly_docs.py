@@ -163,7 +163,7 @@ def existing_prs(repo):
     result = []
     for pr in prs:
         body = pr.get("body") or ""
-        if pr["state"] != "open" and not (MARKER in body or LEGACY_MARKER in body
+        if pr["state"] != "open" and not (MARKER in body or "<!-- docs-release-sync:" in body or LEGACY_MARKER in body
                 or pr["head"]["ref"].startswith(HISTORY_BRANCH_PREFIXES)):
             continue
         result.append({"number": pr["number"], "title": pr["title"], "created_at": pr["created_at"],
@@ -202,7 +202,7 @@ def covered(item, prs):
 def daily_remaining(prs, today=None):
     today = today or datetime.now(timezone.utc).date().isoformat()
     used = sum(pr.get("created_at", "").startswith(today) and
-               (MARKER in pr["body"] or LEGACY_MARKER in pr["body"] or
+               (MARKER in pr["body"] or "<!-- docs-release-sync:" in pr["body"] or LEGACY_MARKER in pr["body"] or
                 pr["branch"].startswith(HISTORY_BRANCH_PREFIXES))
                for pr in prs)
     return max(0, MAX_PRS - used)
@@ -211,9 +211,11 @@ def daily_remaining(prs, today=None):
 def prepare(repo, output):
     # A fixed initial cutoff keeps unfinished work eligible as the backlog ages.
     source_sha = source_git("rev-parse", "HEAD")
-    release = json.loads(os.environ['SMG_RELEASE_JSON'])
-    releases.verify(release)
-    if release['sha'] != source_sha:
+    target = json.loads(os.environ.get('SMG_SOURCE_JSON', 'null'))
+    release = json.loads(os.environ.get('SMG_RELEASE_JSON', 'null')) if not target else None
+    if release:
+        releases.verify(release)
+    if (target or release or {}).get('sha') != source_sha:
         raise ValueError('Source checkout must match the pinned stable release')
     history = source_git("log", "--first-parent", "--since=" + INITIAL_SINCE,
                         "--format=%H %cs %s", source_sha)
@@ -227,7 +229,7 @@ def prepare(repo, output):
     if not 1 <= requested <= MAX_PRS:
         raise ValueError("max_prs must be between 1 and 100")
     context = {"base_sha": git("rev-parse", "HEAD"), "source_sha": source_sha,
-               "source_release": release, "source_repo": SOURCE_REPO, "source_root": os.environ["SOURCE_ROOT"],
+               "source_release": release, "source_target": target, "source_repo": SOURCE_REPO, "source_root": os.environ["SOURCE_ROOT"],
                "initial_since": INITIAL_SINCE, "requested_max_prs": requested, "max_prs": min(requested, daily_remaining(prs)),
                "code_history": history.splitlines(), "source_diffs": str(sources),
                "existing_prs": prs, "doc_inventory": doc_inventory("HEAD"),
@@ -305,10 +307,19 @@ def planned_item(report, index, base, source):
     if (not isinstance(selected, list) or type(index) is not int
             or not 0 <= index < len(selected)):
         raise ValueError('Invalid plan item index')
-    return {**validate_item(selected[index]), "source_release": report.get("source_release")}
+    return {**validate_item(selected[index]), "source_release": report.get("source_release"),
+            "source_target": report.get("source_target")}
 
 
 def verify_item_release(item):
+    target = item.get('source_target')
+    if target:
+        if target.get('version') != 'main' or not re.fullmatch(r'[0-9a-f]{40}', target.get('sha', '')):
+            raise ValueError('Invalid pinned main source')
+        if source_git('rev-parse', 'HEAD') != target['sha']:
+            raise ValueError('Source checkout does not match pinned main')
+        source_git('merge-base', '--is-ancestor', item['source_sha'], target['sha'])
+        return
     release = item.get('source_release')
     if not release:
         raise ValueError('Missing pinned stable release evidence')
@@ -466,7 +477,7 @@ def publish(item, repo, base, base_branch):
 
 Source change: https://github.com/{SOURCE_REPO}/commit/{item["source_sha"]}
 
-Documentation targets the pinned published stable release.
+Documentation targets SMG main; the site version selector supplies version context.
 
 {item["evidence"]}
 

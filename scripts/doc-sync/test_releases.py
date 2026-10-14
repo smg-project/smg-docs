@@ -75,7 +75,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertEqual(result[0]['release_deferred'], merged is None)
             self.assertEqual(docs.daily_remaining(result, '2026-10-12'), 99)
 
-    def test_maintenance_skips_unreleased_before_feedback_or_retry_budget(self):
+    def test_maintenance_skips_changes_outside_main_before_feedback_or_retry_budget(self):
         with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'smg-project/smg-docs', 'EXTRA_FEEDBACK': ''}), \
                 patch.object(maintenance, 'get_pr', return_value=pull()), \
                 patch.object(maintenance, 'current_base', return_value='b' * 40), \
@@ -87,7 +87,7 @@ class ReleaseTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 maintenance.prepare(7, Path(directory), True, True)
                 self.assertEqual(output.call_args.kwargs['work'], 'false')
-                self.assertIn('unreleased', (Path(directory) / 'context.json').read_text())
+                self.assertIn('not in SMG main', (Path(directory) / 'context.json').read_text())
             feedback.assert_not_called()
 
     def test_maintenance_rechecks_release_before_publication(self):

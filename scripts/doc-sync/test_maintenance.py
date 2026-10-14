@@ -647,6 +647,19 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(self.path.read_text(), 'Unfixed PR\n')
         self.assertEqual(self.code_git('rev-parse', 'HEAD'), self.source)
 
+    def test_large_source_evidence_is_preserved_without_exhausting_budget(self):
+        pr = self.pull(self.item, self.head)
+        evidence = '+' + 'x' * (3 * 1024 * 1024)
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'smg-project/smg-docs',
+                'GITHUB_SHA': 'c' * 40, 'GITHUB_RUN_ID': '1'}), \
+                patch.object(m.docs, 'mutate_git'), \
+                patch.object(m.docs, 'source_patch', return_value=evidence), \
+                patch.object(m, 'feedback', return_value=({'threads': []}, {}, None)):
+            ctx = m.context(pr)
+        self.assertEqual(ctx['source_patch'], [evidence])
+        self.assertEqual(ctx['item']['source_target']['version'], 'main')
+        self.assertTrue(m.restore(ctx))
+
     def test_legacy_context_and_repair_preserve_original_branch(self):
         legacy = self.item["branch"].replace("docs/", "codex/", 1)
         self.git('push', '-q', 'origin', self.head + ':refs/heads/' + legacy)

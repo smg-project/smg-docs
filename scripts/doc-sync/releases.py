@@ -46,7 +46,24 @@ def contains(source, release_sha):
     return result['status'] in {'ahead', 'identical'}
 
 
+@lru_cache(maxsize=1)
+def main_source():
+    sha = api(f'repos/{REPO}/commits/main')['sha']
+    if not re.fullmatch(r'[0-9a-f]{40}', sha):
+        raise ValueError('SMG main did not resolve to an immutable commit')
+    return {'version': 'main', 'sha': sha}
+
+
 if __name__ == '__main__':
+    import sys
+    if '--main' in sys.argv:
+        target = main_source()
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+            out.write(f'sha={target["sha"]}\n')
+        with open(os.environ['GITHUB_ENV'], 'a') as out:
+            out.write('SMG_SOURCE_JSON=' + json.dumps(target) + '\n')
+        print(f'Pinned SMG main: {target["sha"]}')
+        sys.exit(0)
     release = latest_stable()
     with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
         out.write(f'sha={release["sha"]}\n')

@@ -1,10 +1,10 @@
 # Nightly SMG documentation sync
 
-The editable `src/lib/content/` tree is published as **main** documentation.
-Release snapshots live separately under `src/lib/versions/` and are outside this
-pipeline's write scope. This pipeline still checks stable-release evidence only;
-unreleased main-branch changes need a separate documentation review. See the
-[versioning workflow](../../README.md#documentation-versions).
+The editable `src/lib/content/` tree is **main** documentation, backed by a
+pinned SMG main commit, including merged changes that have not shipped yet.
+Release snapshots under `src/lib/versions/` have an independent release audit.
+The selector/banner supplies version context; behavior prose describes the
+selected version directly. See [versioning](../../README.md#documentation-versions).
 
 The workflow runs at **09:43 UTC daily** (01:43 PST / 02:43 PDT), on
 `smg-org-runner-cpu`. Discovery, writing, and independent review use Claude Code
@@ -19,7 +19,7 @@ pass, and never merges them. Maintenance can also promote validated drafts once 
 Adapted from [OME's nightly documentation workflow](https://github.com/ome-projects/ome/blob/776fbe3b4be9e826be3404699886543d83e8e380/.github/workflows/nightly-docs.yml):
 
 1. **Prepare:** preserve tools from the dispatched workflow revision, pin both
-   docs default branch and latest published stable SMG release snapshots, check/build the base docs, and collect
+   docs default branch and SMG main snapshots, check/build the base docs, and collect
    source patches and existing PRs.
 2. **Discover:** eight subsystem scans, at most four in parallel, inspect history,
    current implementation/tests, and current documentation. Each sees the full
@@ -54,10 +54,11 @@ Generated pages must be concise, self-contained service documentation. Source
 PRs, issues, commits, and code links belong in PR metadata, not reader-facing
 prose. A deterministic guard rejects code-change citations in added or rewritten
 lines. Independent review also checks clarity, concision, and paragraph structure.
-New or changed release behavior gets its own paragraph in the canonical section;
-release versions require evidence. Unshipped changes are deferred without opening
-public-doc PRs. Use code changes to find gaps, then explain the current released
-user-facing contract. Historical failure explanations belong in release notes or
+New or changed behavior gets its own paragraph in the canonical section.
+Merged-but-unreleased changes belong only in main docs. The selector supplies
+version context; remove redundant SMG release qualifiers while preserving
+working install tags and engine compatibility requirements. Use code changes
+to find gaps, then explain the selected version’s user-facing contract. Historical failure explanations belong in release notes or
 troubleshooting only when they help a user take a specific action.
 Maintenance applies the same policy and invalidates older cached verdicts.
 
@@ -65,8 +66,8 @@ Maintenance applies the same policy and invalidates older cached verdicts.
 
 - The initial source cutoff is **2026-06-27T00:00:00Z**, the requested 90-day
   lookback at setup. It is fixed, not rolling; older unfinished work stays eligible.
-  Every run supplies all first-parent commits since then reachable from the latest
-  published stable release tag. New commits become eligible when released.
+  Every main run supplies all first-parent commits since then reachable from its
+  pinned SMG main revision. Merged commits become eligible immediately for main docs.
   There is no 20-commit cap or success cursor. Runtime/turn budgets still bound
   inspection; reported coverage is model self-reporting, not proof of completeness.
 - Each PR fixes **one concrete user question or stale claim** from one primary
@@ -99,7 +100,7 @@ Maintenance applies the same policy and invalidates older cached verdicts.
 ## Manual runs and reports
 
 Dispatch `nightly-doc-sync.yml` on a working branch to test its automation against
-current main docs and the latest stable SMG release. `dry_run` defaults to true; set it to false to publish.
+current main docs and SMG main (or the new published release for snapshot runs). `dry_run` defaults to true; set it to false to publish.
 `discovery_shard` optionally selects one subsystem for a targeted validation run;
 omitting it runs all eight scans. `max_prs` accepts 1–100 and cannot override the shared daily cap. The old
 `max_commits` input is removed so the full initial window stays available.
@@ -169,7 +170,7 @@ nightly PRs, including drafts, and runs at most four workers concurrently on
 `smg-org-runner-cpu`, using Fable with the same model and effort as discovery.
 
 Each worker authenticates the bot author, same-repository branch and full concern
-marker; pins docs main, the latest stable SMG release, PR head and feedback; supplies the introducing source
+marker; pins docs main, SMG main, PR head and feedback; supplies the introducing source
 commit diff; overlays only the original
 PR's Markdown onto trusted docs main; and repairs that single concern. New files
 outside the original PR are forbidden. The full PR still must be below 1,000
@@ -219,27 +220,52 @@ and scoped contents/pull-requests/checks write permissions for publication.
 Nightly and maintenance writers run a preflight check before exporting Markdown.
 It records the draft diff and path/line diagnostics for code-change citations.
 Every nonempty draft gets one focused Fable editing pass to repair citations,
-separate release notes, and shorten dense implementation narration. No-change
+remove redundant version narration, and shorten dense implementation explanations. No-change
 writers skip it. The original draft/diagnostics are retained as an artifact.
 Export still rejects remaining citations, scope/size violations are immediately
 fatal, and independent review and site checks remain mandatory. Untouched legacy
 citations are not rejected. The editor may only change the original concern.
 
-## Stable-release baseline
+## Version routing and release snapshots
 
-Both workflows resolve GitHub's latest published non-draft, non-prerelease SMG
-release and dereference its tag to an immutable SHA. They fail closed if no stable
-release can be resolved; they never fall back to main or use target_commitish as
-the release revision. Nightly reports retain the release identity, and publication
-checks its identity and the introducing commit's ancestry. Maintenance skips
-unreleased concerns before spending model/retry budget and reviews released PRs
-against the same stable baseline. A new release invalidates cached reviews.
+Before ordinary discovery, `snapshots.py detect` resolves GitHub's latest published
+non-draft, non-prerelease SMG tag. It never treats a prepared folder as proof of a
+release. A latest release older than the newest registered docs version leaves
+that prepared version untouched (for example v1.12.0 while v1.13.0 is prepared).
+When that prepared version actually ships, it is audited despite already existing.
 
-Newly added Unreleased/current-main prose is rejected by the deterministic writing
-guard. Existing unrelated legacy prose is not swept into a one-concern PR.
-Closed, unmerged nightly PRs labeled `docs-awaiting-release` remain in history for
-daily quota accounting but do not suppress future discovery. Only concerns that
-exist in the released history can return; genuinely declined and merged PRs remain
-excluded. Rediscovered concerns use a fresh `docs/*` branch with a retry suffix,
-so a deferred branch is never overwritten. No automatic closure is performed by
-the workflows; maintainers decide which existing PRs to defer.
+`docs-release-snapshot.yml` reconciles a newly published tag when its `sync.json`
+does not record the same verified release identity. It preserves existing snapshot
+Markdown and images, copies missing pages/assets from main, and freezes navigation
+and aliases. Writers audit six pages per batch against the immutable release
+checkout: remove main-only behavior, correct stale claims, and add missing released
+behavior. Every page, including unchanged pages, requires independent review.
+All writer batches are assembled before reviewers check cross-page consistency.
+Only data crosses into pristine review/publication jobs. Missing, rejected,
+wrong-base or altered bundles block the entire snapshot PR. Unsupported pages
+may be removed along with their navigation entry; dangling links fail site tests.
+
+All-version page/link/navigation tests, type checks and the production build must
+pass. Publication rechecks release identity, docs main freshness and daily quota.
+A release PR uses `docs/release-vX.Y.Z-<sha>` and contains one release lifecycle
+concern, including the mechanical snapshot copy. This whole-snapshot operation
+is exempt from the ordinary 999-line cap; normal main/maintenance PRs retain it.
+No automatic merge occurs. The snapshot's `sync.json` becomes durable only after
+merge. An open release PR suppresses duplicates while main documentation can
+continue; a newer release gets a separate audit. Closed release branches are never
+force-overwritten and require inspection before reuse. Older snapshots remain fixed.
+
+On nights without a new release requiring work, only main is audited. Discovery
+also proposes bounded `version-context-*` cleanup concerns so pre-versioning prose
+is gradually reconciled against current code. Their source commit is a verification
+baseline, not necessarily the introducing change. Main source evidence is immutable
+within a run, and every introducing change must be its ancestor. Maintenance uses
+the same main contract and does not apply ordinary concern repairs to whole-release
+snapshot PRs, which have their own complete review pipeline.
+
+New Unreleased/current-main labels and code-change citations remain forbidden in
+prose: the main banner already communicates development status. Literal versions
+in commands, image tags and compatibility requirements remain useful. Closed
+`docs-awaiting-release` concerns can now return for main docs; declined/merged
+concerns remain deduplicated. The source patch is kept in full for focused reads,
+including commits larger than 2 MiB. The document line limit is unchanged.

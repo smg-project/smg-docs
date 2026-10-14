@@ -1,0 +1,360 @@
+"""Audit one published release snapshot without trusting model-written tooling."""
+
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import subprocess
+import sys
+import tempfile
+
+import nightly_docs as docs
+import releases
+
+REGISTRY = 'src/lib/config/docs-releases.json'
+MARKER = '<!-- docs-release-sync:'
+SECTIONS = {'getting-started', 'concepts', 'reference', 'contributing'}
+BATCH_SIZE = 6
+
+
+def version_key(tag):
+    if not isinstance(tag, str) or not re.fullmatch(r'v\d+\.\d+\.\d+', tag):
+        raise ValueError('Expected a stable vX.Y.Z version')
+    return tuple(map(int, tag[1:].split('.')))
+
+
+def root(tag):
+    version_key(tag)
+    return f'src/lib/versions/{tag}/'
+
+
+def page_path(path):
+    p = PurePosixPath(path)
+    return (isinstance(path, str) and str(p) == path and not p.is_absolute()
+            and '..' not in p.parts and bool(p.parts) and p.parts[0] in SECTIONS and p.suffix == '.md')
+
+
+def branch(release):
+    version_key(release['tag'])
+    if not re.fullmatch(r'[0-9a-f]{40}', release['sha']):
+        raise ValueError('Expected release commit SHA')
+    return f'docs/release-{release["tag"]}-{release["sha"][:12]}'
+
+
+def release_marker(release):
+    return f'{MARKER}{release["tag"]}:{release["sha"]} -->'
+
+
+def pending_release(release, registry, sync, prs):
+    """A prepared current/future folder is not evidence that its release was audited."""
+    key = version_key(release['tag'])
+    if registry and key < max(map(version_key, registry)):
+        return False  # Do not reconcile historical releases during initial rollout.
+    if sync.get('source_release') == release:
+        return False
+    return not any(pr.get('state') == 'open' and
+                   release_marker(release) in (pr.get('body') or '') for pr in prs)
+
+
+def read_json(path):
+    return json.loads(Path(path).read_text())
+
+
+def write_json(path, value):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(value, indent=2) + '\n')
+
+
+def outputs(**values):
+    with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+        for key, value in values.items():
+            out.write(f'{key}={value if isinstance(value, str) else json.dumps(value)}\n')
+
+
+def detect():
+    release = releases.latest_stable()
+    registry = read_json(REGISTRY)
+    state_path = Path(root(release['tag'])) / 'sync.json'
+    state = read_json(state_path) if state_path.exists() else {}
+    prs = docs.pages(f'repos/{os.environ["GITHUB_REPOSITORY"]}/pulls?state=open&per_page=100')
+    needed = pending_release(release, registry, state, prs)
+    outputs(needed=str(needed).lower(), release=release)
+    print(f'{release["tag"]}: {"release reconciliation needed" if needed else "continue main documentation"}')
+
+
+def tracked_bytes(base, prefix):
+    result = {}
+    for entry in docs.git('ls-tree', '-r', '-z', base, '--', prefix).split('\0'):
+        if not entry:
+            continue
+        metadata, path = entry.split('\t', 1)
+        if not metadata.startswith('100644 blob '):
+            raise ValueError('Snapshot inputs must be regular non-executable files')
+        result[path] = subprocess.check_output(['git', 'show', f'{base}:{path}'])
+    return result
+
+
+def make_seed(base, release, manifest):
+    """Preserve authored snapshot corrections; copy only missing main pages/assets."""
+    prefix = root(release['tag'])
+    images = f'static/versions/{release["tag"]}/images/'
+    seed = tracked_bytes(base, prefix)
+    seed.update(tracked_bytes(base, images))
+    old_manifest = json.loads(seed[prefix + 'manifest.json']) if prefix + 'manifest.json' in seed else None
+    # Freeze existing routes/nav, adding routes newly present in main. Page-level
+    # auditors can remove unsupported pages; navigation is filtered at assembly.
+    final_manifest = json.loads(json.dumps(old_manifest or manifest))
+    for route, file in manifest['pages'].items():
+        final_manifest['pages'].setdefault(route, file)
+    for file in final_manifest['pages'].values():
+        if not page_path(file):
+            raise ValueError('Invalid manifest documentation path')
+        path = prefix + 'content/' + file
+        if path not in seed:
+            seed[path] = subprocess.check_output(['git', 'show', f'{base}:{docs.DOC_ROOT}{file}'])
+    # Include new navigation entries from main without replacing existing labels.
+    if old_manifest:
+        for section, nav in manifest['navigation'].items():
+            current = final_manifest['navigation'][section]
+            links = {item['href'] for group in current['sections'] for item in group['items']}
+            for group in nav['sections']:
+                added = [item for item in group['items'] if item['href'] not in links]
+                if added:
+                    current['sections'].append({**group, 'items': added})
+                    links.update(item['href'] for item in added)
+    seed[prefix + 'manifest.json'] = (json.dumps(final_manifest, indent='\t') + '\n').encode()
+    for path, content in tracked_bytes(base, 'static/images/').items():
+        seed.setdefault(images + path.removeprefix('static/images/'), content)
+    registry = json.loads(docs.git('show', f'{base}:{REGISTRY}'))
+    registry = sorted(set(registry + [release['tag']]), key=version_key, reverse=True)
+    seed[REGISTRY] = (json.dumps(registry) + '\n').encode()
+    return seed
+
+
+def safe_write(path, content):
+    p = Path(path)
+    if p.is_absolute() or '..' in p.parts or any(q.is_symlink() for q in (p, *p.parents)):
+        raise ValueError('Unsafe snapshot output path')
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(content)
+    p.chmod(0o644)
+
+
+def seed_context(ctx):
+    releases.verify(ctx['release'])
+    if docs.git('rev-parse', 'HEAD') != ctx['base']:
+        raise ValueError('Snapshot documentation base changed')
+    if docs.source_git('rev-parse', 'HEAD') != ctx['release']['sha']:
+        raise ValueError('Snapshot source must be the pinned published tag')
+    # Rebuild from trusted Git blobs in every job, never import writer configs.
+    seed = make_seed(ctx['base'], ctx['release'], ctx['main_manifest'])
+    digest = hashlib.sha256(b''.join(p.encode() + b'\0' + v for p, v in sorted(seed.items()))).hexdigest()
+    if digest != ctx['seed_digest']:
+        raise ValueError('Snapshot seed changed')
+    for path, content in seed.items():
+        safe_write(path, content)
+    return seed
+
+
+def prepare(directory):
+    release = json.loads(os.environ['RELEASE_JSON'])
+    releases.verify(release)
+    base = docs.git('rev-parse', 'HEAD')
+    manifest_file = directory / 'main-manifest.json'
+    subprocess.run(['node', str(Path(__file__).with_name('export-manifest.mjs')), str(manifest_file)], check=True)
+    manifest = read_json(manifest_file)
+    seed = make_seed(base, release, manifest)
+    prefix = root(release['tag']) + 'content/'
+    paths = sorted(path for path in seed if path.startswith(prefix) and path.endswith('.md'))
+    batches = [paths[i:i + BATCH_SIZE] for i in range(0, len(paths), BATCH_SIZE)]
+    if not batches or len(batches) > 256:
+        raise ValueError('Invalid release audit coverage')
+    ctx = {'base': base, 'release': release, 'main_manifest': manifest, 'batches': batches,
+           'seed_digest': hashlib.sha256(b''.join(p.encode() + b'\0' + v for p, v in sorted(seed.items()))).hexdigest()}
+    write_json(directory / 'context.json', ctx)
+    # Files remain on disk for focused reads; never truncate source evidence.
+    history = docs.source_git('log', '--first-parent', '--since=' + docs.INITIAL_SINCE,
+                              '--format=%H %cs %s', release['sha'])
+    (directory / 'release-history.txt').write_text(history + '\n')
+    main_sha = releases.main_source()['sha']
+    docs.source_git('fetch', '--no-tags', 'origin', main_sha)
+    excluded = docs.source_git('log', '--format=%H %cs %s', f'{release["sha"]}..{main_sha}')
+    (directory / 'excluded-main-history.txt').write_text(excluded + '\n')
+    outputs(matrix={'include': [{'batch': n} for n in range(len(batches))]}, base=base)
+
+
+def batch_paths(ctx, index):
+    if type(index) is not int or not 0 <= index < len(ctx['batches']):
+        raise ValueError('Invalid release audit batch')
+    return ctx['batches'][index]
+
+
+def validate_bundle(ctx, index, value):
+    paths = batch_paths(ctx, index)
+    if value.get('base') != ctx['base'] or value.get('release') != ctx['release'] or value.get('batch') != index:
+        raise ValueError('Snapshot bundle does not match its pinned context')
+    files = value.get('files')
+    if not isinstance(files, dict) or set(files) != set(paths):
+        raise ValueError('Every assigned page must be returned exactly once')
+    for path, content in files.items():
+        if content is not None and (not isinstance(content, str) or '\0' in content or len(content.encode()) > 2 * 1024 * 1024):
+            raise ValueError('Invalid snapshot Markdown')
+        if content is None and path.endswith('/index.md'):
+            raise ValueError('Keep section overview pages')
+    return files
+
+
+def export(ctx, index, seed, output):
+    paths = batch_paths(ctx, index)
+    changed = set(docs.git('diff', '--name-only', 'HEAD').splitlines())
+    changed.update(docs.git('ls-files', '--others', '--exclude-standard').splitlines())
+    for path in changed - set(paths):
+        if path not in seed or not Path(path).is_file() or Path(path).read_bytes() != seed[path]:
+            raise ValueError('Release writer changed a file outside its page allowlist')
+    if docs.git('rev-parse', 'HEAD') != ctx['base']:
+        raise ValueError('Release writer must not commit')
+    files = {}
+    for path in paths:
+        p = Path(path)
+        if any(q.is_symlink() for q in (p, *p.parents)) or (p.exists() and p.stat().st_mode & 0o111):
+            raise ValueError('Unsafe snapshot Markdown file')
+        files[path] = p.read_text() if p.exists() else None
+    value = {'base': ctx['base'], 'release': ctx['release'], 'batch': index, 'files': files}
+    validate_bundle(ctx, index, value)
+    write_json(output, value)
+
+
+def bundle_hash(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def assemble(ctx, directory):
+    for index in range(len(ctx['batches'])):
+        value = read_json(directory / f'bundle-{index}.json')
+        for path, content in validate_bundle(ctx, index, value).items():
+            if content is None:
+                Path(path).unlink(missing_ok=True)
+            else:
+                safe_write(path, content.encode())
+    prefix = root(ctx['release']['tag'])
+    manifest = read_json(prefix + 'manifest.json')
+    manifest['pages'] = {route: file for route, file in manifest['pages'].items()
+                         if Path(prefix + 'content/' + file).is_file()}
+    for nav in manifest['navigation'].values():
+        for group in nav['sections']:
+            group['items'] = [item for item in group['items'] if item['href'] in manifest['pages']]
+        nav['sections'] = [group for group in nav['sections'] if group['items']]
+    safe_write(prefix + 'manifest.json', (json.dumps(manifest, indent='\t') + '\n').encode())
+
+
+def review(ctx, index, directory):
+    raw = json.loads(os.environ['REVIEW_JSON'])
+    paths = batch_paths(ctx, index)
+    reviewed = raw.get('reviewed_pages')
+    if not isinstance(reviewed, list) or len(reviewed) != len(paths) or set(reviewed) != set(paths):
+        raise ValueError('Independent review did not cover every assigned snapshot page')
+    for gate in ('accurate', 'complete', 'reader_focused', 'related_docs_consistent'):
+        if type(raw.get(gate)) is not bool:
+            raise ValueError('Invalid snapshot review')
+    if not isinstance(raw.get('reason'), str) or not raw['reason'].strip():
+        raise ValueError('Missing snapshot review evidence')
+    value = read_json(directory / f'bundle-{index}.json')
+    validate_bundle(ctx, index, value)
+    write_json(directory / f'review-{index}.json', {'batch': index, 'bundle_sha': bundle_hash(value), 'verdict': raw})
+    if not all(raw[k] for k in ('accurate', 'complete', 'reader_focused', 'related_docs_consistent')):
+        raise ValueError('Release snapshot review rejected this batch: ' + raw['reason'])
+
+
+def finalize(ctx, directory):
+    """Require all reviewed data; models cannot forge release metadata or scripts."""
+    for index in range(len(ctx['batches'])):
+        value = read_json(directory / f'bundle-{index}.json')
+        result = read_json(directory / f'review-{index}.json')
+        raw = result['verdict']
+        if (result.get('batch') != index or result.get('bundle_sha') != bundle_hash(value)
+                or set(raw.get('reviewed_pages', [])) != set(batch_paths(ctx, index))
+                or not all(raw.get(k) is True for k in ('accurate', 'complete', 'reader_focused', 'related_docs_consistent'))):
+            raise ValueError('Missing or rejected full snapshot review')
+    assemble(ctx, directory)
+    safe_write(root(ctx['release']['tag']) + 'sync.json', (json.dumps({
+        'source_release': ctx['release'], 'docs_base': ctx['base'],
+        'audited_pages': sum(map(len, ctx['batches']))}, indent='\t') + '\n').encode())
+    allowed = {REGISTRY}
+    allowed.update(p for p in docs.git('ls-files').splitlines()
+                   if p.startswith((root(ctx['release']['tag']), f'static/versions/{ctx["release"]["tag"]}/')))
+    # Seed generation and bundle validation already constrain new paths.
+    allowed.update(make_seed(ctx['base'], ctx['release'], ctx['main_manifest']))
+    allowed.add(root(ctx['release']['tag']) + 'sync.json')
+    changed = set(docs.git('diff', '--name-only', 'HEAD').splitlines())
+    changed.update(docs.git('ls-files', '--others', '--exclude-standard').splitlines())
+    if not changed <= allowed:
+        raise ValueError('Snapshot changes outside the selected version')
+    docs.mutate_git('add', '--', *sorted(changed))
+    docs.mutate_git('diff', '--cached', '--check')
+
+
+def publish(ctx):
+    releases.verify(ctx['release'])
+    repo = os.environ['GITHUB_REPOSITORY']
+    live = releases.api(f'repos/{repo}/commits/main')['sha']
+    if live != ctx['base']:
+        raise ValueError('Docs main changed during the release audit; rerun on a fresh base')
+    prs = docs.existing_prs(repo)
+    if docs.daily_remaining(prs) == 0 or any(release_marker(ctx['release']) in pr['body'] and pr['state'] == 'open' for pr in prs):
+        print('Release PR already open or daily quota reached; no duplicate published')
+        return
+    name = branch(ctx['release'])
+    if os.environ.get('DRY_RUN') == 'true':
+        print('Dry run: complete release snapshot validated; no PR published')
+        return
+    if docs.git('ls-remote', '--heads', 'origin', f'refs/heads/{name}'):
+        raise ValueError('Release branch already exists; inspect before retrying')
+    docs.mutate_git('switch', '-c', name)
+    docs.git('config', 'user.name', 'github-actions[bot]')
+    docs.git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+    docs.mutate_git('commit', '-s', '-m', f'docs: reconcile {ctx["release"]["tag"]} snapshot')
+    docs.mutate_git('push', 'origin', f'HEAD:refs/heads/{name}')
+    body = (release_marker(ctx['release']) + '\n\nReconcile documentation with the published '
+            + ctx['release']['tag'] + ' source. Every snapshot page was independently reviewed; '
+            'version isolation, links, type checks and the production build passed.\n\n'
+            'This release snapshot includes the mechanical content/navigation/image copy when needed. '
+            'Ordinary concern updates retain their 999-line cap.\n\nSource: ' + ctx['release']['url'])
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md') as f:
+        f.write(body); f.flush()
+        print(docs.run('gh', 'pr', 'create', '--repo', repo, '--base', 'main', '--head', name,
+                       '--title', f'docs: reconcile {ctx["release"]["tag"]} documentation', '--body-file', f.name))
+
+
+def main():
+    command = sys.argv[1]
+    if command == 'detect':
+        detect(); return
+    directory = Path(os.environ['RUNNER_TEMP']) / 'release-docs'
+    directory.mkdir(exist_ok=True)
+    if command == 'prepare':
+        prepare(directory); return
+    ctx = read_json(directory / 'context.json')
+    index = int(os.environ.get('BATCH', '0'))
+    if command == 'seed':
+        seed_context(ctx)
+        write_json(directory / 'batch.json', {'paths': batch_paths(ctx, index), 'release': ctx['release']})
+    elif command == 'export':
+        # Do not re-seed here: it would overwrite the writer's work.
+        seed = make_seed(ctx['base'], ctx['release'], ctx['main_manifest'])
+        export(ctx, index, seed, directory / f'bundle-{index}.json')
+    elif command == 'assemble':
+        seed_context(ctx); assemble(ctx, directory)
+        write_json(directory / 'batch.json', {'paths': batch_paths(ctx, index), 'release': ctx['release']})
+    elif command == 'review':
+        review(ctx, index, directory)
+    elif command == 'finalize':
+        seed_context(ctx); finalize(ctx, directory)
+    elif command == 'publish':
+        publish(ctx)
+    else:
+        raise ValueError('Unknown snapshot command')
+
+
+if __name__ == '__main__':
+    main()

@@ -2,8 +2,8 @@ name: Set up documentation maintenance tools
 description: Prepare Python, gh, and the runner-provided Anthropic key
 inputs:
   source-ref:
-    description: Immutable release commit, stable for latest stable release, empty skips source checkout
-    default: stable
+    description: Immutable SMG commit, main for working documentation, empty skips checkout
+    default: main
   export-api-key:
     description: Export the runner Anthropic key only in model jobs
     default: 'false'

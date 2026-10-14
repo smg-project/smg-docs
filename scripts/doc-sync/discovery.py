@@ -184,7 +184,7 @@ def build_report(scans, context):
         queued = prior + queued
     queued = pending_candidates(queued, context)
     return {'base_sha': context['base_sha'], 'source_sha': context['source_sha'],
-            'source_release': context.get('source_release'),
+            'source_release': context.get('source_release'), 'source_target': context.get('source_target'),
             'source_repo': docs.SOURCE_REPO, 'initial_since': docs.INITIAL_SINCE,
             'eligible_commits': len(context['code_history']),
             'available_pr_slots': context.get('max_prs', docs.MAX_PRS),

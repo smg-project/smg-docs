@@ -66,11 +66,13 @@ main, but absent from v1.12.0. This documents
 [SMG #3241](https://github.com/smg-project/smg/pull/3241), merged after v1.12.0.
 Switch versions on that page to compare the content and table of contents.
 
-Release snapshots are outside the nightly updater's allowed `src/lib/content/`
-tree. The existing updater still uses stable-release evidence: it can maintain
-released behavior in main docs, but documenting unreleased changes requires
-reviewing SMG main and editing the working content. Versioning does not itself
-audit or import upstream changes.
+The nightly updater checks for a newly published stable SMG release first. It
+creates a missing snapshot from main or reconciles an existing prepared snapshot
+against the release tag, with a complete page audit before opening a release PR.
+Otherwise it updates only main documentation against an immutable SMG main commit.
+The version selector supplies the SMG version context: ordinary behavior prose
+should not repeat release labels. Keep versions needed for commands, image tags,
+engine compatibility or actionable migration instructions.
 
 To publish a future release after reviewing the working docs against its SMG tag:
 
@@ -114,6 +116,6 @@ The visual anchor is **Piet Mondrian**: his work distills complex reality into a
 ## Nightly documentation maintenance
 
 The [nightly documentation workflow](scripts/doc-sync/README.md) audits SMG code
-changes against the current docs on `smg-org-runner-cpu`. It opens separate draft
+changes against the current docs on `smg-org-runner-cpu`. It opens separate reviewed
 PRs for individual concerns, with a changed-line limit, duplicate prevention, and
 scope, type-check, and build validation before publication.

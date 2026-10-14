@@ -137,7 +137,7 @@ jobs:
           claude_args: >-
             --model claude-fable-5
             --effort xhigh
-            --max-turns 30
+            --max-turns 60
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
       - name: Preserve writing diagnostics
@@ -284,6 +284,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm exec wrangler types
+          pnpm test:docs
           pnpm check
           pnpm build
       - name: Publish guarded repair and record the actual PR-head check

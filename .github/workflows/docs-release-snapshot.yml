@@ -1,0 +1,242 @@
+name: Reconcile Released Documentation Snapshot
+
+on:
+  workflow_call:
+    inputs:
+      release-json:
+        type: string
+        required: true
+      docs-sha:
+        type: string
+        required: true
+      dry-run:
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  RELEASE_JSON: ${{ inputs.release-json }}
+
+jobs:
+  prepare:
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.prepare.outputs.matrix }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve trusted setup across the documentation checkout
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
+        with:
+          docs-sha: ${{ inputs.docs-sha }}
+          source-ref: ${{ fromJSON(inputs.release-json).sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - run: pnpm install --frozen-lockfile
+      - name: Freeze snapshot inputs and complete page coverage
+        id: prepare
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-context
+          path: ${{ runner.temp }}/release-docs
+          retention-days: 14
+          if-no-files-found: error
+
+  write:
+    needs: prepare
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BATCH: ${{ matrix.batch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve trusted setup across the documentation checkout
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
+        with:
+          docs-sha: ${{ inputs.docs-sha }}
+          source-ref: ${{ fromJSON(inputs.release-json).sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-context
+          path: ${{ runner.temp }}/release-docs
+      - name: Seed only the selected release snapshot
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" seed
+      - name: Audit each assigned page against the published release
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: >-
+            Follow ${{ runner.temp }}/nightly-docs-tools/release-write.md.
+            Evidence is in ${{ runner.temp }}/release-docs and source in
+            ${{ github.workspace }}/.nightly-source.
+          claude_args: >-
+            --model claude-fable-5 --effort xhigh --max-turns 180
+            --tools "Read,Glob,Grep,Edit,Write"
+            --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Export Markdown data with strict page isolation
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" export
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-${{ matrix.batch }}
+          path: ${{ runner.temp }}/release-docs/bundle-${{ matrix.batch }}.json
+          retention-days: 14
+          if-no-files-found: error
+
+  review:
+    needs: [prepare, write]
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BATCH: ${{ matrix.batch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve trusted setup across the documentation checkout
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
+        with:
+          docs-sha: ${{ inputs.docs-sha }}
+          source-ref: ${{ fromJSON(inputs.release-json).sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-context
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - name: Assemble all batches using pristine guards
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble
+      - name: Independently review every assigned release page
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: >-
+            Follow ${{ runner.temp }}/nightly-docs-tools/release-review.md.
+            Evidence is in ${{ runner.temp }}/release-docs and source in
+            ${{ github.workspace }}/.nightly-source.
+          claude_args: >-
+            --model claude-fable-5 --effort xhigh --max-turns 180
+            --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason"]}'
+      - name: Require independent review and exact page coverage
+        env:
+          REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" review
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-review-${{ matrix.batch }}
+          path: ${{ runner.temp }}/release-docs/review-${{ matrix.batch }}.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  publish:
+    needs: [prepare, review]
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve trusted setup across the documentation checkout
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
+        with:
+          docs-sha: ${{ inputs.docs-sha }}
+          source-ref: ${{ fromJSON(inputs.release-json).sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-context
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-review-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - name: Require all accepted batches and stage the release snapshot
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" finalize
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - run: pnpm install --frozen-lockfile
+      - name: Validate every version, links, types and production build
+        run: |
+          pnpm test:docs
+          pnpm exec wrangler types
+          pnpm check
+          pnpm build
+      - name: Publish one audited release snapshot PR
+        env:
+          GH_TOKEN: ${{ secrets.DOC_SYNC_TOKEN || github.token }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          gh auth setup-git
+          python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" publish

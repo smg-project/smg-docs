@@ -106,7 +106,7 @@ Route to a cloud provider by setting `--backend` to its router and passing the p
       --port 30000
     ```
 
-    Serves the Interactions API (`/v1/interactions`): non-streaming requests with `"store": false` in v1.11.0. Callers send `x-goog-api-key` (or `Authorization: Bearer <key>`). `--backend gemini` belongs to the Rust `smg` binary; the Python launcher does not accept it.
+    Serves the Interactions API (`/v1/interactions`): non-streaming requests with `"store": false` in v1.12.0. Callers send `x-goog-api-key` (or `Authorization: Bearer <key>`). `--backend gemini` belongs to the Rust `smg` binary; the Python launcher does not accept it.
 
 The OpenAI-compatible router (`--backend openai`) also adjusts each request for the provider that serves its model, detected from the model name (for example, xAI handling for `grok*` models).
 

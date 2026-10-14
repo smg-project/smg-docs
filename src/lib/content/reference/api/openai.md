@@ -514,6 +514,7 @@ Each answer carries its question's `type` and `name` plus:
 `usage` reflects scoring work: on SGLang workers (both the HTTP translation and gRPC
 scoring) the answer labels are scored without generating tokens, so `output_tokens` and
 `output_tokens_details.reasoning_tokens` are `0` and `total_tokens` equals `input_tokens`.
+
 On gRPC workers each question is scored as its own prompt over the shared input —
 `input_tokens` sums those prompts — and `input_tokens_details.cached_tokens` reports the
 engine's prefix-cache hits. The SGLang HTTP translation returns `0` for both cache
@@ -559,6 +560,7 @@ this answers `400`.
 | 502 | `invalid_decisions_response` | An SGLang worker (HTTP translation or gRPC scoring) reported success, but the result could not be mapped to a valid Decisions response |
 
 Backend errors on the SGLang HTTP translation keep their status and OpenAI error body.
+
 For tenant rate limiting on Decisions, see
 [Tenant Rate Limiting](../tenant-rate-limiting.md).
 

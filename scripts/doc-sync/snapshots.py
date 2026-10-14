@@ -16,6 +16,8 @@ REGISTRY = 'src/lib/config/docs-releases.json'
 MARKER = '<!-- docs-release-sync:'
 SECTIONS = {'getting-started', 'concepts', 'reference', 'contributing'}
 BATCH_SIZE = 6
+# Releases already documented before version-aware automation was introduced.
+INITIAL_RELEASE = 'v1.12.0'
 
 
 def version_key(tag):
@@ -49,8 +51,8 @@ def release_marker(release):
 def pending_release(release, registry, sync, prs):
     """A prepared current/future folder is not evidence that its release was audited."""
     key = version_key(release['tag'])
-    if registry and key < max(map(version_key, registry)):
-        return False  # Do not reconcile historical releases during initial rollout.
+    if key <= version_key(INITIAL_RELEASE) and not sync:
+        return False  # Historical baseline, not a claim of an automated audit.
     if sync.get('source_release') == release:
         return False
     return not any(pr.get('state') == 'open' and

@@ -216,7 +216,7 @@ def prepare(repo, output):
     if release:
         releases.verify(release)
     if (target or release or {}).get('sha') != source_sha:
-        raise ValueError('Source checkout must match the pinned stable release')
+        raise ValueError('Source checkout must match the pinned source revision')
     history = source_git("log", "--first-parent", "--since=" + INITIAL_SINCE,
                         "--format=%H %cs %s", source_sha)
     sources = Path(output).parent / "nightly-docs-sources"

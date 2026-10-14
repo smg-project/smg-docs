@@ -23,6 +23,9 @@ class SelectionTests(unittest.TestCase):
         older = {**RELEASE, 'tag': 'v1.12.0'}
         self.assertFalse(s.pending_release(older, ['v1.13.0', 'v1.12.0'], {}, []))
 
+    def test_future_prepared_folder_cannot_hide_a_new_release(self):
+        self.assertTrue(s.pending_release(RELEASE, ['v1.14.0', 'v1.12.0'], {}, []))
+
     def test_existing_folder_without_audit_still_needs_reconciliation(self):
         self.assertTrue(s.pending_release(RELEASE, ['v1.13.0', 'v1.12.0'], {}, []))
         self.assertFalse(s.pending_release(RELEASE, ['v1.13.0'], {'source_release': RELEASE}, []))

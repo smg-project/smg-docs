@@ -269,3 +269,7 @@ in commands, image tags and compatibility requirements remain useful. Closed
 `docs-awaiting-release` concerns can now return for main docs; declined/merged
 concerns remain deduplicated. The source patch is kept in full for focused reads,
 including commits larger than 2 MiB. The document line limit is unchanged.
+
+The rollout baseline is v1.12.0: existing historical snapshots are not retroactively
+claimed as audited. Every later published release is eligible regardless of any
+newer version folder prepared in advance.

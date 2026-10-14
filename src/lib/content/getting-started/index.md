@@ -639,7 +639,7 @@ The chart is published to GHCR as an OCI artifact, versioned with SMG releases (
 
 ```bash
 helm install smg oci://ghcr.io/smg-project/charts/smg \
-  --version 1.11.0 \
+  --version 1.12.0 \
   --namespace inference --create-namespace \
   -f values.yaml
 ```

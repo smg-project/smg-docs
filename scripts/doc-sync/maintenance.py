@@ -77,11 +77,13 @@ def checkout_code(sha):
     return sha
 
 
-def get_pr(number):
+def get_pr(number, code_sha=None):
     """Keep PR identity metadata, but pin source freshness to the actual branch."""
     pr = api(f"repos/{repo()}/pulls/{number}")
     pr["base"]["sha"] = current_base()
-    pr["code_sha"] = current_code()
+    if code_sha is not None and not re.fullmatch(r"[0-9a-f]{40}", code_sha):
+        raise ValueError("Expected an immutable SMG source commit")
+    pr["code_sha"] = code_sha if code_sha is not None else current_code()
     pr["source_target"] = {"version": "main", "sha": pr["code_sha"]}
     return pr
 
@@ -401,7 +403,7 @@ def restore(ctx, bundle=None):
 
 def prepare(number, directory, apply, force):
     """Reserve an operational attempt; charge content only after validation finishes."""
-    pr = get_pr(number)
+    pr = get_pr(number, os.environ.get("MAINTENANCE_SOURCE_SHA"))
     directory.mkdir(parents=True, exist_ok=True)
     if pr['state'] != 'open':
         (directory / 'context.json').write_text(json.dumps({'number': number, 'deferred': 'PR is closed'}))

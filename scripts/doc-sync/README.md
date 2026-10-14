@@ -95,7 +95,7 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   output, operational errors, guard failures, and build failures fail the job.
 - Generated commits use **github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>** as author and
   committer, with that DCO `Signed-off-by` identity. This is a DCO sign-off, not a
-  cryptographic signature. Existing remote branches are never force-overwritten.
+  cryptographic signature. Ordinary concern branches are never force-overwritten.
 
 ## Manual runs and reports
 
@@ -252,8 +252,10 @@ concern, including the mechanical snapshot copy. This whole-snapshot operation
 is exempt from the ordinary 999-line cap; normal main/maintenance PRs retain it.
 No automatic merge occurs. The snapshot's `sync.json` becomes durable only after
 merge. An open release PR suppresses duplicates while main documentation can
-continue; a newer release gets a separate audit. Closed release branches are never
-force-overwritten and require inspection before reuse. Older snapshots remain fixed.
+continue; a newer release gets a separate audit. Release branches are never
+updated while referenced by an open PR. A retry after a closed PR or an interrupted
+publish reuses the release branch with an explicit force-with-lease against its
+observed head; concurrent updates fail safely. Older snapshots remain fixed.
 
 On nights without a new release requiring work, only main is audited. Discovery
 also proposes bounded `version-context-*` cleanup concerns so pre-versioning prose

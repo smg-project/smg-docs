@@ -297,26 +297,31 @@ def finalize(ctx, directory):
 
 
 def publish(ctx):
+    """Publish a reviewed snapshot; reuse idle branches with a compare-and-swap push."""
     releases.verify(ctx['release'])
     repo = os.environ['GITHUB_REPOSITORY']
     live = releases.api(f'repos/{repo}/commits/main')['sha']
     if live != ctx['base']:
         raise ValueError('Docs main changed during the release audit; rerun on a fresh base')
+    name = branch(ctx['release'])
+    ref = f'refs/heads/{name}'
+    remote = docs.git('ls-remote', '--heads', 'origin', ref)
+    expected = remote.split()[0] if remote else ''
     prs = docs.existing_prs(repo)
-    if docs.daily_remaining(prs) == 0 or any(release_marker(ctx['release']) in pr['body'] and pr['state'] == 'open' for pr in prs):
+    if docs.daily_remaining(prs) == 0 or any(
+            pr['state'] == 'open' and (release_marker(ctx['release']) in pr['body']
+                                      or pr.get('branch') == name) for pr in prs):
         print('Release PR already open or daily quota reached; no duplicate published')
         return
-    name = branch(ctx['release'])
     if os.environ.get('DRY_RUN') == 'true':
         print('Dry run: complete release snapshot validated; no PR published')
         return
-    if docs.git('ls-remote', '--heads', 'origin', f'refs/heads/{name}'):
-        raise ValueError('Release branch already exists; inspect before retrying')
     docs.mutate_git('switch', '-c', name)
     docs.git('config', 'user.name', 'github-actions[bot]')
     docs.git('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
     docs.mutate_git('commit', '-s', '-m', f'docs: reconcile {ctx["release"]["tag"]} snapshot')
-    docs.mutate_git('push', 'origin', f'HEAD:refs/heads/{name}')
+    # Also require an absent branch to remain absent when this is a first push.
+    docs.mutate_git('push', f'--force-with-lease={ref}:{expected}', 'origin', f'HEAD:{ref}')
     body = (release_marker(ctx['release']) + '\n\nReconcile documentation with the published '
             + ctx['release']['tag'] + ' source. Every snapshot page was independently reviewed; '
             'version isolation, links, type checks and the production build passed.\n\n'

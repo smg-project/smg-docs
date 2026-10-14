@@ -42,6 +42,18 @@ class PolicyTests(unittest.TestCase):
         self.promotion = promotion.start()
         self.addCleanup(promotion.stop)
 
+    def test_preparation_reuses_setup_sha_but_default_lookup_stays_fresh(self):
+        with patch.object(m, 'api', side_effect=lambda _: copy.deepcopy(pull())), \
+                patch.object(m, 'current_code', return_value='c' * 40) as live:
+            pinned = m.get_pr(7, 'd' * 40)
+            self.assertEqual(pinned['code_sha'], 'd' * 40)
+            self.assertEqual(pinned['source_target'], {'version': 'main', 'sha': 'd' * 40})
+            live.assert_not_called()
+            self.assertEqual(m.get_pr(7)['code_sha'], 'c' * 40)
+            live.assert_called_once()
+            with self.assertRaisesRegex(ValueError, 'immutable'):
+                m.get_pr(7, 'main')
+
     def test_only_the_documentation_repository_is_supported(self):
         self.assertEqual(m.repo(), "smg-project/smg-docs")
         for other in ["smg-project/smg", "fork/ome-docs"]:

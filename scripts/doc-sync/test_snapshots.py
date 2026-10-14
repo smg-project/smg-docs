@@ -181,6 +181,123 @@ class SnapshotGitTests(unittest.TestCase):
         self.assertFalse(any('v1.12.0/' in p for p in changed))
 
 
+class ReleasePublishTests(unittest.TestCase):
+    """Exercise retry publication and races against an actual local bare remote."""
+    git = SnapshotGitTests.git
+    cleanup = SnapshotGitTests.cleanup
+
+    def setUp(self):
+        SnapshotGitTests.setUp(self)
+        self.remote = str(Path(self.evidence.name) / 'remote.git')
+        self.git('init', '--bare', '-q', self.remote)
+        self.git('remote', 'add', 'origin', self.remote)
+        self.git('push', '-q', 'origin', 'HEAD:refs/heads/main')
+        self.name = s.branch(RELEASE)
+        self.ref = 'refs/heads/' + self.name
+        self.ctx = {'base': self.base, 'release': RELEASE}
+        Path(s.REGISTRY).write_text('["v1.13.0", "v1.12.0"]\n')
+        self.git('add', s.REGISTRY)
+        self.tree = self.git('write-tree')
+        self.prs = []
+        for mocker in [patch.dict(os.environ, {'GITHUB_REPOSITORY': 'smg-project/smg-docs', 'DRY_RUN': 'false'}),
+                       patch.object(releases, 'verify'),
+                       patch.object(releases, 'api', return_value={'sha': self.base}),
+                       patch.object(docs, 'existing_prs', side_effect=lambda _: self.prs)]:
+            mocker.start(); self.addCleanup(mocker.stop)
+        original = docs.run
+        self.created = []
+
+        def run(*args):
+            if args[:3] == ('gh', 'pr', 'create'):
+                self.created.append(args)
+                return 'https://example/pull/1'
+            return original(*args)
+        mocker = patch.object(docs, 'run', side_effect=run)
+        mocker.start(); self.addCleanup(mocker.stop)
+
+    def old_branch(self):
+        head = self.git('commit-tree', self.base + '^{tree}', '-p', self.base, '-m', 'previous snapshot')
+        self.git('push', '-q', 'origin', head + ':' + self.ref)
+        return head
+
+    def remote_head(self):
+        return self.git('ls-remote', '--heads', 'origin', self.ref).split()[0]
+
+    def assert_published(self):
+        s.publish(self.ctx)
+        self.assertEqual(self.git('rev-parse', self.remote_head() + '^{tree}'), self.tree)
+        self.assertEqual(len(self.created), 1)
+        self.assertEqual(self.created[0][self.created[0].index('--head') + 1], self.name)
+
+    def test_first_publication(self):
+        self.assert_published()
+
+    def test_closed_pr_reuses_retained_branch_for_new_snapshot(self):
+        before = self.old_branch()
+        self.prs[:] = [{'state': 'closed', 'branch': self.name, 'body': s.release_marker(RELEASE)}]
+        self.assert_published()
+        self.assertNotEqual(self.remote_head(), before)
+
+    def test_orphaned_push_can_retry_pr_creation(self):
+        self.old_branch()
+        self.assert_published()
+
+    def test_open_pr_blocks_replacement_even_if_marker_was_removed(self):
+        before = self.old_branch()
+        self.prs[:] = [{'state': 'open', 'branch': self.name, 'body': 'Edited by a reviewer'}]
+        s.publish(self.ctx)
+        self.assertEqual(self.remote_head(), before)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.base)
+        self.assertFalse(self.created)
+
+    def test_concurrent_remote_update_rejects_lease_without_creating_pr(self):
+        before = self.old_branch()
+        competing = self.git('commit-tree', self.base + '^{tree}', '-p', before, '-m', 'concurrent change')
+        mutate = docs.mutate_git
+
+        def race(*args):
+            if args[0] == 'push':
+                self.git('push', '-q', 'origin', competing + ':' + self.ref)
+            return mutate(*args)
+        with patch.object(docs, 'mutate_git', side_effect=race):
+            with self.assertRaises(subprocess.CalledProcessError):
+                s.publish(self.ctx)
+        self.assertEqual(self.remote_head(), competing)
+        self.assertFalse(self.created)
+
+    def test_concurrent_branch_creation_is_not_overwritten(self):
+        competing = self.git('commit-tree', self.base + '^{tree}', '-p', self.base, '-m', 'concurrent branch')
+        mutate = docs.mutate_git
+
+        def race(*args):
+            if args[0] == 'push':
+                self.git('push', '-q', 'origin', competing + ':' + self.ref)
+            return mutate(*args)
+        with patch.object(docs, 'mutate_git', side_effect=race):
+            with self.assertRaises(subprocess.CalledProcessError):
+                s.publish(self.ctx)
+        self.assertEqual(self.remote_head(), competing)
+        self.assertFalse(self.created)
+
+    def test_dry_run_keeps_existing_branch_untouched(self):
+        before = self.old_branch()
+        with patch.dict(os.environ, {'DRY_RUN': 'true'}):
+            s.publish(self.ctx)
+        self.assertEqual(self.remote_head(), before)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.base)
+        self.assertFalse(self.created)
+
+    def test_stale_base_and_daily_limit_prevent_retry(self):
+        before = self.old_branch()
+        with patch.object(releases, 'api', return_value={'sha': 'b' * 40}):
+            with self.assertRaisesRegex(ValueError, 'Docs main changed'):
+                s.publish(self.ctx)
+        with patch.object(docs, 'daily_remaining', return_value=0):
+            s.publish(self.ctx)
+        self.assertEqual(self.remote_head(), before)
+        self.assertFalse(self.created)
+
+
 class MainSourceGitTests(unittest.TestCase):
     setUp = fixtures.GitGuardTests.setUp
     cleanup = fixtures.GitGuardTests.cleanup

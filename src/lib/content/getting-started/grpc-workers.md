@@ -207,7 +207,7 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 
 Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer. `SubscribeKvEvents` relays the ZMQ KV-event publisher TokenSpeed was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
 
-Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake — half an hour covers a first start that loads the model and JIT-compiles kernels on a cold cache, while a scheduler process that died is noticed on the supervisor's poll rather than waiting out the bound.
+Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake. Model load and kernel JIT compilation count against that bound, so raise it when a first start on a cold cache needs longer; a scheduler process that died is noticed on the supervisor's poll rather than waiting out the bound.
 
 ---
 

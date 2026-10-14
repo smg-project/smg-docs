@@ -1,4 +1,5 @@
 import { Marked } from 'marked';
+import { defaultDocsVersion } from '$lib/config/docs-versions';
 import { highlightCode } from '$lib/markdown/highlight';
 import { rewriteAssetPaths, rewriteDocLinks } from '$lib/markdown/links';
 
@@ -310,11 +311,20 @@ function createMarked(slugCounts = new Map<string, number>()): Marked {
 	});
 }
 
-function prepareBlockMarkdown(markdown: string, sourcePath?: string): string {
-	return rewriteDocLinks(rewriteAssetPaths(markdown), sourcePath);
+function prepareBlockMarkdown(
+	markdown: string,
+	sourcePath?: string,
+	version = defaultDocsVersion
+): string {
+	return rewriteDocLinks(rewriteAssetPaths(markdown, version), sourcePath, version);
 }
 
-function resolveDocBlocks(html: string, marked: Marked, sourcePath?: string): string {
+function resolveDocBlocks(
+	html: string,
+	marked: Marked,
+	sourcePath?: string,
+	version = defaultDocsVersion
+): string {
 	return html.replace(/<!--DOCBLOCK:(\d+)-->/g, (_match, idStr: string) => {
 		const block = docBlocks[Number(idStr)];
 		if (!block) return '';
@@ -323,13 +333,13 @@ function resolveDocBlocks(html: string, marked: Marked, sourcePath?: string): st
 			const cards = block.cards
 				.map(
 					(markdown) =>
-						`<div class="doc-card">${marked.parse(prepareBlockMarkdown(markdown, sourcePath), { async: false }) as string}</div>`
+						`<div class="doc-card">${marked.parse(prepareBlockMarkdown(markdown, sourcePath, version), { async: false }) as string}</div>`
 				)
 				.join('');
 			return `<div class="doc-grid">${cards}</div>`;
 		}
 
-		const inner = marked.parse(prepareBlockMarkdown(block.markdown, sourcePath), {
+		const inner = marked.parse(prepareBlockMarkdown(block.markdown, sourcePath, version), {
 			async: false
 		}) as string;
 
@@ -398,29 +408,37 @@ export function extractDocToc(raw: string): DocTocItem[] {
 	return items;
 }
 
-function preprocessDocMarkdown(raw: string, sourcePath?: string): string {
+function preprocessDocMarkdown(
+	raw: string,
+	sourcePath?: string,
+	version = defaultDocsVersion
+): string {
 	docBlocks = [];
 	let text = stripFrontmatter(raw);
-	text = rewriteAssetPaths(text);
+	text = rewriteAssetPaths(text, version);
 	text = stripMaterialIcons(text);
 	text = convertPrerequisites(text);
 	text = convertArchitectureDiagram(text);
 	text = convertGridCards(text);
 	text = convertGrid(text);
 	text = stripMkdocsHtml(text);
-	text = rewriteDocLinks(text, sourcePath);
+	text = rewriteDocLinks(text, sourcePath, version);
 	text = convertAdmonitions(text);
 	text = convertDetails(text);
 	return text.trim();
 }
 
-export function renderDocMarkdown(raw: string, sourcePath?: string): string {
+export function renderDocMarkdown(
+	raw: string,
+	sourcePath?: string,
+	version = defaultDocsVersion
+): string {
 	tabSetCounter = 0;
-	const preprocessed = preprocessDocMarkdown(raw, sourcePath);
+	const preprocessed = preprocessDocMarkdown(raw, sourcePath, version);
 	const slugCounts = new Map<string, number>();
 	const marked = createMarked(slugCounts);
 	const parseBlock = (input: string) => marked.parse(input, { async: false }) as string;
 	const withTabs = parseTabGroups(preprocessed, parseBlock);
 	const html = marked.parse(withTabs, { async: false }) as string;
-	return resolveDocBlocks(html, marked, sourcePath);
+	return resolveDocBlocks(html, marked, sourcePath, version);
 }

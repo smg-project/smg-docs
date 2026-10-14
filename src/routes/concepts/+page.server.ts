@@ -1,6 +1,0 @@
-import { loadConceptsPage } from '$lib/content/concepts/load';
-import type { PageServerLoad } from './$types';
-
-export const load: PageServerLoad = async () => {
-	return loadConceptsPage();
-};

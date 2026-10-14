@@ -4,6 +4,8 @@
 	import { slide, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { headerNavItems } from '$lib/config/nav';
+	import { docsHref, versionFromPath } from '$lib/config/docs-versions';
+	import DocsVersionSwitcher from '$lib/components/DocsVersionSwitcher.svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import Symbol from '$lib/components/Symbol.svelte';
 	import GitHubBadge from '$lib/components/GitHubBadge.svelte';
@@ -18,6 +20,13 @@
 	let hidden = $state(false);
 
 	const isHome = $derived($page.route.id === '/');
+	const version = $derived(versionFromPath($page.url.pathname));
+	const navigation = $derived(
+		isHome
+			? headerNavItems
+			: headerNavItems.map((item) => ({ ...item, href: docsHref(item.href, version) }))
+	);
+	const searchHref = $derived(isHome ? `${base}/search` : docsHref('search', version));
 	const solid = $derived(!isHome || scrolled);
 
 	function isActive(href: string, pathname: string) {
@@ -149,7 +158,7 @@
 					<Symbol size={18} />
 				</a>
 				<ul class="site-nav-links">
-					{#each headerNavItems as item (item)}
+					{#each navigation as item (item.href)}
 						<li>
 							<a href={item.href} class:active={isActive(item.href, $page.url.pathname)}>
 								{item.label}
@@ -157,12 +166,16 @@
 						</li>
 					{/each}
 					<li>
-						<a href="{base}/search" class:active={$page.url.pathname === `${base}/search`}>Search</a
-						>
+						<a href={searchHref} class:active={$page.url.pathname === searchHref}>Search</a>
 					</li>
 				</ul>
 			</nav>
-			<GitHubBadge {github} />
+			<div class="site-header-meta">
+				{#if !isHome}
+					<DocsVersionSwitcher />
+				{/if}
+				<GitHubBadge {github} />
+			</div>
 		</div>
 
 		<button
@@ -196,9 +209,12 @@
 			class="site-mobile-menu"
 			transition:slide={{ duration: 220, easing: cubicOut }}
 		>
+			{#if !isHome}
+				<div class="site-mobile-version"><DocsVersionSwitcher /></div>
+			{/if}
 			<nav class="site-mobile-nav" aria-label="Mobile">
 				<ul class="site-mobile-links">
-					{#each headerNavItems as item (item)}
+					{#each navigation as item (item.href)}
 						<li>
 							<a
 								href={item.href}
@@ -211,8 +227,8 @@
 					{/each}
 					<li>
 						<a
-							href="{base}/search"
-							class:active={$page.url.pathname === `${base}/search`}
+							href={searchHref}
+							class:active={$page.url.pathname === searchHref}
 							onclick={closeMenu}
 						>
 							Search
@@ -237,3 +253,16 @@
 		</div>
 	{/if}
 </header>
+
+<style>
+	.site-header-meta {
+		display: flex;
+		align-items: stretch;
+		gap: 0.75rem;
+	}
+	.site-mobile-version {
+		display: flex;
+		justify-content: flex-start;
+		margin-bottom: 0.75rem;
+	}
+</style>

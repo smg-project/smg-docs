@@ -56,6 +56,7 @@
 		display: inline-flex;
 		flex-direction: column;
 		align-items: flex-start;
+		justify-content: center;
 		gap: 0.2rem;
 		padding: 0.5rem 0.8rem;
 		border-radius: 0.5rem;

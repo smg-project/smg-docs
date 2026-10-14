@@ -4,6 +4,7 @@
 	import { onNavigate } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { headerNavItems, siteName } from '$lib/config/nav';
+	import { docsPath, versionFromPath } from '$lib/config/docs-versions';
 	import SiteFooter from '$lib/components/SiteFooter.svelte';
 	import SiteHeader from '$lib/components/SiteHeader.svelte';
 	import { heroShaderActive, heroShaderEnergy } from '$lib/stores/hero-shader';
@@ -34,11 +35,13 @@
 	});
 
 	const pageTitle = $derived.by(() => {
+		const path = docsPath($page.url.pathname);
+		const version = versionFromPath($page.url.pathname);
 		const match = headerNavItems.find(
-			(item) => $page.url.pathname === item.href || $page.url.pathname.startsWith(`${item.href}/`)
+			(item) => path === docsPath(item.href) || path.startsWith(`${docsPath(item.href)}/`)
 		);
-		if ($page.route.id === '/search') return `Search · ${siteName}`;
-		if (match) return `${match.label} · ${siteName}`;
+		if (path === 'search') return `Search · ${version} · ${siteName}`;
+		if (match) return `${match.label} · ${version} · ${siteName}`;
 		return siteName;
 	});
 

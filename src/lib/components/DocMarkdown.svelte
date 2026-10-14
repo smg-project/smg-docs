@@ -1,49 +1,54 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { defaultDocsVersion } from '$lib/config/docs-versions';
 	import { renderDocMarkdown } from '$lib/markdown/doc';
 
 	let {
 		content,
-		sourcePath
+		sourcePath,
+		contentSourcePath,
+		version = defaultDocsVersion
 	}: {
 		content: string;
 		sourcePath?: string;
+		contentSourcePath?: string;
+		version?: string;
 	} = $props();
 
-	const html = $derived(renderDocMarkdown(content, sourcePath));
+	const html = $derived(renderDocMarkdown(content, sourcePath, version));
 
 	const editUrl = $derived(
-		sourcePath
-			? `https://github.com/smg-project/smg-docs/edit/main/src/lib/content/${sourcePath}`
+		contentSourcePath
+			? `https://github.com/smg-project/smg-docs/edit/main/${contentSourcePath}`
 			: undefined
 	);
 
 	const rawUrl = $derived(
-		sourcePath
-			? `https://raw.githubusercontent.com/smg-project/smg-docs/main/src/lib/content/${sourcePath}`
+		contentSourcePath
+			? `https://raw.githubusercontent.com/smg-project/smg-docs/main/${contentSourcePath}`
 			: undefined
 	);
 
 	let articleEl = $state<HTMLElement | null>(null);
 
-	onMount(() => {
-		if (!articleEl) return;
-
-		for (const button of articleEl.querySelectorAll<HTMLButtonElement>('.doc-code-copy')) {
-			button.addEventListener('click', async () => {
-				const code = button.parentElement?.querySelector('code')?.textContent ?? '';
-				try {
-					await navigator.clipboard.writeText(code);
-					const prev = button.textContent;
-					button.textContent = 'Copied';
-					setTimeout(() => {
-						button.textContent = prev;
-					}, 1500);
-				} catch {
-					button.textContent = 'Failed';
-				}
-			});
-		}
+	$effect(() => {
+		const article = articleEl;
+		if (!article) return;
+		const copy = async (event: MouseEvent) => {
+			const button = (event.target as Element).closest<HTMLButtonElement>('.doc-code-copy');
+			if (!button) return;
+			const code = button.parentElement?.querySelector('code')?.textContent ?? '';
+			try {
+				await navigator.clipboard.writeText(code);
+				button.textContent = 'Copied';
+				setTimeout(() => {
+					button.textContent = 'Copy';
+				}, 1500);
+			} catch {
+				button.textContent = 'Failed';
+			}
+		};
+		article.addEventListener('click', copy);
+		return () => article.removeEventListener('click', copy);
 	});
 </script>
 

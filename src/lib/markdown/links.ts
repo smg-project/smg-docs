@@ -1,88 +1,53 @@
 import { base } from '$app/paths';
-import { fileToSlug } from '$lib/content/getting-started/slugs';
-
-function dirname(filePath: string): string {
-	const index = filePath.lastIndexOf('/');
-	return index === -1 ? '' : filePath.slice(0, index);
-}
+import { defaultDocsVersion, docsHref, docsPath, isDocsSection } from '$lib/config/docs-versions';
+import { getDocsManifest } from '$lib/config/docs-manifests';
 
 function resolveRelativePath(fromFile: string, href: string): string {
-	const stack = dirname(fromFile) ? dirname(fromFile).split('/') : [];
-
+	const stack = fromFile.split('/').slice(0, -1);
 	for (const part of href.split('/')) {
 		if (part === '..') stack.pop();
-		else if (part === '.' || part === '') continue;
-		else stack.push(part);
+		else if (part !== '.' && part !== '') stack.push(part);
 	}
-
-	let resolved = stack.join('/').replace(/\.md$/, '');
-	if (resolved.endsWith('/index')) {
-		resolved = resolved.slice(0, -'/index'.length);
-	}
-
-	return resolved;
+	return stack.join('/');
 }
 
-function toUrlPath(resolved: string): string {
-	if (!resolved || resolved === 'index') return '/';
-
-	const parts = resolved.split('/');
-
-	if (parts[0] === 'getting-started') {
-		if (parts.length === 1) return '/getting-started';
-		const slug = fileToSlug[parts[1]] ?? parts[1];
-		return parts.length === 2 ? `/getting-started/${slug}` : `/${resolved}`;
-	}
-
-	if (parts[0] === 'concepts') {
-		const rest = parts.slice(1).join('/');
-		return rest ? `/concepts/${rest}` : '/concepts';
-	}
-
-	if (parts[0] === 'reference') {
-		const rest = parts.slice(1).join('/');
-		return rest ? `/reference/${rest}` : '/reference';
-	}
-
-	if (parts[0] === 'contributing') {
-		const rest = parts.slice(1).join('/');
-		return rest ? `/contributing/${rest}` : '/contributing';
-	}
-
-	return `/${resolved}`;
-}
-
-export function rewriteDocLinks(text: string, sourcePath?: string): string {
-	const fromFile = sourcePath ?? 'getting-started/index.md';
-
-	return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label: string, href: string) => {
-		if (href.startsWith('https://lightseek.org/smg/')) {
-			const path = href.replace('https://lightseek.org/smg/', '').replace(/\/$/, '');
-			return `[${label}](${base}/${path})`;
+export function rewriteDocLinks(
+	text: string,
+	sourcePath = 'getting-started/index.md',
+	version = defaultDocsVersion
+): string {
+	const manifest = getDocsManifest(version);
+	return text.replace(/(?<!!)\[([^\]]+)\]\(([^)]+)\)/g, (match, label: string, href: string) => {
+		const suffixIndex = href.search(/[?#]/);
+		const suffix = suffixIndex >= 0 ? href.slice(suffixIndex) : '';
+		let path = suffixIndex >= 0 ? href.slice(0, suffixIndex) : href;
+		if (!path) return match;
+		if (path.startsWith('https://lightseek.org/smg/')) {
+			path = `${base}/${path.slice('https://lightseek.org/smg/'.length)}`;
+		} else if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(path)) {
+			return match;
 		}
-
-		const hashIndex = href.indexOf('#');
-		const fragment = hashIndex >= 0 ? href.slice(hashIndex) : '';
-		const path = hashIndex >= 0 ? href.slice(0, hashIndex) : href;
-
+		if (path.startsWith('/')) {
+			const route = docsPath(path);
+			if (isDocsSection(route.split('/')[0]) || route === 'search') {
+				return `[${label}](${docsHref(route, version)}${suffix})`;
+			}
+			return match;
+		}
 		if (!path.endsWith('.md')) return match;
-
-		const normalized = path.replace(/^\.\//, '');
-
-		if (normalized === 'index.md') {
-			const section = dirname(fromFile).split('/')[0];
-			if (section === 'getting-started') return `[${label}](${base}/getting-started${fragment})`;
-			if (section === 'concepts') return `[${label}](${base}/concepts${fragment})`;
-			if (section === 'reference') return `[${label}](${base}/reference${fragment})`;
-			if (section === 'contributing') return `[${label}](${base}/contributing${fragment})`;
-		}
-
-		return `[${label}](${base}${toUrlPath(resolveRelativePath(fromFile, normalized))}${fragment})`;
+		const file = resolveRelativePath(sourcePath, path);
+		const route =
+			Object.entries(manifest?.pages ?? {}).find(([, source]) => source === file)?.[0] ??
+			file.replace(/\.md$/, '').replace(/\/index$/, '');
+		return `[${label}](${docsHref(route, version)}${suffix})`;
 	});
 }
 
-export function rewriteAssetPaths(text: string): string {
+export function rewriteAssetPaths(text: string, version = defaultDocsVersion): string {
+	const images = version === 'main' ? `${base}/images` : `${base}/versions/${version}/images`;
 	return text
-		.replace(/!\[([^\]]*)\]\((?:\.\.\/)+assets\/images\/([^)]+)\)/g, `![$1](${base}/images/$2)`)
-		.replace(/!\[([^\]]*)\]\(\.\/assets\/images\/([^)]+)\)/g, `![$1](${base}/images/$2)`);
+		.replace(/!\[([^\]]*)\]\((?:\.\.\/)+assets\/images\/([^)]+)\)/g, `![$1](${images}/$2)`)
+		.replace(/!\[([^\]]*)\]\(\.\/assets\/images\/([^)]+)\)/g, `![$1](${images}/$2)`)
+		.replaceAll(`](${base}/images/`, `](${images}/`)
+		.replaceAll(`src="${base}/images/`, `src="${images}/`);
 }

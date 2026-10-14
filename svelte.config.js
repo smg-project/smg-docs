@@ -9,7 +9,9 @@ const config = {
 	kit: {
 		adapter: adapter(),
 		paths: {
-			base: '/smg'
+			base: '/smg',
+			// Versioned links must use the same base during SSR and hydration.
+			relative: false
 		},
 		typescript: {
 			config: (config) => ({

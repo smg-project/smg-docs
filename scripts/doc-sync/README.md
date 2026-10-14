@@ -1,5 +1,11 @@
 # Nightly SMG documentation sync
 
+The editable `src/lib/content/` tree is published as **main** documentation.
+Release snapshots live separately under `src/lib/versions/` and are outside this
+pipeline's write scope. This pipeline still checks stable-release evidence only;
+unreleased main-branch changes need a separate documentation review. See the
+[versioning workflow](../../README.md#documentation-versions).
+
 The workflow runs at **09:43 UTC daily** (01:43 PST / 02:43 PDT), on
 `smg-org-runner-cpu`. Discovery, writing, and independent review use Claude Code
 with `claude-fable-5`, `xhigh` effort, and the runner's Anthropic credential.

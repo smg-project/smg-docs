@@ -26,10 +26,72 @@ pnpm preview            # serve the built site with wrangler pages dev
 
 ## Editing content
 
-- **Docs pages** live in `src/lib/content/<section>/**/*.md` (`getting-started`, `concepts`, `reference`, `contributing`). mkdocs-material syntax — `=== "Tab"` blocks, `!!! note` admonitions, `??? question` collapsibles, card grids — is supported by the pipeline in `src/lib/markdown/`.
+- **Main docs pages** live in `src/lib/content/<section>/**/*.md` (`getting-started`, `concepts`, `reference`, `contributing`). mkdocs-material syntax — `=== "Tab"` blocks, `!!! note` admonitions, `??? question` collapsibles, card grids — is supported by the pipeline in `src/lib/markdown/`.
 - **Navigation** is data in `src/lib/config/*-nav.ts`.
 - **Home and section headline copy** is seeded into D1 (`content_blocks` table) by the migrations in `drizzle/`, with static fallbacks in `src/lib/content/defaults.ts`.
 - Every docs page links back to its source file in this repository via the **Edit** button.
+
+## Documentation versions
+
+The header's **Version** menu switches between SMG releases and `main`, following
+the [Kueue documentation](https://kueue.sigs.k8s.io/docs/) pattern. All versions
+are included in one Cloudflare deployment:
+
+- `/smg/v1.13.0/getting-started` serves the documentation prepared for SMG
+  **v1.13.0**, snapshotted from the current main docs. It is the default version.
+  Its content, navigation, and diagrams are stored in `src/lib/versions/v1.13.0/`
+  and `static/versions/v1.13.0/images/`.
+- `/smg/v1.12.0/getting-started` serves the existing documentation captured for
+  SMG **v1.12.0**. Its Markdown, navigation, URL aliases, and diagrams are stored
+  independently in `src/lib/versions/v1.12.0/` and `static/versions/v1.12.0/images/`.
+- `/smg/main/getting-started` serves the working content in `src/lib/content/` for
+  SMG's latest **main branch**, with a development notice. It currently matches
+  the v1.13.0 snapshot; subsequent main-branch documentation updates go here.
+- Existing unversioned documentation and search URLs redirect to the latest
+  documented release, currently v1.13.0.
+- All documentation versions share the same version-neutral homepage at `/smg`.
+  Its content and navigation are shared, with no version selector or release
+  banner. Documentation links on the homepage use the unversioned entry URLs;
+  the site logo returns here from every docs version.
+
+Switching versions keeps the page, query, and anchor when that page exists in the
+target version. Otherwise it opens that section's overview. Internal links and
+Edit/source buttons use the selected version. Unknown versions and missing pages
+return 404 rather than serving another version's content.
+
+To verify content separation locally, open
+`/smg/v1.13.0/reference/configuration#streaming-keepalives`. The **Streaming
+Keepalives** section and `--sse-keepalive-secs` flag are present in v1.13.0 and
+main, but absent from v1.12.0. This documents
+[SMG #3241](https://github.com/smg-project/smg/pull/3241), merged after v1.12.0.
+Switch versions on that page to compare the content and table of contents.
+
+Release snapshots are outside the nightly updater's allowed `src/lib/content/`
+tree. The existing updater still uses stable-release evidence: it can maintain
+released behavior in main docs, but documenting unreleased changes requires
+reviewing SMG main and editing the working content. Versioning does not itself
+audit or import upstream changes.
+
+To publish a future release after reviewing the working docs against its SMG tag:
+
+```sh
+pnpm docs:snapshot vX.Y.Z
+pnpm exec prettier --write src/lib/config/docs-releases.json src/lib/versions/vX.Y.Z/manifest.json
+pnpm test:docs
+pnpm check
+pnpm build
+```
+
+The snapshot command copies Markdown, navigation, URL aliases, and images, then
+registers the release as the default in `src/lib/config/docs-releases.json`. It
+refuses to overwrite an existing snapshot. Commit all generated files together.
+Keep snapshots fixed except for intentional, version-specific corrections; the
+site's rendering and styling remain shared across versions.
+
+`pnpm test:docs` checks every page, navigation, version isolation, Markdown links,
+and diagrams. With `pnpm dev` running, `pnpm test:docs:http` also checks the
+rendered server responses, legacy redirects, and 404s. Pass a different origin
+(e.g. `pnpm test:docs:http http://127.0.0.1:4173`) to test a production preview.
 
 ## Deployment
 

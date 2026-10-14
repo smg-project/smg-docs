@@ -4,7 +4,7 @@ title: Configuration
 
 # Configuration Reference
 
-Every `smg launch` flag in SMG v1.11.0, with its default, accepted values, and environment variable. Sections mostly follow the headings that `smg launch --help` prints.
+Gateway configuration flags, defaults, accepted values, and environment variables. Sections mostly follow the headings that `smg launch --help` prints.
 
 ---
 
@@ -441,6 +441,7 @@ See the [Metrics Reference](metrics.md).
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--request-timeout-secs` | `1800` (30 min) | Maximum time for request processing. Must be greater than 0. |
+| `--sse-keepalive-secs` | `15` | Send a keepalive after this many seconds of silence on an open SSE response. `0` disables it. Available from v1.13.0; see [Streaming Keepalives](#streaming-keepalives). |
 | `--upstream-pool-idle-timeout-secs` | `3` | Idle timeout for pooled upstream connections. Keep it below the backend server's keep-alive timeout (vLLM and SGLang default to 5 seconds), or reused connections the server already closed fail non-idempotent sends. `0` keeps idle connections forever. |
 | `--shutdown-grace-period-secs` | `180` (3 min) | Time to wait for in-flight requests during shutdown. See [Graceful Shutdown](../concepts/reliability/graceful-shutdown.md). |
 | `--max-payload-size` | `536870912` (512 MiB) | Maximum request body size in bytes. Must be greater than 0. |
@@ -461,6 +462,33 @@ See the [Metrics Reference](metrics.md).
 --cors-allowed-origins http://localhost:3000 https://example.com
 --request-id-headers x-request-id x-trace-id x-correlation-id
 ```
+
+### Streaming Keepalives
+
+!!! note "New in v1.13.0"
+    SMG can keep an open streaming response active while the engine is silent, such as during a long prefill. This setting is unavailable in v1.12.0.
+
+After **15 seconds** without response data, SMG sends an SSE keepalive. The
+interval starts when the response headers are sent and restarts when data flows.
+Keepalives are inserted only between complete SSE frames.
+
+| Endpoint | Keepalive format |
+|----------|------------------|
+| `/v1/chat/completions`, `/v1/completions`, `/v1/responses` | SSE comment: `: ping`, followed by a blank line |
+| `/v1/messages` | `event: ping` with `data: {"type":"ping"}`, followed by a blank line |
+
+Choose an interval shorter than the idle timeout of the proxy or load balancer
+in front of SMG. For example, to send a keepalive after 10 seconds of silence:
+
+```bash
+smg launch \
+  --worker-urls http://localhost:8000 \
+  --sse-keepalive-secs 10
+```
+
+Set `--sse-keepalive-secs 0` to disable gateway keepalives. The setting applies to
+open `text/event-stream` responses without a fixed content length; JSON responses
+and completed, fixed-length responses are unchanged.
 
 ### Storage Context Headers
 

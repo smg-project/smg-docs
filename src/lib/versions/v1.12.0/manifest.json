@@ -1,0 +1,379 @@
+{
+	"navigation": {
+		"getting-started": {
+			"indexHref": "getting-started",
+			"indexLabel": "Getting Started",
+			"ariaLabel": "Getting Started",
+			"sections": [
+				{
+					"label": "Core Setup",
+					"items": [
+						{
+							"label": "Multiple Workers",
+							"href": "getting-started/multiple-workers"
+						},
+						{
+							"label": "gRPC Workers",
+							"href": "getting-started/grpc-workers"
+						},
+						{
+							"label": "ZMQ Direct Workers",
+							"href": "getting-started/zmq-workers"
+						},
+						{
+							"label": "PD Disaggregation",
+							"href": "getting-started/pd-disaggregation"
+						},
+						{
+							"label": "Service Discovery",
+							"href": "getting-started/service-discovery"
+						}
+					]
+				},
+				{
+					"label": "Operations",
+					"items": [
+						{
+							"label": "Monitoring",
+							"href": "getting-started/monitoring"
+						},
+						{
+							"label": "Logging",
+							"href": "getting-started/logging"
+						},
+						{
+							"label": "TLS",
+							"href": "getting-started/tls"
+						},
+						{
+							"label": "Control Plane Auth",
+							"href": "getting-started/control-plane-auth"
+						},
+						{
+							"label": "Control Plane Operations",
+							"href": "getting-started/control-plane-operations"
+						}
+					]
+				},
+				{
+					"label": "Reliability and Data",
+					"items": [
+						{
+							"label": "Reliability Controls",
+							"href": "getting-started/reliability-controls"
+						},
+						{
+							"label": "Data Connections",
+							"href": "getting-started/data-connections"
+						},
+						{
+							"label": "Tokenization and Parsing APIs",
+							"href": "getting-started/tokenization-and-parsing-apis"
+						}
+					]
+				},
+				{
+					"label": "Advanced Features",
+					"items": [
+						{
+							"label": "Load Balancing",
+							"href": "getting-started/load-balancing"
+						},
+						{
+							"label": "KV Events Cache-Aware Routing",
+							"href": "getting-started/kv-events-cache-aware-routing"
+						},
+						{
+							"label": "Tokenizer Caching",
+							"href": "getting-started/tokenizer-caching"
+						},
+						{
+							"label": "MCP in Responses API",
+							"href": "getting-started/mcp-in-responses-api"
+						},
+						{
+							"label": "External Providers",
+							"href": "getting-started/external-providers"
+						},
+						{
+							"label": "RL Control Plane",
+							"href": "getting-started/rl-control-plane"
+						}
+					]
+				}
+			]
+		},
+		"concepts": {
+			"indexHref": "concepts",
+			"indexLabel": "Concepts",
+			"ariaLabel": "Concepts",
+			"sections": [
+				{
+					"label": "Architecture",
+					"items": [
+						{
+							"label": "Overview",
+							"href": "concepts/architecture/overview"
+						},
+						{
+							"label": "Service Discovery",
+							"href": "concepts/architecture/service-discovery"
+						},
+						{
+							"label": "gRPC Pipeline",
+							"href": "concepts/architecture/grpc-pipeline"
+						},
+						{
+							"label": "Multimodal Pipeline",
+							"href": "concepts/architecture/multimodal"
+						},
+						{
+							"label": "High Availability",
+							"href": "concepts/architecture/high-availability"
+						}
+					]
+				},
+				{
+					"label": "Routing",
+					"items": [
+						{
+							"label": "Load Balancing",
+							"href": "concepts/routing/load-balancing"
+						},
+						{
+							"label": "Cache-Aware Routing",
+							"href": "concepts/routing/cache-aware"
+						},
+						{
+							"label": "Sticky Sessions and Routing Keys",
+							"href": "concepts/routing/sticky-sessions"
+						},
+						{
+							"label": "PD Disaggregation",
+							"href": "concepts/routing/pd-disaggregation"
+						}
+					]
+				},
+				{
+					"label": "Performance",
+					"items": [
+						{
+							"label": "Tokenizer Caching",
+							"href": "concepts/performance/tokenizer-caching"
+						},
+						{
+							"label": "Request Streaming",
+							"href": "concepts/performance/request-streaming"
+						}
+					]
+				},
+				{
+					"label": "Extensibility",
+					"items": [
+						{
+							"label": "WASM Plugins",
+							"href": "concepts/extensibility/wasm-plugins"
+						},
+						{
+							"label": "Model Context Protocol",
+							"href": "concepts/extensibility/mcp"
+						}
+					]
+				},
+				{
+					"label": "Reliability",
+					"items": [
+						{
+							"label": "Circuit Breakers",
+							"href": "concepts/reliability/circuit-breakers"
+						},
+						{
+							"label": "Rate Limiting",
+							"href": "concepts/reliability/rate-limiting"
+						},
+						{
+							"label": "Tenant Rate Limiting",
+							"href": "concepts/reliability/tenant-rate-limiting"
+						},
+						{
+							"label": "Priority Scheduling",
+							"href": "concepts/reliability/priority-scheduling"
+						},
+						{
+							"label": "Overload Protection",
+							"href": "concepts/reliability/overload-protection"
+						},
+						{
+							"label": "Retries",
+							"href": "concepts/reliability/retries"
+						},
+						{
+							"label": "Health Checks",
+							"href": "concepts/reliability/health-checks"
+						},
+						{
+							"label": "Graceful Shutdown",
+							"href": "concepts/reliability/graceful-shutdown"
+						}
+					]
+				},
+				{
+					"label": "Data",
+					"items": [
+						{
+							"label": "Chat History",
+							"href": "concepts/data/chat-history"
+						}
+					]
+				},
+				{
+					"label": "Security",
+					"items": [
+						{
+							"label": "Authentication",
+							"href": "concepts/security/authentication"
+						}
+					]
+				}
+			]
+		},
+		"reference": {
+			"indexHref": "reference",
+			"indexLabel": "Reference",
+			"ariaLabel": "Reference",
+			"sections": [
+				{
+					"label": "API",
+					"items": [
+						{
+							"label": "OpenAI-Compatible",
+							"href": "reference/api/openai"
+						},
+						{
+							"label": "Responses API",
+							"href": "reference/api/responses"
+						},
+						{
+							"label": "Anthropic Messages API",
+							"href": "reference/api/messages"
+						},
+						{
+							"label": "Admin API",
+							"href": "reference/api/admin"
+						},
+						{
+							"label": "Gateway Extensions",
+							"href": "reference/api/extensions"
+						}
+					]
+				},
+				{
+					"label": "Guides",
+					"items": [
+						{
+							"label": "Configuration",
+							"href": "reference/configuration"
+						},
+						{
+							"label": "Tenant Rate Limiting",
+							"href": "reference/tenant-rate-limiting"
+						},
+						{
+							"label": "Priority Scheduler",
+							"href": "reference/priority-scheduler"
+						},
+						{
+							"label": "Metrics",
+							"href": "reference/metrics"
+						},
+						{
+							"label": "Internal MCP Servers",
+							"href": "reference/mcp-internal-servers"
+						}
+					]
+				}
+			]
+		},
+		"contributing": {
+			"indexHref": "contributing",
+			"indexLabel": "Contributing",
+			"ariaLabel": "Contributing",
+			"sections": [
+				{
+					"label": "Guides",
+					"items": [
+						{
+							"label": "Development Setup",
+							"href": "contributing/development"
+						},
+						{
+							"label": "Code Style",
+							"href": "contributing/code-style"
+						}
+					]
+				}
+			]
+		}
+	},
+	"pages": {
+		"concepts/architecture/grpc-pipeline": "concepts/architecture/grpc-pipeline.md",
+		"concepts/architecture/high-availability": "concepts/architecture/high-availability.md",
+		"concepts/architecture/multimodal": "concepts/architecture/multimodal.md",
+		"concepts/architecture/overview": "concepts/architecture/overview.md",
+		"concepts/architecture/service-discovery": "concepts/architecture/service-discovery.md",
+		"concepts/data/chat-history": "concepts/data/chat-history.md",
+		"concepts/extensibility/mcp": "concepts/extensibility/mcp.md",
+		"concepts/extensibility/wasm-plugins": "concepts/extensibility/wasm-plugins.md",
+		"concepts": "concepts/index.md",
+		"concepts/performance/request-streaming": "concepts/performance/request-streaming.md",
+		"concepts/performance/tokenizer-caching": "concepts/performance/tokenizer-caching.md",
+		"concepts/reliability/circuit-breakers": "concepts/reliability/circuit-breakers.md",
+		"concepts/reliability/graceful-shutdown": "concepts/reliability/graceful-shutdown.md",
+		"concepts/reliability/health-checks": "concepts/reliability/health-checks.md",
+		"concepts/reliability": "concepts/reliability/index.md",
+		"concepts/reliability/overload-protection": "concepts/reliability/overload-protection.md",
+		"concepts/reliability/priority-scheduling": "concepts/reliability/priority-scheduling.md",
+		"concepts/reliability/rate-limiting": "concepts/reliability/rate-limiting.md",
+		"concepts/reliability/retries": "concepts/reliability/retries.md",
+		"concepts/reliability/tenant-rate-limiting": "concepts/reliability/tenant-rate-limiting.md",
+		"concepts/routing/cache-aware": "concepts/routing/cache-aware.md",
+		"concepts/routing/load-balancing": "concepts/routing/load-balancing.md",
+		"concepts/routing/pd-disaggregation": "concepts/routing/pd-disaggregation.md",
+		"concepts/routing/sticky-sessions": "concepts/routing/sticky-sessions.md",
+		"concepts/security/authentication": "concepts/security/authentication.md",
+		"contributing/code-style": "contributing/code-style.md",
+		"contributing/development": "contributing/development.md",
+		"contributing": "contributing/index.md",
+		"getting-started/control-plane-auth": "getting-started/control-plane-auth.md",
+		"getting-started/control-plane-operations": "getting-started/control-plane-operations.md",
+		"getting-started/data-connections": "getting-started/data-connections.md",
+		"getting-started/external-providers": "getting-started/external-providers.md",
+		"getting-started/grpc-workers": "getting-started/grpc-workers.md",
+		"getting-started": "getting-started/index.md",
+		"getting-started/kv-events-cache-aware-routing": "getting-started/kv-events-cache-aware.md",
+		"getting-started/load-balancing": "getting-started/load-balancing.md",
+		"getting-started/logging": "getting-started/logging.md",
+		"getting-started/mcp-in-responses-api": "getting-started/mcp.md",
+		"getting-started/monitoring": "getting-started/monitoring.md",
+		"getting-started/multiple-workers": "getting-started/multiple-workers.md",
+		"getting-started/pd-disaggregation": "getting-started/pd-disaggregation.md",
+		"getting-started/reliability-controls": "getting-started/reliability-controls.md",
+		"getting-started/rl-control-plane": "getting-started/rl-control-plane.md",
+		"getting-started/service-discovery": "getting-started/service-discovery.md",
+		"getting-started/tls": "getting-started/tls.md",
+		"getting-started/tokenization-and-parsing-apis": "getting-started/tokenization-and-parsing.md",
+		"getting-started/tokenizer-caching": "getting-started/tokenizer-caching.md",
+		"getting-started/zmq-workers": "getting-started/zmq-workers.md",
+		"reference/api/admin": "reference/api/admin.md",
+		"reference/api/extensions": "reference/api/extensions.md",
+		"reference/api/messages": "reference/api/messages.md",
+		"reference/api/openai": "reference/api/openai.md",
+		"reference/api/responses": "reference/api/responses.md",
+		"reference/configuration": "reference/configuration.md",
+		"reference": "reference/index.md",
+		"reference/mcp-internal-servers": "reference/mcp-internal-servers.md",
+		"reference/metrics": "reference/metrics.md",
+		"reference/priority-scheduler": "reference/priority-scheduler.md",
+		"reference/tenant-rate-limiting": "reference/tenant-rate-limiting.md"
+	}
+}

@@ -20,7 +20,10 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
 		"db:migrate:local": "node scripts/ensure-node22.mjs db:migrate:local",
-		"db:migrate:remote": "node scripts/ensure-node22.mjs db:migrate:remote"
+		"db:migrate:remote": "node scripts/ensure-node22.mjs db:migrate:remote",
+		"docs:snapshot": "node scripts/snapshot-docs.mjs",
+		"test:docs": "node scripts/test-docs.mjs",
+		"test:docs:http": "node scripts/test-docs-http.mjs"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",

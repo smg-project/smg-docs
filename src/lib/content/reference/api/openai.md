@@ -307,6 +307,12 @@ when a worker rejects a streaming request, SMG keeps the worker's content type
 If generation fails after a gRPC stream has started, SMG sends
 `data: {"error": {"message": "...", "type": "internal_error"}}` followed by `data: [DONE]`.
 
+Starting with v1.13.0, a quiet open SSE response can contain `: ping` comments
+between events. SMG sends them after 15 seconds of silence by default, including
+while waiting for the first token. SSE clients should ignore comment lines.
+Configure or disable them with
+[`--sse-keepalive-secs`](../configuration.md#streaming-keepalives).
+
 #### Stream Usage
 
 | `stream_options` field | Default | Effect |

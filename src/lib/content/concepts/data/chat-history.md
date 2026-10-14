@@ -160,7 +160,7 @@ smg --history-backend postgres \
 </div>
 
 !!! warning "No TLS to PostgreSQL"
-    In v1.11.0, SMG connects to PostgreSQL without TLS, so the connection is unencrypted. `sslmode=disable` and `sslmode=prefer` (the default) both connect in plaintext, `sslmode=require` fails to connect, and any other `sslmode` value (such as `verify-full`) is rejected as an invalid URL. To encrypt traffic to the database, put a TLS tunnel between SMG and PostgreSQL, such as a sidecar proxy that connects to the database over TLS.
+    In v1.12.0, SMG connects to PostgreSQL without TLS, so the connection is unencrypted. `sslmode=disable` and `sslmode=prefer` (the default) both connect in plaintext, `sslmode=require` fails to connect, and any other `sslmode` value (such as `verify-full`) is rejected as an invalid URL. To encrypt traffic to the database, put a TLS tunnel between SMG and PostgreSQL, such as a sidecar proxy that connects to the database over TLS.
 
 ---
 

@@ -90,9 +90,11 @@ A denied reservation returns **429** with the gateway's standard JSON error enve
 
 ## Current scope
 
-Tenant rate limiting is wired into SMG's **gRPC router**, covering the Chat, Generate, Completion, and Messages endpoints (Harmony-mode chat is covered too — it shares the same entry point as regular chat). The gRPC router serves [ZMQ-connected workers](../../getting-started/zmq-workers.md) too — `--connection-mode zmq` builds the same router and pipeline — and the reservation happens before a worker is even selected, so enforcement is identical whichever transport the workers use. It is **not yet wired into**: the Responses endpoint, embeddings, classify, audio transcriptions, or any of the HTTP-passthrough / external-provider routers.
+Tenant rate limiting is wired into SMG's **gRPC router**, covering the Chat, Generate, Completion, Messages, and Decisions endpoints (Harmony-mode chat is covered too — it shares the same entry point as regular chat). The gRPC router serves [ZMQ-connected workers](../../getting-started/zmq-workers.md) too — `--connection-mode zmq` builds the same router and pipeline — and the reservation happens before a worker is even selected, so for Chat, Generate, Completion, and Messages, enforcement is identical whichever transport the workers use. Tenant rate limiting is **not yet wired into**: the Responses endpoint, embeddings, classify, audio transcriptions, or any of the HTTP-passthrough / external-provider routers.
 
-The `--tenant-rate-limit-*` flags belong to the Rust `smg` binary. The Python launcher (`smg launch` from pip, and the container image) does not accept them in v1.11.0.
+Decisions is the one endpoint where the worker transport matters: the gRPC router serves it only on gRPC-connected SGLang workers, so a Decisions request for a model served entirely by ZMQ-connected workers is rejected as unsupported before any budget is reserved.
+
+The `--tenant-rate-limit-*` flags belong to the Rust `smg` binary. The Python launcher (`smg launch` from pip, and the container image) does not accept them in v1.12.0.
 
 Enforcement is also **per gateway instance**: a tenant's true limit across several independent SMG instances is roughly the configured value multiplied by the instance count. A distributed backend for exact cluster-wide enforcement is a possible future extension behind the same interface, not something this version provides.
 

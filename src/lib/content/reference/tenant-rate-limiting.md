@@ -6,7 +6,9 @@ title: Tenant Rate Limiting Reference
 
 Precise contract for per-tenant token/request rate limiting: every configuration knob, the YAML policy schema, and the exact response shape. For how it works conceptually — the reserve/settle model, retry handling, `n>1` accounting — see [Tenant Rate Limiting](../concepts/reliability/tenant-rate-limiting.md).
 
-Tenant rate limiting is **disabled by default** and, when enabled, only enforced on the **gRPC router's** Chat, Generate, Completion, and Messages endpoints (Harmony-mode chat included). The gRPC router serves both gRPC- and [ZMQ-connected](../getting-started/zmq-workers.md) workers (`--connection-mode zmq`, `ipc://` worker URLs), so enforcement does not depend on the worker transport. It does not apply to the Responses endpoint, embeddings, classify, audio transcriptions, or the HTTP/external-provider routers.
+Tenant rate limiting is **disabled by default** and, when enabled, only enforced on the **gRPC router's** Chat, Generate, Completion, Messages, and Decisions endpoints (Harmony-mode chat included). The gRPC router serves both gRPC- and [ZMQ-connected](../getting-started/zmq-workers.md) workers (`--connection-mode zmq`, `ipc://` worker URLs); for Chat, Generate, Completion, and Messages, enforcement does not depend on the worker transport. Tenant rate limiting does not apply to the Responses endpoint, embeddings, classify, audio transcriptions, or the HTTP/external-provider routers.
+
+Decisions is the one endpoint where the worker transport matters: the gRPC router serves it only on gRPC-connected SGLang workers, and a Decisions request for a model with no such worker is rejected with **501** (`X-SMG-Error-Code: decisions_not_supported`) before any reservation is made.
 
 ---
 
@@ -26,7 +28,7 @@ smg \
 | `--tenant-rate-limit-enabled` | `false` | Master switch. When unset, no rate limiter is constructed and every request skips reservation entirely. |
 | `--tenant-rate-limit-config` | unset | Path to the tenant-rate-limit YAML. Required when `--tenant-rate-limit-enabled` is set. |
 
-Both flags belong to the Rust `smg` binary. The Python launcher (`smg launch` from pip, and the container image) does not accept them in v1.11.0.
+Both flags belong to the Rust `smg` binary. The Python launcher (`smg launch` from pip, and the container image) does not accept them in v1.12.0.
 
 !!! warning "Fail-closed startup"
     With `--tenant-rate-limit-enabled`, a missing config path, or a file that is unreadable, unparsable, or fails validation, stops the gateway at startup with an error. An operator who turned the limiter on never gets a gateway that silently runs unlimited.

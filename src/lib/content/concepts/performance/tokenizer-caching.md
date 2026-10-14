@@ -179,7 +179,9 @@ User: How do I install it?
 
 </div>
 
-**Result**: Turn 2 tokenizes only the new messages, not the shared history. The hit also stores one new entry covering Turn 2's prompt up to its own deepest boundary (on main after the v1.11.0 release, smg-project/smg#2869), so Turn 3 matches right after Turn 2's last special token — even when Turn 2's match came from a prefix shared with other conversations, such as a common system prompt. In v1.11.0 and earlier a hit stores nothing: every later turn keeps matching the deepest boundary the last miss stored and re-tokenizes everything after it.
+**Result**: Turn 2 tokenizes only the new messages, not the shared history. The hit also stores one new entry covering Turn 2's prompt up to its own deepest boundary, so Turn 3 matches right after Turn 2's last special token — even when Turn 2's match came from a prefix shared with other conversations, such as a common system prompt.
+
+In v1.11.0 and earlier a hit stores nothing: every later turn keeps matching the deepest boundary the last miss stored and re-tokenizes everything after it.
 
 ---
 
@@ -397,7 +399,9 @@ L1 cache is bounded by total memory:
 | 100 MB | Multi-turn conversation heavy |
 | 200 MB | Long context applications |
 
-On a miss, L1 stores one entry per special-token boundary of the input: the token IDs of the whole prefix up to that boundary. On a hit, it stores one more entry — the prefix up to the input's own deepest boundary — when that boundary lies past the match, so steady hit traffic also grows the cache (on main after the v1.11.0 release, smg-project/smg#2869; earlier versions store nothing on a hit). SMG charges each entry the prefix's length in bytes plus 4 bytes per token, so a long multi-turn prompt with many boundaries counts for many times its own length. When new entries would exceed the budget, SMG evicts approximately least recently used entries (sampling 32 at a time) to make room. The budget is an estimate of cache contents, not a cap on process memory.
+On a miss, L1 stores one entry per special-token boundary of the input: the token IDs of the whole prefix up to that boundary. On a hit, it stores one more entry — the prefix up to the input's own deepest boundary — when that boundary lies past the match, so steady hit traffic also grows the cache. SMG charges each entry the prefix's length in bytes plus 4 bytes per token, so a long multi-turn prompt with many boundaries counts for many times its own length. When new entries would exceed the budget, SMG evicts approximately least recently used entries (sampling 32 at a time) to make room. The budget is an estimate of cache contents, not a cap on process memory.
+
+In v1.11.0 and earlier a hit stores nothing; only misses grow the cache.
 
 ---
 

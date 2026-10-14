@@ -71,18 +71,18 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     docker pull ghcr.io/smg-project/smg:<version>-<engine>-<engine_version>
     ```
 
-    As of v1.11.0, each release builds these engine images from the listed upstream base images:
+    As of v1.12.0, each release builds these engine images from the listed upstream base images:
 
     | Engine | Tag suffix | Base image | Nightly tag |
     |--------|-----------|------------|-------------|
-    | vLLM | `vllm-v0.27.1`, `vllm-v0.26.0`, `vllm-v0.25.0` | `vllm/vllm-openai` | `nightly-vllm` |
-    | SGLang | `sglang-v0.5.20` | `lmsysorg/sglang` | `nightly-sglang` |
+    | vLLM | `vllm-v0.31.0`, `vllm-v0.27.1`, `vllm-v0.26.0` | `vllm/vllm-openai` | `nightly-vllm` |
+    | SGLang | `sglang-v0.5.21` | `lmsysorg/sglang` | `nightly-sglang` |
     | TensorRT-LLM | `trtllm-1.3.0rc24`, `trtllm-1.3.0rc23`, `trtllm-1.3.0rc22` | `nvcr.io/nvidia/tensorrt-llm/release` | `nightly-trtllm` |
-    | TokenSpeed | `tokenspeed-tml` | `lightseekorg/tokenspeed:tml` | `nightly-tokenspeed` |
+    | TokenSpeed | `tokenspeed-tml` (releases up to 1.11.0) | `lightseekorg/tokenspeed:tml` | `nightly-tokenspeed` |
 
-    Current main has since moved the vLLM matrix to `v0.31.0`, `v0.27.1`, and `v0.26.0` (dropping `v0.25.0`): `nightly-vllm` is now built on `vllm/vllm-openai:v0.31.0`, and releases cut after that change build `vllm-v0.31.0`, `vllm-v0.27.1`, and `vllm-v0.26.0` tag suffixes instead.
+    For example, v1.12.0 published `ghcr.io/smg-project/smg:1.12.0-vllm-v0.31.0` and `ghcr.io/smg-project/smg:1.12.0-sglang-v0.5.21`, both built from SMG 1.12.0. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
 
-    For example, v1.11.0 published `ghcr.io/smg-project/smg:1.11.0-vllm-v0.27.1` and `ghcr.io/smg-project/smg:1.11.0-sglang-v0.5.20`, both built from SMG 1.11.0. The release TokenSpeed image is not: the release workflow builds it from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
+    The `tokenspeed-tml` release images belong to 1.11.0 and earlier, and they do not contain that release's SMG: they were built from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG.
 
 === "From Source"
 
@@ -276,7 +276,7 @@ curl http://localhost:30000/v1/responses \
 
 ## Worker Startup Recipes (Standalone)
 
-Use these when workers are not started via `smg serve`. Each command starts one worker; register it with `smg launch --worker-urls` using a `grpc://` or `http://` URL, as in [Option B](#option-b-launch-gateway-only-with-smg-launch). The SMG engine images for vLLM, SGLang, TensorRT-LLM, and TokenSpeed already contain the engine and the SMG gRPC servicer. SMG v1.11.0's CI starts workers the same way (plus test-specific flags) on vLLM 0.27.1, SGLang 0.5.20, TensorRT-LLM 1.3.0rc24, and a pinned TokenSpeed commit. On current main the CI's vLLM pin is 0.31.0, matching the refreshed engine-image matrix (see [Install](#install)).
+Use these when workers are not started via `smg serve`. Each command starts one worker; register it with `smg launch --worker-urls` using a `grpc://` or `http://` URL, as in [Option B](#option-b-launch-gateway-only-with-smg-launch). The SMG engine images for vLLM, SGLang, TensorRT-LLM, and TokenSpeed already contain the engine and the SMG gRPC servicer (see [Install](#install)).
 
 === "vLLM"
 
@@ -586,7 +586,7 @@ curl http://localhost:30000/health
 
 ### All-in-one with engine images
 
-Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. The examples use the v1.11.0 images; the Docker tab under [Install](#install) lists the engine tags each release builds.
+Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. The examples use the v1.12.0 images; the Docker tab under [Install](#install) lists the engine tags each release builds.
 
 === "SGLang"
 
@@ -595,7 +595,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:1.11.0-sglang-v0.5.20 \
+      ghcr.io/smg-project/smg:1.12.0-sglang-v0.5.21 \
       serve \
       --backend sglang \
       --model-path /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -610,7 +610,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:1.11.0-vllm-v0.27.1 \
+      ghcr.io/smg-project/smg:1.12.0-vllm-v0.31.0 \
       serve \
       --backend vllm \
       --model /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -618,7 +618,9 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --port 30000
     ```
 
-Each engine image sets `SMG_DEFAULT_BACKEND` to its engine, so `--backend` is optional. Workers connect over gRPC by default. TensorRT-LLM images take `--backend trtllm` and support only gRPC. TokenSpeed needs `--connection-mode zmq` and `--router-model-path` (see [ZMQ Workers](zmq-workers.md)). The release TokenSpeed images can't do this: the SMG 1.7.0 they contain has no TokenSpeed backend or ZMQ mode in `smg serve`.
+Each engine image sets `SMG_DEFAULT_BACKEND` to its engine, so `--backend` is optional. Workers connect over gRPC by default. TensorRT-LLM images take `--backend trtllm` and support only gRPC. TokenSpeed needs `--connection-mode zmq` and `--router-model-path` (see [ZMQ Workers](zmq-workers.md)).
+
+The TokenSpeed release images from 1.11.0 and earlier cannot serve TokenSpeed this way: the SMG 1.7.0 they contain has no TokenSpeed backend or ZMQ mode in `smg serve`.
 
 Verify:
 

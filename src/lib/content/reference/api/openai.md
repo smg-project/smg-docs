@@ -397,6 +397,173 @@ curl http://localhost:30000/v1/completions \
 
 ---
 
+### Decisions
+
+Ask predicate (yes/no), choice, and score questions about shared evidence. The model
+scores each question's possible answers instead of generating text, and every answer
+carries a probability distribution.
+
+```
+POST /v1/decisions
+```
+
+Decisions is available since v1.12.0.
+
+Requests are always treated as non-streaming: there is no `stream` field, and SMG returns
+a single JSON body.
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model` | string | Yes | Model identifier. A name configured with `--model-alias` is accepted and resolved to its canonical model |
+| `input` | string/array | Yes | The evidence every question is answered against: a plain string, or an array of `user` messages (see [Decision Input](#decision-input)) |
+| `questions` | array | Yes | Questions to answer; answers come back in the same order (see [Decision Questions](#decision-questions)) |
+| `safety_identifier` | string | No | Opaque end-user identifier, at most 128 characters |
+
+Fields SMG does not model — on the request and on its messages, parts, questions, choices,
+and levels — are kept as backend extensions: they are forwarded unchanged to non-SGLang
+HTTP workers and rejected with `400` on SGLang workers (see [Decision Workers](#decision-workers)).
+
+#### Decision Input
+
+As an array, each `input` message has:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `role` | string | Yes | Must be `user` |
+| `type` | string | No | `message`, when present |
+| `content` | string/array | Yes | Text, or an array of `input_text` and `input_image` parts |
+
+| Part `type` | Payload | Limits |
+|-------------|---------|--------|
+| `input_text` | `text` | At most 10,485,760 characters per part |
+| `input_image` | `image_url`, optional `detail` (`low`, `high`, `auto`, `original`) | Must be an inline base64 image data URL (`data:image/png;base64,...`); external URLs and file IDs are rejected. At most 128 images per request |
+
+`model`, `instructions`, `name`, `description`, and `label` values each take at most
+1,048,576 characters. A limit violation is rejected with `400` before routing.
+
+#### Decision Questions
+
+Every question has a `type`, required `instructions`, and an optional `name`. Names need
+not be unique: each answer repeats its question's `name` (`null` when unset), and answers
+keep question order.
+
+| `type` | Extra fields | The model estimates |
+|--------|--------------|---------------------|
+| `predicate` | — | The probability that the statement in `instructions` is true |
+| `choice` | `choices`: array of `{"value": ...}` with an optional `description`; `value` is a string or boolean, and `true` is distinct from `"true"` | A probability for each choice |
+| `score` | `levels`: array of `{"label": "..."}` with an optional `description`, ordered from lowest to highest | A probability for each level |
+
+#### Example Request
+
+```bash
+curl http://localhost:30000/v1/decisions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen3-4B-Instruct-2507",
+    "input": "The delivery arrived a day late, but the package was intact and support was friendly.",
+    "questions": [
+      {"type": "predicate", "instructions": "Did the delivery arrive on time?"},
+      {"type": "choice", "name": "sentiment", "instructions": "What is the overall sentiment?",
+       "choices": [{"value": "positive"}, {"value": "negative"}]},
+      {"type": "score", "instructions": "Rate the customer experience.",
+       "levels": [{"label": "poor"}, {"label": "fair"}, {"label": "good"}]}
+    ]
+  }'
+```
+
+#### Response
+
+```json
+{
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "answers": [
+    {"type": "predicate", "name": null, "probability": 0.11},
+    {"type": "choice", "name": "sentiment", "choice": "positive", "confidence": 0.74,
+     "probabilities": [
+       {"value": "positive", "probability": 0.87},
+       {"value": "negative", "probability": 0.13}
+     ]},
+    {"type": "score", "name": null, "score": 1.62, "confidence": 0.55,
+     "probabilities": [
+       {"value": 0, "label": "poor", "probability": 0.08},
+       {"value": 1, "label": "fair", "probability": 0.22},
+       {"value": 2, "label": "good", "probability": 0.70}
+     ]}
+  ],
+  "usage": {
+    "input_tokens": 182,
+    "output_tokens": 0,
+    "total_tokens": 182,
+    "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+    "output_tokens_details": {"reasoning_tokens": 0}
+  }
+}
+```
+
+Each answer carries its question's `type` and `name` plus:
+
+| `type` | Fields |
+|--------|--------|
+| `predicate` | `probability` (0–1) that the statement is true |
+| `choice` | `choice` — the `value` of the most probable choice; `confidence` (0–1); `probabilities` — one `{value, probability}` entry per choice, in request order |
+| `score` | `score` — the probability-weighted average of the level indices, not a winning level (level `i` in request order has `value: i`, so 3 levels give a score between 0 and 2); `confidence` (0–1); `probabilities` — one `{value, label, probability}` entry per level |
+| `refusal` | No further fields: the worker declined to answer the question. SMG's own SGLang scoring always produces one of the three types above |
+
+`usage` reflects scoring work: on SGLang workers (both the HTTP translation and gRPC
+scoring) the answer labels are scored without generating tokens, so `output_tokens` and
+`output_tokens_details.reasoning_tokens` are `0` and `total_tokens` equals `input_tokens`.
+On gRPC workers each question is scored as its own prompt over the shared input —
+`input_tokens` sums those prompts — and `input_tokens_details.cached_tokens` reports the
+engine's prefix-cache hits. The SGLang HTTP translation returns `0` for both cache
+counters, meaning unreported rather than measured. Non-SGLang HTTP workers return their
+own usage object.
+
+#### Decision Workers
+
+What serves the request depends on the worker:
+
+| Worker | Behavior |
+|--------|----------|
+| HTTP (SGLang runtime) | SMG translates the request to SGLang's native System One API (`POST /v1/systemone`, as served by SGLang 0.5.21) and maps the reply back to the Decisions shape |
+| HTTP (other runtimes) | The request is forwarded to the worker's own `/v1/decisions`, unknown fields included; the worker's response — errors included — is returned as is |
+| gRPC (regular mode, SGLang runtime) | SMG renders one prompt per question with the model's chat template and scores the answer labels through the engine, without generation |
+| PD, EPD, ZMQ, and external providers | Not implemented (`501` `decisions_not_supported`) |
+
+In a mixed fleet, SMG dispatches Decisions only to regular HTTP workers and regular SGLang
+gRPC workers serving the model.
+
+The SGLang paths (HTTP translation and gRPC scoring) reject these requests with `400`
+`unsupported_decisions_request` before dispatch:
+
+- `input_image` parts — SGLang Decisions takes text evidence only
+- unknown fields anywhere on the request — SGLang Decisions cannot honor them
+- empty or whitespace-only text evidence or `instructions`
+- no questions, a `choice` question outside 1–255 choices, or a `score` question outside 1–10 levels
+
+gRPC scoring also depends on the model: the internal answer labels SMG scores (`yes`/`no`,
+option letters, level digits — your own choice values and level labels are unrestricted)
+must each be one distinct token after the chat prompt, and the model's chat template must
+produce plain text without leaving a reasoning block open. A model that cannot satisfy
+this answers `400`.
+
+#### Decision Errors
+
+| Status | `code` | Returned when |
+|--------|--------|---------------|
+| 400 | `400` or `json_parse_error` | A length or image limit fails, or the body does not match the schema (a non-`user` role, an unknown question `type`, a numeric choice `value`, ...) |
+| 400 | `unsupported_decisions_request` | An SGLang worker was selected and the request needs something SGLang Decisions does not support (see [Decision Workers](#decision-workers)) |
+| 404 | `model_not_found` | No worker serves the model |
+| 501 | `decisions_not_supported` | No regular HTTP worker and no regular SGLang gRPC worker serves the model |
+| 502 | `invalid_decisions_response` | An SGLang worker (HTTP translation or gRPC scoring) reported success, but the result could not be mapped to a valid Decisions response |
+
+Backend errors on the SGLang HTTP translation keep their status and OpenAI error body.
+For tenant rate limiting on Decisions, see
+[Tenant Rate Limiting](../tenant-rate-limiting.md).
+
+---
+
 ### List Models
 
 List available models.

@@ -56,6 +56,7 @@ These run behind protected-route auth middleware:
 | `POST` | `/v1/messages` | Messages endpoint |
 | `POST` | `/v1/messages/count_tokens` | Count the input tokens of a Messages request; see [Count Tokens](messages.md#count-tokens) |
 | `POST` | `/v1/classify` | Classification endpoint |
+| `POST` | `/v1/decisions` | OpenAI Decisions API; regular HTTP workers and regular SGLang gRPC workers serve it, other backends answer `501`. See [Decisions](openai.md#decisions) |
 | `POST` | `/v1/embeddings` | OpenAI-compatible embeddings endpoint |
 | `POST` | `/v1/interactions` | Gemini Interactions API; only the Gemini provider backend serves it, other backends answer `501` |
 | `POST` | `/v1/systemone` | Native System One API; only regular HTTP workers serve it, deployments without a regular HTTP worker for the model answer `501` |
@@ -68,7 +69,7 @@ Before relaying, SMG checks that `model` names a served model (unknown models an
 
 These pages cover the other inference endpoints, which use the same auth:
 
-- [OpenAI-Compatible API](openai.md): `/v1/chat/completions`, `/v1/completions`, `/v1/audio/transcriptions`, and the `/v1/realtime` routes
+- [OpenAI-Compatible API](openai.md): `/v1/chat/completions`, `/v1/completions`, `/v1/decisions`, `/v1/audio/transcriptions`, and the `/v1/realtime` routes
 - [Responses API](responses.md): `/v1/responses` and `/v1/conversations`
 - [Anthropic Messages API](messages.md): `/v1/messages` and `/v1/messages/count_tokens`
 

@@ -199,7 +199,7 @@ smg --enable-wasm --worker-urls http://worker:8000
 | `module_cache_size` | 10 | Compiled components cached per runtime thread |
 | `max_body_size` | 10 MB | Largest request or response body a plugin can receive |
 
-These values are fixed in v1.11.0; no flag changes them. Plugins run on a pool of runtime threads, one per CPU core up to 4.
+These values are fixed in v1.12.0; no flag changes them. Plugins run on a pool of runtime threads, one per CPU core up to 4.
 
 With an **OnRequest** plugin attached, SMG reads the whole request body before running it, and answers `400` when the body exceeds `max_body_size`. With an **OnResponse** plugin attached, it reads each non-streaming response body the same way, and answers `500` when the body is too large.
 

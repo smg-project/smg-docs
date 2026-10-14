@@ -13,10 +13,12 @@ export const docsVersions = [
 	}))
 ];
 
+/** Return whether a route segment names main or a registered release. */
 export function isDocsVersion(value: string): boolean {
 	return docsVersions.some(({ id }) => id === value);
 }
 
+/** Narrow a route segment to one of the supported documentation sections. */
 export function isDocsSection(value: string): value is DocsSection {
 	return docsSections.some((section) => section === value);
 }
@@ -34,10 +36,12 @@ export function docsPath(pathname: string): string {
 	return parts.join('/');
 }
 
+/** Build a deployed documentation URL, replacing any existing version prefix. */
 export function docsHref(path = 'getting-started', version = defaultDocsVersion): string {
 	return `${base}/${version}/${docsPath(path)}`;
 }
 
+/** Read a registered version from a deployed URL, defaulting for unversioned paths. */
 export function versionFromPath(pathname: string): string {
 	const local = pathname.startsWith(`${base}/`) ? pathname.slice(base.length + 1) : '';
 	const version = local.split('/')[0];

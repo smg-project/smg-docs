@@ -12,6 +12,7 @@ const modules = import.meta.glob(
 	}
 ) as Record<string, string>;
 
+/** Load content, navigation, and headings from exactly one version; missing routes or sources throw 404. */
 export function loadDocPage(version: string, section: string, slug = '') {
 	if (!isDocsSection(section)) error(404, 'Documentation section not found');
 	const manifest = getDocsManifest(version);

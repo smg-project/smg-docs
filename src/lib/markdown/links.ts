@@ -2,6 +2,7 @@ import { base } from '$app/paths';
 import { defaultDocsVersion, docsHref, docsPath, isDocsSection } from '$lib/config/docs-versions';
 import { getDocsManifest } from '$lib/config/docs-manifests';
 
+/** Resolve a Markdown link relative to its source file without a deployment prefix. */
 function resolveRelativePath(fromFile: string, href: string): string {
 	const stack = fromFile.split('/').slice(0, -1);
 	for (const part of href.split('/')) {
@@ -11,6 +12,7 @@ function resolveRelativePath(fromFile: string, href: string): string {
 	return stack.join('/');
 }
 
+/** Scope internal documentation links to the selected manifest, preserving queries, anchors, and external URLs. */
 export function rewriteDocLinks(
 	text: string,
 	sourcePath = 'getting-started/index.md',
@@ -43,6 +45,7 @@ export function rewriteDocLinks(
 	});
 }
 
+/** Point documentation images at live main assets or the selected release snapshot. */
 export function rewriteAssetPaths(text: string, version = defaultDocsVersion): string {
 	const images = version === 'main' ? `${base}/images` : `${base}/versions/${version}/images`;
 	return text

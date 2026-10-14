@@ -11,8 +11,8 @@ SMG provides administrative endpoints for managing tokenizers, workers, WASM mod
 
 Manage tokenizers for text processing and tokenization.
 
-!!! note "Authentication Required"
-    These are control-plane routes. They need an admin control-plane credential when control-plane auth is configured, and the shared `--api-key` otherwise. See [Authentication](#authentication).
+!!! note "Authentication"
+    These are control-plane routes. When control-plane auth is configured, use a control-plane credential with the `admin` role. Otherwise, use the shared `--api-key` if configured. With neither control-plane auth nor any API keys configured, the routes are open. Tenant keys never grant admin access; with only `--tenant-api-key` configured, every admin request gets `401`. See [Authentication](#authentication).
 
 ### Add Tokenizer
 

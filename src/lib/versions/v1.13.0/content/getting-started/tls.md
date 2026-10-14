@@ -57,10 +57,15 @@ openssl genrsa -out server.key 2048
 openssl req -new -key server.key -out server.csr \
   -subj "/CN=smg.example.com/O=SMG"
 
-# Sign with CA
+# Set the DNS name that HTTPS clients will verify
+cat > server.ext <<'EOF'
+subjectAltName = DNS:smg.example.com
+EOF
+
+# Sign with CA and include the DNS subject alternative name (SAN)
 openssl x509 -req -days 365 -in server.csr \
   -CA ca.crt -CAkey ca.key -CAcreateserial \
-  -out server.crt
+  -extfile server.ext -out server.crt
 ```
 
 ### Step 3: Create client certificate (for mTLS to workers)
@@ -193,6 +198,12 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/
 
 ### Step 2: Create Certificate
 
+Before continuing, create the `inference` namespace and configure a `ClusterIssuer` named `letsencrypt-prod` for your domain and ACME challenge method. Installing cert-manager does not create this issuer. Follow the [cert-manager issuer configuration guide](https://cert-manager.io/docs/configuration/acme/) and confirm the issuer is ready:
+
+```bash
+kubectl wait --for=condition=Ready clusterissuer/letsencrypt-prod --timeout=120s
+```
+
 ```yaml title="smg-certificate.yaml"
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -206,6 +217,13 @@ spec:
     kind: ClusterIssuer
   dnsNames:
     - smg.example.com
+```
+
+Apply the certificate and wait for issuance before mounting its secret:
+
+```bash
+kubectl apply -f smg-certificate.yaml
+kubectl wait --for=condition=Ready certificate/smg-tls -n inference --timeout=300s
 ```
 
 ### Step 3: Mount in deployment

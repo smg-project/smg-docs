@@ -17,6 +17,7 @@ const snapshots = import.meta.glob('/src/lib/versions/*/manifest.json', {
 	import: 'default'
 }) as Record<string, DocsManifest>;
 
+/** Strip deployment and version prefixes so navigation can be frozen in a snapshot. */
 function normalizeNav(nav: DocsNavConfig): DocsNavConfig {
 	return {
 		...nav,
@@ -48,12 +49,14 @@ export const mainManifest: DocsManifest = {
 	)
 };
 
+/** Return live main routes or a frozen release manifest; unknown releases return undefined. */
 export function getDocsManifest(version: string): DocsManifest | undefined {
 	return version === 'main'
 		? mainManifest
 		: snapshots[`/src/lib/versions/${version}/manifest.json`];
 }
 
+/** Build section navigation for an existing manifest with links scoped to its version. */
 export function getDocsNav(section: DocsSection, version: string): DocsNavConfig {
 	const nav = getDocsManifest(version)!.navigation[section];
 	return {

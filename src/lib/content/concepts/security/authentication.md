@@ -390,8 +390,10 @@ This is useful when:
 Control plane routes (`/workers`, `/wasm`, `/v1/tokenizers`, etc.) use
 their own middleware stack. When `--control-plane-api-keys` or
 `--jwt-*` are configured they take over as the admin auth backend
-(with role-based access control and audit logging); when neither is
-set, admin routes fall back to the same `--api-key` bearer check that
+(with role-based access control). With this backend, the Rust binary enables
+audit logging by default; the Python launcher (pip and container image) requires
+`--control-plane-audit-enabled`. When neither auth option is set, admin routes
+fall back to the same `--api-key` bearer check that
 guards the data plane (tenant keys are never accepted there, and with
 only `--tenant-api-key` set, admin routes reject every request with
 `401`). If you run with **only** `--api-key`, the same

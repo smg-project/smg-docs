@@ -311,6 +311,7 @@ function createMarked(slugCounts = new Map<string, number>()): Marked {
 	});
 }
 
+/** Rewrite links and assets inside a deferred Markdown block for the selected version. */
 function prepareBlockMarkdown(
 	markdown: string,
 	sourcePath?: string,
@@ -319,6 +320,7 @@ function prepareBlockMarkdown(
 	return rewriteDocLinks(rewriteAssetPaths(markdown, version), sourcePath, version);
 }
 
+/** Render deferred documentation blocks using the same source path and version as the page. */
 function resolveDocBlocks(
 	html: string,
 	marked: Marked,
@@ -408,6 +410,7 @@ export function extractDocToc(raw: string): DocTocItem[] {
 	return items;
 }
 
+/** Convert MkDocs extensions and scope links and assets before rendering the page. */
 function preprocessDocMarkdown(
 	raw: string,
 	sourcePath?: string,
@@ -428,6 +431,7 @@ function preprocessDocMarkdown(
 	return text.trim();
 }
 
+/** Render a documentation page with version-aware links, custom blocks, and stable heading anchors. */
 export function renderDocMarkdown(
 	raw: string,
 	sourcePath?: string,

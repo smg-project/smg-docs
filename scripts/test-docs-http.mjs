@@ -1,15 +1,28 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createServer } from 'vite';
 
 // Run against a development server or the production preview; inspect SSR before hydration.
 const origin = process.argv[2] ?? 'http://127.0.0.1:5173';
 const releases = JSON.parse(await readFile('src/lib/config/docs-releases.json', 'utf8'));
 const latest = releases[0];
+const server = await createServer({
+	server: { middlewareMode: true, hmr: false, ws: false, watch: null },
+	appType: 'custom'
+});
+let mainManifest;
+try {
+	({ mainManifest } = await server.ssrLoadModule('/src/lib/config/docs-manifests.ts'));
+} finally {
+	await server.close();
+}
+
 let pages = 0;
 for (const version of [...releases, 'main']) {
-	// The latest snapshot supplies the released route baseline for main.
-	const snapshot = version === 'main' ? latest : version;
-	const manifest = JSON.parse(await readFile(`src/lib/versions/${snapshot}/manifest.json`, 'utf8'));
+	const manifest =
+		version === 'main'
+			? mainManifest
+			: JSON.parse(await readFile(`src/lib/versions/${version}/manifest.json`, 'utf8'));
 	for (const route of Object.keys(manifest.pages)) {
 		const response = await fetch(`${origin}/smg/${version}/${route}`);
 		assert.equal(response.status, 200, `${version}/${route}`);

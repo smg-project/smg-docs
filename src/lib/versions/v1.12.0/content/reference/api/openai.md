@@ -65,8 +65,11 @@ This request is attributed to `team-red`, distinct from a request authenticated 
 `--tenant-api-key` value, is rejected with `401 Unauthorized` and an empty body. Tenant
 keys authenticate serving endpoints only — `/v1/chat/completions`, `/v1/completions`,
 `/v1/embeddings`, etc. They do not grant access to admin/management routes (`/workers`,
-`/flush_cache`, and similar); that surface requires either the shared `--api-key` or
-control-plane authentication.
+`/flush_cache`, and similar). When control-plane authentication is enabled, those
+routes require a control-plane credential with the `admin` role. Otherwise, they
+accept the shared `--api-key` if configured. With neither control-plane auth nor any API keys configured,
+those routes are open; with only `--tenant-api-key` configured, every admin request
+is rejected with `401`.
 
 `GET /v1/models` is a public route and answers without a key (see [List Models](#list-models)).
 

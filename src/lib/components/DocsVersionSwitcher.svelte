@@ -7,6 +7,7 @@
 	let element = $state<HTMLDetailsElement>();
 	const current = $derived(versionFromPath($page.url.pathname));
 
+	/** Preserve the query and anchor only when the target version contains the same page. */
 	function destination(version: string) {
 		const path = versionSwitchPath($page.url.pathname, version);
 		const samePage = path === docsPath($page.url.pathname);

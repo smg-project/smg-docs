@@ -183,10 +183,9 @@ match a `function_call` earlier in the resolved input — the replayed items plu
 history loaded from `previous_response_id` — and an unmatched result is rejected with
 `400` `harmony_build_failed` (`No function call found for call_id: ...`).
 
-Accepting an `input` array without any message is new on main after v1.11.0
-(smg-project/smg#2723). v1.11.0 and earlier reject such an array with `400`
-(`Input items must contain at least one message`), so on those releases a continuation
-must include a message item.
+Accepting an `input` array without any message requires v1.12.0 or later. v1.11.0 and
+earlier reject such an array with `400` (`Input items must contain at least one message`),
+so on those releases a continuation must include a message item.
 
 ### Tool Configuration
 

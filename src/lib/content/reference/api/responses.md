@@ -602,8 +602,8 @@ Reasoning streams first, as its own item. A streamed `function_call` item opens 
 `"status": "in_progress"` and closes with its final status.
 
 **Terminal events.** Exactly one of these ends the stream, unless an internal SMG error
-cuts it short with an error frame or a cancelled [background](#background-mode) response
-ends its stream with no terminal event:
+cuts it short with an error frame or a cancel ends a [background](#background-mode)
+stream with no terminal event:
 
 | Event | `response.status` |
 |-------|-------------------|

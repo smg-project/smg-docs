@@ -420,7 +420,7 @@ On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longe
 
 | Status | Code | Meaning |
 |--------|------|---------|
-| 503 | `no_available_workers` | A leg has no available worker (unhealthy or circuit open). Over HTTP, the message names the leg. Same code as the regular HTTP and gRPC routers |
+| 503 | `no_available_workers` | A leg has no available worker: all of its workers are unhealthy or circuit-open, or no worker is registered on it at all while the other leg has workers (the pair is incomplete). Sent with `Retry-After`. Same code as the regular HTTP and gRPC routers |
 | 503 | `no_compatible_pd_pair` | No prefill shares a KV transfer protocol with any decode |
 | 503 | `worker_overload_protection_shed` | The decode admission window stayed full, or [overload protection](../reliability/overload-protection.md) vetoed a leg. Sent with `Retry-After` |
 | 400 | `context_length_exceeded` | gRPC: the prompt exceeds the smaller context window of the two legs |
@@ -435,6 +435,10 @@ On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longe
 | 501 | `moriio_grpc_pd_unsupported` | gRPC: MoRI-IO PD is supported only by the HTTP PD router |
 
 The `moriio_*` codes are newer than v1.11.0.
+
+The `no_available_workers` message names the missing leg of an incomplete pair (prefill, decode, or, in EPD mode, encode) on both transports, instead of calling the registered leg unhealthy; retry once that leg is back. When a leg's workers are all unhealthy or circuit-open, the message names the leg over HTTP but not over gRPC.
+
+A model whose only workers are the legs of an incomplete pair is answered by the pair's own router — the gRPC PD or EPD router for gRPC legs, the HTTP PD router for HTTP legs — with that retryable 503. Only a model with no worker on any leg answers 404 `model_not_found`, as for any unknown model.
 
 `/readiness` reports ready only when at least one prefill worker and one decode worker are healthy (and an encode worker in EPD mode).
 
@@ -588,6 +592,7 @@ smg_worker_requests_active
 | Symptom | Cause | Solution |
 |---------|-------|----------|
 | 503 `no_available_workers` | A leg has no healthy worker with a closed circuit (over HTTP, the message names it) | Check `/workers`; restore or add workers on that leg |
+| 503 `no_available_workers` naming a missing leg | No worker is registered on that leg while the other leg has workers: the pair is incomplete (a leg restarting or not yet discovered) | Register or bring back the missing leg; clients can retry after `Retry-After` |
 | 503 `no_compatible_pd_pair` | No prefill shares a KV transfer protocol with any decode | Compare the `pd_pairing` keys in `/workers`; align the engines or set a shared [pairing protocol](#explicit-pairing-protocol) |
 | 503 `worker_overload_protection_shed` | The decode admission window stayed full, or a leg is overloaded | Add decode workers or raise the engine's running window |
 | 400 `context_length_exceeded` (gRPC) | The prompt exceeds the smaller context window of the two legs | Shorten the prompt or give both legs the same context length |

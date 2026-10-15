@@ -453,13 +453,14 @@ See the [Metrics Reference](metrics.md).
 | `--storage-context-headers` | none | Space-separated `header=context_key` entries that map request headers into the storage-hook request context. See [Storage Context Headers](#storage-context-headers). |
 | `--trust-tenant-header` | `false` | Take the tenant identity from an upstream-set header (see `--tenant-header-name`). The tenant identity keys tenant rate limits and the priority scheduler. An identity from an API key still wins; with neither, the tenant is the client IP. |
 | `--tenant-header-name` | `x-smg-tenant-id` | Header read when `--trust-tenant-header` is on. Must be a valid header name. |
-| `--cors-allowed-origins` | none (any origin) | Space-separated allowed origins. When empty, any origin, method, and header is allowed. |
+| `--cors-allowed-origins` | none (no cross-origin allowance) | Space-separated exact origins a browser may call the gateway from, or `*` alone for any origin, method and header. Without the flag no CORS headers are sent: a browser's preflight gets no `access-control-allow-*` headers and the browser refuses the cross-origin call; other clients are unaffected. Earlier releases allowed any origin when the flag was absent; set `*` to keep that. |
 
 `--stream-request-bodies-over`, which existed briefly in pre-release builds, was removed before v1.10.0; v1.11.0 rejects it as an unknown argument. The per-request decision described under `--max-buffered-request-bytes` replaces it.
 
 **Examples**:
 ```bash
 --cors-allowed-origins http://localhost:3000 https://example.com
+--cors-allowed-origins '*'   # any origin (the earlier default)
 --request-id-headers x-request-id x-trace-id x-correlation-id
 ```
 

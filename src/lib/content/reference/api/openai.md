@@ -853,7 +853,7 @@ relayed with the worker's status and body. SMG never forwards a worker's
 | 401 | — | Missing or unknown API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |
 | 408 | `request_body_stalled` | HTTP router: a streamed request body stalled for `--stream-body-stall-timeout-secs` |
-| 413 | `request_body_too_large` | HTTP router: a streamed request body exceeded `--max-payload-size` |
+| 413 | `request_body_too_large` | The request body exceeds `--max-payload-size`, however it arrives: a declared `Content-Length` over the limit (refused before routing), a buffered or chunked body that crosses it while being read, or a streamed body that grows past it mid-upload |
 | 429 | `admission_queue_full`, `scheduler_queue_full`, `tenant_rate_limit_exceeded` | Admission control or rate limiting; see [Rate Limiting](#rate-limiting) |
 | 500 | `internal_error` and stage-specific codes | A failure inside SMG; the code names the failing step |
 | 502 | `upstream_response_too_large` | A worker's non-streaming response exceeded `--max-payload-size` |

@@ -46,7 +46,7 @@ The scheduler surfaces admission and preemption outcomes as HTTP status codes. E
 |--------|-----------|--------------------|---------------|
 | **503** Service Unavailable | **Preempted** — admitted, then canceled before its first byte to make room for a higher-priority request | `scheduler_preempted` | `X-SMG-Preempted: true`, `Retry-After: 1` |
 | **429** Too Many Requests | **Queue full** — the request's per-class queue is at its configured depth, or the request-rate check rejected it (only when `--rate-limit-tokens-per-second` is set; see below) | `scheduler_queue_full` | `Retry-After: 2` |
-| **503** Service Unavailable | **Queue timeout** — the request waited longer than its class's `queue_timeout` (a 408 before v1.10) | `scheduler_queue_timeout` | `Retry-After: 2` |
+| **503** Service Unavailable | **Queue timeout** — the request waited longer than its class's `queue_timeout` | `scheduler_queue_timeout` | `Retry-After: 2` |
 | **499** Client Closed Request | **Client gone** — the client disconnected before admission completed (nginx convention; never actually read) | `scheduler_client_cancelled` | — |
 
 !!! tip "Telling a preemption apart from an overload"

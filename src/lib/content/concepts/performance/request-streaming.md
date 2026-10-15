@@ -136,7 +136,7 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 
 ## Memory Bounds
 
-**Request bodies.** A body larger than `--max-payload-size` (default `536870912`, 512 MiB) is rejected with `413`, whether it is buffered or streamed. A request whose `Content-Length` header already exceeds the limit is refused before routing, with a plain-text `413` and no `X-SMG-Error-Code` header.
+**Request bodies.** A body larger than `--max-payload-size` (default `536870912`, 512 MiB) is rejected with `413`, whether it is buffered or streamed. A request whose `Content-Length` header already exceeds the limit is refused before routing. In every case the error code is `request_body_too_large`, carried in the JSON error envelope and the `X-SMG-Error-Code` header; the `/v1/messages` routes keep the header but answer with the Messages API's error shape.
 
 **Early release.** When router retries are disabled for a request's model, the HTTP routers free the parsed request and its routing inputs (prompt text, token IDs) as soon as the upstream body is serialized, before the send. A serialized body of 1 MiB or more is then handed to the connection as a one-shot stream, still with a `Content-Length` header, so it is freed when the upload finishes rather than when the worker's response headers arrive, which for a non-streaming generation is when generation ends. With retries enabled, the request stays in memory until the router has its final response, so it can be replayed. The gRPC pipeline always frees the parsed request once it has built the worker request, and keeps only that built request for retries. `smg_router_request_buffers_released_early_bytes_total` counts the bytes freed early.
 

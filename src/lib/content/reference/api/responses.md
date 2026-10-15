@@ -79,6 +79,7 @@ POST /v1/responses
 | `stream` | boolean | No | Enable streaming responses |
 | `stream_options` | object | No | Streaming options, such as `include_obfuscation` |
 | `store` | boolean | No | Store response for later retrieval, default: true |
+| `background` | boolean | No | Return a `queued` response object at once and run the request in the background; see [Background Mode](#background-mode) |
 | `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, and built-in tool types |
 | `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` requires `tools` |
 | `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
@@ -94,14 +95,13 @@ POST /v1/responses
 An unknown top-level parameter is rejected with `400` `json_parse_error`: every parameter
 SMG accepts is declared. Besides the fields above and the
 [SGLang extensions](#sglang-extensions), the declared set covers the public API's
-`background`, `service_tier`, `truncation`, `prompt`, `prompt_cache_key`,
-`prompt_cache_retention`, `safety_identifier`, and `context_management`, plus SMG's own
-`request_id` and `priority`. `background` is accepted, but SMG does not run responses in
-the background: every response is returned synchronously or streamed.
+`service_tier`, `truncation`, `prompt`, `prompt_cache_key`, `prompt_cache_retention`,
+`safety_identifier`, and `context_management`, plus SMG's own `request_id` and
+`priority`.
 
 These rules match the public API's request contract and are new on main after v1.12.0. In
-v1.12.0 and earlier, unknown top-level parameters (`background` included) are ignored,
-`max_output_tokens` only has to be at least 1, `metadata` is not size-checked, and
+v1.12.0 and earlier, unknown top-level parameters are ignored, `max_output_tokens` only
+has to be at least 1, `metadata` is not size-checked, and
 `top_logprobs` without `message.output_text.logprobs` in `include` is rejected with
 `400` — on main that combination is accepted. The input-role, tool, and structured-output
 rules below are likewise new on main and not enforced in v1.12.0 and earlier.
@@ -367,6 +367,44 @@ gpt-oss (Harmony) models check the limit before a batch runs and do not execute 
 that would exceed it; a non-streaming response then ends `failed` with
 `max_tool_calls_exceeded`.
 
+### Background Mode
+
+With `"background": true`, SMG answers before the response is generated: it stores a
+response object with `"status": "queued"` under a new response ID and returns it at once,
+and the request runs in the background behind that ID. The queued object echoes the
+request's parameters, carries `"background": true`, and has no output or usage yet. Poll
+[`GET /v1/responses/{response_id}`](#get-response) to follow the stored object through
+`queued` → `in_progress` → `completed`, `incomplete`, `failed`, or `cancelled`, or stop
+the run with [`POST /v1/responses/{response_id}/cancel`](#cancel-response).
+
+```bash
+curl http://localhost:30000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "input": "Write a detailed research report on AI trends",
+    "background": true
+  }'
+```
+
+- **Streaming.** With `"stream": true` the client keeps the stream: `response.created`
+  reports the response `queued`, a `response.queued` event follows, and the usual events
+  stream as generation proceeds. The work runs behind the stored ID either way, so a
+  client that disconnects early does not stop generation: the response still finishes and
+  is stored. A cancelled background stream ends without a terminal event.
+- **Limits.** `--max-background-responses` (default 1024) caps how many background
+  responses the gateway runs at once. A request beyond the cap is rejected with `429`
+  `background_responses_limit_reached`; retry later or send the request without
+  `background`. Setting the flag to `0` turns background mode off: requests with
+  `background: true` then run in the foreground like any other request.
+- **`store: false`.** An unstored background response still runs in the background and
+  can be polled while it runs; after it reaches a terminal status its result stays
+  retrievable for roughly ten minutes and is then deleted. Nothing of it is written to
+  conversation history.
+- **History backend.** The stored response object is the run's state, kept in SMG's
+  history backend. With `--history-backend none` the `queued` object is still returned,
+  but no record exists behind it: the response cannot be polled or cancelled.
+
 ### Example Request
 
 ```bash
@@ -475,6 +513,9 @@ The response's own `status`:
 | `completed` | Finished normally, including a stop at your `max_tool_calls` |
 | `incomplete` | `max_output_tokens` was reached; `incomplete_details.reason` is `max_output_tokens` |
 | `failed` | Generation failed or the internal tool-call cap was hit; `error` carries `code` and `message` |
+| `queued` | [Background](#background-mode) response waiting for its run to start |
+| `in_progress` | Background response still generating |
+| `cancelled` | Background response stopped by [Cancel Response](#cancel-response) |
 
 For a failed generation, `error` keeps the upstream error's `code` (or `type`) and
 `message` when the pipeline reported them; otherwise it is `server_error` with
@@ -561,7 +602,8 @@ Reasoning streams first, as its own item. A streamed `function_call` item opens 
 `"status": "in_progress"` and closes with its final status.
 
 **Terminal events.** Exactly one of these ends the stream, unless an internal SMG error
-cuts it short with an error frame:
+cuts it short with an error frame or a cancel ends a [background](#background-mode)
+stream with no terminal event:
 
 | Event | `response.status` |
 |-------|-------------------|
@@ -668,6 +710,12 @@ from its own history backend, which the gRPC and external-provider paths fill wh
 is `true`; responses produced by HTTP workers are stored by the worker and are not
 retrievable through SMG. An unknown ID returns `404` with code `not_found`.
 
+A [background](#background-mode) response reads back as `queued` or `in_progress` while
+it runs and as its terminal object once it ends; its input items are stored with the
+queued record, so [List Response Input Items](#list-response-input-items) answers from
+the first poll. A `store: false` background response stays retrievable for roughly ten
+minutes after it ends.
+
 ---
 
 ## Cancel Response
@@ -676,9 +724,18 @@ retrievable through SMG. An unknown ID returns `404` with code `not_found`.
 POST /v1/responses/{response_id}/cancel
 ```
 
-Attempts to cancel an in-progress response. Behavior depends on the connection mode:
+Cancels a [background](#background-mode) response. Behavior depends on the connection
+mode:
 
-- **gRPC workers**: Background mode is not supported, so there is nothing to cancel. A stored `completed` response returns `400` `response_already_completed`, a `failed` one `400` `response_already_failed`, any other stored response `400` `cancellation_not_supported`, and an unknown ID `404` `response_not_found`.
+- **gRPC workers**: A `queued` or `in_progress` background response is stopped and
+  returned with `"status": "cancelled"`. This also works across gateways that share a
+  history backend: the record is closed as `cancelled`, and the gateway running the
+  response notices within a few seconds and drops the work. Cancelling an already
+  `cancelled` response returns its object again. A `completed` or `incomplete` response
+  returns `400` `response_already_completed`, a `failed` one `400`
+  `response_already_failed`, a response not created with `background: true` `400`
+  `cancellation_not_supported`, and an unknown ID — or another tenant's response — `404`
+  `response_not_found`.
 - **HTTP workers**: The request is sent to every registered worker; SMG returns the first successful answer, otherwise the last error. Whether cancellation succeeds depends on backend support.
 
 ### Path Parameters
@@ -695,20 +752,35 @@ curl -X POST http://localhost:30000/v1/responses/resp_abc123def456/cancel
 
 ### Response
 
-**HTTP workers**: Returns the response object from the backend.
+**gRPC workers**: Returns the cancelled response object (abbreviated):
 
-**gRPC workers**: Returns a `400 Bad Request` error:
+```json
+{
+  "id": "resp_abc123def456",
+  "object": "response",
+  "created_at": 1705312345,
+  "completed_at": 1705312349,
+  "status": "cancelled",
+  "background": true,
+  "model": "meta-llama/Llama-3.1-8B-Instruct",
+  "output": []
+}
+```
+
+Cancelling a response that was not created with `background: true` returns:
 
 ```json
 {
   "error": {
-    "type": "Bad Request",
+    "type": "invalid_request_error",
     "code": "cancellation_not_supported",
-    "message": "Background mode is not supported. Synchronous and streaming responses cannot be cancelled.",
+    "message": "Only responses created with 'background': true can be cancelled.",
     "param": null
   }
 }
 ```
+
+**HTTP workers**: Returns the response object from the backend.
 
 ---
 
@@ -743,6 +815,9 @@ curl -X DELETE http://localhost:30000/v1/responses/resp_abc123def456
 ```
 
 An unknown ID returns `404` with code `not_found`.
+
+Deleting a [background](#background-mode) response that is still `queued` or
+`in_progress` also stops its run: the work is dropped and no result is stored.
 
 ---
 
@@ -1288,12 +1363,15 @@ that cannot be parsed has `code` `json_parse_error`, and a failed validation rul
 | 400 | `400`, `json_parse_error` | Malformed request or validation failure |
 | 400 | `previous_response_not_found` | `previous_response_id` is not in SMG's storage |
 | 400 | `convert_request_failed` | gRPC: an input item the chat pipeline cannot represent, such as media in a `function_call_output` |
+| 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |
 | 401 | — | Invalid or missing API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |
 | 404 | `conversation_not_found` | The `conversation` does not exist |
 | 404 | `not_found` | Unknown response ID on get, delete, or input items |
+| 404 | `response_not_found` | Unknown response ID on cancel |
 | 424 | `connect_mcp_server_failed` | A declared MCP server could not be reached |
 | 429 | `admission_queue_full`, `scheduler_queue_full` | Admission control; see [Rate Limiting](openai.md#rate-limiting) |
+| 429 | `background_responses_limit_reached` | The gateway already runs `--max-background-responses` background responses; see [Background Mode](#background-mode) |
 | 500 | `load_previous_response_chain_failed`, `check_conversation_failed`, `storage_error` | Storage failures |
 | 503 | `no_available_workers` | No healthy workers available |
 

@@ -66,7 +66,7 @@ This is why `system` and `interactive` ship with reservations by default while `
 When no slot is immediately available, a request does not fail right away — it joins a **per-class FIFO queue**. Each class has its own queue with its own depth limit and its own wait timeout:
 
 - If the queue is already at its configured depth, the request is rejected immediately (**429**, `Retry-After: 2`).
-- If the request waits longer than the class's timeout, it is rejected (**503**, `Retry-After: 2`). Before v1.10 this was a 408.
+- If the request waits longer than the class's timeout, it is rejected (**503**, `Retry-After: 2`).
 
 A client that disconnects *while queued* is not detected by the scheduler, because its cancel signal isn't yet wired to client disconnect at this stage. If the server notices the disconnect (usually right away when the request body is small), the waiting request is dropped, but its queue entry keeps its place, and counts toward the queue depth, until the dispatcher reaches it and skips it. If the disconnect goes unnoticed (for example, behind a larger HTTP/1.1 request body that has not been read yet), the request stays queued until it is admitted or its timeout fires. (The **499** code exists for this case but isn't emitted today.)
 

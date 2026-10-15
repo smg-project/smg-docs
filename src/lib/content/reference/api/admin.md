@@ -327,7 +327,7 @@ Model card fields (`models[]`):
 | `model_type` | Capabilities, any of `chat`, `completions`, `responses`, `embeddings`, `rerank`, `generate`, `vision`, `tools`, `reasoning`, `image_gen`, `audio`, `moderation`. Default: `["chat", "completions", "responses", "tools"]`. |
 | `context_length` | Context window in tokens. |
 | `chat_template` | Chat template path used when the gateway loads the tokenizer for a gRPC or ZMQ worker. |
-| `tool_parser`, `reasoning_parser` | Parser names for this model on the gRPC path, overriding `--tool-call-parser` and `--reasoning-parser`. An unknown name fails registration. |
+| `tool_parser`, `reasoning_parser` | Parser names for this model on the gRPC path, overriding `--tool-call-parser` and `--reasoning-parser`. Under `--parser symphony`, they may also name a [Symphony table or `hf`](../../concepts/architecture/grpc-pipeline.md#symphony-parsing). An unknown name fails registration. |
 
 Cards also accept `display_name`, `hf_model_type`, `architectures`, `provider`, `tokenizer_path`, `metadata`, `id2label`, and `num_labels`.
 
@@ -337,6 +337,7 @@ Labels with built-in meaning:
 |-------|--------|
 | `realtime` | `"true"` (exactly) lets the worker serve the [Realtime API](openai.md#realtime-api). |
 | `tool_parser`, `reasoning_parser` | Same as the model card fields, when the card does not set them. |
+| `constrained_decoding` | When the gateway hands this worker's engine a grammar: `requested` (the default) only when the request asks for one, or `always` for an engine that takes a grammar on every turn — under [Symphony parsing](../../concepts/architecture/grpc-pipeline.md#symphony-parsing), a request that allows tool calls under `auto` then gets the table's structural tag for them. Any other value fails registration or the label update. gRPC engines can report the label themselves; a spec field of the same name takes the same values and wins over the label. |
 | `served_model_name`, `model_id`, `model_path` | Model ID when `models` is empty, checked in this order. |
 | `tokenizer_path`, `model_path` | Where the gateway loads the tokenizer for a gRPC or ZMQ worker, ahead of `--tokenizer-path` and `--model-path`. |
 | `pairing_protocol` | Explicit PD pairing key: a prefill and a decode worker that both set it pair only when the values match. |

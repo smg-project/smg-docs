@@ -79,7 +79,7 @@ POST /v1/responses
 | `stream` | boolean | No | Enable streaming responses |
 | `stream_options` | object | No | Streaming options, such as `include_obfuscation` |
 | `store` | boolean | No | Store response for later retrieval, default: true |
-| `background` | boolean | No | Answer at once with a `queued` response object and run the request in the background; see [Background Mode](#background-mode) |
+| `background` | boolean | No | Return a `queued` response object at once and run the request in the background; see [Background Mode](#background-mode) |
 | `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, and built-in tool types |
 | `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` requires `tools` |
 | `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
@@ -603,7 +603,7 @@ Reasoning streams first, as its own item. A streamed `function_call` item opens 
 
 **Terminal events.** Exactly one of these ends the stream, unless an internal SMG error
 cuts it short with an error frame or a cancelled [background](#background-mode) response
-ends its stream without one:
+ends its stream with no terminal event:
 
 | Event | `response.status` |
 |-------|-------------------|
@@ -772,7 +772,7 @@ Cancelling a response that was not created with `background: true` returns:
 ```json
 {
   "error": {
-    "type": "Bad Request",
+    "type": "invalid_request_error",
     "code": "cancellation_not_supported",
     "message": "Only responses created with 'background': true can be cancelled.",
     "param": null

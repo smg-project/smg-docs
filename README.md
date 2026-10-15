@@ -45,13 +45,13 @@ are included in one Cloudflare deployment:
   SMG **v1.12.0**. Its Markdown, navigation, URL aliases, and diagrams are stored
   independently in `src/lib/versions/v1.12.0/` and `static/versions/v1.12.0/images/`.
 - `/smg/main/getting-started` serves the working content in `src/lib/content/` for
-  SMG's latest **main branch**, with a development notice. It currently matches
+  SMG's latest **main branch**. It currently matches
   the v1.13.0 snapshot; subsequent main-branch documentation updates go here.
 - Existing unversioned documentation and search URLs redirect to the latest
   documented release, currently v1.13.0.
 - All documentation versions share the same version-neutral homepage at `/smg`.
-  Its content and navigation are shared, with no version selector or release
-  banner. Documentation links on the homepage use the unversioned entry URLs;
+  Its content and navigation are shared, with no version selector.
+  Documentation links on the homepage use the unversioned entry URLs;
   the site logo returns here from every docs version.
 
 Switching versions keeps the page, query, and anchor when that page exists in the

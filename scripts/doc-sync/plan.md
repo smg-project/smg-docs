@@ -22,7 +22,7 @@ Do not remove useful engine versions, install tags or migration instructions.
 
 Return the supplied JSON schema, at most max_prs concerns. Each concern answers
 one concrete user question or corrects one stale claim. A large code commit can
-produce several separate concerns. Use concise [Docs] titles and lowercase
+produce several separate concerns. Use concise [Docs] titles of at most 120 characters including the prefix, and lowercase
 hyphenated area/concern slugs, at most 64 characters. Include source evidence in
 evidence and the user question in question, not historical failure narration.
 

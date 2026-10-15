@@ -50,10 +50,24 @@ SMG exposes three categories of endpoints:
 |----------|-------------|
 | `POST /v1/chat/completions` | OpenAI-compatible chat completions |
 | `POST /v1/completions` | Text completions |
+| `POST /generate` | Engine-native generation (text or token-ID input) |
 | `POST /v1/responses` | Agentic workflows with tool execution |
+| `/v1/conversations` and item routes | Create, fetch, update, and delete the stored conversations the Responses API builds on |
 | `POST /v1/embeddings` | Embedding generation |
+| `POST /v1/classify` | Text classification |
 | `POST /v1/rerank` | Reranking API |
+| `POST /rerank` | Reranking with the engine-native request shape |
 | `POST /v1/messages` | Anthropic Messages API |
+| `POST /v1/messages/count_tokens` | Count a Messages request's input tokens without generating |
+| `POST /v1/decisions` | Predicate, choice, and score questions over shared evidence; regular HTTP workers and regular SGLang gRPC workers serve it, other backends answer `501` |
+| `POST /v1/systemone` | System One API, relayed to a regular HTTP worker; other backends answer `501` |
+| `POST /v1/interactions` | Gemini Interactions API; only the Gemini provider backend serves it, other backends answer `501` |
+| `POST /v1/audio/transcriptions` | Audio transcription from a multipart file upload |
+| `GET /v1/realtime` | Realtime session over WebSocket, proxied to a realtime-capable worker or provider |
+| `POST /v1/realtime/calls` | Realtime session over WebRTC |
+| `POST /v1/realtime/sessions`, `POST /v1/realtime/client_secrets`, `POST /v1/realtime/transcription_sessions` | Create realtime sessions and mint ephemeral client secrets over REST |
+
+Request formats, backend support, and errors are in the [OpenAI-Compatible API](../../reference/api/openai.md), [Responses API](../../reference/api/responses.md), [Anthropic Messages API](../../reference/api/messages.md), and [Extension API](../../reference/api/extensions.md) references.
 
 ### Utility APIs
 

@@ -664,12 +664,15 @@ Crate versions follow [Semantic Versioning](https://semver.org/). `make check-ve
 | `pre-commit` | The pre-commit hooks on all files, minus rustfmt, clippy, and the branch and commit-message hooks | `pre-commit run --all-files` |
 | `python-lint` | ruff and mypy | [Python](#python) |
 | `unit-tests` | Clippy (all features, self-hosted-only, and Anthropic-only builds), `cargo +nightly fmt -- --check`, `cargo test`, and the Postgres tests | [Rust tests](#rust-unit-and-integration-tests) |
+| `cargo-audit` | `Cargo.lock` against the [RustSec advisory database](https://rustsec.org/), when the dependency graph changes (`Cargo.lock`, any `Cargo.toml`, `.cargo/audit.toml`, the audit script, or the workflow) | `bash scripts/ci_cargo_audit.sh` |
 | `build-wheel`, `python-unit-tests` | The Python wheel and Go FFI library; binding, servicer, and e2e-harness unit tests | [Python Bindings](#python-bindings) |
 | `e2e-*` | GPU lanes against real engines, and CPU lanes against third-party providers | [End-to-End Tests](#end-to-end-tests) |
 | `go-unit-tests`, `go-bindings-e2e` | The Go bindings | [Go Bindings](#go-bindings) |
 | `finish` | Fails if any job above failed; required for merge | — |
 | `Bellwether Fixtures` | The `bellwether_*` fixture tests, when the protocol, tokenizer, or Symphony crates, the gRPC router, or the dependency manifests change | [Bellwether Fixture Tests](#bellwether-fixture-tests) |
 | `benchmark-*`, `benchmarks` | Performance; advisory | [Benchmarks](#benchmarks) |
+
+`cargo-audit` fails on any vulnerability that `.cargo/audit.toml` does not ignore, and passes when only warnings (unmaintained or yanked crates) remain. Every ignore entry needs a reason, and goes away once a release with the fix is in the lockfile. The script downloads the same pinned `cargo-audit` release CI uses, so running it from the repository root reproduces the job exactly. A nightly workflow runs the same audit against `main` every day, catching advisories published after the last dependency change.
 
 On pull requests, a `detect-changes` job skips work whose inputs did not change: the Rust `unit-tests` job runs only when Rust code, manifests, or lint configuration change, and each e2e lane only when its paths do. Forks can run CI on their own runners by setting repository variables such as `SMG_RUNNER_CPU` and `SMG_RUNNER_GPU_1`; see [Running CI on your own runners](https://github.com/smg-project/smg/blob/main/CONTRIBUTING.md#running-ci-on-your-own-runners).
 

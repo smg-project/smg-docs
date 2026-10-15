@@ -44,6 +44,30 @@ class DiscoveryTests(unittest.TestCase):
             discovery.resolve_scan(json.dumps({'concerns': [proposal(source_commit=1)],
                                                'inspected_commits': [1], 'remaining_work': 'Done'}), self.history)
 
+    def test_overlong_model_titles_survive_scan_combine_and_deferred_queue(self):
+        titles = [
+            '[Docs] An unavailable history store answers 503 storage_unavailable; every Postgres/Redis store call is bounded (5 s default)',
+            '[Docs] Postgres and Redis history stores are contacted at startup with a bounded verdict; Redis no longer fails on first use']
+        concerns = [proposal(title=title, concern=f'history-{i}', question=f'History question {i}')
+                    for i, title in enumerate(titles)]
+        scan = {**self.scans[0], 'concerns': concerns, 'inspected_commits': ['a' * 40]}
+        validated = discovery.validate_scan(json.dumps(scan), self.context, scan['shard'], self.history)
+        self.assertEqual(len(validated['concerns']), 2)
+        self.assertTrue(all(len(item['title']) <= 120 for item in validated['concerns']))
+        self.scans[0] = validated
+        selected, deferred = self.combine()
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(deferred[0][1], 'overlapping documentation files')
+        queued = discovery.deferred_queue(self.scans, deferred, [])
+        self.assertEqual(len(queued), 1)
+        self.assertLessEqual(len(queued[0]['title']), 120)
+        self.assertEqual(queued[0]['evidence'], concerns[1]['evidence'])
+        # A long title must not conceal an invalid source or path elsewhere.
+        for field, value in [('source_sha', 'f' * 40), ('doc_paths', ['scripts/bad.py'])]:
+            invalid = {**scan, 'concerns': [{**concerns[0], field: value}]}
+            with self.assertRaises(ValueError):
+                discovery.validate_scan(json.dumps(invalid), self.context, scan['shard'], self.history)
+
     def test_partition_keeps_unmatched_history_and_order(self):
         with patch.object(docs, 'source_git', side_effect=['a' * 40] + [''] * 7):
             result = discovery.partition(self.context)

@@ -2,7 +2,6 @@
 	import { page } from '$app/stores';
 	import DocsSidebar from '$lib/components/DocsSidebar.svelte';
 	import DocsToc from '$lib/components/DocsToc.svelte';
-	import DocsVersionBanner from '$lib/components/DocsVersionBanner.svelte';
 	import type { DocsNavConfig } from '$lib/config/docs-nav';
 	import type { DocTocItem } from '$lib/markdown/doc';
 
@@ -22,7 +21,6 @@
 		<DocsSidebar {nav} />
 	{/key}
 	<div class="docs-layout-content">
-		<DocsVersionBanner />
 		{@render children()}
 	</div>
 	<DocsToc items={toc} />

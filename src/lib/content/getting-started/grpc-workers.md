@@ -167,7 +167,7 @@ python -m sglang.launch_server \
   --smg-grpc-mode \
   --servicer-impl rust
 
-# The environment variable selects it on the same entrypoint, every other flag unchanged:
+# The environment variable selects it on the same entrypoint:
 SMG_SGLANG_SERVICER_IMPL=rust python -m sglang.launch_server \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \

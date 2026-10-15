@@ -93,7 +93,7 @@ smg launch \
   --jwt-role-mapping 'Gateway.User=user'
 ```
 
-JWT auth needs both `--jwt-issuer` and `--jwt-audience`. With only one of them, it stays off. SMG checks the token's signature (RS256, RS384, RS512, ES256, or ES384, with the JWKS key named by the token's `kid`), issuer, audience, and expiry, and then assigns a role:
+JWT auth needs both `--jwt-issuer` and `--jwt-audience`. With only one of them, it stays off. SMG checks the token's signature (RS256, RS384, RS512, ES256, or ES384, with the JWKS key named by the token's `kid`), issuer, audience, expiry, and not-before (`nbf`). The expiry and not-before checks share a 30-second clock-skew leeway, and a token without an `nbf` claim passes the not-before check. SMG then assigns a role:
 
 - The role comes from the claim named by `--jwt-role-claim` (default `roles`). Only when that claim is missing does SMG read the `role`, `roles`, `groups`, and `group` claims. `--jwt-role-claim` is a flag of the Rust `smg` binary; the Python launcher (`pip install smg`, and the container image) always uses `roles`.
 - Without `--jwt-role-mapping`, a claim value of `admin` or `user` (in any case) is used as the role.

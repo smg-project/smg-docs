@@ -70,7 +70,7 @@ smg \
   --redis-retention-days 30
 ```
 
-Set `--redis-retention-days=-1` for persistent retention. Keep the `=`: the Rust CLI rejects `-1` as a separate argument.
+Set `--redis-retention-days -1` for persistent retention.
 
 ### Oracle
 

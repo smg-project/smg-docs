@@ -174,7 +174,7 @@ High-performance caching with optional persistence and TTL-based retention.
 |--------|---------|-------------|
 | `--redis-url` | - | Redis connection URL |
 | `--redis-pool-max-size` | `16` | Maximum connection pool size |
-| `--redis-retention-days` | `30` | Data retention in days (-1 for persistent; write it as `--redis-retention-days=-1`, since the Rust CLI rejects a separate `-1` argument) |
+| `--redis-retention-days` | `30` | Data retention in days (-1 for persistent) |
 
 ### Connection URL Format
 

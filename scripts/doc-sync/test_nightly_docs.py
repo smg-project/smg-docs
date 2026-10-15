@@ -60,13 +60,37 @@ class PlanningTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'snapshots'):
                 docs.planned_item(report, 0, base, source)
 
+    def test_overlong_titles_preserve_concern_identity_and_full_evidence(self):
+        title = "[Docs] An unavailable history store answers 503 storage_unavailable; every Postgres/Redis store call is bounded (5 s default)"
+        original = proposal(title=title)
+        planned = self.plan([original])[0]
+        self.assertLessEqual(len(planned['title']), 120)
+        self.assertTrue(planned['title'].endswith('...'))
+        self.assertEqual(planned['title'], docs.normalize_title(planned['title']))
+        baseline = self.plan([proposal()])[0]
+        for key in ('key', 'branch', 'source_sha', 'question', 'evidence', 'doc_paths', 'placement'):
+            self.assertEqual(planned[key], baseline[key])
+        self.assertEqual(original['title'], title)
+        for title in ['x' * 114, '[Docs] ' + 'x' * 500, '[Docs] ' + ' ' * 130 + 'valid', '[Docs] ' + 'é' * 114]:
+            docs.validate_item(proposal(title=docs.normalize_title(title)))
+        at_limit = '[Docs] ' + 'x' * 113
+        self.assertEqual(docs.normalize_title(at_limit), at_limit)
+
+    def test_title_shortening_cannot_hide_invalid_trailing_characters(self):
+        for suffix in ('\n', '\r', '\t', '\x00'):
+            with self.subTest(suffix=suffix), self.assertRaises(ValueError):
+                self.plan([proposal(title='[Docs] ' + 'word ' * 40 + suffix)])
+        for value in (None, 123, []):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                docs.normalize_title(value)
+
     def test_empty_plan_is_valid(self):
         self.assertEqual(self.plan([]), [])
 
     def test_plan_supplies_title_prefix_without_relaxing_title_validation(self):
         self.assertEqual(self.plan([proposal(title="Explain rollout timeout")])[0]["title"],
                          "[Docs] Explain rollout timeout")
-        for title in ["", " ", "bad\ntitle", "bad\x00title", "x" * 114]:
+        for title in ["", " ", "bad\ntitle", "bad\x00title", " " * 130]:
             with self.subTest(title=title), self.assertRaises(ValueError):
                 self.plan([proposal(title=title)])
 

@@ -110,6 +110,24 @@ def validate_placement(item, pages):
     # of why existing pages suffice is harmless metadata, not a new-page request.
 
 
+def normalize_title(title):
+    """Bound presentation text without changing a concern's evidence or identity."""
+    if not isinstance(title, str):
+        raise ValueError("Expected a string documentation title")
+    if not title.startswith("[Docs] "):
+        title = "[Docs] " + title
+    # Do not hide invalid/control characters by truncating them away.
+    if len(title) <= 120 or not title.isprintable() or not title[7:].strip():
+        return title
+    body = title[7:].lstrip()
+    if len(body) <= 113:
+        return "[Docs] " + body
+    shortened = body[:110]
+    if body[110] != " " and " " in shortened:
+        shortened = shortened.rsplit(" ", 1)[0]
+    return "[Docs] " + shortened.rstrip(" ,;:-") + "..."
+
+
 def validate_item(item):
     for key in ("area", "concern"):
         if not re.fullmatch(SLUG, item[key]) or len(item[key]) > 64:
@@ -245,10 +263,7 @@ def plan(raw, context):
     candidates = {line.split()[0] for line in context["code_history"]}
     selected, occupied, keys = [], set(), set()
     for proposal in proposed:
-        # The workflow owns the repository's presentation prefix. Keep all
-        # content, length, and printable-character validation below unchanged.
-        if not proposal["title"].startswith("[Docs] "):
-            proposal = {**proposal, "title": "[Docs] " + proposal["title"]}
+        proposal = {**proposal, "title": normalize_title(proposal["title"])}
         item = validate_item(proposal)
         validate_placement(item, context["doc_inventory"])
         if item["source_sha"] not in candidates:

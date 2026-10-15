@@ -55,8 +55,8 @@ SMG exposes three categories of endpoints:
 | `/v1/conversations` and item routes | Create, fetch, update, and delete the stored conversations the Responses API builds on |
 | `POST /v1/embeddings` | Embedding generation |
 | `POST /v1/classify` | Text classification |
-| `POST /v1/rerank` | Reranking API |
-| `POST /rerank` | Reranking with the engine-native request shape |
+| `POST /rerank` | Reranking with model selection, `top_k`, and `return_documents` |
+| `POST /v1/rerank` | Reranking with `query` and `documents` only, no model selection |
 | `POST /v1/messages` | Anthropic Messages API |
 | `POST /v1/messages/count_tokens` | Count a Messages request's input tokens without generating |
 | `POST /v1/decisions` | Predicate, choice, and score questions over shared evidence; regular HTTP workers and regular SGLang gRPC workers serve it, other backends answer `501` |

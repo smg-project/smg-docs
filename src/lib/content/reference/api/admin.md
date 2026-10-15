@@ -452,7 +452,8 @@ Other problems surface in the background job, after the `202`:
 
 - `overload.waiting_requests` of `0`, or `overload.token_usage` outside (0.0, 1.0]
 - the ZMQ constraints listed under [Worker Spec](#worker-spec)
-- an unknown `tool_parser` or `reasoning_parser`
+- a `tool_parser` or `reasoning_parser` the configured `--parser` cannot read with
+- a `constrained_decoding` label that names neither `requested` nor `always`
 - a worker that never answers, or `http_pool.http2: true` for a worker that only speaks HTTP/1.1
 
 ---

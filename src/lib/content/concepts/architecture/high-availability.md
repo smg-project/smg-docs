@@ -150,13 +150,35 @@ Router 2 has no workers of its own; it imports router 1's workers through the me
 | `--mesh-advertise-host` | `--mesh-host` | IP address that peers dial. Required when `--mesh-host` is an unspecified address such as `0.0.0.0` |
 | `--mesh-port` | `39527` | Mesh port, used for both binding and advertising. `0` is rejected |
 | `--mesh-peer-urls` | (none) | Bootstrap peer as `IP:port`. Only the first entry is used |
+| `--mesh-tls-ca-cert` | (none) | CA certificate (PEM) that mesh peer certificates must chain to. Set together with `--mesh-tls-cert` and `--mesh-tls-key` to enable [mesh mTLS](#mesh-mtls) |
+| `--mesh-tls-cert` | (none) | This node's certificate (PEM), with the node's IP as a SAN |
+| `--mesh-tls-key` | (none) | This node's private key (PKCS#8 PEM) |
 | `--router-selector` | (none) | Label selector for [Kubernetes router discovery](#kubernetes-router-discovery). Takes effect only with `--service-discovery` |
 
 !!! note "Mesh addresses must be IP addresses"
     `--mesh-host`, `--mesh-advertise-host`, and `--mesh-peer-urls` are parsed as socket addresses and never resolved through DNS. A hostname such as `smg-0.smg-mesh:39527` fails at startup: the Python CLI reports `Invalid mesh peer URL`, the Rust binary `Invalid value for field 'mesh_peer_urls'`. With the default `--mesh-host 0.0.0.0`, the router also refuses to start until `--mesh-advertise-host` names a routable IP, so peers never try to dial an unspecified address. On Kubernetes, use [router discovery](#kubernetes-router-discovery) instead of peer URLs.
 
-!!! warning "The mesh port is not authenticated"
-    Mesh traffic is plaintext gRPC and peers are not authenticated: v1.12 has no option to enable TLS on the mesh port. Anything that can reach the mesh port can join the cluster and publish workers to every router, so expose the port only to other routers (for example with a firewall rule or a Kubernetes NetworkPolicy).
+!!! warning "The mesh port is plaintext by default"
+    Without the `--mesh-tls-*` flags, mesh traffic is plaintext gRPC and peers are not authenticated: anything that can reach the mesh port can join the cluster and publish workers to every router. A router started with a plaintext mesh says so in its first log lines, with a `SECURITY POSTURE` warning that names the mesh listener and the flags that close it. Enable [mesh mTLS](#mesh-mtls) so only routers holding a certificate from your CA can join, and expose the port only to other routers either way (for example with a firewall rule or a Kubernetes NetworkPolicy).
+
+### Mesh mTLS
+
+`--mesh-tls-ca-cert`, `--mesh-tls-cert`, and `--mesh-tls-key` encrypt the mesh port and authenticate both ends of every mesh connection. The three flags come together: a router started with only one or two of them refuses to start, and the error names the missing flags.
+
+```bash
+smg launch --enable-mesh --mesh-advertise-host 10.0.0.1 \
+    --mesh-tls-ca-cert /etc/smg/mesh/ca.pem \
+    --mesh-tls-cert /etc/smg/mesh/node.pem \
+    --mesh-tls-key /etc/smg/mesh/node-key.pem
+```
+
+With the flags set, the mesh listener serves TLS with the node's certificate and accepts only peers that present a certificate chaining to the CA. Every dial to a peer presents this node's certificate and verifies the peer's against the CA.
+
+Issue every router a certificate from the same CA that carries the node's IP — the address its peers dial, so its `--mesh-advertise-host` — as an IP SAN. A dial verifies the peer's certificate against the address it dials, and mesh addresses are always IPs (see the note above), so a certificate with only a hostname never matches. An IPv6 node's SAN is the unbracketed address: `fd00::7`, not `[fd00::7]`.
+
+The private key must be PKCS#8 PEM. Each of the three files must exist and be readable at startup, or the router fails to start with an error naming the flag whose file it cannot read; the router also warns when the key file is readable or writable by its group or by others. The mesh listener reads the certificate and key once at startup and does not reload them; to rotate certificates, restart the router.
+
+Configure every router in the cluster the same way: a router with the flags serves and dials only TLS, a router without them only plaintext, so a mixed cluster's routers cannot reach each other.
 
 ### Python Entrypoint
 
@@ -583,7 +605,7 @@ Spread routers across zones so that a zone outage leaves routers that hold the s
 
 ### :material-lock: Protect the Mesh Port
 
-Expose the mesh port only to other routers. It carries plaintext, unauthenticated gRPC.
+Enable [mesh mTLS](#mesh-mtls) so only routers with a certificate from your CA can join, and expose the port only to other routers.
 
 </div>
 

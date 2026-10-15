@@ -114,7 +114,7 @@ Every request resolves one tool-call parser and one reasoning parser for its mod
 
 These per-model parsers are the gateway's default readers (`--parser legacy`). Starting the gateway with `--parser symphony` keeps this name resolution but reads Chat Completions and Messages API responses with [Symphony tables](#symphony-parsing) instead; the resolved names then pick the table, as that section describes.
 
-The gateway checks the flag values when it starts. Under the default `--parser legacy`, a `--tool-call-parser` or `--reasoning-parser` value the legacy registries don't have stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; when that name is a Symphony table's or `hf`, the error ends `which --parser symphony reads with` instead. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
+The gateway checks the flag values when it starts. Under the default `--parser legacy`, a `--tool-call-parser` or `--reasoning-parser` value the legacy registries don't have stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; when that name is a Symphony table's or `hf`, the error ends with `which --parser symphony reads with` instead. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
 
 ### Per-Model Overrides
 
@@ -135,7 +135,7 @@ curl -X POST http://localhost:30000/workers \
   }'
 ```
 
-Registration fails if an override names an unknown parser (`worker <url> declares unknown tool_parser '<name>' for model '<id>'`). Workers of the same model should agree. If they don't, for example during a rolling upgrade, SMG logs a warning at registration and uses the lexicographically smallest name. Kubernetes service discovery sets no parser labels, so discovered workers rely on the flags. See the [Admin API](../../reference/api/admin.md) for the worker endpoints.
+Registration fails if an override names an unknown parser (`worker <url> declares a parser override for model '<id>' the gateway cannot read with: unknown tool-call parser '<name>'`). Workers of the same model should agree. If they don't, for example during a rolling upgrade, SMG logs a warning at registration and uses the lexicographically smallest name. Kubernetes service discovery sets no parser labels, so discovered workers rely on the flags. See the [Admin API](../../reference/api/admin.md) for the worker endpoints.
 
 Under `--parser symphony`, an override may also name a [Symphony table or `hf`](#symphony-parsing), giving one model its own table without touching the rest; naming a legacy parser no table answers to sends just that model back to the legacy parsers.
 
@@ -597,7 +597,7 @@ RUST_LOG=warn,smg=info,llm_tokenizer=debug smg launch ...
 | Tool calls come back as text in `content` | No tool parser matched, or the parser doesn't fit the model's format | Set `--tool-call-parser` or a `tool_parser` override for that model |
 | Gateway exits at startup with `unknown tool-call parser` or `unknown reasoning parser`, or the pip `smg launch` reports `invalid choice` | The name isn't registered, or it is a Symphony table's name (or `hf`) on a gateway running the default `--parser legacy` | Use a name from the reference tables above (names use underscores), or start the gateway with `--parser symphony` for a table's name |
 | The `x-smg-parser` response header says `legacy` under `--parser symphony` | No table took the request: the model's names keep the legacy parsers, the registry doesn't know the checkpoint's exact repository name, or a forced call fell back to a JSON-schema constraint | Name a table or `hf` in `--tool-call-parser` or the model's `tool_parser` override; see [Symphony Parsing](#symphony-parsing) |
-| Worker registration fails with `declares unknown tool_parser` | A label or model card names an unregistered parser | Fix the override name |
+| Worker registration fails with `declares a parser override ... the gateway cannot read with` | A label or model card names a parser the configured `--parser` can't read with: an unregistered name, or a Symphony table's name (or `hf`) under `--parser legacy` | Fix the override name, or start the gateway with `--parser symphony` for a table's name |
 | Forced tool calls or `response_format` not enforced | The engine runs without a grammar backend | Start TokenSpeed with `--grammar-backend xgrammar`; give TensorRT-LLM `guided_decoding_backend: xgrammar` |
 | MCP tools time out | Slow tool execution | Check MCP server configuration |
 

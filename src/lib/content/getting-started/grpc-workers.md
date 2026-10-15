@@ -157,7 +157,7 @@ SGLang gRPC workers have the same choice: a Rust implementation serving the same
 
 Like the vLLM switch, the selection requires SMG v1.12.0 or newer wheels and engine images.
 
-Select the implementation with `--servicer-impl` on `python -m sglang.launch_server` — a flag the package adds to SGLang's parser as an `sglang.srt.plugins` plugin — or with the `SMG_SGLANG_SERVICER_IMPL` environment variable:
+Select the implementation with `--servicer-impl` on `python -m sglang.launch_server` — a flag the `smg-grpc-servicer` package adds to SGLang's parser as an `sglang.srt.plugins` plugin — or with the `SMG_SGLANG_SERVICER_IMPL` environment variable:
 
 ```bash
 python -m sglang.launch_server \
@@ -175,7 +175,7 @@ SMG_SGLANG_SERVICER_IMPL=rust python -m sglang.launch_server \
   --smg-grpc-mode
 ```
 
-When both are set, the flag wins: the parsed `--servicer-impl` is read ahead of the environment, and the decision is written back to `SMG_SGLANG_SERVICER_IMPL` so the processes the worker spawns inherit the same choice — `--servicer-impl python` overrides an exported `rust`. The selection defaults to `python`, a value other than `python` or `rust` fails startup, and the worker logs the chosen implementation and its source at startup.
+When both are set, the flag wins: the parsed `--servicer-impl` is read ahead of the environment, and the decision is written back to `SMG_SGLANG_SERVICER_IMPL` so the processes the worker spawns inherit the same choice — `--servicer-impl python` overrides an exported `rust`. The selection defaults to `python`, and a value other than `python` or `rust` fails startup. At startup the worker logs which implementation it chose and whether the flag, the environment or the default decided it.
 
 `python -m sglang.launch_server --help` lists the flag. SGLang's `sglang serve` wrapper prints its help before plugins load, so the flag is missing from that listing but still accepted. A `SGLANG_PLUGINS` setting that leaves out the `smg-servicer` plugin only removes the flag; the environment variable works regardless.
 

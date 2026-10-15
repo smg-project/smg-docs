@@ -66,7 +66,7 @@ POST /v1/messages
 |-------|------|----------|-------------|
 | `model` | string | Yes | Model ID. Must not be empty. |
 | `messages` | array | Yes | At least one message, each with a `role` (`user`, `assistant`, or `system`) and `content` (a string or an array of content blocks). |
-| `max_tokens` | integer | Yes | Maximum number of tokens to generate. Must be at least 1. |
+| `max_tokens` | integer | Yes | Maximum number of tokens to generate. `0` is accepted; the response depends on the backend — see [`max_tokens` of 0](#max_tokens-of-0). |
 | `system` | string or array | No | System prompt, as a string or an array of `text` blocks. |
 | `stream` | boolean | No | Stream the response as Server-Sent Events. |
 | `temperature` | number | No | Sampling temperature. |
@@ -143,6 +143,36 @@ Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `to
 ```
 
 With gRPC workers SMG builds this response ([details](#grpc-and-zmq-workers)). With HTTP workers and the Anthropic API it comes from the backend.
+
+### `max_tokens` of 0
+
+A `max_tokens` of `0` passes validation. On gRPC and ZMQ workers, SMG answers the request itself without generating: an empty message with `stop_reason` of `max_tokens`, whose `usage` reports the prompt's token count, counted exactly as [`/v1/messages/count_tokens`](#count-tokens) counts it. No worker takes part, and no tenant rate-limit budget is reserved, though the request still counts in the gateway's request metrics.
+
+```json
+{
+  "id": "msg_abc123",
+  "type": "message",
+  "role": "assistant",
+  "content": [],
+  "model": "meta-llama/Llama-3.1-8B-Instruct",
+  "stop_reason": "max_tokens",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 27,
+    "output_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  }
+}
+```
+
+With `"stream": true`, the answer is a three-event stream: `message_start` with the empty message, `message_delta` with the stop reason and the usage counts, and `message_stop`.
+
+A request whose prompt cannot be counted is refused as `/v1/messages/count_tokens` refuses it — an unknown model gets `404`, a request that does not render gets `400`, and the other refusals under [Backend Support](#backend-support) apply unchanged. When the model's workers advertise a context window, a prompt with more tokens than the smallest advertised window is refused with `400` `context_length_exceeded`, as a generating request would be.
+
+HTTP and PD workers refuse `max_tokens: 0` with `400` (code `max_tokens_zero_not_relayed`) before any worker sees the request: the relay forwards a Messages request as sent and renders no prompt, so it cannot build the empty message. As with the other request rules, a body the HTTP router streams through unparsed reaches the worker unvalidated. The Anthropic API backend forwards the request like any other and relays the upstream response.
+
+In IGW mode, a `max_tokens: 0` request for a model served over both gRPC and HTTP always goes to a gRPC router, so it gets the empty message; a model only HTTP workers serve gets the relay's `400`.
 
 ### Tool Use
 
@@ -317,7 +347,7 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 | Request field | Handling |
 |---------------|----------|
 | `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `system`-role message inside `messages` keeps its position. Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
-| `max_tokens`, `temperature`, `top_p`, `top_k` | Sent to the engine as sampling parameters. |
+| `max_tokens`, `temperature`, `top_p`, `top_k` | Sent to the engine as sampling parameters. A `max_tokens` of `0` never reaches the engine; see [`max_tokens` of 0](#max_tokens-of-0). |
 | `stop_sequences` | Sent as stop strings to vLLM, TensorRT-LLM, and TokenSpeed gRPC workers. For SGLang gRPC workers and ZMQ workers, SMG matches them itself and sends only single-token stops to the engine, as stop token IDs. |
 | `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser; with a `tool_choice` of `tool`, only that tool is passed to the chat template. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |
 | `tool_choice` | Mapped to Chat Completions semantics: `auto` to `auto`, `any` to `required`, `tool` to that function, `none` to `none`. SMG enforces `any` and `tool` with constrained decoding. |
@@ -342,6 +372,8 @@ How the response is built:
 With HTTP workers, SMG forwards `/v1/messages` to the selected worker. It normally buffers the request, validates it, and re-serializes it: fields SMG does not model are kept, a [`--model-alias`](../configuration.md) name is replaced by the canonical model ID, and numbers keep the values the client sent. When the HTTP router instead streams the body through (see [Request Streaming](../../concepts/performance/request-streaming.md)), it forwards the raw body and leaves validation to the worker. Either way, only the [allowlisted headers](#forwarded-headers) are forwarded, and the worker's response, including error responses and SSE streams, is relayed unchanged.
 
 With `--pd-disaggregation` and HTTP workers, `/v1/messages` uses the same prefill/decode dual dispatch as chat completions: SMG selects a prefill and decode pair and dispatches the request to both (smg-project/smg#2250). See [PD Disaggregation](../../concepts/routing/pd-disaggregation.md).
+
+On both deployments, a parsed body with `max_tokens: 0` is refused with `400` before a worker is selected; see [`max_tokens` of 0](#max_tokens-of-0).
 
 ---
 
@@ -441,7 +473,7 @@ SMG produces Anthropic's error format (`{"type": "error", ...}`) only inside an 
 | Source | Status | Body |
 |--------|--------|------|
 | Body is not valid JSON, a required field is missing, or a field has the wrong type | `400` | `{"error": {"message": "...", "type": "invalid_request_error", "code": "json_parse_error"}}` |
-| Body fails validation (for example `max_tokens` of 0, empty `messages`, `tool_choice` without `tools`) | `400` | `{"error": {"message": "...", "type": "invalid_request_error", "code": 400}}` |
+| Body fails validation (for example empty `messages` or `tool_choice` without `tools`) | `400` | `{"error": {"message": "...", "type": "invalid_request_error", "code": 400}}` |
 | Gateway authentication fails | `401` | Empty |
 | SMG itself: routing, the gRPC pipeline, the MCP tool loop | Varies | The standard JSON error envelope, plus an `X-SMG-Error-Code` header |
 | HTTP or PD worker, or the Anthropic API | Upstream status | The upstream body, unchanged |

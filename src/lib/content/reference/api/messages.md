@@ -166,7 +166,7 @@ A `max_tokens` of `0` passes validation. On gRPC and ZMQ workers, SMG answers th
 }
 ```
 
-With `"stream": true`, the answer is a three-event stream: `message_start` with the empty message, `message_delta` with the stop reason and the usage counts, and `message_stop`.
+With `"stream": true`, the answer is a three-event stream: `message_start` with the empty message — its `usage` already carries the prompt's token count — then `message_delta` with the stop reason and the usage counts, and `message_stop`.
 
 A request whose prompt cannot be counted is refused as `/v1/messages/count_tokens` refuses it — an unknown model gets `404`, a request that does not render gets `400`, and the other refusals under [Backend Support](#backend-support) apply unchanged. When the model's workers advertise a context window, a prompt with more tokens than the smallest advertised window is refused with `400` `context_length_exceeded`, as a generating request would be.
 

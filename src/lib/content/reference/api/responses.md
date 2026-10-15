@@ -100,8 +100,8 @@ SMG accepts is declared. Besides the fields above and the
 `priority`.
 
 These rules match the public API's request contract and are new on main after v1.12.0. In
-v1.12.0 and earlier, unknown top-level parameters are ignored,
-`max_output_tokens` only has to be at least 1, `metadata` is not size-checked, and
+v1.12.0 and earlier, unknown top-level parameters are ignored, `max_output_tokens` only
+has to be at least 1, `metadata` is not size-checked, and
 `top_logprobs` without `message.output_text.logprobs` in `include` is rejected with
 `400` — on main that combination is accepted. The input-role, tool, and structured-output
 rules below are likewise new on main and not enforced in v1.12.0 and earlier.

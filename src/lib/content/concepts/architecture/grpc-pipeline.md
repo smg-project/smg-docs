@@ -114,7 +114,7 @@ Every request resolves one tool-call parser and one reasoning parser for its mod
 
 These per-model parsers are the gateway's default readers (`--parser legacy`). Starting the gateway with `--parser symphony` keeps this name resolution but reads Chat Completions and Messages API responses with [Symphony tables](#symphony-parsing) instead; the resolved names then pick the table, as that section describes.
 
-The gateway checks the flag values when it starts. Under the default `--parser legacy`, an unknown `--tool-call-parser` or `--reasoning-parser` value stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; a Symphony table's name or `hf` also stops it, with an error ending `which --parser symphony reads with`. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
+The gateway checks the flag values when it starts. Under the default `--parser legacy`, a `--tool-call-parser` or `--reasoning-parser` value the legacy registries don't have stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; when that name is a Symphony table's or `hf`, the error ends `which --parser symphony reads with` instead. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
 
 ### Per-Model Overrides
 
@@ -135,7 +135,9 @@ curl -X POST http://localhost:30000/workers \
   }'
 ```
 
-Registration fails if an override names an unknown parser (`worker <url> declares unknown tool_parser '<name>' for model '<id>'`). Under `--parser symphony`, an override may also name a [Symphony table or `hf`](#symphony-parsing), giving one model its own table without touching the rest; naming a legacy parser no table answers to instead sends just that model back to the legacy parsers. Workers of the same model should agree. If they don't, for example during a rolling upgrade, SMG logs a warning at registration and uses the lexicographically smallest name. Kubernetes service discovery sets no parser labels, so discovered workers rely on the flags. See the [Admin API](../../reference/api/admin.md) for the worker endpoints.
+Registration fails if an override names an unknown parser (`worker <url> declares unknown tool_parser '<name>' for model '<id>'`). Workers of the same model should agree. If they don't, for example during a rolling upgrade, SMG logs a warning at registration and uses the lexicographically smallest name. Kubernetes service discovery sets no parser labels, so discovered workers rely on the flags. See the [Admin API](../../reference/api/admin.md) for the worker endpoints.
+
+Under `--parser symphony`, an override may also name a [Symphony table or `hf`](#symphony-parsing), giving one model its own table without touching the rest; naming a legacy parser no table answers to sends just that model back to the legacy parsers.
 
 ### Automatic Detection
 
@@ -378,7 +380,7 @@ A table also answers to the names of the legacy parsers that read its format, so
 | `deepseek_v41` | `deepseek_v4.1` |
 | `minimax` | `minimax_m2` |
 
-Several legacy parser names — `json`, `qwen3`, `kimi_k3`, `inkling`, `minimax_m2` and `minimax_m3` — are a table's own name and read with that table. A legacy name no table answers to, such as `llama`, `mistral` or `deepseek31`, keeps the legacy parsers for its model.
+Several legacy parser names — `json`, `qwen3`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2` and `minimax_m3` — are a table's own name and read with that table. A legacy name no table answers to, such as `llama`, `mistral` or `deepseek31`, keeps the legacy parsers for its model.
 
 The gateway checks the names at startup and at worker registration, against the configured `--parser`. Under `symphony`, a name that is neither a legacy parser's nor a table's fails with `unknown tool-call parser '<name>': neither a legacy parser nor a Symphony table`. A name only a table owns binds the other name: it must name the same table or nothing. `hf` binds the same way: the other name must be `hf` or unset. Under `legacy`, a table-only name or `hf` fails with `... which --parser symphony reads with`, as noted under [Parser Selection](#parser-selection).
 

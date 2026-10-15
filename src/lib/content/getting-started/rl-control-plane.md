@@ -209,7 +209,9 @@ Control calls go to a worker's control endpoint, which is independent of its dat
 - **HTTP workers** are controlled through themselves. An `rl.control_url` label on an HTTP worker is ignored.
 - **gRPC and ZMQ workers** need an `rl.control_url` label naming an HTTP server that implements the engine's control routes. Set it with the `labels` field of `POST /workers` or `PATCH /workers/{id}`, or let the engine advertise it.
 
-A TokenSpeed gRPC engine launched with `--rl-control-host` and `--rl-control-port` advertises its control server in server info, and SMG turns the advertisement into the label at registration. Give `--rl-control-host` an address SMG can reach: the engine does not advertise a wildcard bind (`0.0.0.0`, `::`), and the default loopback is right only when SMG runs on the same machine. Label the worker yourself when the engine does not advertise: the [Rust TokenSpeed servicer](grpc-workers.md#rust-tokenspeed-servicer) carries no `rl.*` advertisement, and a TokenSpeed engine started by `smg serve` in ZMQ mode runs no control server at all, so its label can only name a control server you run yourself.
+A TokenSpeed gRPC engine launched with `--rl-control-host` and `--rl-control-port` advertises its control server in server info, and SMG turns the advertisement into the label at registration. Give `--rl-control-host` an address SMG can reach: the engine does not advertise a wildcard bind (`0.0.0.0`, `::`), and the default loopback is right only when SMG runs on the same machine.
+
+Label the worker yourself when the engine does not advertise: the [Rust TokenSpeed servicer](grpc-workers.md#rust-tokenspeed-servicer) carries no `rl.*` advertisement, and a TokenSpeed engine started by `smg serve` in ZMQ mode runs no control server at all, so its label can only name a control server you run yourself.
 
 A wildcard host in a label you set (`http://0.0.0.0:40100`) is replaced by the worker's own host; a worker with no host of its own (an `ipc://` ZMQ worker) keeps the label as given. The result is the `control_url` discovery field, and a worker whose `control_url` is `null` fails every control call with [`no_control_endpoint`](#errors).
 
@@ -356,7 +358,7 @@ Each `failed[]` entry has `worker_id`, `url`, `error`, and `message`, plus `stat
 | `upstream_error` | The engine answered with a non-2xx status; `message` is `HTTP <status>` | Yes |
 | `upstream_unreachable` | SMG could not connect to the engine or read its response | No |
 | `upstream_timeout` | Connecting timed out, or the engine sent no response within `--rl-control-timeout-secs` | No |
-| `no_control_endpoint` | The worker has no [control endpoint](#control-endpoints) | No |
+| `no_control_endpoint` | The worker has no [control endpoint](#control-endpoints), or SMG has no HTTP client to reach it | No |
 
 SMG does not retry or roll back. Engines that succeeded keep the change; use `failed[]` to decide what to do for the others.
 
@@ -593,7 +595,7 @@ RUST_LOG=warn,smg_rl=info smg launch \
     This is expected. Discovery reports the `weight_version` label recorded when the worker registered, and the control plane does not refresh it. Read the live version from `/generate`'s `meta_info.weight_version` instead. Who reports it there depends on the worker:
 
     - **HTTP SGLang workers.** SMG forwards `/generate` to the engine, and SGLang reports its own live version.
-    - **TokenSpeed gRPC workers.** SMG builds `/generate` responses for gRPC workers itself, and it reports the version the TokenSpeed engine stamped on that very response — the engine's live `server_args.weight_version`, which a [refit](#capabilities) updates — on streaming chunks too. The worker must run the Python servicer (`python -m smg_grpc_servicer.tokenspeed`); smg-grpc-servicer 0.13.1 with smg-grpc-proto 0.4.23 are the first versions that carry the field. When the engine stamps nothing, an empty value, or its `default` placeholder, SMG falls back to the registration-time label.
+    - **TokenSpeed gRPC workers.** SMG builds `/generate` responses for gRPC workers itself, and it reports the version the TokenSpeed engine stamped on that very response — the engine's live `server_args.weight_version`, which a [refit](#capabilities) updates — on streaming chunks too. The worker must run the Python servicer (`python -m smg_grpc_servicer.tokenspeed`), with smg-grpc-servicer 0.13.1 or later and smg-grpc-proto 0.4.23 or later to carry the field. When the engine stamps nothing, an empty value, or its `default` placeholder, SMG falls back to the registration-time label.
     - **Every other gRPC or ZMQ worker** gets the registration-time label (or `default`), which a refit does not change. Only `/generate` carries the engine-stamped value: Chat Completions' `system_fingerprint` is the registration-time label even for TokenSpeed.
 
 ??? question "Long refits fail with upstream_timeout or a client timeout"

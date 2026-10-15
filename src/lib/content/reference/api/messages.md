@@ -170,7 +170,9 @@ With `"stream": true`, the answer is a three-event stream: `message_start` with 
 
 A request whose prompt cannot be counted is refused as `/v1/messages/count_tokens` refuses it — an unknown model gets `404`, a request that does not render gets `400`, and the other refusals under [Backend Support](#backend-support) apply unchanged. When the model's workers advertise a context window, a prompt with more tokens than the smallest advertised window is refused with `400` `context_length_exceeded`, as a generating request would be.
 
-HTTP and PD workers refuse `max_tokens: 0` with `400` (code `max_tokens_zero_not_relayed`) before any worker sees the request: the relay forwards a Messages request as sent and renders no prompt, so it cannot build the empty message. As with the other request rules, a body the HTTP router streams through unparsed reaches the worker unvalidated. The Anthropic API backend forwards the request like any other and relays the upstream response.
+HTTP and PD workers refuse `max_tokens: 0` with `400` (code `max_tokens_zero_not_relayed`) before any worker sees the request: the relay forwards a Messages request as sent and renders no prompt, so it cannot build the empty message. As with the other request rules, a body the HTTP router streams through unparsed reaches the worker unvalidated.
+
+The Anthropic API backend forwards the request like any other and relays the upstream response.
 
 In IGW mode, a `max_tokens: 0` request for a model served over both gRPC and HTTP always goes to a gRPC router, so it gets the empty message; a model only HTTP workers serve gets the relay's `400`.
 

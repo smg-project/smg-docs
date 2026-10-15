@@ -434,11 +434,11 @@ On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longe
 | 502 | `moriio_handoff_invalid` | MoRI-IO: the prefill returned no usable handoff — missing, foreign, or with fields the decode engine cannot parse. Sequential dispatch sends no decode leg; concurrent dispatch drops the one already sent |
 | 501 | `moriio_grpc_pd_unsupported` | gRPC: MoRI-IO PD is supported only by the HTTP PD router |
 
-A pair with one leg missing — its workers restarting or not yet discovered while the other leg's workers are registered — is refused with 503 `no_available_workers`, and the message names the missing leg (prefill, decode, or, in EPD mode, encode) instead of calling the registered leg unhealthy; retry once the missing leg is back. When a leg's workers are all unhealthy or circuit-open, the message names the leg over HTTP but not over gRPC.
-
-A model whose only workers are the legs of an incomplete pair is still answered by the pair's own router — the gRPC PD or EPD router for gRPC legs, the HTTP PD router for HTTP legs — with that retryable 503. Only a model with no worker on either leg answers 404 `model_not_found`, as for any unknown model.
-
 The `moriio_*` codes are newer than v1.11.0.
+
+The `no_available_workers` message names the missing leg of an incomplete pair (prefill, decode, or, in EPD mode, encode) on both transports, instead of calling the registered leg unhealthy; retry once that leg is back. When a leg's workers are all unhealthy or circuit-open, the message names the leg over HTTP but not over gRPC.
+
+A model whose only workers are the legs of an incomplete pair is answered by the pair's own router — the gRPC PD or EPD router for gRPC legs, the HTTP PD router for HTTP legs — with that retryable 503. Only a model with no worker on any leg answers 404 `model_not_found`, as for any unknown model.
 
 `/readiness` reports ready only when at least one prefill worker and one decode worker are healthy (and an encode worker in EPD mode).
 

@@ -145,7 +145,7 @@ Mounted only when SMG starts with `--enable-rl`; without it, every `/v1/rl/*` pa
 |---|---|---|
 | `GET` | `/v1/rl/workers` | List workers with engine, parallelism, health, weight version, and capabilities |
 | `GET` | `/v1/rl/workers/{id}` | One worker (`404 worker_not_found` for an unknown ID) |
-| `GET`, `POST` | `/v1/rl/workers/{id}/engine/{path}` | Forward one engine-native request to one HTTP worker; the response status mirrors the engine's |
+| `GET`, `POST` | `/v1/rl/workers/{id}/engine/{path}` | Forward one engine-native request to one worker's control endpoint; the response status mirrors the engine's |
 | `GET`, `POST` | `/v1/rl/engine/{path}?selector=...` | Send the same request to every worker matching a label selector; `200` when every target succeeds, `207` with per-worker `failed[]` otherwise |
 
 See [RL Control Plane](../../getting-started/rl-control-plane.md) for request and response shapes, selectors, errors, timeouts, metrics, and the `smg.rl` Python client.

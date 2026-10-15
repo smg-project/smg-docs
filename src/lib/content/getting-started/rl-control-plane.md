@@ -11,7 +11,6 @@ Reinforcement learning (RL) training loops send rollout traffic through SMG, but
 #### Before you begin
 
 - Completed the [Getting Started](index.md) guide
-- SMG v1.11.0 or later (the RL control plane first shipped in v1.11.0)
 - Workers with a control endpoint: an HTTP worker has one automatically, a gRPC or ZMQ worker needs an `rl.control_url` label (see [Control Endpoints](#control-endpoints))
 - An admin credential if the gateway uses [Control Plane Auth](control-plane-auth.md)
 
@@ -21,7 +20,7 @@ Reinforcement learning (RL) training loops send rollout traffic through SMG, but
 
 ## Overview
 
-SMG v1.11.0 ships milestone M1 of the RL control plane: three route groups under `/v1/rl`.
+SMG ships milestone M1 of the RL control plane: three route groups under `/v1/rl`.
 
 | Capability | Route | What it does |
 |---|---|---|
@@ -425,7 +424,7 @@ In a fan-out, a failed target never changes the status beyond `207`; it is repor
 
 ## Python Client
 
-`smg.rl` is a client for these routes. It ships in the `smg` package from v1.11.0 and uses only the Python standard library:
+`smg.rl` is a client for these routes. It ships in the `smg` package and uses only the Python standard library:
 
 ```bash
 pip install smg

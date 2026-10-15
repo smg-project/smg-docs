@@ -110,9 +110,22 @@ The gateway's load monitor collects one report per worker per poll. The source d
 
 ### When a Worker Does Not Report
 
-Overload protection **fails open**. A poll that produces no report (an unsupported backend, a timeout, an error, or an empty report) clears the worker's veto: no fresh signal means no opinion, and the worker stays routable. The veto is also cleared when a worker leaves `Ready`, is removed, or is replaced (`PUT` or `PATCH` on `/workers/{worker_id}`), and for every worker when the monitor has to rebuild its state (logged as a warning).
+Overload protection **fails open**. A poll that produces no report (an unsupported backend, a timeout, an error, or an empty report) clears the worker's veto: no fresh signal means no opinion, and overload protection keeps the worker routable. The veto is also cleared when a worker leaves `Ready`, is removed, or is replaced (`PUT` or `PATCH` on `/workers/{worker_id}`), and for every worker when the monitor has to rebuild its state (logged as a warning).
 
 A field the backend leaves out reads as `0`, so that signal never trips. `--worker-overload-token-usage` only works for backends that report KV usage.
+
+Failing open is about the overload verdict, not about reachability: a worker that has been pushing load records and then stops making any contact at all is excluded by a separate rule, described under [When a Worker Goes Silent Entirely](#when-a-worker-goes-silent-entirely).
+
+### When a Worker Goes Silent Entirely
+
+A gRPC worker streaming KV events pushes a load record with every event batch, and its servicer sends a heartbeat record through every quiet spell, so while such a worker is reachable the gateway hears from it every few seconds. Once a worker has pushed a load record, it is held to that cadence: when nothing arrives from it on any channel — no load record, no answered poll, no passing health probe, no streamed token — for `--worker-stale-secs` (default `15`), the gateway excludes it from routing as unreachable. A total silence that long means a dead worker or a one-way link the transport has not reported yet. The check runs several times a second, so the exclusion lands at the threshold itself rather than waiting for the next failed poll.
+
+The two rules stay distinct: a worker that answers but reports no load gets no overload opinion against it, while a worker that pushed load records and then stops making any contact at all is treated as unreachable.
+
+- **Only workers that have pushed a load record are judged by silence.** HTTP and ZMQ workers never push one; neither does a gRPC worker whose servicer runs without KV events or is too old to attach load records, nor one whose stream has not connected yet. From these workers, an answered poll each interval and a passing health probe are all that is expected.
+- **Any contact clears the exclusion.** The first load record, answered poll, passing health probe, or streamed token re-admits the worker at once. A worker that is still streaming tokens is never considered stale.
+- **Health status is untouched.** The exclusion is independent of the health checker's state machine and of the overload veto; it starts and ends with contact alone.
+- **Keep `--worker-stale-secs` above `--load-monitor-interval`.** That way, a worker whose event stream stopped while its load poll still answers keeps making contact before the threshold. The default of `15` sits above the default 10-second poll interval and allows for several missed heartbeats; `0` disables the rule. The Python launchers accept the same flag (`--router-worker-stale-secs` under `smg serve`).
 
 ---
 

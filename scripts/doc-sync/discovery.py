@@ -81,7 +81,8 @@ def validate_scan(raw, context, slug, history):
         raise ValueError("Invalid inspected-commit report")
     if not isinstance(result["remaining_work"], str) or not result["remaining_work"].strip():
         raise ValueError("Missing remaining-work report")
-    concerns = result["concerns"]
+    concerns = [{**item, "title": docs.normalize_title(item["title"])}
+                for item in result["concerns"]]
     # Validate each independently. Competing proposals are deferred centrally,
     # not an operational failure that discards a whole scan's useful results.
     for item in concerns:
@@ -121,8 +122,7 @@ def combine(scans, context, allow_partial=False):
         for proposal in row:
             if proposal is None:
                 continue
-            title = proposal["title"]
-            proposal = {**proposal, "title": title if title.startswith("[Docs] ") else "[Docs] " + title}
+            proposal = {**proposal, "title": docs.normalize_title(proposal["title"])}
             item = docs.plan(json.dumps({"concerns": [proposal]}), context)
             if not item:
                 deferred.append((docs.validate_item(proposal)["key"], "existing PR"))
@@ -154,8 +154,7 @@ def deferred_queue(scans, deferred, prs):
     queued_concerns = []
     for scan in scans:
         for proposal in scan['concerns']:
-            title = proposal['title']
-            item = docs.validate_item({**proposal, 'title': title if title.startswith('[Docs] ') else '[Docs] ' + title})
+            item = docs.validate_item({**proposal, 'title': docs.normalize_title(proposal['title'])})
             if item['key'] not in queued:
                 continue
             # Keep file-blocked work, but never queue an already-open,

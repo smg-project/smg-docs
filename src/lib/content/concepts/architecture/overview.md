@@ -65,7 +65,9 @@ SMG exposes three categories of endpoints:
 | `POST /v1/audio/transcriptions` | Audio transcription from a multipart file upload |
 | `GET /v1/realtime` | Realtime session over WebSocket, proxied to a realtime-capable worker or provider |
 | `POST /v1/realtime/calls` | Realtime session over WebRTC |
-| `POST /v1/realtime/sessions`, `POST /v1/realtime/client_secrets`, `POST /v1/realtime/transcription_sessions` | Create realtime sessions and mint ephemeral client secrets over REST |
+| `POST /v1/realtime/sessions` | Create a realtime session over REST |
+| `POST /v1/realtime/client_secrets` | Mint an ephemeral client secret for a realtime session |
+| `POST /v1/realtime/transcription_sessions` | Create a realtime transcription session over REST |
 
 Request formats, backend support, and errors are in the [OpenAI-Compatible API](../../reference/api/openai.md), [Responses API](../../reference/api/responses.md), [Anthropic Messages API](../../reference/api/messages.md), and [Extension API](../../reference/api/extensions.md) references.
 

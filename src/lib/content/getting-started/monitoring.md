@@ -208,7 +208,7 @@ If you deploy with the SMG Helm chart, set `router.metrics.serviceMonitor.enable
 
 Several of these exist only when their feature is on: admission metrics need `--max-concurrent-requests` (the multimodal rejection reasons need `--multimodal-max-inflight-bytes` instead), the `smg_workers_overloaded` gauge needs worker overload protection, and PD metrics need PD mode.
 
-Unreleased: current main publishes `smg_worker_overload_shed_total` at zero for every stage from start-up, whether or not overload protection is enabled, so the series exist before any shed; only the gauge still waits for protection to flag a worker. See [Overload Protection Metrics](../reference/metrics.md#overload-protection-metrics).
+SMG publishes `smg_worker_overload_shed_total` at zero for every stage from start-up, whether or not overload protection is enabled, so the series exist before any shed; only the `smg_workers_overloaded` gauge waits for protection to flag a worker. See [Overload Protection Metrics](../reference/metrics.md#overload-protection-metrics).
 
 [View all metrics →](../reference/metrics.md)
 
@@ -509,7 +509,7 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
 ??? question "Missing metrics"
 
-    1. A series appears only after the first event that records it, so a metric can be absent on an idle gateway.
+    1. Most series appear only after the first event that records them, so a metric can be absent on an idle gateway. The overload-shed, retry, and circuit-breaker transition families are exceptions, published at zero before any event (details below).
 
     2. Some groups need their feature enabled: admission metrics need `--max-concurrent-requests`, the `smg_workers_overloaded` gauge needs worker overload protection, and PD, discovery, RL, and mesh metrics need their modes. Allocator metrics are absent on musl and MSVC builds.
 
@@ -517,7 +517,7 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
     4. Verify metric names against the [Metrics Reference](../reference/metrics.md). Names such as `smg_router_stage_duration_seconds` and the `smg_db_*` metrics are declared in code but never emitted.
 
-    Unreleased: current main publishes the overload-shed and retry families at zero from start-up — whether or not overload protection is enabled — and each worker's circuit-breaker transition counters at zero when that worker is registered. The eager retry series cover the `regular`, `prefill`, and `decode` worker types only; the external-provider counters (`worker_type="external"`) still appear on their first respective event, `smg_worker_retries_total` on the first retry and `smg_worker_retries_exhausted_total` on the first exhaustion. On a gateway built from main, absence of the start-up families points at a scrape problem rather than inactivity, while a missing transition series means no worker with that label is registered. The [Metrics Reference](../reference/metrics.md) lists the exact series.
+    SMG publishes the overload-shed and retry families at zero from start-up — whether or not overload protection is enabled — and each worker's circuit-breaker transition counters at zero when that worker is registered. The start-up retry series cover the `regular`, `prefill`, and `decode` worker types only; the external-provider counters (`worker_type="external"`) appear only on their first event: `smg_worker_retries_total` on the first retry, `smg_worker_retries_exhausted_total` on the first exhaustion. Absence of the start-up families therefore points at a scrape problem rather than inactivity, while a missing transition series means no worker with that label is registered. The [Metrics Reference](../reference/metrics.md) lists the exact series.
 
 ---
 

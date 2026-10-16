@@ -114,7 +114,7 @@ Every request resolves one tool-call parser and one reasoning parser for its mod
 
 These per-model parsers are the gateway's default readers (`--parser legacy`). Starting the gateway with `--parser symphony` keeps this name resolution but reads Chat Completions and Messages API responses with [Symphony tables](#symphony-parsing) instead; the resolved names then pick the table, as that section describes.
 
-The gateway checks the flag values when it starts. Under the default `--parser legacy`, a `--tool-call-parser` or `--reasoning-parser` value the legacy registries don't have stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; when that name is a Symphony table's or `hf`, the error ends with `which --parser symphony reads with` instead. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
+The gateway checks the flag values when it starts. Under the default `--parser legacy`, a `--tool-call-parser` or `--reasoning-parser` value the legacy registries don't have stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; when that name is one only a Symphony table answers to, or `hf`, the error ends with `which --parser symphony reads with` instead. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
 
 ### Per-Model Overrides
 
@@ -355,7 +355,7 @@ The parser names set for a model decide: its `tool_parser` / `reasoning_parser` 
 
 | Names set for the model | What reads its responses |
 |-------------------------|--------------------------|
-| A table's name, or a legacy parser name a table answers to (see [Table Names](#table-names)) | That table, for every request for the model |
+| A table's name, or another name a table answers to (see [Table Names](#table-names)) | That table, for every request for the model |
 | `hf` | The table its tokenizer's `response_template` compiles into (below) |
 | Any other legacy tool-call parser's name, `passthrough` included | The legacy parsers — the per-model escape hatch when a table misreads |
 | No names | The registry's table for a checkpoint it knows; otherwise the legacy parsers with their own auto-detection |
@@ -368,10 +368,10 @@ The registry matches the repository name — the text after the last path separa
 
 The 29 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `muse_spark` and `plain`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
 
-A table also answers to the names of the legacy parsers that read its format, so a deployment that already sets one of these names switches to the table the moment it starts with `--parser symphony`:
+A table also answers to the names of the legacy parsers that read its format, so a deployment that already sets one of these names switches to the table the moment it starts with `--parser symphony`. One name on the list is no legacy parser's: `muse`, the name downstream launchers pass for Muse models, whose table has no legacy parser.
 
-| Legacy parser name | Reads with table |
-|--------------------|------------------|
+| Name | Reads with table |
+|------|------------------|
 | `qwen` | `qwen3` |
 | `qwen_xml`, `qwen_coder`, `nemotron` | `qwen3_tagged` |
 | `glm47_moe` | `glm` |
@@ -379,6 +379,7 @@ A table also answers to the names of the legacy parsers that read its format, so
 | `hy_v4` | `hy4` |
 | `deepseek_v41` | `deepseek_v4.1` |
 | `minimax` | `minimax_m2` |
+| `muse` | `muse_spark` |
 
 Several legacy parser names — `json`, `qwen3`, `deepseek_v4`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2` and `minimax_m3` — are a table's own name and read with that table. A legacy name no table answers to, such as `llama`, `mistral` or `deepseek31`, keeps the legacy parsers for its model.
 
@@ -409,9 +410,16 @@ When a table reads a request, its structural tag stands in for the constraint of
 - A registry table with no tag for the JSON answer, or a request that continues the assistant's message, leaves `response_format` to the engine's JSON schema, as the legacy path does; the table still reads that response.
 - `hf` refuses what its table cannot both constrain and read, with 400 `invalid_parser_configuration`: a forced call or a JSON `response_format` its table has no tag for, a `regex` or `ebnf` constraint, and `continue_final_message` combined with a tag, since a tag writes a turn from its start.
 
+These `hf` rules assume the gateway cannot tell where the model's engines start enforcing a grammar. When an `hf`-read model's table can spell a whole turn (its calls name the tool they call), every worker of the model declares the same [`constrained_decoding` policy](#grammar-on-auto-tool-choice), and every worker says where its engine starts a grammar — the `constrained_decoding_start` label, which gRPC engines report in server info — the turn is constrained by that instead:
+
+- `first_token` on every worker: one grammar holds the whole turn — the thought, then either calls to the tools the `tool_choice` allows, each held to its schema, or the answer, with the request's JSON `response_format`, `regex` or `ebnf` composed in rather than refused (an `ebnf` in Lark's syntax is left as free text). Under the `always` policy every turn takes the grammar; under `requested`, only a request that asks for a constraint (with tools declared, a tool choice other than plain `auto` or a `strict: true` tool; or an answer format). A model with a worker labelled `grammar_backend: none` takes the grammar only when the request asks, whatever the policy. Refused instead: a tool or parameter name the calls cannot carry, or a `strict: true` tool the grammar would hold more loosely (400 `invalid_tool_configuration`); and, under `auto`, a strict tool or `parallel_tool_calls: false` together with the request's own `regex` or `ebnf` (400 `invalid_request_parameters`). A prompt that continues the assistant's message is not refused here: where no whole-turn grammar can start, the request's own format goes to the engine as it is.
+- `after_reasoning` on every worker: the table sends no grammar; the request's own `response_format`, `regex` or `ebnf` goes to the engine as it is.
+
+Workers that do not say where their engine starts a grammar, a mixed set, or a policy not set on every worker keep the rules above.
+
 ### Grammar on `auto` Tool Choice
 
-A worker whose `constrained_decoding` policy is `always` — set as a [worker label or spec field](../../reference/api/admin.md#worker-spec), or reported by the engine itself — tells the gateway its engine takes a grammar on every turn. When a table reads a chat or Messages request that allows calls under `auto` (or no `tool_choice`), the gateway then sends the table's tag for the request's callable tools: no call required, at most one when `parallel_tool_calls` is `false` (Messages: `disable_parallel_tool_use`). Nothing is sent, and nothing refused, when the request carries a constraint of its own (a JSON `response_format`, `regex`, `ebnf`), has no callable tools, forbids calls with `tool_choice: none`, continues the assistant's message, or the table has no tag for the calls. The default policy, `requested`, sends a grammar only when the request asks for one.
+A worker whose `constrained_decoding` policy is `always` — set as a [worker label or spec field](../../reference/api/admin.md#worker-spec), or reported by the engine itself — tells the gateway its engine takes a grammar on every turn. When a table reads a chat or Messages request that allows calls under `auto` (or no `tool_choice`), the gateway then sends the table's tag for the request's callable tools: no call required, at most one when `parallel_tool_calls` is `false` (Messages: `disable_parallel_tool_use`). Nothing is sent, and nothing refused, when the request carries a constraint of its own (a JSON `response_format`, `regex`, `ebnf`), has no callable tools, forbids calls with `tool_choice: none`, continues the assistant's message, or the table has no tag for the calls. The default policy, `requested`, sends a grammar only when the request asks for one. On an `hf`-read model whose workers all say where their engines start a grammar, the whole-turn grammar under [Constraints Under Symphony](#constraints-under-symphony) takes this tag's place.
 
 Under PD disaggregation the decode worker's policy applies. The policy is read for the first attempt's worker; a retry re-shapes the tag for its worker but keeps it.
 
@@ -595,9 +603,9 @@ RUST_LOG=warn,smg=info,llm_tokenizer=debug smg launch ...
 |---------|-------|----------|
 | Reasoning stays in `content` | No reasoning parser matched the model name, or the request set `separate_reasoning: false` | Set `--reasoning-parser` or a per-model override; compare the name with the patterns above |
 | Tool calls come back as text in `content` | No tool parser matched, or the parser doesn't fit the model's format | Set `--tool-call-parser` or a `tool_parser` override for that model |
-| Gateway exits at startup with `unknown tool-call parser` or `unknown reasoning parser`, or the pip `smg launch` reports `invalid choice` | The name isn't registered, or it is a Symphony table's name (or `hf`) on a gateway running the default `--parser legacy` | Use a name from the reference tables above (names use underscores), or start the gateway with `--parser symphony` for a table's name |
+| Gateway exits at startup with `unknown tool-call parser` or `unknown reasoning parser`, or the pip `smg launch` reports `invalid choice` | The name isn't registered, or only a Symphony table answers to it (or it is `hf`) on a gateway running the default `--parser legacy` | Use a name from the reference tables above (names use underscores), or start the gateway with `--parser symphony` for a table's name |
 | The `x-smg-parser` response header says `legacy` under `--parser symphony` | No table took the request: the model's names keep the legacy parsers, the registry doesn't know the checkpoint's exact repository name, or a forced call fell back to a JSON-schema constraint | Name a table or `hf` in `--tool-call-parser` or the model's `tool_parser` override; see [Symphony Parsing](#symphony-parsing) |
-| Worker registration fails with `declares a parser override ... the gateway cannot read with` | A label or model card names a parser the configured `--parser` can't read with: an unregistered name, or a Symphony table's name (or `hf`) under `--parser legacy` | Fix the override name, or start the gateway with `--parser symphony` for a table's name |
+| Worker registration fails with `declares a parser override ... the gateway cannot read with` | A label or model card names a parser the configured `--parser` can't read with: an unregistered name, or a name only a Symphony table answers to (or `hf`) under `--parser legacy` | Fix the override name, or start the gateway with `--parser symphony` for a table's name |
 | Forced tool calls or `response_format` not enforced | The engine runs without a grammar backend | Start TokenSpeed with `--grammar-backend xgrammar`; give TensorRT-LLM `guided_decoding_backend: xgrammar` |
 | MCP tools time out | Slow tool execution | Check MCP server configuration |
 

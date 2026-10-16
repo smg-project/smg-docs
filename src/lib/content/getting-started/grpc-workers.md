@@ -386,7 +386,7 @@ curl -X POST http://localhost:30000/workers \
   }'
 ```
 
-An unknown parser name fails the registration. See [Parser Selection](../concepts/architecture/grpc-pipeline.md#parser-selection) for the full precedence rules.
+An unknown parser name fails the registration. See [Parser Selection](../concepts/architecture/grpc-pipeline.md#parser-selection) for the full precedence rules. Under the default parser, Symphony, the same names select the table that reads the model; `--parser legacy` keeps the older per-model parsers for the whole gateway, and the `X-SMG-Parser: legacy` header for one request (see [Symphony and the legacy parsers](../concepts/architecture/grpc-pipeline.md#symphony-and-the-legacy-parsers)).
 
 ---
 

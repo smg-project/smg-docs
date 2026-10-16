@@ -114,6 +114,19 @@ Every request resolves one tool-call parser and one reasoning parser for its mod
 
 The gateway checks the flag values when it starts. An unknown `--tool-call-parser` or `--reasoning-parser` value stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; the pip `smg launch` rejects it earlier as an invalid choice. Names must match a registered parser exactly (`deepseek_r1`, not `deepseek-r1`).
 
+### Symphony and the legacy parsers
+
+Symphony is the gateway's default reader of a chat completion's output (`--parser symphony`). One table per model family describes where the thought, the content and the tool calls sit in the model's output, and one engine reads the stream with it, so the streamed answer and the whole answer are read alike. The older path, one tool-call parser and one reasoning parser per family, stays available: `--parser legacy` selects it for the whole gateway, and the `X-SMG-Parser: legacy` request header for one request (`X-SMG-Parser: symphony` works the other way round). The response carries an `x-smg-parser` header naming the parser that read it.
+
+Under Symphony, the parser names resolved above choose the table:
+
+- A name a table answers to reads every request for the model with that table: the table's own name, a legacy parser's name that reads the table's format (`qwen` for the Qwen3 table, `qwen_xml` for the tagged one), or a launcher's name for a family whose table has no older parser.
+- `hf` reads the model with the table its tokenizer's response template compiles into, and refuses the request when the model has none.
+- Any other legacy tool-call parser's name, `passthrough` among them, keeps the legacy parsers for that model: the way back for one model.
+- No name at all takes Symphony's registry for the models it knows, and the legacy parsers with their own detection for the others.
+
+The names are checked at startup and at a worker's registration, as before. A request read with `legacy` keeps the older parsers in every respect.
+
 ### Per-Model Overrides
 
 The process-wide flags suit a gateway that serves one model family. To serve several families from one gateway, give each model its own parsers when you register its workers. Either form works:

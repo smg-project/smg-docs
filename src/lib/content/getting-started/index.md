@@ -80,7 +80,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     | TensorRT-LLM | `trtllm-1.3.0rc24`, `trtllm-1.3.0rc23`, `trtllm-1.3.0rc22` | `nvcr.io/nvidia/tensorrt-llm/release` | `nightly-trtllm` |
     | TokenSpeed | `tokenspeed-tml` (releases up to 1.11.0) | `lightseekorg/tokenspeed:tml` | `nightly-tokenspeed` |
 
-    For example, v1.12.0 published `ghcr.io/smg-project/smg:1.12.0-vllm-v0.31.0` and `ghcr.io/smg-project/smg:1.12.0-sglang-v0.5.21`, both built from SMG 1.12.0. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
+    For example, v1.13.0 published `ghcr.io/smg-project/smg:1.13.0-vllm-v0.31.0` and `ghcr.io/smg-project/smg:1.13.0-sglang-v0.5.21`, both built from SMG 1.13.0. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
 
     The `tokenspeed-tml` release images belong to 1.11.0 and earlier, and they do not contain that release's SMG: they were built from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG.
 
@@ -586,7 +586,7 @@ curl http://localhost:30000/health
 
 ### All-in-one with engine images
 
-Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. The examples use the v1.12.0 images; the Docker tab under [Install](#install) lists the engine tags each release builds.
+Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. The examples use the v1.13.0 images; the Docker tab under [Install](#install) lists the engine tags each release builds.
 
 === "SGLang"
 
@@ -595,7 +595,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:1.12.0-sglang-v0.5.21 \
+      ghcr.io/smg-project/smg:1.13.0-sglang-v0.5.21 \
       serve \
       --backend sglang \
       --model-path /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -610,7 +610,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:1.12.0-vllm-v0.31.0 \
+      ghcr.io/smg-project/smg:1.13.0-vllm-v0.31.0 \
       serve \
       --backend vllm \
       --model /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -639,7 +639,7 @@ The chart is published to GHCR as an OCI artifact, versioned with SMG releases (
 
 ```bash
 helm install smg oci://ghcr.io/smg-project/charts/smg \
-  --version 1.12.0 \
+  --version 1.13.0 \
   --namespace inference --create-namespace \
   -f values.yaml
 ```

@@ -940,7 +940,7 @@ Header names are case-insensitive. SMG reads the following request headers:
 | `X-SMG-MCP` | `enabled` makes SMG run the MCP tool loop itself for `/v1/messages` requests with MCP toolsets sent to an Anthropic provider, instead of forwarding them as-is | [Messages API](messages.md) |
 | Names set with `--storage-context-headers` | Copied into the storage hook request context | [Configuration Reference](../configuration.md) |
 
-When SMG proxies a request to an HTTP worker, it forwards only these client headers: `Authorization`, `anthropic-version`, `anthropic-beta`, `X-Request-ID`, `X-Correlation-ID`, headers starting with `X-Request-ID-`, `traceparent`, `tracestate`, and `X-SMG-Routing-Key`.
+When SMG proxies a request to an HTTP worker, it forwards only these client headers: `Authorization`, `anthropic-version`, `anthropic-beta`, `X-Request-ID`, `X-Correlation-ID`, headers starting with `X-Request-ID-`, `traceparent`, `tracestate`, `X-SMG-Routing-Key`, and `x-override-priority` (SGLang's request priority, read by an engine started with `SGLANG_ENABLE_REQUEST_HEADER_OVERRIDES=true` and not by SMG; newer than v1.13.0).
 
 ### Routing Hint Headers
 

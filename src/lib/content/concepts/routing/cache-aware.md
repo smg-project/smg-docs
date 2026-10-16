@@ -40,7 +40,7 @@ Cache misses, spills and ties between equally good holders go to the worker with
 
 ### :material-memory: Bounded Memory
 
-A shared per-model tree budget, immediate cleanup when workers leave, an optional TTL'd hash index, and optional pruning of the KV-event index keep gateway memory bounded.
+A shared per-model tree budget, immediate cleanup when workers leave, and an optional TTL'd hash index keep gateway memory bounded. The KV-event index holds what the engines report and shrinks as they evict.
 
 </div>
 
@@ -193,7 +193,7 @@ Every request goes through the same steps. Cache affinity comes first; load deci
 4. **Rank candidates** (tree and KV-event modes). With `--overlap-decay` above 0, a candidate's score shrinks with its waiting-prefill backlog. The top-scoring group is kept; with `--selection-temperature` above 0, a group is sampled instead, weighted toward higher scores. With both at their default of 0, the tree keeps every matched tenant and the KV-event index keeps the workers with the most cached blocks.
 5. **Apply the spill gate.** A candidate is *hot* when its in-flight request count exceeds both `--balance-rel-threshold` times the fleet mean (default 1.5) and the fleet mean plus `--balance-abs-threshold` (default 64). The request goes to the lowest-expected-wait candidate that is not hot. If every candidate is hot, the request spills to the lowest-expected-wait eligible worker that is not hot (or to the lowest-expected-wait eligible worker when every worker is hot).
 6. **Cache miss:** the request goes to the lowest-expected-wait eligible worker.
-7. **Record.** Tree and hash modes record the final worker as a holder of the request's prefix, so a spill makes the spill target an additional holder: a hot prefix replicates instead of queueing behind one worker. The gateway never records its routing decisions in the KV-event index, which changes only through engine events, worker removal and the optional [pruning](../../getting-started/kv-events-cache-aware.md#bounding-the-index).
+7. **Record.** Tree and hash modes record the final worker as a holder of the request's prefix, so a spill makes the spill target an additional holder: a hot prefix replicates instead of queueing behind one worker. The gateway never records its routing decisions in the KV-event index, which changes only through engine events and worker removal.
 
 !!! note "Changed in v1.10.0"
     `--balance-abs-threshold` and `--balance-rel-threshold` used to define a fleet-wide imbalance check that switched every request to shortest-queue routing. They now define the per-request spill gate in step 5 and compare a candidate against the fleet mean; the aliases `--spill-abs-threshold` and `--spill-rel-threshold` name that role. Only the KV-usage triggers in step 2 still act fleet-wide.

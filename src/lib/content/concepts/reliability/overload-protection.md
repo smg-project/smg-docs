@@ -124,7 +124,7 @@ A connection-level failure on the worker's channels (the load poll or the KV eve
 
 - **Connection failures only.** A request deadline or an engine-side error means the worker is slow or wrong, not gone; neither arms the veto, so a slow worker that still streams does not flap in and out of routing. A failed health probe is likewise left to the health checker. An HTTP worker's failed polls never arm the veto either: HTTP workers are watched by health checks and the [circuit breaker](circuit-breakers.md) instead.
 - **Any successful contact clears it.** The first load record, answered poll, passing health probe, token, or response re-admits the worker at once. The same contact closes the worker's circuit breaker if the outage's failures opened it, so re-admission is not held up by the breaker's timeout; fresh failures reopen the breaker as usual.
-- **`--worker-stall-secs 0` does not disable the rule.** It removes the silence requirement, so the first transport failure vetoes the worker regardless of recent contact. Raise the threshold instead if a flaky but working link vetoes workers too eagerly.
+- **`--worker-stall-secs 0` does not disable the rule.** It removes the silence requirement, so the first transport failure vetoes the worker regardless of recent contact. Raise the threshold instead if a flaky but working link vetoes workers too eagerly. The Python launchers accept the same flag (`--router-worker-stall-secs` under `smg serve`).
 
 ### When an Engine Freezes
 
@@ -143,13 +143,7 @@ The veto ends with progress, or when the evidence behind it is gone:
 - **The engine producing again**: a load record that no longer reports silence clears the veto, as long as this gateway holds no silent pile of its own on the worker.
 - **The connection failing**: a transport failure followed by silence for `--worker-stall-secs` converts the veto to unreachable, which the first contact clears — a wedged worker whose connection the keepalive tears down is not left waiting for progress from streams that no longer exist.
 
-`--worker-wedge-secs 0` disables the wedge rule, and with it the per-request bound on how long a disaggregated prefill leg may stay silent before its request fails over.
-
-Either veto steers traffic away; neither ever refuses a request. When every worker a request could use is vetoed — the single worker of a one-worker model, or a whole pool the liveness tracker doubts at once — the gateway routes the request anyway: to the least-loaded candidate that is healthy with a closed or half-open circuit breaker, taking a worker vetoed only as overloaded before one the tracker doubts. Refusing would turn a suspicion into an outage, and a worker that really is gone fails the request as fast as a refusal would. A request that lands on a worker the tracker doubts counts in `smg_worker_liveness_fallback_total`; prefill/decode pairs are steered the same way, to the least-loaded routable pair.
-
-Neither veto touches the worker's health status: the health checker keeps its own state machine, and a veto is simply gone once the worker talks.
-
-The Python launchers accept both flags (`--router-worker-stall-secs` and `--router-worker-wedge-secs` under `smg serve`).
+`--worker-wedge-secs 0` disables the wedge rule, and with it the per-request bound on how long a disaggregated prefill leg may stay silent before its request fails over. The Python launchers accept the same flag (`--router-worker-wedge-secs` under `smg serve`).
 
 ### When a Worker Goes Silent Entirely
 
@@ -159,6 +153,12 @@ A gRPC worker streaming KV events pushes a load record with every event batch, a
 - **Any contact clears the exclusion.** The first load record, answered poll, passing health probe, or streamed token re-admits the worker at once. A worker that is still streaming tokens is never considered stale.
 - **Health status is untouched.** The exclusion is independent of the health checker's state machine and of the overload veto; it starts and ends with contact alone.
 - **Keep `--worker-stale-secs` above `--load-monitor-interval`.** That way, a worker whose event stream stopped while its load poll still answers keeps making contact before the threshold. The default of `15` sits above the default 10-second poll interval and allows for several missed heartbeats; `0` disables the rule. The Python launchers accept the same flag (`--router-worker-stale-secs` under `smg serve`).
+
+### When Every Worker Is Vetoed
+
+A liveness veto steers traffic away; it never refuses a request. When every worker a request could use is vetoed — the single worker of a one-worker model, or a whole pool the liveness tracker doubts at once — the gateway routes the request anyway, to the least-loaded candidate that is healthy with a closed or half-open circuit breaker, taking a worker vetoed only as overloaded before one the tracker doubts. Refusing would turn a suspicion into an outage, and a worker that really is gone fails the request as fast as a refusal would. Prefill/decode pairs are steered the same way, to the least-loaded routable pair. Each request that lands on a worker the tracker doubts counts in `smg_worker_liveness_fallback_total`.
+
+No veto touches the worker's health status: the health checker keeps its own state machine, and a veto ends on its own rule's evidence — contact for an unreachable worker, progress for a wedged one.
 
 ---
 

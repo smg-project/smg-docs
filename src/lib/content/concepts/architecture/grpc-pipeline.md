@@ -355,7 +355,7 @@ The parser names set for a model decide: its `tool_parser` / `reasoning_parser` 
 
 | Names set for the model | What reads its responses |
 |-------------------------|--------------------------|
-| A table's name, or a legacy parser name a table answers to (tables below) | That table, for every request for the model |
+| A table's name, or a legacy parser name a table answers to (see [Table Names](#table-names)) | That table, for every request for the model |
 | `hf` | The table its tokenizer's `response_template` compiles into (below) |
 | Any other legacy tool-call parser's name, `passthrough` included | The legacy parsers — the per-model escape hatch when a table misreads |
 | No names | The registry's table for a checkpoint it knows; otherwise the legacy parsers with their own auto-detection |
@@ -403,15 +403,15 @@ A request's options select a variant of the table rather than a different reader
 
 ### Constraints Under Symphony
 
-When a table reads a request, its structural tag stands in for the constraint of a forced or required `tool_choice`, so the engine's constrained output is in exactly the syntax the table parses:
+When a table reads a request, its structural tag stands in for the constraint of a forced or required `tool_choice`, and for a JSON `response_format`, so the engine's constrained output is in exactly the syntax the table parses. The engine receives the tag alone, never the tag and a competing constraint:
 
 - A registry table with no tag for the forced call leaves the decision to the [legacy constraint rules](#when-a-constraint-is-sent). When those send a JSON schema, the output has no table markers, so the legacy parsers read that response and `x-smg-parser` reports `legacy`.
+- A registry table with no tag for the JSON answer, or a request that continues the assistant's message, leaves `response_format` to the engine's JSON schema, as the legacy path does; the table still reads that response.
 - `hf` refuses what its table cannot both constrain and read, with 400 `invalid_parser_configuration`: a forced call or a JSON `response_format` its table has no tag for, a `regex` or `ebnf` constraint, and `continue_final_message` combined with a tag, since a tag writes a turn from its start.
-- `hf` is the only choice whose tag also stands in for a JSON `response_format`; the registry's tables leave `response_format` to the engine's JSON schema, as the legacy path does.
 
 ### Grammar on `auto` Tool Choice
 
-A worker whose `constrained_decoding` policy is `always` — set as a [worker label or spec field](../../reference/api/admin.md#worker-spec), or reported by the engine itself — tells the gateway its engine takes a grammar on every turn. When a table reads a chat or Messages request that allows calls under `auto` (or no `tool_choice`), the gateway then sends the table's tag for the request's callable tools: no call required, at most one when `parallel_tool_calls` is `false` (Messages: `disable_parallel_tool_use`). Nothing is sent, and nothing refused, when the request carries a constraint of its own (`response_format`, `regex`, `ebnf`), has no callable tools, forbids calls with `tool_choice: none`, continues the assistant's message, or the table has no tag for the calls. The default policy, `requested`, sends a grammar only when the request asks for one.
+A worker whose `constrained_decoding` policy is `always` — set as a [worker label or spec field](../../reference/api/admin.md#worker-spec), or reported by the engine itself — tells the gateway its engine takes a grammar on every turn. When a table reads a chat or Messages request that allows calls under `auto` (or no `tool_choice`), the gateway then sends the table's tag for the request's callable tools: no call required, at most one when `parallel_tool_calls` is `false` (Messages: `disable_parallel_tool_use`). Nothing is sent, and nothing refused, when the request carries a constraint of its own (a JSON `response_format`, `regex`, `ebnf`), has no callable tools, forbids calls with `tool_choice: none`, continues the assistant's message, or the table has no tag for the calls. The default policy, `requested`, sends a grammar only when the request asks for one.
 
 Under PD disaggregation the decode worker's policy applies. The policy is read for the first attempt's worker; a retry re-shapes the tag for its worker but keeps it.
 

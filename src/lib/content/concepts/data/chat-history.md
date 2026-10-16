@@ -336,7 +336,7 @@ Complete response records including:
 
 Every stored response, conversation, and conversation item records the tenant identity the gateway resolved for the request that created it. A record stored under a tenant is served only to callers of that tenant. On every route that reads, continues, or deletes stored history — getting, deleting, or cancelling a stored response, continuing one with `previous_response_id`, and every `/v1/conversations` operation, including naming the conversation on a new response — another tenant's ID is answered exactly as an unknown ID: `404`, or `400` (`previous_response_not_found`) for a `previous_response_id`. An ID therefore tells a caller nothing about another tenant's records.
 
-The stored tenant is the same canonical tenant key that [tenant rate limiting](../../reference/tenant-rate-limiting.md) uses:
+A tenant is stored only for an identity the gateway can vouch for, as its canonical tenant key — the same key [tenant rate limiting](../../reference/tenant-rate-limiting.md) uses:
 
 | Caller | Stored tenant |
 |--------|---------------|
@@ -349,7 +349,7 @@ An identity from an API key wins over the header: a caller that authenticates wi
 
 The shared `--api-key` identity has two consequences: all of its callers share one scope and can read each other's stored history, and rotating the key changes the identity, so records stored under the old key answer as unknown IDs afterward.
 
-A tenant ID can be at most 200 characters: a longer `--tenant-api-key` tenant ID is refused at startup, and a longer trusted header value is rejected with `400` (`invalid_tenant_header`) rather than dropped.
+A tenant ID can be at most 200 bytes: a longer `--tenant-api-key` tenant ID is refused at startup, and a longer trusted header value is rejected with `400` (`invalid_tenant_header`) rather than dropped.
 
 Records stored **without** a tenant stay readable, continuable, and deletable by every caller. That covers records created while the gateway resolved no tenant identity for the caller (known by IP address only, or anonymous) and records stored by SMG versions from before history carried a tenant, which keep answering every caller after an upgrade.
 

@@ -1084,7 +1084,7 @@ These item types are fully supported:
 - `reasoning` - Model reasoning content
 - `mcp_list_tools` - MCP tool listing
 - `mcp_call` - MCP tool invocation
-- `item_reference` - Reference to an existing item by `id`. An ID that does not exist — or that belongs to another tenant — is rejected with `404`
+- `item_reference` - Reference to an existing item by `id`. An ID that does not exist or that belongs to another tenant is rejected with `404`
 
 These types are stored, but the response adds a `warnings` entry because SMG does not
 implement them yet: `function_call`, `function_call_output`, `file_search_call`,
@@ -1376,8 +1376,8 @@ that cannot be parsed has `code` `json_parse_error`, and a failed validation rul
 | 401 | — | Invalid or missing API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |
 | 404 | `conversation_not_found` | The `conversation` does not exist, or belongs to another tenant |
-| 404 | `not_found` | Unknown — or another tenant's — response ID on get, delete, or input items |
-| 404 | `response_not_found` | Unknown — or another tenant's — response ID on cancel |
+| 404 | `not_found` | Unknown or another tenant's response ID on get, delete, or input items |
+| 404 | `response_not_found` | Unknown or another tenant's response ID on cancel |
 | 424 | `connect_mcp_server_failed` | A declared MCP server could not be reached |
 | 429 | `admission_queue_full`, `scheduler_queue_full` | Admission control; see [Rate Limiting](openai.md#rate-limiting) |
 | 429 | `background_responses_limit_reached` | The gateway already runs `--max-background-responses` background responses; see [Background Mode](#background-mode) |

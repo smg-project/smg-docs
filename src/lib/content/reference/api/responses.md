@@ -45,9 +45,11 @@ How SMG serves `/v1/responses` depends on the worker behind the model:
 
 Unless noted otherwise, the behavior on this page is that of gRPC workers. Stored
 responses and conversations live in SMG's history backend (`--history-backend`, default
-`memory`); see [Chat History](../../concepts/data/chat-history.md). They are scoped to
-the tenant that created them — another tenant's ID is answered exactly as an unknown
-one; see [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope).
+`memory`); see [Chat History](../../concepts/data/chat-history.md).
+
+Stored responses and conversations are scoped to the tenant that created them — another
+tenant's ID is answered exactly as an unknown one; see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope).
 
 ---
 
@@ -1084,7 +1086,7 @@ These item types are fully supported:
 - `reasoning` - Model reasoning content
 - `mcp_list_tools` - MCP tool listing
 - `mcp_call` - MCP tool invocation
-- `item_reference` - Reference to an existing item by `id`. An ID that does not exist or that belongs to another tenant is rejected with `404`
+- `item_reference` - Reference to an existing item by `id`; an ID that does not exist or that belongs to another tenant is rejected with `404`
 
 These types are stored, but the response adds a `warnings` entry because SMG does not
 implement them yet: `function_call`, `function_call_output`, `file_search_call`,

@@ -337,6 +337,7 @@ For HTTP and PD workers, SMG forwards only these request headers (it sets `Conte
 | `x-request-id`, `x-correlation-id`, and any header starting with `x-request-id-` | Request correlation |
 | `traceparent`, `tracestate` | W3C trace context |
 | `x-smg-routing-key` | SMG routing hint |
+| `x-override-priority` | SGLang's request priority, read by an engine started with `SGLANG_ENABLE_REQUEST_HEADER_OVERRIDES=true` and not by SMG; newer than v1.13.0 (smg-project/smg#3510) |
 
 Every other request header, including `x-api-key`, is dropped. The Anthropic API backend forwards a different set: `Authorization`, `x-api-key`, `anthropic-version`, and `anthropic-beta`, and nothing else. gRPC and ZMQ workers receive a tokenized request, not HTTP headers.
 

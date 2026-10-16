@@ -327,7 +327,7 @@ Model card fields (`models[]`):
 | `model_type` | Capabilities, any of `chat`, `completions`, `responses`, `embeddings`, `rerank`, `generate`, `vision`, `tools`, `reasoning`, `image_gen`, `audio`, `moderation`. Default: `["chat", "completions", "responses", "tools"]`. |
 | `context_length` | Context window in tokens. |
 | `chat_template` | Chat template path used when the gateway loads the tokenizer for a gRPC or ZMQ worker. |
-| `tool_parser`, `reasoning_parser` | Parser names for this model on the gRPC path, overriding `--tool-call-parser` and `--reasoning-parser`. Under `--parser symphony`, they may also name a [Symphony table or `hf`](../../concepts/architecture/grpc-pipeline.md#symphony-parsing). An unknown name fails registration. |
+| `tool_parser`, `reasoning_parser` | Parser names for this model on the gRPC path, overriding `--tool-call-parser` and `--reasoning-parser`. Under `--parser symphony`, they may also name a [Symphony table or `hf`](../../concepts/architecture/grpc-pipeline.md#symphony-parsing). A name the configured `--parser` cannot read with fails registration. |
 
 Cards also accept `display_name`, `hf_model_type`, `architectures`, `provider`, `tokenizer_path`, `metadata`, `id2label`, and `num_labels`.
 

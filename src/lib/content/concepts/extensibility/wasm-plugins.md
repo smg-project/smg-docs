@@ -52,7 +52,7 @@ Compiled components are cached per runtime thread, so only a component's first r
 
 WASM plugins execute in SMG's **middleware layer**, intercepting requests before they reach workers and responses before they return to clients.
 
-The middleware runs on the inference routes: `/v1/chat/completions`, `/v1/completions`, `/generate`, `/v1/responses` and `/v1/conversations` (with their sub-paths), `/v1/messages` and `/v1/messages/count_tokens`, `/v1/embeddings`, `/v1/rerank` and `/rerank`, `/v1/classify`, `/v1/interactions`, `/v1/tokenize`, `/v1/detokenize`, and the Realtime REST endpoints. It does not run on `/v1/audio/transcriptions`, the Realtime WebSocket and WebRTC routes, or the public, admin, and worker-management routes.
+The middleware runs on the inference routes: `/v1/chat/completions`, `/v1/completions`, `/generate`, `/v1/responses` and `/v1/conversations` (with their sub-paths), `/v1/messages` and `/v1/messages/count_tokens`, `/v1/embeddings`, `/v1/rerank` and `/rerank`, `/v1/classify`, `/v1/interactions`, `/v1/decisions`, `/v1/systemone`, `/v1/tokenize`, `/v1/detokenize`, and the Realtime REST endpoints. It does not run on `/v1/audio/transcriptions`, the Realtime WebSocket and WebRTC routes, or the public, admin, and worker-management routes.
 
 ### Plugin Chain Execution
 

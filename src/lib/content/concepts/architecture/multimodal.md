@@ -191,9 +191,9 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 
 ³ Kimi-K3 media stay on the router path: vLLM's Kimi-K3 processor expands a different anchor than the one SMG renders (smg-project/smg#2644).
 
-⁴ Muse Spark serves on TokenSpeed workers only: its tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with its audio tower.
+⁴ Muse Spark serves on TokenSpeed workers only: its tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`).
 
-Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 clips per request, on checkpoints whose config ships the audio tower (an `audio_config` plus `audio_token_id`). Muse Spark audio is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token); that token count is the length of the clip's placeholder run in the prompt.
+Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 clips per request, on checkpoints that ship the audio tower. Muse Spark audio is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token); that token count is the length of the clip's placeholder run in the prompt.
 
 ### Engine Support
 
@@ -240,7 +240,7 @@ Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer
 
 Models whose reference processor lays video out frame by frame get the same layout from SMG: Qwen3-VL, GLM-5.3-Flash, and MiniMax-M3 prompts carry one block per temporal frame, with a timestamp. For MiniMax-M3, SMG also applies the pixel budget per frame and stamps each frame with the reference timestamp (smg-project/smg#2574, #2575).
 
-Muse Spark clips follow the checkpoint's video processor config: frames are sampled evenly across the clip at the config's `fps` (default 2), in whole temporal groups of `temporal_patch_size` frames (default 2), up to the config's `num_frames` (default 96; the released checkpoints raise it) rather than the 4-to-768-frame window. The prompt carries one token block per temporal group, stamped with the time of the group's first sampled frame in the config's `frame_timestamp_format` (`Time: {timestamp:.2f}s` on the released checkpoints).
+Muse Spark clips follow the checkpoint's video processor config: frames are sampled evenly across the clip at the config's `fps` (default 2; a per-request `fps` hint still overrides it), in whole temporal groups of `temporal_patch_size` frames (default 2), up to the config's `num_frames` (default 96; the released checkpoints raise it) rather than the 4-to-768-frame window. The prompt carries one token block per temporal group, stamped with the time of the group's first sampled frame in the config's `frame_timestamp_format` (`Time: {timestamp:.2f}s` on the released checkpoints).
 
 Several clips in one request are preprocessed in parallel (smg-project/smg#2595), and on vLLM a request can carry images and video together (smg-project/smg#2581).
 

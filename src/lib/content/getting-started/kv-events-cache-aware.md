@@ -25,7 +25,7 @@ Without events, `cache_aware` predicts cache contents from its own routing histo
 
 | Mode | Index | Input | Used when |
 |---|---|---|---|
-| **Event-driven** | `PositionalIndexer`, built from engine events | Token IDs | The model's event index has data |
+| **Event-driven** | Chain index, built from engine events | Token IDs | The model's event index has data |
 | Approximate token tree | `TokenTree`, built from routing decisions | Token IDs | The request has token IDs and the model has no event data |
 | Approximate string tree | `Tree`, built from routing decisions | Raw text | HTTP requests without token IDs |
 
@@ -41,7 +41,7 @@ Event-driven routing also needs the default `--cache-index tree`: with `--cache-
 client
   │ OpenAI-compatible HTTP
   ▼
-SMG gateway: cache_aware policy ◀── PositionalIndexer (one per model)
+SMG gateway: cache_aware policy ◀── chain index (one per model)
   │                                        ▲
   │ gRPC requests                          │ KvEventMonitor
   ▼                                        │ (SubscribeKvEvents stream)
@@ -53,7 +53,7 @@ engine scheduler (SGLang, vLLM or TokenSpeed)
 
 1. The engine's scheduler publishes block-stored, block-removed and all-blocks-cleared events on a ZMQ `PUB` socket configured by `--kv-events-config`.
 2. `smg-grpc-servicer`, which serves the worker's gRPC API, subscribes to the engine's publishers locally and re-publishes the events as the server-streaming RPC `SubscribeKvEvents`.
-3. SMG's `KvEventMonitor` opens one subscription per gRPC worker and feeds the events into a per-model `PositionalIndexer`; `cache_aware` scores token-bearing requests against that index. If a stream breaks, the monitor reconnects and either resumes or rebuilds the worker's entries (see [Recovery after gaps](#recovery-after-gaps)).
+3. SMG's `KvEventMonitor` opens one subscription per gRPC worker and feeds the events into a per-model chain index; `cache_aware` scores token-bearing requests against that index. If a stream breaks, the monitor reconnects and either resumes or rebuilds the worker's entries (see [Recovery after gaps](#recovery-after-gaps)).
 
 ---
 
@@ -259,16 +259,11 @@ SMG logs `Sequence gap detected, reconnecting for replay from seq N` on a gap, a
 
 ---
 
-## Bounding the index
+## Index size
 
-The event index drops a worker's entries when its engine reports evictions or the worker is removed. If an engine stops reporting evictions, entries accumulate. Two optional bounds, both off by default, are checked every 30 seconds:
+The event index holds what the engines report: block-removed and all-blocks-cleared events shrink it as each engine evicts, and when a worker is removed, its entries go with it. There is no prune and no size flag to set.
 
-| Flag | Effect |
-|---|---|
-| `--kv-indexer-ttl-secs` | Prune entries that were neither stored nor read by a routing query within this many seconds. Unset or `0` disables the TTL pass. |
-| `--kv-indexer-max-entries` | Per-model ceiling; above it, the least recently touched entries are pruned down to 90% of the ceiling. Unset or `0` disables the ceiling. |
-
-A pass that prunes entries logs `Pruned positional indexer` with the counts. Both flags exist only in the Rust `smg` binary: the Python launcher that `pip install smg` and the container image use does not accept them.
+`--kv-indexer-ttl-secs` and `--kv-indexer-max-entries` are deprecated and ignored: they bounded the positional indexer, which the chain index replaced. The Rust `smg` binary still accepts them so existing launch lines keep working, and logs a warning at start-up when either is set. Both flags will be removed in a later release; drop them from your launch lines.
 
 ---
 
@@ -281,7 +276,6 @@ A pass that prunes entries logs `Pruned positional indexer` with the counts. Bot
 | `--overlap-decay` | SMG | De-ranks candidates with a waiting-prefill backlog. Needs workers that report waiting uncached tokens (SGLang does; vLLM and TokenSpeed do not). |
 | `--selection-temperature` | SMG | Spreads picks across candidates with near-equal overlap instead of always taking the best. |
 | `--balance-token-usage-threshold` / `--overload-token-usage-threshold` | SMG | Suspend cache affinity under KV pressure (off by default). |
-| `--kv-indexer-ttl-secs` / `--kv-indexer-max-entries` | SMG | Bound the event index (see [Bounding the index](#bounding-the-index)). |
 | `replay_endpoint` / `buffer_steps` | SGLang and vLLM `--kv-events-config` | Enable gap replay; raise `buffer_steps` if gaps go unfilled because the missed batches already left the buffer. |
 | `hwm` | `--kv-events-config` | Raise if events are dropped under bursty load. |
 

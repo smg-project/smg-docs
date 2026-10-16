@@ -623,7 +623,13 @@ Downloads from the Hugging Face Hub use `HF_TOKEN` when it is set. See [Tokenize
 
 ## Parser Configuration
 
-Both flags take a registered parser name; an unknown name fails startup. For each request, a parser named in the model's card wins, then these flags, then auto-detection from the model ID. See [Tokenization and Parsing APIs](../getting-started/tokenization-and-parsing.md).
+`--parser` selects which parser reads a chat completion's reasoning and tool calls: Symphony (`symphony`, the default), one parser table per model family, or the older per-model tool-call and reasoning parsers (`legacy`). A request overrides the flag for itself with the `X-SMG-Parser` header (`legacy` or `symphony`); the response's `x-smg-parser` header names the parser that read it. See [Symphony and the legacy parsers](../concepts/architecture/grpc-pipeline.md#symphony-and-the-legacy-parsers).
+
+| Option | Default | Values |
+|--------|---------|--------|
+| `--parser` | `symphony` | `symphony`, `legacy` |
+
+The two name flags take a registered parser name; an unknown name fails startup. For each request, a parser named in the model's card wins, then these flags, then auto-detection from the model ID. Under Symphony the same names also select the table that reads a model: a table's own name, or a legacy name that reads the table's format (`qwen` for the Qwen3 table, `qwen_xml` for the tagged one), reads every request for the model with that table; `hf` reads it with the table its tokenizer's response template compiles into; any other legacy tool-call parser's name keeps the legacy parsers for that model; no name takes Symphony's registry for the models it knows. See [Tokenization and Parsing APIs](../getting-started/tokenization-and-parsing.md).
 
 | Option | Default | Values |
 |--------|---------|--------|

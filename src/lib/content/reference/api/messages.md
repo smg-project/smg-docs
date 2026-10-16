@@ -84,7 +84,7 @@ POST /v1/messages
 
 SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management` or `output_config`, are kept and forwarded to HTTP workers and the Anthropic API.
 
-Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `server_tool_use`, `search_result`, `web_search_tool_result`, `tool_search_tool_result`, or `tool_reference`. Any other block type is rejected with `400`. A `system`-role message inside `messages` is accepted, because some clients send one mid-conversation.
+Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `server_tool_use`, `search_result`, `web_search_tool_result`, `tool_search_tool_result`, or `tool_reference`. Any other block type is rejected with `400`. A `system`-role message inside `messages` is accepted, because some clients send one mid-conversation (a coding agent sends its environment block after the first user turn and a note after every tool result).
 
 ### Example Request
 
@@ -348,7 +348,7 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 
 | Request field | Handling |
 |---------------|----------|
-| `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `system`-role message inside `messages` keeps its position. Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
+| `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `system`-role message inside `messages` keeps its position: it is forwarded as a system message to a chat template that renders a system turn anywhere; on a renderer whose reference writes no turn for a system message after the first (the DeepSeek V4 encoder, which renders it as bare text and writes the assistant header after user turns only), every one past the leading run is rendered as a user turn at its position, so the prompt keeps its assistant header after a note that ends the conversation. Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
 | `max_tokens`, `temperature`, `top_p`, `top_k` | Sent to the engine as sampling parameters. A `max_tokens` of `0` never reaches the engine; see [`max_tokens` of 0](#max_tokens-of-0). |
 | `stop_sequences` | Sent as stop strings to vLLM, TensorRT-LLM, and TokenSpeed gRPC workers. For SGLang gRPC workers and ZMQ workers, SMG matches them itself and sends only single-token stops to the engine, as stop token IDs. |
 | `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser; with a `tool_choice` of `tool`, only that tool is passed to the chat template. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |

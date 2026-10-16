@@ -347,7 +347,7 @@ All 24 registered tool-call parsers. For auto-detection, the longest matching pa
 
 ## Symphony Parsing
 
-`--parser symphony` opts the gateway into reading a model's output with a **Symphony table**: one description of the model's output format that yields the reasoning, content and tool calls together, in place of the separate [reasoning](#reasoning-parsers) and [tool-call](#tool-call-parsers) parsers above. The default, `--parser legacy`, keeps those parsers. Symphony applies to Chat Completions and the Messages API on this pipeline; every other endpoint keeps the legacy parsers. Responses keep their shape: the streaming deltas and message fields clients see are the same as under the legacy parsers.
+`--parser symphony` opts the gateway into reading a model's output with a **Symphony table**: one description of the model's output format that yields the reasoning, content and tool calls together, in place of the separate [reasoning](#reasoning-parsers) and [tool-call](#tool-call-parsers) parsers above. The default, `--parser legacy`, keeps those parsers. Symphony applies to Chat Completions and the Messages API on this pipeline; every other endpoint keeps the legacy parsers. The response shape does not change: the streaming deltas and message fields clients see are the same as under the legacy parsers.
 
 ### Which Table Reads a Model
 
@@ -366,7 +366,7 @@ The registry matches the repository name — the text after the last path separa
 
 ### Table Names
 
-The 27 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4.1`, `seed_oss`, `hy4`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon` and `plain`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
+The 29 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `muse_spark` and `plain`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
 
 A table also answers to the names of the legacy parsers that read its format, so a deployment that already sets one of these names switches to the table the moment it starts with `--parser symphony`:
 
@@ -380,7 +380,7 @@ A table also answers to the names of the legacy parsers that read its format, so
 | `deepseek_v41` | `deepseek_v4.1` |
 | `minimax` | `minimax_m2` |
 
-Several legacy parser names — `json`, `qwen3`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2` and `minimax_m3` — are a table's own name and read with that table. A legacy name no table answers to, such as `llama`, `mistral` or `deepseek31`, keeps the legacy parsers for its model.
+Several legacy parser names — `json`, `qwen3`, `deepseek_v4`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2` and `minimax_m3` — are a table's own name and read with that table. A legacy name no table answers to, such as `llama`, `mistral` or `deepseek31`, keeps the legacy parsers for its model.
 
 The gateway checks the names at startup and at worker registration, against the configured `--parser`. Under `symphony`, a name that is neither a legacy parser's nor a table's fails with `unknown tool-call parser '<name>': neither a legacy parser nor a Symphony table`. A name only a table owns binds the other name: it must name the same table or nothing. `hf` binds the same way: the other name must be `hf` or unset. Under `legacy`, a table-only name or `hf` fails with `... which --parser symphony reads with`, as noted under [Parser Selection](#parser-selection).
 
@@ -407,7 +407,7 @@ When a table reads a request, its structural tag stands in for the constraint of
 
 - A registry table with no tag for the forced call leaves the decision to the [legacy constraint rules](#when-a-constraint-is-sent). When those send a JSON schema, the output has no table markers, so the legacy parsers read that response and `x-smg-parser` reports `legacy`.
 - `hf` refuses what its table cannot both constrain and read, with 400 `invalid_parser_configuration`: a forced call or a JSON `response_format` its table has no tag for, a `regex` or `ebnf` constraint, and `continue_final_message` combined with a tag, since a tag writes a turn from its start.
-- `hf` is the only choice whose tag also stands in for a JSON `response_format`; the registry's tables leave `response_format` to the engine's JSON schema, as before.
+- `hf` is the only choice whose tag also stands in for a JSON `response_format`; the registry's tables leave `response_format` to the engine's JSON schema, as the legacy path does.
 
 ### Grammar on `auto` Tool Choice
 
@@ -446,7 +446,7 @@ The Harmony pipeline (gpt-oss) builds its structural tags before encoding (`mode
 | `structural_tag` | `mistral`, `deepseek_v41`, `glm47_moe`, `kimik2`, `kimi_k3`, `inkling` | The model's own format: trigger tokens, call framing, and argument JSON. The model-specific parser reads the result |
 | `json_schema` | Fallback for every other case, auto-detected parsers included | Plain JSON. A named function constrains its `parameters`. `required` constrains an array of `{"name", "parameters"}` objects, with `$defs` merged across tools; conflicting definitions return 400 `invalid_tool_configuration` |
 
-When a [Symphony table](#symphony-parsing) reads the request, its own structural tag takes the place of this choice, and a worker whose `constrained_decoding` policy is `always` gets a tag for `auto` tool choice too; see [Constraints Under Symphony](#constraints-under-symphony).
+When a [Symphony table](#symphony-parsing) reads the request, its own structural tag takes the place of this choice (see [Constraints Under Symphony](#constraints-under-symphony)), and a worker whose `constrained_decoding` policy is `always` gets a tag for `auto` tool choice too (see [Grammar on `auto` Tool Choice](#grammar-on-auto-tool-choice)).
 
 Two parsers add rules on top of their structural tag:
 

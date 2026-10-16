@@ -336,7 +336,9 @@ Complete response records including:
 
 Every stored response, conversation, and conversation item records the tenant identity the gateway resolved for the request that created it, when it resolved one. A record stored under a tenant is served only to callers of that tenant.
 
-The rule holds on every route that reads, continues, or deletes stored history — getting a stored response or its input items, deleting or cancelling it, continuing one with `previous_response_id`, naming a conversation on a new response, and every `/v1/conversations` operation. Another tenant's ID is answered exactly as an unknown ID — `404`, or `400` (`previous_response_not_found`) for a `previous_response_id` — so an ID tells a caller nothing about another tenant's records. The one request answered differently is adding a conversation item under an `id` that another tenant's item already uses: it is refused with `400` (`Item id '...' cannot be used`) rather than serving or overwriting the other tenant's item.
+The rule holds on every route that reads, continues, or deletes stored history — getting a stored response or its input items, deleting or cancelling it, continuing one with `previous_response_id`, naming a conversation on a new response, and every `/v1/conversations` operation. Another tenant's ID is answered exactly as an unknown ID — `404`, or `400` (`previous_response_not_found`) for a `previous_response_id` — so an ID tells a caller nothing about another tenant's records.
+
+The one request answered differently is adding a conversation item under an `id` that another tenant's item already uses: it is refused with `400` (`Item id '...' cannot be used`) rather than serving or overwriting the other tenant's item.
 
 A tenant is stored only for an identity the gateway can vouch for, as its canonical tenant key — the same key [tenant rate limiting](../../reference/tenant-rate-limiting.md) uses:
 

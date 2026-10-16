@@ -71,7 +71,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     docker pull ghcr.io/smg-project/smg:<version>-<engine>-<engine_version>
     ```
 
-    As of v1.12.0, each release builds these engine images from the listed upstream base images:
+    Each release builds these engine images from the listed upstream base images:
 
     | Engine | Tag suffix | Base image | Nightly tag |
     |--------|-----------|------------|-------------|

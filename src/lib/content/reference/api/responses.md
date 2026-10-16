@@ -713,8 +713,7 @@ Returns the stored response object as shown in the Create Response section. SMG 
 from its own history backend, which the gRPC and external-provider paths fill when `store`
 is `true`; responses produced by HTTP workers are stored by the worker and are not
 retrievable through SMG. An unknown ID — or another tenant's response — returns `404`
-with code `not_found`; see
-[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope).
+with code `not_found`.
 
 A [background](#background-mode) response reads back as `queued` or `in_progress` while
 it runs and as its terminal object once it ends; its input items are stored with the
@@ -880,10 +879,10 @@ structured errors: `item_already_in_conversation` under
 [Create Conversation Items](#create-conversation-items) and the `invalid_value` rejection
 of a bad `include` query under [Get Conversation Item](#get-conversation-item).
 
-A conversation is scoped to the tenant that created it (see
-[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)): on every route below,
-and as the `conversation` of a new response, another tenant's conversation ID answers
-`404`, the same as an unknown ID.
+A conversation is scoped to the tenant that created it: on every route below, and as
+the `conversation` of a new response, another tenant's conversation ID answers `404`,
+the same as an unknown ID (see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
 ### Create Conversation
 
@@ -1086,7 +1085,7 @@ These item types are fully supported:
 - `reasoning` - Model reasoning content
 - `mcp_list_tools` - MCP tool listing
 - `mcp_call` - MCP tool invocation
-- `item_reference` - Reference to an existing item by `id`; an ID that does not exist or that belongs to another tenant is rejected with `404`
+- `item_reference` - Reference to an existing item by `id`; an unknown ID — or another tenant's item — returns `404`
 
 These types are stored, but the response adds a `warnings` entry because SMG does not
 implement them yet: `function_call`, `function_call_output`, `file_search_call`,

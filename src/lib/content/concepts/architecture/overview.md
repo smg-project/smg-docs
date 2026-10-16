@@ -59,9 +59,9 @@ SMG exposes three categories of endpoints:
 | `POST /v1/rerank` | Reranking with `query` and `documents` only, no model selection |
 | `POST /v1/messages` | Anthropic Messages API |
 | `POST /v1/messages/count_tokens` | Count a Messages request's input tokens without generating |
-| `POST /v1/decisions` | Predicate, choice, and score questions over shared evidence; regular HTTP workers and regular SGLang gRPC workers serve it, other backends answer `501` |
+| `POST /v1/decisions` | Predicate, choice, and score questions over shared evidence, served by regular HTTP workers and regular SGLang gRPC workers; other backends answer `501` |
 | `POST /v1/systemone` | System One API, relayed to a regular HTTP worker; other backends answer `501` |
-| `POST /v1/interactions` | Gemini Interactions API; only the Gemini provider backend serves it, other backends answer `501` |
+| `POST /v1/interactions` | Gemini Interactions API, served only by the Gemini provider backend; other backends answer `501` |
 | `POST /v1/audio/transcriptions` | Audio transcription from a multipart file upload |
 | `GET /v1/realtime` | Realtime session over WebSocket, proxied to a realtime-capable worker or provider |
 | `POST /v1/realtime/calls` | Realtime session over WebRTC |

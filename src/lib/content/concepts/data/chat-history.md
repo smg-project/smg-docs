@@ -336,7 +336,7 @@ Complete response records including:
 
 Every stored response, conversation, and conversation item records the tenant identity the gateway resolved for the request that created it. A record stored under a tenant is served only to callers of that tenant.
 
-The rule holds on every route that reads, continues, or deletes stored history — getting, deleting, or cancelling a stored response, continuing one with `previous_response_id`, and every `/v1/conversations` operation, including naming the conversation on a new response. Another tenant's ID is answered exactly as an unknown ID: `404`, or `400` (`previous_response_not_found`) for a `previous_response_id`. An ID therefore tells a caller nothing about another tenant's records.
+The rule holds on every route that reads, continues, or deletes stored history — getting a stored response or its input items, deleting or cancelling it, continuing one with `previous_response_id`, naming a conversation on a new response, and every `/v1/conversations` operation. Another tenant's ID is answered exactly as an unknown ID: `404`, or `400` (`previous_response_not_found`) for a `previous_response_id`. An ID therefore tells a caller nothing about another tenant's records.
 
 A tenant is stored only for an identity the gateway can vouch for, as its canonical tenant key — the same key [tenant rate limiting](../../reference/tenant-rate-limiting.md) uses:
 
@@ -353,7 +353,7 @@ The shared `--api-key` identity has two consequences: all of its callers share o
 
 A tenant ID can be at most 200 bytes: a longer `--tenant-api-key` tenant ID is refused at startup, and a longer trusted header value is rejected with `400` (`invalid_tenant_header`) rather than dropped.
 
-Records stored **without** a tenant stay readable, continuable, and deletable by every caller. That covers records created while the gateway resolved no tenant identity for the caller (known by IP address only, or anonymous), and records stored before SMG recorded a tenant, which keep answering every caller after an upgrade.
+Records stored **without** a tenant stay readable, continuable, and deletable by every caller. That covers records created while the gateway resolved no tenant identity for the caller (known by IP address only, or anonymous), and records stored before SMG recorded tenants — an upgrade does not retroactively scope existing records.
 
 A history loaded through `previous_response_id` ends at the first record stored under another tenant, the same as it would at a missing record; when the referenced response itself belongs to another tenant, the request is rejected with `400` (`previous_response_not_found`). See the [Responses API](../../reference/api/responses.md#error-responses) for the per-route errors.
 

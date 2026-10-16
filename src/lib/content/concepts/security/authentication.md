@@ -66,6 +66,26 @@ Track all control plane operations for security monitoring and compliance.
 
 JWTs and control plane API keys are checked only on control plane routes. Data plane routes accept only `--api-key` and `--tenant-api-key` credentials, and are open when neither is set.
 
+### Per-tenant model allow-list
+
+A credential says who the caller is; `--tenant-model-policy-config` says which models that caller may use. The policy is a small YAML with a `default_policy` and per-tenant entries keyed by the same canonical tenant key the rest of the gateway uses: `auth:<tenant_id>` for a `--tenant-api-key`, `header:<id>` for the trusted tenant header (`--trust-tenant-header`). Each entry lists model patterns: exact ids, a prefix ending in `*`, or `*` for every model.
+
+```yaml
+default_policy:
+  models: ["*"]
+tenants:
+  - tenant_key: "auth:team-red"
+    models: ["org/model-a", "org/small-*"]
+```
+
+With the policy on:
+
+- Every serving route that names a model checks it against the caller's list before routing. A model outside the list is answered exactly as a model nobody serves (`404`, `model_not_found`), not with a `403`: a distinct refusal would reveal which models exist that the tenant may not use. The gateway's log names the tenant and the model.
+- `GET /v1/models` shows the caller its allowed subset, and `GET /v1/models/{id}` answers a model outside it as unknown. These routes stay public; the caller is the tenant of the gateway key it presents, else the identity the trusted header, its address or anonymity gives it, which fall under `default_policy`.
+- A tenant key in the file that no request can resolve to (a `header:` key without `--trust-tenant-header`, an `auth:` key naming no configured tenant key) is a startup error, so a typo cannot silently leave a tenant on the default policy.
+
+Without the flag nothing changes: every tenant may name every model. The full contract is in the [Tenant Model Policy Reference](../../reference/tenant-model-policy.md).
+
 ---
 
 ## JWT/OIDC Authentication
@@ -421,7 +441,7 @@ Full access to all control plane APIs:
 
 No control plane access. Every control plane route answers a `user` credential with `403 Admin role required for control plane access`.
 
-Roles don't apply to data plane routes (chat completions, completions, embeddings, and the rest): those accept only `--api-key` and `--tenant-api-key` credentials, never JWTs or control plane API keys. `/v1/models` is public.
+Roles don't apply to data plane routes (chat completions, completions, embeddings, and the rest): those accept only `--api-key` and `--tenant-api-key` credentials, never JWTs or control plane API keys. `/v1/models` is public; under a [tenant model policy](#per-tenant-model-allow-list) it lists the caller's allowed subset.
 
 ### Role Assignment
 

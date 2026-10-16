@@ -545,6 +545,16 @@ Per-tenant LLM token and request rate limits, disabled by default. The YAML form
 
 ---
 
+## Tenant Model Policy Configuration
+
+A per-tenant allow-list of models, disabled by default. The YAML format, the refusal and the `/v1/models` behaviour are in the [Tenant Model Policy Reference](tenant-model-policy.md); the identities it keys on are described under [Authentication](../concepts/security/authentication.md#per-tenant-model-allow-list).
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--tenant-model-policy-config` | unset | Path to the tenant model policy YAML: a `default_policy` and per-tenant lists of model patterns (exact ids, `prefix*`, or `*`), keyed by canonical tenant key (`auth:<tenant_id>` of a `--tenant-api-key`, `header:<id>` of the trusted tenant header). A request for a model outside its tenant's list answers the `404 model_not_found` of an unknown model, and `/v1/models` lists the allowed subset. A file that is missing, unparsable or invalid (a tenant key no request can resolve to included) fails startup. Unset, every tenant may name every model. |
+
+---
+
 ## Retry Configuration
 
 Gateway-level retries of failed worker requests. See [Retries](../concepts/reliability/retries.md).

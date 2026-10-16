@@ -340,6 +340,7 @@ Labels with built-in meaning:
 | `served_model_name`, `model_id`, `model_path` | Model ID when `models` is empty, checked in this order. |
 | `tokenizer_path`, `model_path` | Where the gateway loads the tokenizer for a gRPC or ZMQ worker, ahead of `--tokenizer-path` and `--model-path`. |
 | `pairing_protocol` | Explicit PD pairing key: a prefill and a decode worker that both set it pair only when the values match. |
+| `traffic_group`, `traffic_weight` | Under `--traffic-split`, the worker's group (`default` when absent) and the group's weight (an integer from `0` to `1000000`; `100` when absent). A group name is 1 to 63 ASCII letters, digits, `_`, `-`, or `.`. See [Traffic Splits and Canaries](../../concepts/routing/traffic-splits.md). |
 | `kv_connector`, `kv_role`, `kv_engine_id` | Moved into the spec fields of the same name at registration (a non-empty `kv_connector` or `kv_engine_id` field wins over the label). |
 
 **Routing metadata**

@@ -147,6 +147,14 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 | `--max-idle-secs` | `14400` (4 hours) | Seconds an unused routing key stays pinned before it is evicted from the manual-policy or sticky-session map. Alias: `--sticky-key-idle-secs`. |
 | `--assignment-mode` | `random` for `--policy manual`, `delegate` for the sticky-session map | How a first-seen key picks its worker: `random`, `min_load` (fewest requests), `min_group` (fewest keys), or `delegate` (route through the underlying policy, then pin). With `--policy manual` there is no underlying policy, so `delegate` falls back to `min_load`. |
 
+### Traffic Splits
+
+`--traffic-split` runs a weighted split across worker groups before the policy: a worker's `traffic_group` label names its group (`default` for workers without one) and its `traffic_weight` label the group's weight (`100` when absent). A request whose candidates form two or more groups picks one by weight, by its routing key when it has one so a session stays in one group, and the policy then selects inside it. Weights are labels, so a ramp is a `PATCH /workers/{worker_id}` and a weight of `0` drains a group. Refused together with the `bucket` policy. See [Traffic Splits and Canaries](../concepts/routing/traffic-splits.md).
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--traffic-split` | `false` | Run the weighted split across worker groups (`traffic_group` / `traffic_weight` labels) before the routing policy. |
+
 ### Data Parallelism and Multi-Model Options
 
 | Option | Default | Description |

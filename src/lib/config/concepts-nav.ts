@@ -22,6 +22,7 @@ export const conceptsNav: DocsNavSection[] = [
 				label: 'Sticky Sessions and Routing Keys',
 				href: `${base}/concepts/routing/sticky-sessions`
 			},
+			{ label: 'Traffic Splits and Canaries', href: `${base}/concepts/routing/traffic-splits` },
 			{ label: 'PD Disaggregation', href: `${base}/concepts/routing/pd-disaggregation` }
 		]
 	},

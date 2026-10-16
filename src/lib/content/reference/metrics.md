@@ -1114,6 +1114,16 @@ Distinct routing keys with requests in flight on each worker.
 
 ---
 
+### Traffic Split Metrics
+
+#### `smg_traffic_split_selections_total`
+
+Selections the [traffic split](../concepts/routing/traffic-splits.md) confined to one worker group, by model and group (the worker label `traffic_group`; `default` for a worker without one). Recorded under `--traffic-split` when a model's available candidates form two or more groups.
+
+| Type | Labels |
+|------|--------|
+| Counter | `model`, `group` |
+
 ### Hash Policy Metrics
 
 #### `smg_consistent_hashing_policy_branch_total`

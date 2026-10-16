@@ -65,12 +65,12 @@ Without retries, every transient failure becomes a client-visible error. With re
 
 1. SMG dispatches the attempt and checks the response status as soon as the worker answers, before any of the body reaches the client.
 2. If the status is retryable, the response is not marked terminal, and attempts remain, SMG waits for the backoff delay.
-3. The next attempt runs worker selection again. Workers that are unhealthy, have an open circuit breaker, or are vetoed by overload protection are skipped, and so are the workers the request already failed on, as long as another available worker is left.
+3. The next attempt runs worker selection again. Workers that are unhealthy, have an open circuit breaker, or are vetoed by overload protection are skipped. So are the workers the request already failed on, as long as another available worker is left.
 4. When a response is not retried, or no attempts remain, SMG returns it to the client.
 
 Skipping the workers a request failed on applies even under deterministic affinity: when `cache_aware` has the prompt's prefix cached on the failed worker, or a `consistent_hashing` routing key maps to it, the retry moves to another worker instead of going straight back. When every available worker has already been tried — including when the pool has a single worker — the retry selects among all of them again.
 
-There are two exceptions: a request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) retries on its targeted worker, and PD mode selects its prefill/decode pair from the full pools on every attempt, so a retry can pick the same pair again.
+There are two exceptions: a request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) is retried on its targeted worker, and PD mode selects its prefill/decode pair from the full pools on every attempt, so a retry can pick the same pair again.
 
 `--retry-max-retries` counts **attempts, including the first**: the default `5` allows the initial attempt plus up to four retries, and `1` disables retries.
 

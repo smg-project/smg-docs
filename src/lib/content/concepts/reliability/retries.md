@@ -70,7 +70,7 @@ Without retries, every transient failure becomes a client-visible error. With re
 
 Skipping the workers a request failed on applies even under deterministic affinity: when `cache_aware` has the prompt's prefix cached on the failed worker, or a `consistent_hashing` routing key maps to it, the retry moves to another worker instead of going straight back. When every available worker has already been tried — including when the pool has a single worker — the retry selects among all of them again.
 
-Two placements never skip tried workers: a request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) retries on its targeted worker, and prefill/decode pair selection in PD mode selects from the full pools on every attempt, so a retry can pick the same pair again.
+There are two exceptions: a request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) retries on its targeted worker, and prefill/decode pair selection in PD mode selects from the full pools on every attempt, so a retry can pick the same pair again.
 
 `--retry-max-retries` counts **attempts, including the first**: the default `5` allows the initial attempt plus up to four retries, and `1` disables retries.
 
@@ -84,7 +84,7 @@ Responses served by gRPC and ZMQ workers carry the same header when the final at
 
 | Traffic | Router retries |
 |---------|----------------|
-| HTTP workers: JSON requests with a buffered body (regular and PD mode) | Yes. Each attempt selects a new worker, or a new prefill/decode pair |
+| HTTP workers: JSON requests with a buffered body (regular and PD mode) | Yes. Each retry selects a worker again, or a prefill/decode pair in PD mode |
 | HTTP workers: JSON requests with a streamed body | No. One attempt; see [Retries and Request Bodies](#retries-and-request-bodies) |
 | HTTP workers: audio transcriptions | No |
 | gRPC and ZMQ workers: Chat Completions, Completions, `/generate`, Messages | Yes. The request is prepared once (tokenization, tenant rate limiting); each retry selects workers again and re-sends the prepared request |

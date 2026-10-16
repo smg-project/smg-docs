@@ -193,7 +193,7 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 
 ⁴ Muse Spark serves on TokenSpeed workers only: its tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with its audio tower.
 
-Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 clips per request, on checkpoints whose config ships the audio tower: an `audio_config` plus `audio_token_id`. Muse Spark audio is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token), which is the length of the clip's placeholder run in the prompt.
+Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 clips per request, on checkpoints whose config ships the audio tower (an `audio_config` plus `audio_token_id`). Muse Spark audio is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token); that token count is the length of the clip's placeholder run in the prompt.
 
 ### Engine Support
 
@@ -353,7 +353,7 @@ vLLM workers receive the pixel tensor as float32 unless `SMG_VLLM_ENCODER_INPUT_
 
 ### Direct ZMQ Backends
 
-vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-preprocessed media, sent inline. Media references, shared memory, and RDMA are not available on this wire. TokenSpeed over ZMQ refuses media whose tensors include `image_grid_thw` or `video_grid_thw` (the M-RoPE families, such as Qwen-VL, and Muse Spark images and video); serve those models over gRPC.
+vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-preprocessed media, sent inline. Media references, shared memory, and RDMA are not available on this wire. TokenSpeed over ZMQ refuses media whose tensors include `image_grid_thw` or `video_grid_thw`, which the M-RoPE families (such as Qwen-VL) and Muse Spark images and video carry; serve those models over gRPC.
 
 SGLang workers reached over the direct ZMQ backend take no media: a request with images — the one modality SGLang takes over gRPC — is refused with a 400 (`multimodal inputs are not supported over the SGLang ZMQ backend yet`). Serve vision SGLang models over gRPC. See [ZMQ Workers](../../getting-started/zmq-workers.md).
 

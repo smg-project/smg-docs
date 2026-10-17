@@ -142,8 +142,8 @@ The veto ends with progress, or when the evidence behind it is gone:
 
 - **Progress**: any token or completion from the worker.
 - **Nothing left in flight**: an empty pile lifts the veto (unless the engine's own record still reports it stuck). If the engine is still frozen, the next requests re-arm the veto within the bound.
-- **The engine producing again**: a load record that no longer reports silence clears the veto, as long as this gateway holds no silent pile of its own on the worker.
-- **The connection failing**: a transport failure followed by silence for `--worker-stall-secs` converts the veto to unreachable, which the first contact clears — a wedged worker whose connection the keepalive tears down is not left waiting for progress from streams that no longer exist.
+- **The engine producing again**: a load record that no longer reports a silence past its bound clears the veto, as long as this gateway holds no silent pile of its own on the worker.
+- **The connection failing or going silent**: a transport failure followed by silence for `--worker-stall-secs` converts the veto to unreachable, which the first contact clears — a wedged worker whose connection the keepalive tears down is not left waiting for progress from streams that no longer exist. Total silence converts it the same way: a wedged worker that had pushed load records, and from which nothing arrives on any channel for `--worker-stale-secs`, is re-judged as unreachable, as described under [When a Worker Goes Silent Entirely](#when-a-worker-goes-silent-entirely).
 
 `--worker-wedge-secs 0` disables the wedge rule, and with it the per-request bound on how long a disaggregated prefill leg may stay silent before its request fails over. The Python launchers accept the same flag (`--router-worker-wedge-secs` under `smg serve`).
 
@@ -161,6 +161,8 @@ A gRPC worker streaming KV events pushes a load record with every event batch, a
 A liveness veto steers traffic away; it never refuses a request. When every worker a request could use is one the liveness tracker doubts — the single worker of a one-worker model, or a whole pool vetoed at once — the gateway routes the request anyway, to the least-loaded candidate that is healthy with a closed or half-open circuit breaker. Refusing would turn a suspicion into an outage, and a worker that really is gone fails the request as fast as a refusal would. Prefill/decode pairs are steered the same way, to the least-loaded routable pair. Each request that falls back to a doubted worker counts in `smg_worker_liveness_fallback_total`.
 
 No veto touches the worker's health status: the health checker keeps its own state machine, and a veto ends on its own rule's evidence — contact for an unreachable worker, progress for a wedged one.
+
+A veto is visible while it lasts: the `smg_worker_stalled` gauge reads `1` for the worker, labeled with the reason (`unreachable` or `wedged`), and the gateway logs `Worker vetoed by liveness` with the cause when a veto is set and `Worker re-admitted by liveness` when it clears.
 
 ---
 

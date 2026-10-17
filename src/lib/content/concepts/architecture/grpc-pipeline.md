@@ -386,7 +386,7 @@ Several legacy parser names — `json`, `qwen3`, `deepseek_v4`, `gemma4`, `kimi_
 
 The gateway checks the names at startup and at worker registration, against the configured `--parser`. A legacy parser's name counts only for its own flag — `--reasoning-parser qwen_xml` fails under either `--parser` — while a table's own name, `muse` and `hf` pass in either flag under `symphony`. Under `symphony`, any other name fails with `unknown tool-call parser '<name>': neither a legacy parser nor a Symphony table`. Under `legacy`, when a flag's value is rejected and Symphony reads with it — a table's own name, `muse` or `hf` — the error ends `... which --parser symphony reads with`, as noted under [Parser Selection](#parser-selection).
 
-A table's name that is none of its flag's legacy parsers — `qwen3` in `--tool-call-parser`, `muse` or `muse_spark` in either flag — binds the other name: it must name the same table (the table's own name, or `muse` for `muse_spark`) or be unset; a legacy name the table answers to is refused there, so `qwen3_tagged` pairs with `qwen3_tagged` or nothing, not with `qwen_xml`. `hf` binds the same way: the other name must be `hf` or unset.
+A name that selects a table but is none of its flag's legacy parsers — `qwen3` in `--tool-call-parser`, `muse` or `muse_spark` in either flag — binds the other name: it must name the same table (the table's own name, or `muse` for `muse_spark`) or be unset; a legacy name the table answers to is refused there, so `qwen3_tagged` pairs with `qwen3_tagged` or nothing, not with `qwen_xml`. `hf` binds the same way: the other name must be `hf` or unset.
 
 ### The `hf` Name: the Response Template's Table
 

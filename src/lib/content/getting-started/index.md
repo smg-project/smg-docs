@@ -586,7 +586,7 @@ curl http://localhost:30000/health
 
 ### All-in-one with engine images
 
-Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. The examples use the v1.13.0 images; the Docker tab under [Install](#install) lists the engine tags each release builds.
+Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. The Docker tab under [Install](#install) lists the engine tags each release builds.
 
 === "SGLang"
 

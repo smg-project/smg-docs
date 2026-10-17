@@ -304,6 +304,7 @@ Container for a sequence of interactions:
 - Conversation ID
 - Creation timestamp
 - Metadata (the key-value object the client attaches)
+- Tenant identity of the creating request, when the gateway resolved one (see [Tenant Scope](#tenant-scope))
 
 ### Conversation Items
 
@@ -327,6 +328,38 @@ Complete response records including:
 - Model information
 - Timestamps and metadata
 - Token usage
+- Tenant identity of the creating request, when the gateway resolved one (see [Tenant Scope](#tenant-scope))
+
+---
+
+## Tenant Scope
+
+Every stored response, conversation, and conversation item records the tenant identity the gateway resolved for the request that created it, when it resolved one. A response or conversation stored under a tenant is served only to callers of that tenant.
+
+That holds on every route that reads, continues, or deletes a stored record: a response's tenant gates getting it or its input items, deleting or cancelling it, and continuing it with `previous_response_id`; a conversation's tenant gates naming it as the `conversation` of a new response and every `/v1/conversations` operation. Another tenant's ID is answered exactly as an unknown ID — `404`, or `400` (`previous_response_not_found`) for a `previous_response_id` — so a response or conversation ID tells a caller nothing about another tenant's records.
+
+A conversation item's tenant guards only requests that name the item by its ID: an `item_reference` to another tenant's item answers `404` exactly as a missing item would, and adding an item under an `id` that another tenant's item already uses is refused with `400` (`Item id '...' cannot be used`) rather than serving or overwriting it. Reading a conversation's items is governed by the conversation alone: every caller the conversation is visible to can list, get, and delete each of its items — and receives them as model context — whatever tenant an individual item records. Items a tenanted caller adds to a conversation stored without a tenant are therefore readable and deletable by every caller of that conversation.
+
+A tenant is stored only for an identity the gateway can vouch for, as its canonical tenant key — the same key [tenant rate limiting](../../reference/tenant-rate-limiting.md) uses:
+
+| Caller | Stored tenant |
+|--------|---------------|
+| A per-tenant API key (`--tenant-api-key tenant_id:key`) | `auth:<tenant_id>` |
+| A trusted tenant header (`--trust-tenant-header`, header named by `--tenant-header-name`, default `x-smg-tenant-id`) | `header:<value>` |
+| The shared `--api-key` | `auth:` followed by the hex SHA-256 of the key — one identity for every caller of the key |
+| No API key and no trusted header (callers known by IP address only, or anonymous) | None |
+
+An identity from an API key wins over the header: a caller that authenticates with any API key is stored under that key's identity even when it also sends the trusted header.
+
+The shared `--api-key` identity has two consequences: all of its callers share one scope and can read each other's stored history, and rotating the key changes the identity, so records stored under the old key answer as unknown IDs afterward.
+
+A tenant ID can be at most 200 bytes: a longer `--tenant-api-key` tenant ID is refused at startup, and a longer trusted header value is rejected with `400` (`invalid_tenant_header`) rather than silently ignored.
+
+Records stored **without** a tenant stay readable, continuable, and deletable by every caller. That covers records created while the gateway resolved no tenant identity for the caller (known by IP address only, or anonymous), and records stored before SMG recorded tenants — an upgrade does not retroactively scope existing records.
+
+A history loaded through `previous_response_id` ends at the first record stored under another tenant, the same as it would at a missing record; when the referenced response itself belongs to another tenant, the request is rejected with `400` (`previous_response_not_found`). See the [Responses API](../../reference/api/responses.md#error-responses) for the per-route errors.
+
+All backends persist the tenant with each record; on PostgreSQL and Oracle the `tenant` column is added by schema migration 4 (see [Schema Migrations](#schema-migrations)).
 
 ---
 

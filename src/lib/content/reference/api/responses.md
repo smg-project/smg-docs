@@ -47,6 +47,10 @@ Unless noted otherwise, the behavior on this page is that of gRPC workers. Store
 responses and conversations live in SMG's history backend (`--history-backend`, default
 `memory`); see [Chat History](../../concepts/data/chat-history.md).
 
+Stored responses and conversations are scoped to the tenant that created them — another
+tenant's ID is answered exactly as an unknown one; see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope).
+
 ---
 
 ## Base URL
@@ -708,7 +712,8 @@ curl http://localhost:30000/v1/responses/resp_abc123def456
 Returns the stored response object as shown in the Create Response section. SMG reads it
 from its own history backend, which the gRPC and external-provider paths fill when `store`
 is `true`; responses produced by HTTP workers are stored by the worker and are not
-retrievable through SMG. An unknown ID returns `404` with code `not_found`.
+retrievable through SMG. An unknown ID — or another tenant's response — returns `404`
+with code `not_found`.
 
 A [background](#background-mode) response reads back as `queued` or `in_progress` while
 it runs and as its terminal object once it ends; its input items are stored with the
@@ -814,7 +819,7 @@ curl -X DELETE http://localhost:30000/v1/responses/resp_abc123def456
 }
 ```
 
-An unknown ID returns `404` with code `not_found`.
+An unknown ID — or another tenant's response — returns `404` with code `not_found`.
 
 Deleting a [background](#background-mode) response that is still `queued` or
 `in_progress` also stops its run: the work is dropped and no result is stored.
@@ -873,6 +878,11 @@ The conversation endpoints report errors as `{"error": "<message>"}`, except for
 structured errors: `item_already_in_conversation` under
 [Create Conversation Items](#create-conversation-items) and the `invalid_value` rejection
 of a bad `include` query under [Get Conversation Item](#get-conversation-item).
+
+A conversation is scoped to the tenant that created it: on every route below, and as
+the `conversation` of a new response, another tenant's conversation ID answers `404`,
+the same as an unknown ID (see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
 ### Create Conversation
 
@@ -1075,7 +1085,7 @@ These item types are fully supported:
 - `reasoning` - Model reasoning content
 - `mcp_list_tools` - MCP tool listing
 - `mcp_call` - MCP tool invocation
-- `item_reference` - Reference to an existing item by `id`
+- `item_reference` - Reference to an existing item by `id`; an unknown ID — or another tenant's item — returns `404`
 
 These types are stored, but the response adds a `warnings` entry because SMG does not
 implement them yet: `function_call`, `function_call_output`, `file_search_call`,
@@ -1096,6 +1106,12 @@ An item whose `id` is already in the conversation is rejected with:
   }
 }
 ```
+
+An item submitted with an explicit `id` that already names a stored item the caller may
+see — its own, or one stored without a tenant — reuses that stored item as-is. An ID that
+belongs to another tenant's item is rejected with `400` (`Item id '...' cannot be used`),
+neither serving nor overwriting it (see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
 ### Example Request
 
@@ -1361,14 +1377,14 @@ that cannot be parsed has `code` `json_parse_error`, and a failed validation rul
 | HTTP Status | `code` | Description |
 |-------------|--------|-------------|
 | 400 | `400`, `json_parse_error` | Malformed request or validation failure |
-| 400 | `previous_response_not_found` | `previous_response_id` is not in SMG's storage |
+| 400 | `previous_response_not_found` | `previous_response_id` is not in SMG's storage, or is another tenant's response |
 | 400 | `convert_request_failed` | gRPC: an input item the chat pipeline cannot represent, such as media in a `function_call_output` |
 | 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |
 | 401 | — | Invalid or missing API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |
-| 404 | `conversation_not_found` | The `conversation` does not exist |
-| 404 | `not_found` | Unknown response ID on get, delete, or input items |
-| 404 | `response_not_found` | Unknown response ID on cancel |
+| 404 | `conversation_not_found` | The `conversation` does not exist, or belongs to another tenant |
+| 404 | `not_found` | Unknown or another tenant's response ID on get, delete, or input items |
+| 404 | `response_not_found` | Unknown or another tenant's response ID on cancel |
 | 424 | `connect_mcp_server_failed` | A declared MCP server could not be reached |
 | 429 | `admission_queue_full`, `scheduler_queue_full` | Admission control; see [Rate Limiting](openai.md#rate-limiting) |
 | 429 | `background_responses_limit_reached` | The gateway already runs `--max-background-responses` background responses; see [Background Mode](#background-mode) |

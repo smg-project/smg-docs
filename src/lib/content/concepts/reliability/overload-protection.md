@@ -136,6 +136,8 @@ A frozen or paused engine is the opposite failure: the process is up, the connec
 
 How much silence the engine's own record is allowed depends on its wire. On an engine whose wire reports every scheduler step (vLLM with stats logging on), that silence is the scheduler's own, and `--worker-wedge-secs` alone bounds it. On a wire that carries token batches only (SGLang, TokenSpeed, vLLM with `--disable-log-stats`), a long prefill is silent too, so the allowed silence stretches to cover the prefill the servicer reports in hand: twice the time that prefill takes at the rate the gateway has measured on the worker (twice, because the rate is an estimate), under the same 120-second cap — and on such a wire the signal passes no verdict until the gateway has measured a rate.
 
+One kind of prompt stretches the bound to its cap: while the worker is prefilling a prompt longer than any it has answered since the gateway started (once it has answered at least one), the bound is the whole 120 seconds, whatever the signal — an engine meeting a shape it has not run may stop to build a kernel for it first, and nothing on the wire tells that from a freeze. The grace never clears a veto already in place, and a real freeze met on such a prompt is caught at the cap instead of the threshold, once per new longest prompt.
+
 The veto ends with progress, or when the evidence behind it is gone:
 
 - **Progress**: any token or completion from the worker.

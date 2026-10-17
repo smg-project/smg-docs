@@ -353,7 +353,7 @@ An identity from an API key wins over the header: a caller that authenticates wi
 
 The shared `--api-key` identity has two consequences: all of its callers share one scope and can read each other's stored history, and rotating the key changes the identity, so records stored under the old key answer as unknown IDs afterward.
 
-A tenant ID can be at most 200 bytes: a longer `--tenant-api-key` tenant ID is refused at startup, and a longer trusted header value is rejected with `400` (`invalid_tenant_header`) rather than dropped.
+A tenant ID can be at most 200 bytes: a longer `--tenant-api-key` tenant ID is refused at startup, and a longer trusted header value is rejected with `400` (`invalid_tenant_header`) rather than silently ignored.
 
 Records stored **without** a tenant stay readable, continuable, and deletable by every caller. That covers records created while the gateway resolved no tenant identity for the caller (known by IP address only, or anonymous), and records stored before SMG recorded tenants — an upgrade does not retroactively scope existing records.
 

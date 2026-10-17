@@ -1107,10 +1107,10 @@ An item whose `id` is already in the conversation is rejected with:
 }
 ```
 
-An item may also be submitted with an explicit `id`. An ID that already names a stored
-item the caller may see — its own, or one stored without a tenant — reuses that stored
-item as-is. An ID that belongs to another tenant's item is rejected with `400`
-(`Item id '...' cannot be used`), neither serving nor overwriting it (see
+An item submitted with an explicit `id` that already names a stored item the caller may
+see — its own, or one stored without a tenant — reuses that stored item as-is. An ID that
+belongs to another tenant's item is rejected with `400` (`Item id '...' cannot be used`),
+neither serving nor overwriting it (see
 [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
 ### Example Request

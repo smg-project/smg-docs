@@ -77,7 +77,7 @@ RUST_LOG=info smg launch --worker-urls http://worker:8000
 Human-readable lines: UTC timestamp, level, the enclosing request span with its fields, target, source location, and message. On stdout the lines carry ANSI color codes; files written with `--log-dir` do not.
 
 ```
-2026-09-24 10:30:45  INFO http_request{method=POST uri=/v1/chat/completions version=HTTP/1.1 module="smg" request_id="chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE" status_code=200 latency=1523}: smg::response: model_gateway/src/middleware/logging.rs:138: finished processing request
+2026-09-24 10:30:45  INFO http_request{method=POST path=/v1/chat/completions version=HTTP/1.1 module="smg" request_id="chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE" status_code=200 latency=1523}: smg::response: model_gateway/src/middleware/logging.rs:138: finished processing request
 ```
 
 ### JSON Format
@@ -104,7 +104,7 @@ Output (pretty-printed here):
     "module": "smg",
     "request_id": "chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE",
     "status_code": 200,
-    "uri": "/v1/chat/completions",
+    "path": "/v1/chat/completions",
     "version": "HTTP/1.1",
     "name": "http_request"
   },
@@ -115,7 +115,7 @@ Output (pretty-printed here):
       "module": "smg",
       "request_id": "chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE",
       "status_code": 200,
-      "uri": "/v1/chat/completions",
+      "path": "/v1/chat/completions",
       "version": "HTTP/1.1",
       "name": "http_request"
     }
@@ -129,7 +129,7 @@ The event's own fields (`message` and any structured fields) sit at the top leve
 
 ## Request and Response Logs
 
-Every request that matches a route on the main listener is logged inside an `http_request` span that carries `method`, `uri`, `version`, and `request_id`, plus `status_code` and `latency` (microseconds) once the response is ready:
+Every request that matches a route on the main listener is logged inside an `http_request` span that carries `method`, `path`, `version`, `request_id` and, when tracing is on, `trace_id`, plus `status_code` and `latency` (microseconds) once the response is ready. That is the whole access record: no headers, no bodies, no prompts. The span carries the request path only, never the query string, so a credential a client mistakenly puts in `?api_key=` does not reach the log (earlier releases log the full URI in a `uri` field):
 
 | Target | Level | Message | When |
 |--------|-------|---------|------|

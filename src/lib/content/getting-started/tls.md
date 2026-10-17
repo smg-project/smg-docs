@@ -106,6 +106,8 @@ smg \
 
 Set both flags or neither: SMG refuses to start with only one of them, or when it can't read one of the files. Both files are PEM. HTTPS covers the main listener only; the Prometheus metrics endpoint (`--prometheus-port`) stays plain HTTP.
 
+The listener's TLS policy is fixed: TLS 1.2 and 1.3 only (a client limited to TLS 1.1 cannot connect) with rustls' default cipher suites, and no flag for a minimum version, a cipher list or SNI-based certificate selection. The certificate and key are read once at start-up, so a renewed certificate takes effect at the next restart. A plain HTTP request to the TLS port is refused, not answered.
+
 ### Verification
 
 ```bash

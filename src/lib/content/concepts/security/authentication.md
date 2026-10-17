@@ -491,7 +491,7 @@ A production setup combining JWT and API key authentication:
 smg \
   --worker-urls http://worker1:8000 http://worker2:8000 \
   --host 0.0.0.0 \
-  --port 443 \
+  --port 8443 \
   --tls-cert-path /etc/certs/server.crt \
   --tls-key-path /etc/certs/server.key \
   --jwt-issuer "https://auth.example.com/realms/production" \
@@ -503,6 +503,8 @@ smg \
 ```
 
 JWT and the control plane key protect the control plane routes. `--api-key` protects the data plane routes, which are open without it.
+
+The example serves on `8443`, not `443`: the published image runs as uid 65532 and the Helm chart drops every capability, so a gateway in that image cannot bind a port below 1024. Put a Service, an ingress or a load balancer in front for `443`, or grant the container `CAP_NET_BIND_SERVICE`. See [Hardening Defaults](../../getting-started/hardening.md).
 
 ---
 

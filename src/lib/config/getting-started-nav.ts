@@ -23,6 +23,7 @@ export const gettingStartedNav: GettingStartedNavSection[] = [
 			{ label: 'Logging', href: `${base}/getting-started/logging` },
 			{ label: 'TLS', href: `${base}/getting-started/tls` },
 			{ label: 'Control Plane Auth', href: `${base}/getting-started/control-plane-auth` },
+			{ label: 'Hardening Defaults', href: `${base}/getting-started/hardening` },
 			{
 				label: 'Control Plane Operations',
 				href: `${base}/getting-started/control-plane-operations`

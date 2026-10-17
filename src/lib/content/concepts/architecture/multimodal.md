@@ -158,7 +158,7 @@ SMG_VLLM_SERVICER_IMPL=rust SMG_VLLM_MM_PROCESSOR=smg \
 
 - The worker serves the model families SMG's pipeline supports (see [Supported Models](#supported-models)); a multimodal model outside them is refused at startup, while a text-only model ignores the setting as it does the other processors. The router still decides per model whether to forward references at all (see [Where Media Is Processed](#where-media-is-processed)): `smg` changes what runs once references arrive, not which models they are forwarded for.
 - The pipeline reads the model's `config.json` and preprocessor configs from the model directory, or from the tokenizer directory the launcher resolved. The engine's `mm_processor_kwargs` are applied as overrides of the preprocessor config; a key the config has no field for fails the launch rather than being ignored.
-- The worker advertises `mm_processor=smg` and `mm_media_ref_schemes=http,https,data`, and fetches from any host with a fixed 10-second timeout. vLLM's `--allowed-media-domains` and `--allowed-local-media-path` do not apply, and `file` URLs are never accepted.
+- The worker advertises `mm_processor=smg` and `mm_media_ref_schemes=http,https,data`, and fetches from any public host with a fixed 10-second timeout: private and loopback origins are refused on every hop unless `SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS=1` is set in the worker's environment. vLLM's `--allowed-media-domains` and `--allowed-local-media-path` do not apply, and `file` URLs are never accepted.
 - `--mm-max-inflight` and `--mm-max-item-bytes` apply as above. `--mm-max-items` overrides the model's built-in per-request limits rather than vLLM's `--limit-mm-per-prompt`; `SMG_VLLM_MM_MAX_VIDEO_FRAMES` and the Redis sidecar settings are not used.
 - An engine that normalizes pixels on device (vLLM's `mm_device_do_normalize`, on by default for the Qwen-VL family) takes raw `uint8` pixels, and the pipeline writes those for it. A model whose processor produces only normalized floats is refused at startup under that setting: start the engine with `--mm-device-do-normalize=false` or use `inprocess`. Otherwise pixels are written in the engine's own dtype.
 - The in-flight cap, the saturation refusal, and the PD prefill leg's `media_identity` behave as with the Python backends.
@@ -266,8 +266,8 @@ Neither setting enables a modality the model does not support. When you raise a 
 | Inkling image patches per request | 32,768 | `in_patch_limit` in the preprocessor config (smg-project/smg#2102) |
 | Media fetch | 10 seconds per URL | Fixed |
 
-!!! warning "No domain allowlist on the router path"
-    When SMG preprocesses media, it fetches any `http://` or `https://` URL a request names. If clients are untrusted, restrict the gateway's outbound network access. On the worker path, vLLM's `--allowed-media-domains` applies with the `inprocess` and `redis` processors; a worker running `--mm-processor smg` also fetches from any host, so restrict its outbound access the same way.
+!!! warning "Fetch policy on the router path"
+    When SMG preprocesses media, it fetches the `http://` or `https://` URLs a request names under the gateway's own fetch policy: every hop must resolve to a public address unless `--mm-allow-private-media-hosts` is set, and must be on the list when `--mm-allowed-media-domains` is set (see [Media Processing and Limits](../../reference/configuration.md#media-processing-and-limits)). Without the list the gateway fetches from any public host, so restrict its outbound network access when clients are untrusted. On the worker path, vLLM's `--allowed-media-domains` applies with the `inprocess` and `redis` processors; a worker running `--mm-processor smg` has no name allow-list but the same address policy (private and loopback origins refused on every hop unless `SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS=1` is set in its environment), so restrict its outbound access the same way.
 
 ### In-Flight Media Budget
 

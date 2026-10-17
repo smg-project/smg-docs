@@ -75,7 +75,7 @@ POST /v1/messages
 | `stop_sequences` | array of strings | No | Sequences that stop generation. |
 | `tools` | array | No | Tool definitions; see [Tool Use](#tool-use). |
 | `tool_choice` | object | No | `{"type": "auto"}`, `{"type": "any"}`, `{"type": "tool", "name": "..."}`, or `{"type": "none"}`. Every value except `none` requires `tools`, and `tool` must name one of them. |
-| `thinking` | object | No | `{"type": "enabled", "budget_tokens": N}`, `{"type": "adaptive"}`, or `{"type": "disabled"}`. `enabled` and `adaptive` also take `display` (`summarized` or `omitted`). |
+| `thinking` | object | No | `{"type": "enabled", "budget_tokens": N}`, `{"type": "adaptive"}`, or `{"type": "disabled"}`. `enabled` and `adaptive` also take `display` (`summarized`, `omitted`, or `updates`); see [gRPC and ZMQ Workers](#grpc-and-zmq-workers) for what each value returns. |
 | `metadata` | object | No | Request metadata (`user_id`). |
 | `service_tier` | string | No | `auto` or `standard_only`. |
 | `container` | object | No | Container for code execution (beta). |
@@ -353,14 +353,14 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 | `stop_sequences` | Sent as stop strings to vLLM, TensorRT-LLM, and TokenSpeed gRPC workers. For SGLang gRPC workers and ZMQ workers, SMG matches them itself and sends only single-token stops to the engine, as stop token IDs. |
 | `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser; with a `tool_choice` of `tool`, only that tool is passed to the chat template. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |
 | `tool_choice` | Mapped to Chat Completions semantics: `auto` to `auto`, `any` to `required`, `tool` to that function, `none` to `none`. SMG enforces `any` and `tool` with constrained decoding. |
-| `thinking` | `enabled` and `adaptive` turn on the chat template's thinking mode and run the model's reasoning parser. `disabled` turns thinking mode off. Without `thinking`, the template default applies. `budget_tokens` and `display` are not used. |
+| `thinking` | `enabled` and `adaptive` turn on the chat template's thinking mode and run the model's reasoning parser. `disabled` turns thinking mode off. Without `thinking`, the template default applies. `budget_tokens` is not used. `display` decides whether the thinking blocks carry their text: `omitted` returns them with an empty `thinking` (the block, its `signature`, and the thinking tokens in `usage` still arrive; a stream sends the block's `content_block_start` and `content_block_stop` and no `thinking_delta`); `summarized`, `updates`, and no `display` return the model's reasoning as it arrives (SMG has no summarizer, and the model writes no progress notes apart from its reasoning, so the text is the reasoning itself, which the client can send back with the next turn). |
 | `metadata`, `service_tier`, `container`, `mcp_servers`, extra fields such as `output_config` | Not sent to the engine. |
 
 MLX workers answer `400` to a request with images, with `stop_sequences`, or with a `tool_choice` of `any` or `tool`.
 
 How the response is built:
 
-- **Tool calls and reasoning** are extracted by SMG's tool and reasoning parsers, which SMG picks for the model or you set with `--tool-call-parser` and `--reasoning-parser`. A `thinking` block comes first, then text, then `tool_use` blocks. Thinking blocks carry an empty `signature`.
+- **Tool calls and reasoning** are extracted by SMG's tool and reasoning parsers, which SMG picks for the model or you set with `--tool-call-parser` and `--reasoning-parser`. A `thinking` block comes first, then text, then `tool_use` blocks. Thinking blocks carry an empty `signature`, and an empty `thinking` under `display: "omitted"`.
 - **`tool_use` ids** use Anthropic's `toolu_` prefix: a parser id of the form `call_<suffix>` is returned as `toolu_<suffix>`, the same in streaming and non-streaming responses. Model-specific id formats are returned unchanged (smg-project/smg#2111).
 - **`stop_reason`** is `tool_use` when the output has tool calls, `stop_sequence` when one of `stop_sequences` ended generation (the matched string is in `stop_sequence`), `max_tokens` when the token limit was reached, and `end_turn` otherwise.
 - **`usage`** reports `cache_creation_input_tokens` and `cache_read_input_tokens` as `0`, never `null`. In a stream, `message_start` carries zero counters, and the final `message_delta` carries `output_tokens` and, once the engine has reported it, `input_tokens` (smg-project/smg#2269).

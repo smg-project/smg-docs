@@ -65,8 +65,12 @@ Without retries, every transient failure becomes a client-visible error. With re
 
 1. SMG dispatches the attempt and checks the response status as soon as the worker answers, before any of the body reaches the client.
 2. If the status is retryable, the response is not marked terminal, and attempts remain, SMG waits for the backoff delay.
-3. The next attempt runs worker selection again. Workers that are unhealthy, have an open circuit breaker, or are vetoed by overload protection are skipped. The policy can still pick the same worker if it remains eligible, for example under `cache_aware` or `consistent_hashing` affinity.
+3. The next attempt runs worker selection again. Workers that are unhealthy, have an open circuit breaker, or are vetoed by overload protection are skipped. So are the workers the request already failed on, as long as another available worker is left.
 4. When a response is not retried, or no attempts remain, SMG returns it to the client.
+
+Skipping the workers a request failed on applies even under deterministic affinity: when `cache_aware` has the prompt's prefix cached on the failed worker, or a `consistent_hashing` routing key maps to it, the retry moves to another worker instead of going straight back. When every available worker has already been tried, including when the pool has a single worker, the retry selects among all of them again.
+
+There are two exceptions. A request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) is retried on the worker it targets. PD mode does not skip tried workers: each attempt selects its prefill/decode pair from all available workers, so a retry can pick the same pair again.
 
 `--retry-max-retries` counts **attempts, including the first**: the default `5` allows the initial attempt plus up to four retries, and `1` disables retries.
 
@@ -80,7 +84,7 @@ Responses served by gRPC and ZMQ workers carry the same header when the final at
 
 | Traffic | Router retries |
 |---------|----------------|
-| HTTP workers: JSON requests with a buffered body (regular and PD mode) | Yes. Each attempt selects a new worker, or a new prefill/decode pair |
+| HTTP workers: JSON requests with a buffered body (regular and PD mode) | Yes. Each retry selects a worker again, or a prefill/decode pair in PD mode |
 | HTTP workers: JSON requests with a streamed body | No. One attempt; see [Retries and Request Bodies](#retries-and-request-bodies) |
 | HTTP workers: audio transcriptions | No |
 | gRPC and ZMQ workers: Chat Completions, Completions, `/generate`, Messages | Yes. The request is prepared once (tokenization, tenant rate limiting); each retry selects workers again and re-sends the prepared request |

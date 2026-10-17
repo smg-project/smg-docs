@@ -68,7 +68,7 @@ Without retries, every transient failure becomes a client-visible error. With re
 3. The next attempt runs worker selection again. Workers that are unhealthy, have an open circuit breaker, or are vetoed by overload protection are skipped. So are the workers the request already failed on, as long as another available worker is left.
 4. When a response is not retried, or no attempts remain, SMG returns it to the client.
 
-Skipping the workers a request failed on applies even under deterministic affinity: when `cache_aware` has the prompt's prefix cached on the failed worker, or a `consistent_hashing` routing key maps to it, the retry moves to another worker instead of going straight back. When every available worker has already been tried — including when the pool has a single worker — the retry selects among all of them again.
+Skipping the workers a request failed on applies even under deterministic affinity: when `cache_aware` has the prompt's prefix cached on the failed worker, or a `consistent_hashing` routing key maps to it, the retry moves to another worker instead of going straight back. When every available worker has already been tried, including when the pool has a single worker, the retry selects among all of them again.
 
 There are two exceptions. A request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) is retried on its targeted worker. PD mode does not skip tried workers: each attempt selects its prefill/decode pair from all eligible workers, so a retry can pick the same pair again.
 

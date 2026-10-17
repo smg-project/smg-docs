@@ -191,7 +191,7 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 
 ³ Kimi-K3 media stay on the router path: vLLM's Kimi-K3 processor expands a different anchor than the one SMG renders (smg-project/smg#2644).
 
-⁴ Muse Spark serves on TokenSpeed workers only: its tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`).
+⁴ Muse Spark is served on TokenSpeed workers only: its tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`).
 
 Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only.
 
@@ -230,7 +230,7 @@ Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer
 | | Default | Per-request override |
 |---|---------|----------------------|
 | Frame rate | The model's reference rate: 1 fps for MiniMax-M3, 2 fps for other models (smg-project/smg#2579) | `video_url.fps`, from 0.2 to 5.0 |
-| Frame count | Clip duration times the frame rate, kept within 4 to 768 frames. Muse Spark instead keeps whole temporal groups within the checkpoint's frame budget (see below). | — |
+| Frame count | Clip duration times the frame rate, kept within 4 to 768 frames. Muse Spark instead follows the checkpoint's video processor config (see below). | — |
 | Frame placement | Spread evenly from the first frame to the last. MiniMax-M3 takes one frame per interval from the start and always keeps the last frame, as its reference does (smg-project/smg#2584). | — |
 | Frame size | Set by the model's processor | `video_url.max_long_side_pixel`: a multiple of 28 from 150 to 3584, applied to the decoded frames |
 

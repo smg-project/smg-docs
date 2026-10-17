@@ -52,7 +52,7 @@ SMG exposes three categories of endpoints:
 | `POST /v1/completions` | Text completions |
 | `POST /generate` | Engine-native generation (text or token-ID input) |
 | `POST /v1/responses` | Agentic workflows with tool execution |
-| `/v1/conversations` and item routes | Create, fetch, update, and delete the stored conversations the Responses API builds on |
+| `/v1/conversations` and item routes | Create, fetch, update, and delete the stored conversations the Responses API builds on, and manage their items |
 | `POST /v1/embeddings` | Embedding generation |
 | `POST /v1/classify` | Text classification |
 | `POST /rerank` | Reranking with model selection, `top_k`, and `return_documents` |

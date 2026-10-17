@@ -137,7 +137,7 @@ curl -X POST http://localhost:30000/workers \
 
 Registration fails if an override names an unknown parser (`worker <url> declares a parser override for model '<id>' the gateway cannot read with: unknown tool-call parser '<name>'`). Workers of the same model should agree. If they don't, for example during a rolling upgrade, SMG logs a warning at registration and uses the lexicographically smallest name. Kubernetes service discovery sets no parser labels, so discovered workers rely on the flags. See the [Admin API](../../reference/api/admin.md) for the worker endpoints.
 
-Under `--parser symphony`, an override may also name a [Symphony table or `hf`](#symphony-parsing), giving one model its own table without touching the rest; naming a legacy parser no table answers to sends just that model back to the legacy parsers.
+Under `--parser symphony`, an override may also name a [Symphony table or `hf`](#symphony-parsing), giving one model its own table without touching the rest; naming a legacy tool-call parser no table answers to sends just that model back to the legacy parsers.
 
 ### Automatic Detection
 
@@ -385,7 +385,7 @@ Several legacy parser names — `json`, `qwen3`, `deepseek_v4`, `gemma4`, `kimi_
 
 The gateway checks the names at startup and at worker registration, against the configured `--parser`. A legacy parser's name counts only for its own flag — `--reasoning-parser qwen_xml` fails under either `--parser` — while a table's own name, `muse` and `hf` pass in either flag under `symphony`. Under `symphony`, any other name fails with `unknown tool-call parser '<name>': neither a legacy parser nor a Symphony table`. Under `legacy`, when a flag's value is rejected and Symphony reads with it — a table's own name, `muse` or `hf` — the error ends `... which --parser symphony reads with`, as noted under [Parser Selection](#parser-selection).
 
-A table's name that is none of its flag's legacy parsers — `qwen3` in `--tool-call-parser`, `muse` or `muse_spark` in either flag — binds the other name: it must select the same table or be unset. `hf` binds the same way: the other name must be `hf` or unset.
+A table's name that is none of its flag's legacy parsers — `qwen3` in `--tool-call-parser`, `muse` or `muse_spark` in either flag — binds the other name: it must name the same table (the table's own name, or `muse` for `muse_spark`) or be unset; a legacy name the table answers to is refused there, so `qwen3_tagged` pairs with `qwen3_tagged` or nothing, not with `qwen_xml`. `hf` binds the same way: the other name must be `hf` or unset.
 
 ### The `hf` Name: the Response Template's Table
 

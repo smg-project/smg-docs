@@ -156,7 +156,7 @@ A gRPC worker streaming KV events pushes a load record with every event batch, a
 
 ### When Every Worker Is Vetoed
 
-A liveness veto steers traffic away; it never refuses a request. When every worker a request could use is vetoed — the single worker of a one-worker model, or a whole pool the liveness tracker doubts at once — the gateway routes the request anyway, to the least-loaded candidate that is healthy with a closed or half-open circuit breaker, taking a worker vetoed only as overloaded before one the tracker doubts. Refusing would turn a suspicion into an outage, and a worker that really is gone fails the request as fast as a refusal would. Prefill/decode pairs are steered the same way, to the least-loaded routable pair. Each request that lands on a worker the tracker doubts counts in `smg_worker_liveness_fallback_total`.
+A liveness veto steers traffic away; it never refuses a request. When every worker a request could use is one the liveness tracker doubts — the single worker of a one-worker model, or a whole pool vetoed at once — the gateway routes the request anyway, to the least-loaded candidate that is healthy with a closed or half-open circuit breaker. Refusing would turn a suspicion into an outage, and a worker that really is gone fails the request as fast as a refusal would. Prefill/decode pairs are steered the same way, to the least-loaded routable pair. Each request that falls back to a doubted worker counts in `smg_worker_liveness_fallback_total`.
 
 No veto touches the worker's health status: the health checker keeps its own state machine, and a veto ends on its own rule's evidence — contact for an unreachable worker, progress for a wedged one.
 

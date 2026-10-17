@@ -426,7 +426,9 @@ export TIKTOKEN_ENCODINGS_BASE=/opt/tiktoken   # contains o200k_base.tiktoken
 | 404 `model_not_found` | No registered worker serves the requested model name | Check `GET /v1/models` and send a served model name or alias |
 | 503 `no_available_workers` | Every worker for the model is unhealthy or has an open circuit breaker | Check worker health and logs |
 | A `grpcs://` worker never registers; the log repeats `grpc health check failed ... gRPC connection failed: transport error` | The gateway's gRPC channel has no TLS | Use `grpc://`, and a service mesh when the hop must be encrypted ([Gateway to gRPC Workers](tls.md#gateway-to-grpc-workers)) |
-| 500 `tokenizer_not_found` | The model's tokenizer didn't load | Check the gateway logs; pass `--model-path` or set a `tokenizer_path` label |
+| 503 `tokenizer_not_ready` | The model's tokenizer is still loading (the gateway loads it after the worker registers) | Retry; the response carries `Retry-After: 1`, and `/readiness` reports the same state |
+| 503 `tokenizer_load_failed` | The model's tokenizer won't load on its own — no `tokenizer_path` or `model_path` to load from, the load failed, or the tokenizer was removed; the message names the reason, and the gateway log has the details | Pass `--model-path` or set a `tokenizer_path` label and re-register the worker, or register a tokenizer with `POST /v1/tokenizers`; retrying the request changes nothing until a tokenizer registers |
+| 500 `tokenizer_not_found` | The model has no tokenizer and `--disable-tokenizer-autoload` is set, so the gateway won't load one itself | Register a tokenizer with `POST /v1/tokenizers` |
 | Tool calls or reasoning left in `content` | No parser matched the model name | Set `--tool-call-parser` / `--reasoning-parser` or a per-model label |
 
 ---

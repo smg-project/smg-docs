@@ -18,6 +18,30 @@ RELEASE = {'id': 13, 'tag': 'v1.13.0', 'sha': 'a' * 40,
            'published_at': '2026-10-14T18:00:00Z', 'url': 'https://example/v1.13.0'}
 
 
+class AuditBatchTests(unittest.TestCase):
+    def test_every_page_is_assigned_once_in_stable_order(self):
+        pages = {f'page-{i:02}.md': (b'doc', b'main') for i in reversed(range(59))}
+        batches = s.audit_batches(pages)
+        self.assertEqual([p for batch in batches for p in batch], sorted(pages))
+        self.assertTrue(all(0 < len(batch) <= 2 for batch in batches))
+
+    def test_reading_budget_splits_batches_before_the_page_cap(self):
+        page = b'x' * (s.MAX_BATCH_BYTES // 2 + 1)
+        self.assertEqual(s.audit_batches({'a.md': (page,), 'b.md': (page,)}),
+                         [['a.md'], ['b.md']])
+
+    def test_large_page_is_isolated_without_losing_coverage(self):
+        self.assertEqual(s.audit_batches({'a.md': (b'small',),
+                         'b.md': (b'x' * (s.MAX_BATCH_BYTES + 1),), 'c.md': (b'small',)}),
+                         [['a.md'], ['b.md'], ['c.md']])
+
+    def test_large_main_counterpart_counts_even_when_snapshot_is_short(self):
+        large = b'x' * s.MAX_BATCH_BYTES
+        self.assertEqual(s.audit_batches({'a.md': (b'small', large),
+                                         'b.md': (b'small', b'small')}),
+                         [['a.md'], ['b.md']])
+
+
 class SelectionTests(unittest.TestCase):
     def test_no_new_release_leaves_future_prepared_snapshot_alone(self):
         older = {**RELEASE, 'tag': 'v1.12.0'}

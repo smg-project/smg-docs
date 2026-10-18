@@ -237,7 +237,9 @@ When that prepared version actually ships, it is audited despite already existin
 `docs-release-snapshot.yml` reconciles a newly published tag when its `sync.json`
 does not record the same verified release identity. It preserves existing snapshot
 Markdown and images, copies missing pages/assets from main, and freezes navigation
-and aliases. Writers audit six pages per batch against the immutable release
+and aliases. Writers audit at most two pages per batch, with a 48 KiB reading
+budget based on the larger of each snapshot/main page; larger pages run alone.
+They audit against the immutable release
 checkout: remove main-only behavior, correct stale claims, and add missing released
 behavior. Every page, including unchanged pages, requires independent review.
 All writer batches are assembled before reviewers check cross-page consistency.

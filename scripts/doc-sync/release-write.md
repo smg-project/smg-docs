@@ -1,5 +1,6 @@
-Read contract.md beside this file and release-docs/context.json, batch.json,
-release-history.txt and excluded-main-history.txt in the supplied evidence directory.
+Read contract.md beside this file and release-docs/context.json and batch.json.
+Use focused searches in release-history.txt and excluded-main-history.txt in the
+supplied evidence directory for the assigned pages' subjects.
 SOURCE_ROOT is exactly the published release tag. The target snapshot has been
 seeded from main only where pages were missing; existing authored release content
 was preserved. It is NOT already verified release documentation.
@@ -24,6 +25,11 @@ the release, delete it; the trusted assembler removes its manifest/nav entry.
 Correct references to unsupported pages in assigned pages as needed. If a required
 fix cannot be made, explain it; the independent reviewer must reject an incomplete
 audit. Keep all index pages useful. Do not create new file paths.
+
+Work only on the assigned one or two pages; the other batches cover the rest of
+the snapshot. Start with the page's claims and use focused searches in the source
+and histories. Do not read the entire release history or audit unrelated subsystems.
+Reserve the last 40 turns to finish verified edits and report any unresolved gaps.
 
 This job is one batch of a whole-release snapshot audit, not an ordinary concern
 PR. The ordinary 999-line cap does not apply to the snapshot lifecycle PR. Keep

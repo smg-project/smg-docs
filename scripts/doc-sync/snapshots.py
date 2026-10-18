@@ -15,7 +15,8 @@ import releases
 REGISTRY = 'src/lib/config/docs-releases.json'
 MARKER = '<!-- docs-release-sync:'
 SECTIONS = {'getting-started', 'concepts', 'reference', 'contributing'}
-BATCH_SIZE = 6
+BATCH_SIZE = 2
+MAX_BATCH_BYTES = 48 * 1024
 # Releases already documented before version-aware automation was introduced.
 INITIAL_RELEASE = 'v1.12.0'
 
@@ -159,6 +160,23 @@ def seed_context(ctx):
     return seed
 
 
+def audit_batches(pages):
+    """Bound both page count and reading size; audit large pages on their own."""
+    batches, current, size = [], [], 0
+    for path, variants in sorted(pages.items()):
+        # Both snapshot and main must be checked. A short stale snapshot must
+        # not hide the cost of reviewing its much larger current counterpart.
+        weight = max(map(len, variants))
+        if current and (len(current) >= BATCH_SIZE or size + weight > MAX_BATCH_BYTES):
+            batches.append(current)
+            current, size = [], 0
+        current.append(path)
+        size += weight
+    if current:
+        batches.append(current)
+    return batches
+
+
 def prepare(directory):
     release = json.loads(os.environ['RELEASE_JSON'])
     releases.verify(release)
@@ -169,7 +187,9 @@ def prepare(directory):
     seed = make_seed(base, release, manifest)
     prefix = root(release['tag']) + 'content/'
     paths = sorted(path for path in seed if path.startswith(prefix) and path.endswith('.md'))
-    batches = [paths[i:i + BATCH_SIZE] for i in range(0, len(paths), BATCH_SIZE)]
+    main_pages = tracked_bytes(base, docs.DOC_ROOT)
+    batches = audit_batches({path: (seed[path], main_pages.get(
+        docs.DOC_ROOT + path.removeprefix(prefix), b'')) for path in paths})
     if not batches or len(batches) > 256:
         raise ValueError('Invalid release audit coverage')
     ctx = {'base': base, 'release': release, 'main_manifest': manifest, 'batches': batches,

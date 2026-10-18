@@ -156,7 +156,7 @@ A gRPC worker streaming KV events pushes a load record with every event batch, a
 - **Health status is untouched.** The exclusion is independent of the health checker's state machine and of the overload veto; it starts and ends with contact alone.
 - **Keep `--worker-stale-secs` above `--load-monitor-interval`.** That way, a worker whose event stream stopped while its load poll still answers keeps making contact before the threshold. The default of `15` sits above the default 10-second poll interval and allows for several missed heartbeats; `0` disables the rule. The Python launchers accept the same flag (`--router-worker-stale-secs` under `smg serve`).
 
-### When Every Worker Is Vetoed
+### When Every Worker Is Vetoed by Liveness
 
 A liveness veto steers traffic away; it never refuses a request. When every worker a request could use is one the liveness tracker doubts — the single worker of a one-worker model, or a whole pool vetoed at once — the gateway routes the request anyway, to the least-loaded candidate that is healthy with a closed or half-open circuit breaker. Refusing would turn a suspicion into an outage, and a worker that really is gone fails the request as fast as a refusal would. Prefill/decode pairs are steered the same way, to the least-loaded routable pair. Each request that falls back to a doubted worker counts in `smg_worker_liveness_fallback_total`.
 

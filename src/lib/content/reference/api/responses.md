@@ -866,8 +866,9 @@ curl http://localhost:30000/v1/responses/resp_abc123def456/input_items
 ```
 
 All stored input items are returned in one page (`has_more` is always `false`). Items
-stored without an ID get a generated `msg_` ID. An unknown ID — or another tenant's
-response — returns `404` with code `not_found`.
+stored without an ID get a generated `msg_` ID.
+
+An unknown ID — or another tenant's response — returns `404` with code `not_found`.
 
 ---
 

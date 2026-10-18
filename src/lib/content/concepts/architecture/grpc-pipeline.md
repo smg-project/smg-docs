@@ -360,7 +360,9 @@ Three sources decide, in order: the model's `tool_parser` / `reasoning_parser` [
 | Any other legacy tool-call parser's name, `passthrough` included | The legacy parsers — the per-model escape hatch when a table misreads |
 | No names | Nothing: the next source decides |
 
-A name selects the legacy parsers only when it is a legacy tool-call name no table answers to, or `passthrough` as the reasoning name alone. A reasoning name alone that no table answers to, such as `deepseek_r1`, selects nothing, since every table reads the thought channel; a known checkpoint still reads with the registry's table. When the registry's table reads a model whose labels select no reader while the flags select a different reader, registration logs a warning saying so, once per model.
+A name selects the legacy parsers only when it is a legacy tool-call name no table answers to, or `passthrough` as the reasoning name alone. A reasoning name alone that no table answers to, such as `deepseek_r1`, selects nothing, since every table reads the thought channel; a known checkpoint still reads with the registry's table.
+
+When the registry's table reads a model whose labels select no reader while the flags select a different reader, registration logs a warning saying so, once per model.
 
 The registry matches the repository name — the text after the last path separator — exactly and without regard to case, under any organization or path: `Qwen/Qwen3-8B`, `qwen3-8b` and a local path ending in `Qwen3-8B` all read with the same table. Unlike legacy auto-detection, which finds a pattern anywhere in the name, a renamed or quantized checkpoint the registry does not know, such as `Qwen3-8B-FP8`, matches nothing: the flags read it, or the legacy parsers when the flags name no table. The [`x-smg-parser` response header](#per-request-switch-and-response-header) tells you which parser read a given response.
 

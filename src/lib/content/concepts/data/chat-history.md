@@ -340,7 +340,7 @@ That holds on every route that reads, continues, or deletes a stored record: a r
 
 A conversation item's tenant guards only requests that name the item by its ID: an `item_reference` to another tenant's item answers `404` exactly as a missing item would, and adding an item under an `id` that another tenant's item already uses is refused with `400` (`Item id '...' cannot be used`) rather than serving or overwriting it.
 
-Reading a conversation's items is governed by the conversation alone: every caller the conversation is visible to can list, get, and delete each of its items — and receives them as model context — whatever tenant an individual item records. Items a tenanted caller adds to a conversation stored without a tenant are therefore readable and deletable by every caller of that conversation.
+Access to a conversation's items is governed by the conversation alone: every caller the conversation is visible to can list, get, and delete each of its items — and receives them as model context — whatever tenant an individual item records. Items a tenanted caller adds to a conversation stored without a tenant are therefore readable and deletable by every caller of that conversation.
 
 A tenant is stored only for an identity the gateway can vouch for, as its canonical tenant key — the same key [tenant rate limiting](../../reference/tenant-rate-limiting.md) uses:
 

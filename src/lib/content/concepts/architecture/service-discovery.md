@@ -230,7 +230,7 @@ PD mode needs at least one of `--prefill-selector` and `--decode-selector`. EPD 
 
 SGLang and TokenSpeed pods need only their role labels and, on prefill (and encode) pods, the bootstrap-port annotation. vLLM workers served over HTTP need `smg.ai/kv-connector` for a KV handoff, because the vLLM HTTP server does not report its connector. vLLM gRPC workers report their connector and engine id themselves, and the annotations override what they report. To pin a [pairing protocol](../routing/pd-disaggregation.md#explicit-pairing-protocol), set `SMG_PAIRING_PROTOCOL` in the engine container of gRPC workers; there is no annotation for it.
 
-SMG reads the annotations when it registers a pod. After changing them, replace the pod so that SMG registers it again under its new UID.
+SMG reads these annotations on every reconcile pass. Editing one on a live pod updates its registered workers in place on a later pass, without removing or draining them; the pod does not need to be replaced.
 
 ### Worker Labels
 

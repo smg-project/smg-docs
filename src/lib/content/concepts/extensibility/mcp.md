@@ -81,7 +81,7 @@ No other path runs MCP tools. Chat Completions has no MCP loop, SMG forwards `/v
 |------------|---------|------------|
 | `stdio` | Static only | SMG starts `command` with `args` as a child process and speaks MCP over its stdin and stdout. The process inherits SMG's environment plus `envs`, and its stderr goes to SMG's stderr. |
 | `streamable` | Static and dynamic | Streamable HTTP to `url`. `token` is sent as `Authorization: Bearer <token>`, `headers` are added to every request, and the TCP connect timeout is 10 seconds. |
-| `sse` | None | The legacy HTTP+SSE transport was removed in v1.7.0. A server configured with it fails to connect with `the SSE client transport was removed in rmcp 1.7; use 'protocol: streamable' instead`. |
+| `sse` | None | The legacy HTTP+SSE transport is not supported. A server configured with it fails to connect with `the SSE client transport was removed in rmcp 1.7; use 'protocol: streamable' instead`. |
 
 !!! warning "Dynamic URLs that contain `/sse`"
     SMG treats a request's `server_url` (or a Messages API server `url`) that contains `/sse` as a legacy SSE endpoint, so the connection fails. Point requests at the server's Streamable HTTP endpoint. Only `http://` and `https://` URLs are accepted; SMG skips any other scheme.

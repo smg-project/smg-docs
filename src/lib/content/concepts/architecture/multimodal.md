@@ -167,7 +167,7 @@ SMG_VLLM_SERVICER_IMPL=rust SMG_VLLM_MM_PROCESSOR=smg \
 
 ## Supported Models
 
-SMG picks a model's processor from the model name and its `config.json` `model_type`. These families have vision support in v1.11.0, with their built-in per-request limits:
+SMG picks a model's processor from the model name and its `config.json` `model_type`. These families have vision support, with their built-in per-request limits:
 
 | Model family | Images | Video | Worker-side expansion on vLLM |
 |--------------|--------|-------|-------------------------------|
@@ -175,6 +175,7 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 | Qwen2-VL, Qwen2.5-VL | 10 | — | — |
 | Qwen3-Omni | 10 | 1 clip | — |
 | MiniMax-M3 | 200 | 20 clips ¹ | Images and video ² |
+| Muse Spark ⁴ | 10 | 1 clip | — |
 | GLM-5.3-Flash | 10 | 1 clip ¹ | Images |
 | Kimi-K3 | 10 | — | — ³ |
 | Kimi-K2.5 | 10 | — | — |
@@ -190,7 +191,9 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 
 ³ Kimi-K3 media stay on the router path: vLLM's Kimi-K3 processor expands a different anchor than the one SMG renders (smg-project/smg#2644).
 
-Recent additions include Qwen4-Exp (smg-project/smg#2327), MiniMax-M3 images and video (#2371, #2581), GLM-5.3-Flash (#2349), and DeepSeek-V4.1 (#2526). Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, and Inkling, on TokenSpeed workers only.
+⁴ Muse Spark media are served on TokenSpeed workers only: the tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`).
+
+Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 audio clips per request on checkpoints that ship the audio tower. Each Muse Spark clip is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token), and the clip's placeholder run in the prompt is that token count.
 
 ### Engine Support
 
@@ -224,8 +227,8 @@ Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer
 
 | | Default | Per-request override |
 |---|---------|----------------------|
-| Frame rate | The model's reference rate: 1 fps for MiniMax-M3, 2 fps for other models (smg-project/smg#2579) | `video_url.fps`, from 0.2 to 5.0 |
-| Frame count | Clip duration times the frame rate, kept within 4 to 768 frames | — |
+| Frame rate | The model's reference rate: 1 fps for MiniMax-M3, the video processor config's `fps` for Muse Spark (default 2), 2 fps for other models | `video_url.fps`, from 0.2 to 5.0 |
+| Frame count | Clip duration times the frame rate, kept within 4 to 768 frames. Muse Spark instead follows the checkpoint's video processor config (see below). | — |
 | Frame placement | Spread evenly from the first frame to the last. MiniMax-M3 takes one frame per interval from the start and always keeps the last frame, as its reference does (smg-project/smg#2584). | — |
 | Frame size | Set by the model's processor | `video_url.max_long_side_pixel`: a multiple of 28 from 150 to 3584, applied to the decoded frames |
 
@@ -236,6 +239,8 @@ Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer
 ```
 
 Models whose reference processor lays video out frame by frame get the same layout from SMG: Qwen3-VL, GLM-5.3-Flash, and MiniMax-M3 prompts carry one block per temporal frame, with a timestamp. For MiniMax-M3, SMG also applies the pixel budget per frame and stamps each frame with the reference timestamp (smg-project/smg#2574, #2575).
+
+Muse Spark clips follow the checkpoint's video processor config rather than the 4-to-768-frame window: frames are sampled evenly across the clip at the config's `fps` (default 2), in whole temporal groups of `temporal_patch_size` frames (default 2), up to the config's `num_frames` (default 96; the released checkpoints raise it). A per-request `fps` hint still overrides the sampling rate. The prompt carries one token block per temporal group, stamped with the time of the group's first sampled frame in the config's `frame_timestamp_format` (default `Time: {timestamp:.1f}s`; `Time: {timestamp:.2f}s` on the released checkpoints).
 
 Several clips in one request are preprocessed in parallel (smg-project/smg#2595), and on vLLM a request can carry images and video together (smg-project/smg#2581).
 
@@ -348,7 +353,7 @@ vLLM workers receive the pixel tensor as float32 unless `SMG_VLLM_ENCODER_INPUT_
 
 ### Direct ZMQ Backends
 
-vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-preprocessed media, sent inline. Media references, shared memory, and RDMA are not available on this wire. TokenSpeed over ZMQ refuses media whose tensors include `image_grid_thw` or `video_grid_thw` (the M-RoPE families, such as Qwen-VL); serve those models over gRPC.
+vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-preprocessed media, sent inline. Media references, shared memory, and RDMA are not available on this wire. TokenSpeed over ZMQ refuses media whose tensors include `image_grid_thw` or `video_grid_thw`; the M-RoPE families (such as Qwen-VL) and Muse Spark images and video carry them, so serve those models over gRPC.
 
 SGLang workers reached over the direct ZMQ backend take no media: a request with images — the one modality SGLang takes over gRPC — is refused with a 400 (`multimodal inputs are not supported over the SGLang ZMQ backend yet`). Serve vision SGLang models over gRPC. See [ZMQ Workers](../../getting-started/zmq-workers.md).
 

@@ -193,7 +193,7 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 
 ⁴ Muse Spark is served on TokenSpeed workers only: its tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`).
 
-Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 audio clips per request on checkpoints that ship the audio tower. Each clip is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token); that token count is the length of the clip's placeholder run in the prompt.
+Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 audio clips per request on checkpoints that ship the audio tower; each clip is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token), and that token count is the length of the clip's placeholder run in the prompt.
 
 ### Engine Support
 

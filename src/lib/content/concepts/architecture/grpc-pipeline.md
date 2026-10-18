@@ -366,7 +366,7 @@ The registry matches the repository name — the text after the last path separa
 
 ### Table Names
 
-The 30 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `muse_spark`, `plain` and `kimi_k2`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
+The 31 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `muse_spark`, `plain`, `deepseek_v3.2` and `kimi_k2`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
 
 A table also answers to the names of the legacy parsers that read its format, so a model whose override already sets one of these names switches to the table the moment the gateway starts with `--parser symphony`. One name in the table below is no legacy parser's: `muse`, the name downstream launchers pass for Muse models.
 
@@ -377,6 +377,7 @@ A table also answers to the names of the legacy parsers that read its format, so
 | `glm47_moe` | `glm` |
 | `glm45_moe` | `glm4` |
 | `hy_v4` | `hy4` |
+| `deepseek32` | `deepseek_v3.2` |
 | `deepseek_v41` | `deepseek_v4.1` |
 | `minimax` | `minimax_m2` |
 | `muse` | `muse_spark` |

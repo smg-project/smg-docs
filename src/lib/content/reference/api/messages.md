@@ -312,7 +312,7 @@ On gRPC and ZMQ backends, SMG renders the request through the model's chat templ
 
 That path refuses a request the way `/v1/messages` would. An unknown model gets `404` (`model_not_found`), even when a removed worker's tokenizer is still registered.
 
-A served model whose tokenizer the gateway is still loading gets `503` (`tokenizer_not_ready`) with a `Retry-After: 1` header. A served model whose tokenizer will not load on its own — there was no path to load it from, the load failed, or the tokenizer was removed — gets `503` (`tokenizer_load_failed`) with no `Retry-After` and a message naming the reason. Retrying changes nothing until a tokenizer registers for the model, either by a worker re-registering with a usable path or by `POST /v1/tokenizers`. Under `--disable-tokenizer-autoload`, a served model with no tokenizer and no such load failure gets `500` (`tokenizer_not_found`).
+A served model whose tokenizer the gateway is still loading gets `503` (`tokenizer_not_ready`) with a `Retry-After: 1` header. A served model whose tokenizer will not load on its own — no path to load it from, the load failed, or the tokenizer was removed — gets `503` (`tokenizer_load_failed`) with no `Retry-After` and a message naming the reason. Retrying changes nothing until a tokenizer registers for the model, either by a worker re-registering with a usable path or by `POST /v1/tokenizers`. Under `--disable-tokenizer-autoload`, a served model with no tokenizer and no such load failure gets `500` (`tokenizer_not_found`).
 
 A request that does not render gets `400` (`process_messages_failed`), and a rendered prompt that fails to encode gets `500` (`tokenization_failed`).
 

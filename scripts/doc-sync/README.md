@@ -247,8 +247,13 @@ Only data crosses into pristine review/publication jobs. Missing, rejected,
 wrong-base or altered bundles block the entire snapshot PR. Unsupported pages
 may be removed along with their navigation entry; dangling links fail site tests.
 
-All-version page/link/navigation tests, type checks and the production build must
-pass. Publication rechecks release identity, docs main freshness and daily quota.
+Before final site validation, publication can refresh to a newer main commit
+when only existing working Markdown pages changed and the frozen snapshot seed
+is identical. Reviewed release bytes and their hashes stay fixed. New/deleted
+pages, release content, assets, navigation, registry or tooling changes require a
+fresh audit. All-version page/link/navigation tests, type checks and the production
+build run on the refreshed tree. Publication rechecks release identity, the
+validated main revision and daily quota; a later race still fails safely.
 A release PR uses `docs/release-vX.Y.Z-<sha>` and contains one release lifecycle
 concern, including the mechanical snapshot copy. This whole-snapshot operation
 is exempt from the ordinary 999-line cap; normal main/maintenance PRs retain it.

@@ -219,6 +219,9 @@ jobs:
           path: ${{ runner.temp }}/release-docs
       - name: Require all accepted batches and stage the release snapshot
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" finalize
+      - name: Refresh unrelated working-page edits before final validation
+        id: baseline
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" refresh
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
@@ -237,6 +240,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.DOC_SYNC_TOKEN || github.token }}
           DRY_RUN: ${{ inputs.dry-run }}
+          DOCS_PUBLISH_BASE: ${{ steps.baseline.outputs.base }}
         run: |
           gh auth setup-git
           python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" publish

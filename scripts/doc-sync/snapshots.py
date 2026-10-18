@@ -316,12 +316,43 @@ def finalize(ctx, directory):
     docs.mutate_git('diff', '--cached', '--check')
 
 
+def refresh_base(ctx):
+    """Keep reviewed release data while accepting unrelated working-page edits."""
+    repo = os.environ['GITHUB_REPOSITORY']
+    live = releases.api(f'repos/{repo}/commits/main')['sha']
+    if not re.fullmatch(r'[0-9a-f]{40}', live):
+        raise ValueError('Invalid documentation base')
+    if docs.git('rev-parse', 'HEAD') != ctx['base']:
+        raise ValueError('Release audit base changed before refresh')
+    if live != ctx['base']:
+        docs.mutate_git('fetch', '--no-tags', 'origin', live)
+        docs.git('merge-base', '--is-ancestor', ctx['base'], live)
+        changes = docs.git('diff', '--name-status', ctx['base'], live).splitlines()
+        for line in changes:
+            status, path = line.split('\t', 1)
+            if status != 'M' or not path.startswith(docs.DOC_ROOT) or not path.endswith('.md'):
+                raise ValueError('Release audit inputs changed; rerun on a fresh base')
+        seed = make_seed(live, ctx['release'], ctx['main_manifest'])
+        digest = hashlib.sha256(b''.join(p.encode() + b'\0' + v for p, v in sorted(seed.items()))).hexdigest()
+        if digest != ctx['seed_digest']:
+            raise ValueError('Release snapshot seed changed; rerun on a fresh base')
+        patch = subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null',
+                                         'diff', '--cached', '--binary', ctx['base']])
+        docs.mutate_git('reset', '--hard', live)
+        if patch:
+            subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', 'apply', '--index'],
+                           input=patch, check=True)
+        print('Refreshed working-document changes; reviewed release data is unchanged')
+    outputs(base=live)
+
+
 def publish(ctx):
     """Publish a reviewed snapshot; reuse idle branches with a compare-and-swap push."""
     releases.verify(ctx['release'])
     repo = os.environ['GITHUB_REPOSITORY']
     live = releases.api(f'repos/{repo}/commits/main')['sha']
-    if live != ctx['base']:
+    base = os.environ.get('DOCS_PUBLISH_BASE', ctx['base'])
+    if live != base or docs.git('rev-parse', 'HEAD') != base:
         raise ValueError('Docs main changed during the release audit; rerun on a fresh base')
     name = branch(ctx['release'])
     ref = f'refs/heads/{name}'
@@ -377,6 +408,8 @@ def main():
         review(ctx, index, directory)
     elif command == 'finalize':
         seed_context(ctx); finalize(ctx, directory)
+    elif command == 'refresh':
+        refresh_base(ctx)
     elif command == 'publish':
         publish(ctx)
     else:

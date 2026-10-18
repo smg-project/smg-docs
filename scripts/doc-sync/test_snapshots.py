@@ -205,6 +205,112 @@ class SnapshotGitTests(unittest.TestCase):
         self.assertFalse(any('v1.12.0/' in p for p in changed))
 
 
+class RefreshBaseTests(unittest.TestCase):
+    git = SnapshotGitTests.git
+    cleanup = SnapshotGitTests.cleanup
+    context = SnapshotGitTests.context
+    bundle = SnapshotGitTests.bundle
+    verdict = SnapshotGitTests.verdict
+
+    def setUp(self):
+        SnapshotGitTests.setUp(self)
+        self.context()
+        self.git('add', '.'); self.git('commit', '-qm', 'authored release snapshot')
+        self.base = self.git('rev-parse', 'HEAD')
+        self.remote = str(Path(self.evidence.name) / 'remote.git')
+        self.upstream = str(Path(self.evidence.name) / 'upstream')
+        self.git('init', '--bare', '-q', self.remote)
+        self.git('remote', 'add', 'origin', self.remote)
+        self.git('push', '-q', 'origin', 'HEAD:refs/heads/main')
+        self.git('clone', '-q', '--branch', 'main', self.remote, self.upstream)
+        self.git('-C', self.upstream, 'config', 'user.name', 'Test')
+        self.git('-C', self.upstream, 'config', 'user.email', 'test@example.com')
+        mocker = patch.dict(os.environ, {'GITHUB_REPOSITORY': 'smg-project/smg-docs'})
+        mocker.start(); self.addCleanup(mocker.stop)
+
+    def stage_reviewed_snapshot(self):
+        ctx, _ = self.context()
+        Path(self.paths[1]).write_text('# Independently reviewed release contract\n')
+        value = self.bundle(ctx)
+        directory = Path(self.evidence.name)
+        s.write_json(directory / 'bundle-0.json', value)
+        s.write_json(directory / 'review-0.json', self.verdict(ctx, value))
+        s.finalize(ctx, directory)
+        return ctx, value
+
+    def advance_main(self, path, text):
+        output = Path(self.upstream) / path
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(text)
+        self.git('-C', self.upstream, 'add', '.')
+        self.git('-C', self.upstream, 'commit', '-qm', 'concurrent main update')
+        self.git('-C', self.upstream, 'push', '-q', 'origin', 'HEAD:refs/heads/main')
+        return self.git('-C', self.upstream, 'rev-parse', 'HEAD')
+
+    def refresh(self, ctx, live):
+        with patch.object(releases, 'api', return_value={'sha': live}), patch.object(s, 'outputs') as out:
+            s.refresh_base(ctx)
+            out.assert_called_once_with(base=live)
+
+    def test_working_page_edit_keeps_reviewed_bytes_and_uses_new_base(self):
+        ctx, value = self.stage_reviewed_snapshot()
+        live = self.advance_main(docs.DOC_ROOT + 'reference/index.md', '# Updated main docs\n')
+        self.refresh(ctx, live)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), live)
+        self.assertEqual(Path(docs.DOC_ROOT + 'reference/index.md').read_text(), '# Updated main docs\n')
+        self.assertEqual(Path(self.paths[1]).read_text(), value['files'][self.paths[1]])
+        self.assertEqual(s.bundle_hash(s.read_json(Path(self.evidence.name) / 'bundle-0.json')),
+                         s.bundle_hash(value))
+        self.assertFalse(any(p.startswith(docs.DOC_ROOT) for p in
+                             self.git('diff', '--cached', '--name-only').splitlines()))
+        with patch.dict(os.environ, {'DOCS_PUBLISH_BASE': live, 'DRY_RUN': 'true'}), \
+                patch.object(releases, 'api', return_value={'sha': live}), \
+                patch.object(releases, 'verify'), patch.object(docs, 'existing_prs', return_value=[]):
+            s.publish(ctx)
+
+    def test_concurrent_release_page_edit_blocks_refresh(self):
+        ctx, value = self.stage_reviewed_snapshot()
+        live = self.advance_main(self.paths[1], '# Concurrent release fix\n')
+        with self.assertRaisesRegex(ValueError, 'inputs changed'):
+            self.refresh(ctx, live)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), ctx['base'])
+        self.assertEqual(Path(self.paths[1]).read_text(), value['files'][self.paths[1]])
+
+    def test_new_main_page_requires_fresh_coverage(self):
+        ctx, _ = self.stage_reviewed_snapshot()
+        live = self.advance_main(docs.DOC_ROOT + 'reference/new.md', '# New main page\n')
+        with self.assertRaisesRegex(ValueError, 'inputs changed'):
+            self.refresh(ctx, live)
+
+    def test_tooling_change_requires_fresh_validation(self):
+        ctx, _ = self.stage_reviewed_snapshot()
+        live = self.advance_main('package.json', '{}\n')
+        with self.assertRaisesRegex(ValueError, 'inputs changed'):
+            self.refresh(ctx, live)
+
+    def test_main_edit_that_changes_copied_snapshot_seed_is_rejected(self):
+        self.git('rm', self.paths[1]); self.git('commit', '-qm', 'incomplete prepared snapshot')
+        self.base = self.git('rev-parse', 'HEAD')
+        self.git('push', '-q', 'origin', 'HEAD:refs/heads/main')
+        self.git('-C', self.upstream, 'fetch', '-q', 'origin')
+        self.git('-C', self.upstream, 'reset', '--hard', 'origin/main')
+        ctx, _ = self.stage_reviewed_snapshot()
+        live = self.advance_main(docs.DOC_ROOT + 'reference/feature.md', '# Changed seed source\n')
+        with self.assertRaisesRegex(ValueError, 'seed changed'):
+            self.refresh(ctx, live)
+
+    def test_race_after_refresh_still_blocks_publication(self):
+        ctx, _ = self.stage_reviewed_snapshot()
+        path = docs.DOC_ROOT + 'reference/index.md'
+        live = self.advance_main(path, '# Main edit\n')
+        self.refresh(ctx, live)
+        newer = self.advance_main(path, '# Another main edit\n')
+        with patch.dict(os.environ, {'DOCS_PUBLISH_BASE': live, 'DRY_RUN': 'true'}), \
+                patch.object(releases, 'api', return_value={'sha': newer}), patch.object(releases, 'verify'):
+            with self.assertRaisesRegex(ValueError, 'Docs main changed'):
+                s.publish(ctx)
+
+
 class ReleasePublishTests(unittest.TestCase):
     """Exercise retry publication and races against an actual local bare remote."""
     git = SnapshotGitTests.git

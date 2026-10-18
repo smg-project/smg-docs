@@ -191,9 +191,9 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 
 ³ Kimi-K3 media stay on the router path: vLLM's Kimi-K3 processor expands a different anchor than the one SMG renders (smg-project/smg#2644).
 
-⁴ Muse Spark is served on TokenSpeed workers only: its tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`).
+⁴ Muse Spark media are served on TokenSpeed workers only: the tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`).
 
-Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 audio clips per request on checkpoints that ship the audio tower. Each clip is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token), and the clip's placeholder run in the prompt is that token count.
+Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 audio clips per request on checkpoints that ship the audio tower. Each Muse Spark clip is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token), and the clip's placeholder run in the prompt is that token count.
 
 ### Engine Support
 

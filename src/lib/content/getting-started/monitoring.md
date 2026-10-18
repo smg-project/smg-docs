@@ -208,7 +208,7 @@ If you deploy with the SMG Helm chart, set `router.metrics.serviceMonitor.enable
 
 Several of these exist only when their feature is on: admission metrics need `--max-concurrent-requests` (the multimodal rejection reasons need `--multimodal-max-inflight-bytes` instead), the `smg_workers_overloaded` gauge needs worker overload protection, and PD metrics need PD mode.
 
-SMG publishes `smg_worker_overload_shed_total` at zero for every stage from start-up, whether or not overload protection is enabled, so the series exist before any shed; only the `smg_workers_overloaded` gauge waits for protection to flag a worker. See [Overload Protection Metrics](../reference/metrics.md#overload-protection-metrics).
+SMG publishes `smg_worker_overload_shed_total` at zero for every stage from start-up, whether or not overload protection is enabled, so the per-stage series exist before any shed; only the `smg_workers_overloaded` gauge waits for protection to flag a worker. See [Overload Protection Metrics](../reference/metrics.md#overload-protection-metrics).
 
 [View all metrics →](../reference/metrics.md)
 
@@ -517,7 +517,7 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
     4. Verify metric names against the [Metrics Reference](../reference/metrics.md). Names such as `smg_router_stage_duration_seconds` and the `smg_db_*` metrics are declared in code but never emitted.
 
-    SMG publishes the overload-shed and retry families at zero from start-up — whether or not overload protection is enabled — and each worker's circuit-breaker transition counters at zero when that worker is registered. The start-up retry series cover the `regular`, `prefill`, and `decode` worker types only; the external-provider counters (`worker_type="external"`) appear only on their first event: `smg_worker_retries_total` on the first retry, `smg_worker_retries_exhausted_total` on the first exhaustion. Absence of the start-up families therefore points at a scrape problem rather than inactivity, while a missing transition series means no worker with that label is registered. The [Metrics Reference](../reference/metrics.md) lists the exact series.
+    SMG publishes the overload-shed and retry families at zero from start-up, whether or not overload protection is enabled. Each worker's circuit-breaker transition counters are likewise published at zero when that worker is registered. The start-up retry series cover the `regular`, `prefill`, and `decode` worker types only; the external-provider counters (`worker_type="external"`) appear only on their first event: `smg_worker_retries_total` on the first retry, `smg_worker_retries_exhausted_total` on the first exhaustion. Absence of the start-up families therefore points at a scrape problem rather than inactivity, while a missing transition series means no worker with that label is registered. The [Metrics Reference](../reference/metrics.md) lists the exact series.
 
 ---
 

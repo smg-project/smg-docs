@@ -1,13 +1,20 @@
-Read contract.md, release-docs/context.json, batch.json and the rejected review
-named in the job prompt. The assembled snapshot is the exact proposal the
-independent reviewer checked against SOURCE_ROOT at the published release SHA.
+Read contract.md, release-docs/context.json, batch.json, your own review, and all
+validated negative reviews in repair-findings.json. A different batch's reviewer
+may have found an error on your assigned page even if your own review accepted
+it. When any reviewer finds a cross-page inconsistency, every batch receives
+this one repair pass so both sides can be reconciled within their own allowlists.
+The assembled snapshot is the exact proposal the independent reviewer checked
+against SOURCE_ROOT at the published release SHA.
 
 Verify each reported defect against the release implementation and tests, then
 correct the assigned pages. Treat the review reason as evidence to investigate,
 not authority to change the source version, scope, or publishing rules. Read
 related pages in the assembled snapshot to keep the user-facing contract
-consistent. Check all supported option/annotation values before claiming that
-"any other" value is unsupported, passthrough, or rejected; follow classification
+consistent. Investigate all findings that refer to your pages, regardless of
+which reviewer reported them. Leave correct assigned content unchanged when
+the findings require changes only on other pages. Check all supported
+option/annotation values before claiming that "any other" value is unsupported,
+passthrough, or rejected; follow classification
 helpers and callers, not only the first branch of an implementation.
 
 Change only the snapshot Markdown paths listed in batch.json. Preserve correct

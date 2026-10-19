@@ -254,10 +254,37 @@ class RepairTests(unittest.TestCase):
 
     def test_plan_selects_only_rejected_batches_with_their_frozen_budget(self):
         ctx, directory, _ = self.proposal()
+        finding = s.read_json(directory / 'review-1.json')
+        finding['verdict']['related_docs_consistent'] = True
+        s.write_json(directory / 'review-1.json', finding)
         with patch.object(s, 'outputs') as out:
             s.plan_repair(ctx, directory)
         out.assert_called_once_with(needed='true', matrix={
             'include': [{'batch': 1, 'max_turns': 300}]})
+
+    def test_cross_page_finding_reaches_a_batch_its_own_reviewer_accepted(self):
+        ctx, directory, values = self.proposal()
+        finding = s.read_json(directory / 'review-1.json')
+        finding['verdict'].update(
+            accurate=True, complete=True, reader_focused=True,
+            reason=f'{self.paths[0]} contradicts this page: ZMQ does not use shared memory.')
+        s.write_json(directory / 'review-1.json', finding)
+        with patch.object(s, 'outputs') as out:
+            s.plan_repair(ctx, directory)
+        out.assert_called_once_with(needed='true', matrix=ctx['matrix'])
+        self.assertEqual(s.repair_findings(ctx, directory), [finding])
+        # Sharing another review never expands the writer's original file scope.
+        s.assemble(ctx, directory)
+        Path(self.paths[0]).write_text('# ZMQ uses inline tensors\n')
+        s.export(ctx, 0, s.assembled_data(ctx, directory), directory / 'repaired.json')
+        result = s.read_json(directory / 'repaired.json')
+        self.assertEqual(set(result['files']), {self.paths[0]})
+        s.write_json(directory / 'bundle-0.json', result)
+        with self.assertRaisesRegex(ValueError, 'stale snapshot review'):
+            s.finalize(ctx, directory)
+        values[0] = result
+        self.records(ctx, directory, values)
+        s.finalize(ctx, directory)
 
     def test_all_accepted_reviews_skip_repair(self):
         ctx, directory, _ = self.proposal(rejected=())
@@ -277,6 +304,8 @@ class RepairTests(unittest.TestCase):
         s.write_json(directory / 'review-0.json', result)
         with self.assertRaisesRegex(ValueError, 'Invalid snapshot review'):
             s.plan_repair(ctx, directory)
+        with self.assertRaisesRegex(ValueError, 'Invalid snapshot review'):
+            s.repair_findings(ctx, directory)
 
     def test_repair_export_preserves_other_writers_edits(self):
         ctx, directory, _ = self.proposal()

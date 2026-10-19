@@ -103,8 +103,10 @@ jobs:
             Follow ${{ runner.temp }}/nightly-docs-tools/release-write.md.
             Evidence is in ${{ runner.temp }}/release-docs and source in
             ${{ github.workspace }}/.nightly-source.
+            Your hard budget is ${{ matrix.max_turns }} turns; reserve the last
+            60 turns for verified edits or the complete review verdict.
           claude_args: >-
-            --model claude-fable-5 --effort xhigh --max-turns 180
+            --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
       - name: Export Markdown data with strict page isolation
@@ -163,8 +165,10 @@ jobs:
             Follow ${{ runner.temp }}/nightly-docs-tools/release-review.md.
             Evidence is in ${{ runner.temp }}/release-docs and source in
             ${{ github.workspace }}/.nightly-source.
+            Your hard budget is ${{ matrix.max_turns }} turns; reserve the last
+            60 turns for verified edits or the complete review verdict.
           claude_args: >-
-            --model claude-fable-5 --effort xhigh --max-turns 180
+            --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
             --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason"]}'
       - name: Require independent review and exact page coverage

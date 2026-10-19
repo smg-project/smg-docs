@@ -22,6 +22,7 @@ If anything remains unverified, reject with a concrete reason. Never claim an
 exhaustive source audit solely from the supplied history. Coverage means every
 assigned documentation page was read and verified to the extent of its claims.
 Focus investigation on the assigned one or two pages and their related claims;
-other batches cover the rest. Reserve the last 40 turns for the complete verdict.
+other batches cover the rest. Reserve the last 60 turns for the complete verdict.
 Read-only; never modify files, publish, comment or invoke agents. Target 100 turns
-within 180, reserving time for the complete structured verdict.
+for ordinary batches or 180 for an oversized page, within the hard budget supplied
+in the job prompt.

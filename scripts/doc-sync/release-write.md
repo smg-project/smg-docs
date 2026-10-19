@@ -29,8 +29,10 @@ audit. Keep all index pages useful. Do not create new file paths.
 Work only on the assigned one or two pages; the other batches cover the rest of
 the snapshot. Start with the page's claims and use focused searches in the source
 and histories. Do not read the entire release history or audit unrelated subsystems.
-Reserve the last 40 turns to finish verified edits and report any unresolved gaps.
+Reserve the last 60 turns to finish verified edits and report any unresolved gaps.
 
 This job is one batch of a whole-release snapshot audit, not an ordinary concern
 PR. The ordinary 999-line cap does not apply to the snapshot lifecycle PR. Keep
-changes minimal and relevant to this release. Target 100 turns and finish within 180. Do not commit, push, comment, invoke agents or run shell commands.
+changes minimal and relevant to this release. Target 100 turns for ordinary
+batches or 180 for an oversized page, within the hard budget supplied in the job
+prompt. Do not commit, push, comment, invoke agents or run shell commands.

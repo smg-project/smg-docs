@@ -177,6 +177,15 @@ def audit_batches(pages):
     return batches
 
 
+def audit_matrix(pages, batches):
+    """Keep ordinary audits bounded; give isolated oversized pages headroom."""
+    return {'include': [
+        {'batch': index, 'max_turns': 300 if sum(max(map(len, pages[path]))
+         for path in batch) > MAX_BATCH_BYTES else 180}
+        for index, batch in enumerate(batches)
+    ]}
+
+
 def prepare(directory):
     release = json.loads(os.environ['RELEASE_JSON'])
     releases.verify(release)
@@ -188,8 +197,9 @@ def prepare(directory):
     prefix = root(release['tag']) + 'content/'
     paths = sorted(path for path in seed if path.startswith(prefix) and path.endswith('.md'))
     main_pages = tracked_bytes(base, docs.DOC_ROOT)
-    batches = audit_batches({path: (seed[path], main_pages.get(
-        docs.DOC_ROOT + path.removeprefix(prefix), b'')) for path in paths})
+    pages = {path: (seed[path], main_pages.get(
+        docs.DOC_ROOT + path.removeprefix(prefix), b'')) for path in paths}
+    batches = audit_batches(pages)
     if not batches or len(batches) > 256:
         raise ValueError('Invalid release audit coverage')
     ctx = {'base': base, 'release': release, 'main_manifest': manifest, 'batches': batches,
@@ -203,7 +213,7 @@ def prepare(directory):
     docs.source_git('fetch', '--no-tags', 'origin', main_sha)
     excluded = docs.source_git('log', '--format=%H %cs %s', f'{release["sha"]}..{main_sha}')
     (directory / 'excluded-main-history.txt').write_text(excluded + '\n')
-    outputs(matrix={'include': [{'batch': n} for n in range(len(batches))]}, base=base)
+    outputs(matrix=audit_matrix(pages, batches), base=base)
 
 
 def batch_paths(ctx, index):

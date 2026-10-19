@@ -41,6 +41,15 @@ class AuditBatchTests(unittest.TestCase):
                                          'b.md': (b'small', b'small')}),
                          [['a.md'], ['b.md']])
 
+    def test_turn_budget_grows_only_for_isolated_oversized_pages(self):
+        pages = {'a.md': (b'x' * s.MAX_BATCH_BYTES,),
+                 'b.md': (b'small', b'x' * (s.MAX_BATCH_BYTES + 1)),
+                 'c.md': (b'small',)}
+        batches = s.audit_batches(pages)
+        self.assertEqual(s.audit_matrix(pages, batches), {'include': [
+            {'batch': 0, 'max_turns': 180}, {'batch': 1, 'max_turns': 300},
+            {'batch': 2, 'max_turns': 180}]})
+
 
 class SelectionTests(unittest.TestCase):
     def test_no_new_release_leaves_future_prepared_snapshot_alone(self):

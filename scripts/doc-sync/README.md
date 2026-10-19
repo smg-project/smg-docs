@@ -239,6 +239,8 @@ does not record the same verified release identity. It preserves existing snapsh
 Markdown and images, copies missing pages/assets from main, and freezes navigation
 and aliases. Writers audit at most two pages per batch, with a 48 KiB reading
 budget based on the larger of each snapshot/main page; larger pages run alone.
+Ordinary batches have a 180-turn hard limit; isolated oversized pages receive
+300 turns for both writing and independent review, with completion headroom.
 They audit against the immutable release
 checkout: remove main-only behavior, correct stale claims, and add missing released
 behavior. Every page, including unchanged pages, requires independent review.

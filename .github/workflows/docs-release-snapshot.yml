@@ -190,6 +190,7 @@ jobs:
     outputs:
       needed: ${{ steps.plan.outputs.needed }}
       matrix: ${{ steps.plan.outputs.matrix }}
+      snapshot_sha: ${{ steps.plan.outputs.snapshot_sha }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -294,7 +295,7 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-  final-review:
+  review-repair:
     needs: [prepare, assess, repair]
     if: needs.assess.outputs.needed == 'true'
     runs-on: smg-org-runner-cpu
@@ -303,6 +304,127 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BATCH: ${{ matrix.batch }}
+      REPAIR_INPUT_SHA: ${{ needs.assess.outputs.snapshot_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve trusted setup across the documentation checkout
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
+        with:
+          docs-sha: ${{ inputs.docs-sha }}
+          source-ref: ${{ fromJSON(inputs.release-json).sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-context
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-repaired-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - name: Assemble all batches using pristine guards
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repaired
+      - name: Independently review every assigned release page
+        id: review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: >-
+            Follow ${{ runner.temp }}/nightly-docs-tools/release-review.md.
+            Evidence is in ${{ runner.temp }}/release-docs and source in
+            ${{ github.workspace }}/.nightly-source.
+            Your hard budget is ${{ matrix.max_turns }} turns; reserve the last
+            60 turns for verified edits or the complete review verdict.
+          claude_args: >-
+            --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
+            --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason"]}'
+      - name: Record fresh findings after the first repair
+        env:
+          REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" record-review
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-repair-review-${{ matrix.batch }}
+          path: ${{ runner.temp }}/release-docs/review-${{ matrix.batch }}.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  assess-followup:
+    needs: [prepare, assess, review-repair]
+    if: needs.assess.outputs.needed == 'true'
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 15
+    outputs:
+      needed: ${{ steps.plan.outputs.needed }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      snapshot_sha: ${{ steps.plan.outputs.snapshot_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve trusted setup across the documentation checkout
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
+        with:
+          docs-sha: ${{ inputs.docs-sha }}
+          source-ref: ${{ fromJSON(inputs.release-json).sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-context
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-repaired-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-repair-review-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - name: Validate review evidence and select repair coverage
+        id: plan
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" plan-repair
+
+  repair-followup:
+    needs: [prepare, assess-followup]
+    if: needs.assess-followup.outputs.needed == 'true'
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.assess-followup.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
       BATCH: ${{ matrix.batch }}
@@ -335,8 +457,88 @@ jobs:
           pattern: release-repaired-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-repair-review-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - name: Assemble the rejected proposal in an isolated repair job
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repair
+      - name: Correct independently identified documentation defects
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: >-
+            Follow ${{ runner.temp }}/nightly-docs-tools/release-repair.md.
+            Evidence is in ${{ runner.temp }}/release-docs and source in
+            ${{ github.workspace }}/.nightly-source. Read all validated findings in
+            repair-findings.json, including other batches' findings about your
+            assigned pages. Your own review is review-${{ matrix.batch }}.json.
+            Your hard budget is
+            ${{ matrix.max_turns }} turns; reserve the last 60 turns to finish.
+          claude_args: >-
+            --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
+            --tools "Read,Glob,Grep,Edit,Write"
+            --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Export repaired Markdown with the original batch allowlist
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" export-repair
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-followup-bundle-${{ matrix.batch }}
+          path: ${{ runner.temp }}/release-docs/bundle-${{ matrix.batch }}.json
+          retention-days: 14
+          if-no-files-found: error
+
+  final-review:
+    needs: [prepare, assess-followup, repair-followup]
+    if: needs.assess-followup.outputs.needed == 'true'
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BATCH: ${{ matrix.batch }}
+      REPAIR_INPUT_SHA: ${{ needs.assess-followup.outputs.snapshot_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve trusted setup across the documentation checkout
+        run: |
+          mkdir -p .nightly-action
+          cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
+      - uses: ./.nightly-action
+        with:
+          docs-sha: ${{ inputs.docs-sha }}
+          source-ref: ${{ fromJSON(inputs.release-json).sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-context
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-repaired-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-followup-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
       - name: Assemble all batches using pristine guards
-        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repaired
       - name: Independently review every assigned release page
         id: review
         uses: anthropics/claude-code-action@v1
@@ -366,11 +568,14 @@ jobs:
           if-no-files-found: warn
 
   publish:
-    needs: [prepare, assess, repair, final-review]
+    needs: [prepare, assess, repair, review-repair, assess-followup, repair-followup, final-review]
     if: >-
       always() && needs.prepare.result == 'success' && needs.assess.result == 'success' &&
       (needs.assess.outputs.needed == 'false' ||
-      (needs.repair.result == 'success' && needs.final-review.result == 'success'))
+      (needs.repair.result == 'success' && needs.review-repair.result == 'success' &&
+      needs.assess-followup.result == 'success' &&
+      (needs.assess-followup.outputs.needed == 'false' ||
+      (needs.repair-followup.result == 'success' && needs.final-review.result == 'success'))))
     runs-on: smg-org-runner-cpu
     timeout-minutes: 30
     permissions:
@@ -408,9 +613,15 @@ jobs:
           pattern: release-repaired-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
+      - if: needs.assess-followup.outputs.needed == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-followup-bundle-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
       - uses: actions/download-artifact@v4
         with:
-          pattern: ${{ needs.assess.outputs.needed == 'true' && 'release-final-review-*' || 'release-review-*' }}
+          pattern: ${{ needs.assess-followup.outputs.needed == 'true' && 'release-final-review-*' || needs.assess.outputs.needed == 'true' && 'release-repair-review-*' || 'release-review-*' }}
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
       - name: Require all accepted batches and stage the release snapshot

@@ -260,7 +260,8 @@ class RepairTests(unittest.TestCase):
         with patch.object(s, 'outputs') as out:
             s.plan_repair(ctx, directory)
         out.assert_called_once_with(needed='true', matrix={
-            'include': [{'batch': 1, 'max_turns': 300}]})
+            'include': [{'batch': 1, 'max_turns': 300}]},
+            snapshot_sha=s.proposal_hash(ctx, directory))
 
     def test_cross_page_finding_reaches_a_batch_its_own_reviewer_accepted(self):
         ctx, directory, values = self.proposal()
@@ -271,7 +272,8 @@ class RepairTests(unittest.TestCase):
         s.write_json(directory / 'review-1.json', finding)
         with patch.object(s, 'outputs') as out:
             s.plan_repair(ctx, directory)
-        out.assert_called_once_with(needed='true', matrix=ctx['matrix'])
+        out.assert_called_once_with(needed='true', matrix=ctx['matrix'],
+                                    snapshot_sha=s.proposal_hash(ctx, directory))
         self.assertEqual(s.repair_findings(ctx, directory), [finding])
         # Sharing another review never expands the writer's original file scope.
         s.assemble(ctx, directory)
@@ -290,8 +292,56 @@ class RepairTests(unittest.TestCase):
         ctx, directory, _ = self.proposal(rejected=())
         with patch.object(s, 'outputs') as out:
             s.plan_repair(ctx, directory)
-        out.assert_called_once_with(needed='false', matrix={'include': []})
+        out.assert_called_once_with(needed='false', matrix={'include': []},
+                                    snapshot_sha=s.proposal_hash(ctx, directory))
         s.finalize(ctx, directory)
+
+    def test_unchanged_rejected_proposal_cannot_get_another_review(self):
+        ctx, directory, values = self.proposal()
+        before = s.proposal_hash(ctx, directory)
+        with self.assertRaisesRegex(ValueError, 'unchanged'):
+            s.require_repair_change(ctx, directory, before)
+        for invalid in ['', 'bad', 'a' * 40]:
+            with self.assertRaisesRegex(ValueError, 'trusted pre-repair'):
+                s.require_repair_change(ctx, directory, invalid)
+        values[1]['files'][self.paths[1]] = '# Corrected released behavior\n'
+        s.write_json(directory / 'bundle-1.json', values[1])
+        s.require_repair_change(ctx, directory, before)
+        with self.assertRaisesRegex(ValueError, 'stale'):
+            s.finalize(ctx, directory)
+
+    def test_new_cross_page_findings_after_repair_require_correction_and_fresh_reviews(self):
+        ctx, directory, values = self.proposal()
+        before = s.proposal_hash(ctx, directory)
+        values[1]['files'][self.paths[1]] = '# First correction\n'
+        s.write_json(directory / 'bundle-1.json', values[1])
+        s.require_repair_change(ctx, directory, before)
+        self.records(ctx, directory, values, rejected=(0,))
+        new_finding = s.read_json(directory / 'review-0.json')
+        new_finding['verdict'].update(
+            accurate=True, complete=True, reader_focused=True,
+            reason=f'{self.paths[1]} uses an example path the release validator rejects.')
+        s.write_json(directory / 'review-0.json', new_finding)
+        self.assertEqual(s.repair_findings(ctx, directory), [new_finding])
+        with patch.object(s, 'outputs') as out:
+            s.plan_repair(ctx, directory)
+        out.assert_called_once_with(needed='true', matrix=ctx['matrix'],
+                                    snapshot_sha=s.proposal_hash(ctx, directory))
+        before = s.proposal_hash(ctx, directory)
+        s.assemble(ctx, directory)
+        Path(self.paths[1]).write_text('# Corrected example path\n')
+        s.export(ctx, 1, s.assembled_data(ctx, directory), directory / 'next.json')
+        values[1] = s.read_json(directory / 'next.json')
+        s.write_json(directory / 'bundle-1.json', values[1])
+        s.require_repair_change(ctx, directory, before)
+        with self.assertRaisesRegex(ValueError, 'stale'):
+            s.finalize(ctx, directory)
+        self.records(ctx, directory, values, rejected=(0,))
+        with self.assertRaisesRegex(ValueError, 'rejected'):
+            s.finalize(ctx, directory)
+        self.records(ctx, directory, values)
+        s.finalize(ctx, directory)
+        self.assertEqual(Path(self.paths[1]).read_text(), '# Corrected example path\n')
 
     def test_missing_or_malformed_review_is_fatal_not_repairable(self):
         ctx, directory, values = self.proposal()
@@ -382,7 +432,8 @@ class RepairTests(unittest.TestCase):
         with patch.object(s, 'outputs') as out:
             s.plan_repair(ctx, directory)
         out.assert_called_once_with(needed='true', matrix={
-            'include': [{'batch': 1, 'max_turns': 300}]})
+            'include': [{'batch': 1, 'max_turns': 300}]},
+            snapshot_sha=s.proposal_hash(ctx, directory))
 
     def test_finalization_rechecks_reader_rules_even_if_review_claims_acceptance(self):
         ctx, directory, values = self.proposal(rejected=())

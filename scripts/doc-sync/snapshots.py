@@ -376,8 +376,17 @@ def plan_repair(ctx, directory):
     matrix = {'include': [item for item in ctx['matrix']['include'] if item['batch'] in selected]}
     if {item['batch'] for item in matrix['include']} != selected:
         raise ValueError('Repair plan did not cover every rejected batch')
-    outputs(needed=str(bool(selected)).lower(), matrix=matrix)
+    outputs(needed=str(bool(selected)).lower(), matrix=matrix,
+            snapshot_sha=proposal_hash(ctx, directory))
     print(f'{len(findings)} rejected batches; {len(selected)} batches selected for bounded repair')
+
+
+def require_repair_change(ctx, directory, previous_sha):
+    """Never solicit another verdict on an unchanged rejected proposal."""
+    if not re.fullmatch(r'[0-9a-f]{64}', previous_sha):
+        raise ValueError('Missing trusted pre-repair snapshot hash')
+    if proposal_hash(ctx, directory) == previous_sha:
+        raise ValueError('Repair left the rejected snapshot unchanged')
 
 
 def finalize(ctx, directory):
@@ -487,9 +496,11 @@ def main():
         # Do not re-seed here: it would overwrite the writer's work.
         seed = make_seed(ctx['base'], ctx['release'], ctx['main_manifest'])
         export(ctx, index, seed, directory / f'bundle-{index}.json')
-    elif command in ('assemble', 'assemble-repair'):
+    elif command in ('assemble', 'assemble-repair', 'assemble-repaired'):
         if command == 'assemble-repair':
             write_json(directory / 'repair-findings.json', repair_findings(ctx, directory))
+        if command == 'assemble-repaired':
+            require_repair_change(ctx, directory, os.environ.get('REPAIR_INPUT_SHA', ''))
         seed_context(ctx); assemble(ctx, directory)
         write_json(directory / 'batch.json', {'paths': batch_paths(ctx, index), 'release': ctx['release']})
     elif command in ('review', 'record-review'):

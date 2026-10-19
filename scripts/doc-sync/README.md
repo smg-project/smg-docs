@@ -248,7 +248,7 @@ All writer batches are assembled before reviewers check cross-page consistency.
 Deterministic reader checks cover the complete release pages, including inherited
 PR/source citations and unreleased narration. These findings are appended to the
 review and cannot be overridden by an accepting model verdict.
-A valid negative verdict triggers one repair pass in separate writer jobs. Local
+Valid negative verdicts allow at most two correction passes in separate writer jobs. Local
 findings select rejected batches; a cross-page inconsistency selects every batch
 because another page's reviewer may have missed the defect. Each writer reads all
 validated negative findings and corrects only its assigned pages, leaving correct
@@ -256,7 +256,9 @@ content unchanged. Missing, malformed or stale review evidence remains fatal. Re
 keep the original page allowlists; every page is then independently reviewed again
 in pristine read-only jobs. Each verdict binds both its own batch and the entire
 assembled snapshot, so a changed related page invalidates earlier reviews. A
-remaining negative verdict blocks publication; the workflow never retries reviews
+remaining negative verdict after the second pass blocks publication. New findings
+after the first correction feed the second pass. Each pass must change the
+rejected snapshot before any fresh review; the workflow never retries reviews
 until an unchanged proposal happens to pass.
 Only data crosses into pristine review/publication jobs. Missing, rejected,
 wrong-base or altered bundles block the entire snapshot PR. Unsupported pages

@@ -41,3 +41,12 @@ PR. The ordinary 999-line cap does not apply to the snapshot lifecycle PR. Keep
 changes minimal and relevant to this release. Target 100 turns for ordinary
 batches or 180 for an oversized page, within the hard budget supplied in the job
 prompt. Do not commit, push, comment, invoke agents or run shell commands.
+
+Verify operational claims through the active call path: configuration and
+validation, caller/transport selection, overrides, and the final consumer. A
+helper's capability, CLI help string, code comment, or an adapter's ability to
+read a payload is not proof that the selected path uses it. Check early returns
+and flags reset by callers. Check example values and paths against validators,
+timeout scope against middleware on both buffered and streamed requests, and
+metric timing against the actual recording anchor. Compare these same claims
+in concept pages, examples, configuration tables and metric references.

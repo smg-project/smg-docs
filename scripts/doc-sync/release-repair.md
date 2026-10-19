@@ -2,7 +2,7 @@ Read contract.md, release-docs/context.json, batch.json, your own review, and al
 validated negative reviews in repair-findings.json. A different batch's reviewer
 may have found an error on your assigned page even if your own review accepted
 it. When any reviewer finds a cross-page inconsistency, every batch receives
-this one repair pass so both sides can be reconciled within their own allowlists.
+this repair pass so both sides can be reconciled within their own allowlists.
 The assembled snapshot is the exact proposal the independent reviewer checked
 against SOURCE_ROOT at the published release SHA.
 
@@ -23,7 +23,10 @@ other pages, main docs, older versions, navigation, manifests, images, scripts,
 review records or evidence. If a required correction falls outside your assigned
 paths or cannot be verified, report it instead of inventing a claim. A separate,
 pristine, read-only reviewer will recheck every page of the assembled snapshot;
-any remaining defect blocks the entire release PR.
+there are at most two correction passes, and a remaining final defect blocks
+the entire release PR. A later pass uses the fresh findings on the corrected
+proposal, not a repeated vote on earlier content. Make source-verified
+corrections; an unchanged rejected snapshot cannot proceed to another review.
 
 Write the current user-facing contract. Do not add bug narratives, source-change
 links or shorthand references such as `smg-project/smg#123`, or redundant SMG
@@ -32,3 +35,12 @@ review, including inherited citations. Preserve actionable package/image and
 engine version requirements. Target 100 turns for ordinary batches or 180 for an
 oversized page, within the supplied hard budget. Reserve the last 60 turns to
 finish. Do not commit, push, comment, invoke agents or run shell commands.
+
+Verify operational claims through the active call path: configuration and
+validation, caller/transport selection, overrides, and the final consumer. A
+helper's capability, CLI help string, code comment, or an adapter's ability to
+read a payload is not proof that the selected path uses it. Check early returns
+and flags reset by callers. Check example values and paths against validators,
+timeout scope against middleware on both buffered and streamed requests, and
+metric timing against the actual recording anchor. Compare these same claims
+in concept pages, examples, configuration tables and metric references.

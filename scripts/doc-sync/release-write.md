@@ -16,7 +16,9 @@ features and obsolete version narration, and add missing released behavior to
 existing sections. Keep exact versions in working commands, image tags and engine
 compatibility requirements. Never blindly strip version numbers or preserve a
 false claim after deleting its caveat. New behavior gets a separate concise
-paragraph. No code-change links or implementation history in public prose.
+paragraph. No code-change links, shorthand references such as `smg-project/smg#123`,
+or implementation history in public prose. Remove inherited citations too; this
+is a whole-page audit.
 
 Change only the assigned snapshot Markdown paths. Read other snapshot pages for
 consistency; never change main docs, another release, manifests, images, scripts,

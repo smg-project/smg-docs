@@ -320,11 +320,24 @@ def validate_review(ctx, index, raw):
     return all(raw[gate] for gate in REVIEW_GATES)
 
 
+def reader_bundle_violations(value):
+    # A release audit covers whole pages, including inherited prose.
+    return [{'path': path, 'line': number, 'rule': rule}
+            for path, content in value['files'].items() if content is not None
+            for number, line in enumerate(content.splitlines(), 1)
+            for rule in docs.reader_line_rules(line)]
+
+
 def review(ctx, index, directory, require_accepted=True):
     raw = json.loads(os.environ['REVIEW_JSON'])
     accepted = validate_review(ctx, index, raw)
     value = read_json(directory / f'bundle-{index}.json')
     validate_bundle(ctx, index, value)
+    violations = reader_bundle_violations(value)
+    if violations:
+        raw['reader_focused'] = False
+        raw['reason'] += '\nDeterministic reader-contract findings: ' + json.dumps(violations)
+        accepted = False
     write_json(directory / f'review-{index}.json', {'batch': index, 'bundle_sha': bundle_hash(value),
                'snapshot_sha': proposal_hash(ctx, directory), 'verdict': raw})
     if not accepted and require_accepted:
@@ -342,7 +355,7 @@ def rejected_batches(ctx, directory):
         if (result.get('batch') != index or result.get('bundle_sha') != bundle_hash(value)
                 or result.get('snapshot_sha') != snapshot_sha):
             raise ValueError('Missing or stale snapshot review')
-        if not validate_review(ctx, index, result['verdict']):
+        if not validate_review(ctx, index, result['verdict']) or reader_bundle_violations(value):
             rejected.append(index)
     return rejected
 

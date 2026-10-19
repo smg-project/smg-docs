@@ -344,13 +344,19 @@ def verify_item_release(item):
     source_git('merge-base', '--is-ancestor', item['source_sha'], release['sha'])
 
 
-def reader_doc_violations(base):
-    """Locate citations on added lines so the writer can make a bounded repair."""
+def reader_line_rules(line):
+    """Share deterministic public-document rules across main and release audits."""
     unreleased = re.compile(r"\bunreleased\b|\bcurrent main\b|\bnot yet (?:in |part of )?(?:a |any )?release", re.IGNORECASE)
     citation = re.compile(
         r"github\.com/[^/\s)]+/[^/\s)]+/(?:pull|issues|commit|commits|compare|blob)/"
         r"|\b[\w.-]+/[\w.-]+#\d+"
         r"|\b(?:PR|pull request|issue)\s*#\d+", re.IGNORECASE)
+    return (["code-change-reference"] if citation.search(line) else []) + (
+        ["unreleased-behavior"] if unreleased.search(line) else [])
+
+
+def reader_doc_violations(base):
+    """Locate citations on added lines so the writer can make a bounded repair."""
     violations = []
     for path in git("diff", "--cached", "--name-only", base, "--", DOC_ROOT).splitlines():
         number = None
@@ -359,10 +365,8 @@ def reader_doc_violations(base):
             if hunk:
                 number = int(hunk[1])
             elif number is not None and line.startswith('+'):
-                if citation.search(line[1:]):
-                    violations.append({'path': path, 'line': number, 'rule': 'code-change-reference'})
-                if unreleased.search(line[1:]):
-                    violations.append({'path': path, 'line': number, 'rule': 'unreleased-behavior'})
+                for rule in reader_line_rules(line[1:]):
+                    violations.append({'path': path, 'line': number, 'rule': rule})
                 number += 1
             elif number is not None and line.startswith(' '):
                 number += 1

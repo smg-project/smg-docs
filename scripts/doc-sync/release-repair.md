@@ -19,7 +19,9 @@ pristine, read-only reviewer will recheck every page of the assembled snapshot;
 any remaining defect blocks the entire release PR.
 
 Write the current user-facing contract. Do not add bug narratives, source-change
-links, or redundant SMG version narration. Preserve actionable package/image and
+links or shorthand references such as `smg-project/smg#123`, or redundant SMG
+version narration. Address every deterministic reader-contract finding in the
+review, including inherited citations. Preserve actionable package/image and
 engine version requirements. Target 100 turns for ordinary batches or 180 for an
 oversized page, within the supplied hard budget. Reserve the last 60 turns to
 finish. Do not commit, push, comment, invoke agents or run shell commands.

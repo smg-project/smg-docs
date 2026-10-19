@@ -245,6 +245,9 @@ They audit against the immutable release
 checkout: remove main-only behavior, correct stale claims, and add missing released
 behavior. Every page, including unchanged pages, requires independent review.
 All writer batches are assembled before reviewers check cross-page consistency.
+Deterministic reader checks cover the complete release pages, including inherited
+PR/source citations and unreleased narration. These findings are appended to the
+review and cannot be overridden by an accepting model verdict.
 A valid negative verdict triggers one repair pass for rejected batches in separate
 writer jobs. Missing, malformed or stale review evidence remains fatal. Repairs
 keep the original page allowlists; every page is then independently reviewed again

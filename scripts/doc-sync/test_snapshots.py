@@ -338,6 +338,61 @@ class RepairTests(unittest.TestCase):
                 s.review(ctx, 0, directory, require_accepted=False)
 
 
+    def test_reader_rules_override_accepting_model_and_plan_repair(self):
+        ctx, directory, values = self.proposal(rejected=())
+        values[1]['files'][self.paths[1]] = '# Feature\nInherited claim (smg-project/smg#2584).\n'
+        s.write_json(directory / 'bundle-1.json', values[1])
+        self.records(ctx, directory, values)
+        raw = s.read_json(directory / 'review-1.json')['verdict']
+        with patch.dict(os.environ, REVIEW_JSON=json.dumps(raw)):
+            s.review(ctx, 1, directory, require_accepted=False)
+        recorded = s.read_json(directory / 'review-1.json')['verdict']
+        self.assertFalse(recorded['reader_focused'])
+        self.assertIn('code-change-reference', recorded['reason'])
+        self.assertIn('"line": 2', recorded['reason'])
+        with patch.object(s, 'outputs') as out:
+            s.plan_repair(ctx, directory)
+        out.assert_called_once_with(needed='true', matrix={
+            'include': [{'batch': 1, 'max_turns': 300}]})
+
+    def test_finalization_rechecks_reader_rules_even_if_review_claims_acceptance(self):
+        ctx, directory, values = self.proposal(rejected=())
+        values[1]['files'][self.paths[1]] = '# Feature\nSee https://github.com/smg-project/smg/pull/1.\n'
+        s.write_json(directory / 'bundle-1.json', values[1])
+        self.records(ctx, directory, values)
+        with self.assertRaisesRegex(ValueError, 'rejected'):
+            s.finalize(ctx, directory)
+        raw = s.read_json(directory / 'review-1.json')['verdict']
+        with patch.dict(os.environ, REVIEW_JSON=json.dumps(raw)):
+            with self.assertRaisesRegex(ValueError, 'code-change-reference'):
+                s.review(ctx, 1, directory)
+
+    def test_reader_repair_requires_clean_prose_and_fresh_reviews(self):
+        ctx, directory, values = self.proposal(rejected=())
+        values[1]['files'][self.paths[1]] = '# Feature\nThis unreleased change is in current main.\n'
+        s.write_json(directory / 'bundle-1.json', values[1])
+        self.records(ctx, directory, values)
+        self.assertEqual(s.rejected_batches(ctx, directory), [1])
+        values[1]['files'][self.paths[1]] = '# Feature\nSet the delay to configure the grace period.\n'
+        s.write_json(directory / 'bundle-1.json', values[1])
+        with self.assertRaisesRegex(ValueError, 'stale'):
+            s.finalize(ctx, directory)
+        self.records(ctx, directory, values)
+        s.finalize(ctx, directory)
+        self.assertEqual(Path(self.paths[1]).read_text(), values[1]['files'][self.paths[1]])
+
+    def test_reader_rules_preserve_operational_versions_and_cover_reference_forms(self):
+        content = ('pip install smg==1.13.0\n'
+                   'docker run ghcr.io/sgl-project/smg:v1.13.0\n'
+                   'The worker requires vLLM 0.11.0 or later.\n')
+        self.assertEqual(s.reader_bundle_violations({'files': {'page.md': content}}), [])
+        for citation in ['smg-project/smg#123', 'PR #123', 'issue #123',
+                         'https://github.com/smg-project/smg/commit/abc',
+                         'https://github.com/smg-project/smg/blob/main/file.rs']:
+            self.assertEqual(s.reader_bundle_violations({'files': {'page.md': citation}}),
+                             [{'path': 'page.md', 'line': 1, 'rule': 'code-change-reference'}])
+
+
 class RefreshBaseTests(unittest.TestCase):
     git = SnapshotGitTests.git
     cleanup = SnapshotGitTests.cleanup

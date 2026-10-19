@@ -12,7 +12,8 @@ passes only if its subject is unsupported in this release and incoming links/nav
 are corrected. Do not accept empty/stub pages in place of usable documentation.
 Verify whole pages, not just edited lines. Reject retained main-only features,
 missing released behavior identified in the audit, blind version-word removal,
-obsolete limitations, code-change links, old bug narratives and unnecessary
+obsolete limitations, code-change links or shorthand PR references (including
+inherited citations), old bug narratives and unnecessary
 SMG release qualifiers. Keep actionable command/tag/engine-version requirements.
 
 Check related pages in this assembled target snapshot for contradictions. Main

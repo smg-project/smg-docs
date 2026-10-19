@@ -245,6 +245,13 @@ They audit against the immutable release
 checkout: remove main-only behavior, correct stale claims, and add missing released
 behavior. Every page, including unchanged pages, requires independent review.
 All writer batches are assembled before reviewers check cross-page consistency.
+A valid negative verdict triggers one repair pass for rejected batches in separate
+writer jobs. Missing, malformed or stale review evidence remains fatal. Repairs
+keep the original page allowlists; every page is then independently reviewed again
+in pristine read-only jobs. Each verdict binds both its own batch and the entire
+assembled snapshot, so a changed related page invalidates earlier reviews. A
+remaining negative verdict blocks publication; the workflow never retries reviews
+until an unchanged proposal happens to pass.
 Only data crosses into pristine review/publication jobs. Missing, rejected,
 wrong-base or altered bundles block the entire snapshot PR. Unsupported pages
 may be removed along with their navigation entry; dangling links fail site tests.

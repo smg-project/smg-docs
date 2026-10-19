@@ -17,6 +17,7 @@ MARKER = '<!-- docs-release-sync:'
 SECTIONS = {'getting-started', 'concepts', 'reference', 'contributing'}
 BATCH_SIZE = 2
 MAX_BATCH_BYTES = 48 * 1024
+REVIEW_GATES = ('accurate', 'complete', 'reader_focused', 'related_docs_consistent')
 # Releases already documented before version-aware automation was introduced.
 INITIAL_RELEASE = 'v1.12.0'
 
@@ -202,7 +203,9 @@ def prepare(directory):
     batches = audit_batches(pages)
     if not batches or len(batches) > 256:
         raise ValueError('Invalid release audit coverage')
+    matrix = audit_matrix(pages, batches)
     ctx = {'base': base, 'release': release, 'main_manifest': manifest, 'batches': batches,
+           'matrix': matrix,
            'seed_digest': hashlib.sha256(b''.join(p.encode() + b'\0' + v for p, v in sorted(seed.items()))).hexdigest()}
     write_json(directory / 'context.json', ctx)
     # Files remain on disk for focused reads; never truncate source evidence.
@@ -213,7 +216,7 @@ def prepare(directory):
     docs.source_git('fetch', '--no-tags', 'origin', main_sha)
     excluded = docs.source_git('log', '--format=%H %cs %s', f'{release["sha"]}..{main_sha}')
     (directory / 'excluded-main-history.txt').write_text(excluded + '\n')
-    outputs(matrix=audit_matrix(pages, batches), base=base)
+    outputs(matrix=matrix, base=base)
 
 
 def batch_paths(ctx, index):
@@ -242,7 +245,11 @@ def export(ctx, index, seed, output):
     changed = set(docs.git('diff', '--name-only', 'HEAD').splitlines())
     changed.update(docs.git('ls-files', '--others', '--exclude-standard').splitlines())
     for path in changed - set(paths):
-        if path not in seed or not Path(path).is_file() or Path(path).read_bytes() != seed[path]:
+        p = Path(path)
+        expected = seed.get(path)
+        unchanged = (not p.exists() and not p.is_symlink()) if expected is None else (
+            p.is_file() and not p.is_symlink() and p.read_bytes() == expected)
+        if path not in seed or not unchanged:
             raise ValueError('Release writer changed a file outside its page allowlist')
     if docs.git('rev-parse', 'HEAD') != ctx['base']:
         raise ValueError('Release writer must not commit')
@@ -261,53 +268,98 @@ def bundle_hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
-def assemble(ctx, directory):
+def snapshot_hash(values):
+    return hashlib.sha256(''.join(bundle_hash(value) for value in values).encode()).hexdigest()
+
+
+def proposal_hash(ctx, directory):
+    values = []
+    for index in range(len(ctx['batches'])):
+        value = read_json(directory / f'bundle-{index}.json')
+        validate_bundle(ctx, index, value)
+        values.append(value)
+    return snapshot_hash(values)
+
+
+def assembled_data(ctx, directory):
+    """Derive the entire proposal from trusted seed data and scoped Markdown bundles."""
+    data = make_seed(ctx['base'], ctx['release'], ctx['main_manifest'])
     for index in range(len(ctx['batches'])):
         value = read_json(directory / f'bundle-{index}.json')
         for path, content in validate_bundle(ctx, index, value).items():
-            if content is None:
-                Path(path).unlink(missing_ok=True)
-            else:
-                safe_write(path, content.encode())
+            data[path] = None if content is None else content.encode()
     prefix = root(ctx['release']['tag'])
-    manifest = read_json(prefix + 'manifest.json')
+    manifest = json.loads(data[prefix + 'manifest.json'])
     manifest['pages'] = {route: file for route, file in manifest['pages'].items()
-                         if Path(prefix + 'content/' + file).is_file()}
+                         if data.get(prefix + 'content/' + file) is not None}
     for nav in manifest['navigation'].values():
         for group in nav['sections']:
             group['items'] = [item for item in group['items'] if item['href'] in manifest['pages']]
         nav['sections'] = [group for group in nav['sections'] if group['items']]
-    safe_write(prefix + 'manifest.json', (json.dumps(manifest, indent='\t') + '\n').encode())
+    data[prefix + 'manifest.json'] = (json.dumps(manifest, indent='\t') + '\n').encode()
+    return data
 
 
-def review(ctx, index, directory):
-    raw = json.loads(os.environ['REVIEW_JSON'])
+def assemble(ctx, directory):
+    for path, content in assembled_data(ctx, directory).items():
+        if content is None:
+            Path(path).unlink(missing_ok=True)
+        else:
+            safe_write(path, content)
+
+
+def validate_review(ctx, index, raw):
     paths = batch_paths(ctx, index)
     reviewed = raw.get('reviewed_pages')
     if not isinstance(reviewed, list) or len(reviewed) != len(paths) or set(reviewed) != set(paths):
         raise ValueError('Independent review did not cover every assigned snapshot page')
-    for gate in ('accurate', 'complete', 'reader_focused', 'related_docs_consistent'):
-        if type(raw.get(gate)) is not bool:
-            raise ValueError('Invalid snapshot review')
+    if any(type(raw.get(gate)) is not bool for gate in REVIEW_GATES):
+        raise ValueError('Invalid snapshot review')
     if not isinstance(raw.get('reason'), str) or not raw['reason'].strip():
         raise ValueError('Missing snapshot review evidence')
+    return all(raw[gate] for gate in REVIEW_GATES)
+
+
+def review(ctx, index, directory, require_accepted=True):
+    raw = json.loads(os.environ['REVIEW_JSON'])
+    accepted = validate_review(ctx, index, raw)
     value = read_json(directory / f'bundle-{index}.json')
     validate_bundle(ctx, index, value)
-    write_json(directory / f'review-{index}.json', {'batch': index, 'bundle_sha': bundle_hash(value), 'verdict': raw})
-    if not all(raw[k] for k in ('accurate', 'complete', 'reader_focused', 'related_docs_consistent')):
+    write_json(directory / f'review-{index}.json', {'batch': index, 'bundle_sha': bundle_hash(value),
+               'snapshot_sha': proposal_hash(ctx, directory), 'verdict': raw})
+    if not accepted and require_accepted:
         raise ValueError('Release snapshot review rejected this batch: ' + raw['reason'])
+
+
+def rejected_batches(ctx, directory):
+    """Missing/malformed/stale evidence is fatal, not a repairable content finding."""
+    rejected = []
+    snapshot_sha = proposal_hash(ctx, directory)
+    for index in range(len(ctx['batches'])):
+        value = read_json(directory / f'bundle-{index}.json')
+        validate_bundle(ctx, index, value)
+        result = read_json(directory / f'review-{index}.json')
+        if (result.get('batch') != index or result.get('bundle_sha') != bundle_hash(value)
+                or result.get('snapshot_sha') != snapshot_sha):
+            raise ValueError('Missing or stale snapshot review')
+        if not validate_review(ctx, index, result['verdict']):
+            rejected.append(index)
+    return rejected
+
+
+def plan_repair(ctx, directory):
+    rejected = rejected_batches(ctx, directory)
+    matrix = {'include': [item for item in ctx['matrix']['include'] if item['batch'] in rejected]}
+    if {item['batch'] for item in matrix['include']} != set(rejected):
+        raise ValueError('Repair plan did not cover every rejected batch')
+    outputs(needed=str(bool(rejected)).lower(), matrix=matrix)
+    print(f'{len(rejected)} of {len(ctx["batches"])} batches need a bounded content repair')
 
 
 def finalize(ctx, directory):
     """Require all reviewed data; models cannot forge release metadata or scripts."""
-    for index in range(len(ctx['batches'])):
-        value = read_json(directory / f'bundle-{index}.json')
-        result = read_json(directory / f'review-{index}.json')
-        raw = result['verdict']
-        if (result.get('batch') != index or result.get('bundle_sha') != bundle_hash(value)
-                or set(raw.get('reviewed_pages', [])) != set(batch_paths(ctx, index))
-                or not all(raw.get(k) is True for k in ('accurate', 'complete', 'reader_focused', 'related_docs_consistent'))):
-            raise ValueError('Missing or rejected full snapshot review')
+    if rejected_batches(ctx, directory):
+        raise ValueError('Missing or rejected full snapshot review')
     assemble(ctx, directory)
     safe_write(root(ctx['release']['tag']) + 'sync.json', (json.dumps({
         'source_release': ctx['release'], 'docs_base': ctx['base'],
@@ -414,8 +466,13 @@ def main():
     elif command == 'assemble':
         seed_context(ctx); assemble(ctx, directory)
         write_json(directory / 'batch.json', {'paths': batch_paths(ctx, index), 'release': ctx['release']})
-    elif command == 'review':
-        review(ctx, index, directory)
+    elif command in ('review', 'record-review'):
+        review(ctx, index, directory, require_accepted=command == 'review')
+    elif command == 'plan-repair':
+        plan_repair(ctx, directory)
+    elif command == 'export-repair':
+        # Reconstruct the pre-repair proposal without overwriting the edits.
+        export(ctx, index, assembled_data(ctx, directory), directory / f'bundle-{index}.json')
     elif command == 'finalize':
         seed_context(ctx); finalize(ctx, directory)
     elif command == 'refresh':

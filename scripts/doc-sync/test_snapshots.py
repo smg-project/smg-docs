@@ -138,7 +138,8 @@ class SnapshotGitTests(unittest.TestCase):
                 'files': {p: Path(p).read_text() for p in self.paths}, **changes}
 
     def verdict(self, ctx, value, **changes):
-        return {'batch': 0, 'bundle_sha': s.bundle_hash(value), 'verdict': {
+        return {'batch': 0, 'bundle_sha': s.bundle_hash(value),
+                'snapshot_sha': s.snapshot_hash([value]), 'verdict': {
             'accurate': True, 'complete': True, 'reader_focused': True, 'related_docs_consistent': True,
             'reviewed_pages': self.paths, 'reason': 'Source checked', **changes}}
 
@@ -212,6 +213,129 @@ class SnapshotGitTests(unittest.TestCase):
         changed = self.git('diff','--cached','--name-only').splitlines()
         self.assertFalse(any(p.startswith(docs.DOC_ROOT) for p in changed))
         self.assertFalse(any('v1.12.0/' in p for p in changed))
+
+
+class RepairTests(unittest.TestCase):
+    setUp = SnapshotGitTests.setUp
+    cleanup = SnapshotGitTests.cleanup
+    git = SnapshotGitTests.git
+    context = SnapshotGitTests.context
+
+    def proposal(self, rejected=(1,)):
+        ctx, _ = self.context()
+        ctx['batches'] = [[p] for p in self.paths]
+        ctx['matrix'] = {'include': [{'batch': 0, 'max_turns': 180},
+                                      {'batch': 1, 'max_turns': 300}]}
+        directory = Path(self.evidence.name)
+        values = [{'base': self.base, 'release': RELEASE, 'batch': i,
+                   'files': {p: f'# Writer proposal {i}\n'}} for i, p in enumerate(self.paths)]
+        for i, value in enumerate(values):
+            s.write_json(directory / f'bundle-{i}.json', value)
+        self.records(ctx, directory, values, rejected)
+        return ctx, directory, values
+
+    def records(self, ctx, directory, values, rejected=()):
+        for i, value in enumerate(values):
+            verdict = {gate: i not in rejected for gate in s.REVIEW_GATES}
+            verdict.update(reviewed_pages=ctx['batches'][i], reason='Specific release evidence')
+            s.write_json(directory / f'review-{i}.json', {
+                'batch': i, 'bundle_sha': s.bundle_hash(value),
+                'snapshot_sha': s.snapshot_hash(values), 'verdict': verdict})
+
+    def test_record_rejection_is_repairable_but_cannot_finalize(self):
+        ctx, directory, _ = self.proposal()
+        raw = s.read_json(directory / 'review-1.json')['verdict']
+        with patch.dict(os.environ, REVIEW_JSON=json.dumps(raw)):
+            s.review(ctx, 1, directory, require_accepted=False)
+            with self.assertRaisesRegex(ValueError, 'rejected'):
+                s.review(ctx, 1, directory)
+        with self.assertRaisesRegex(ValueError, 'rejected'):
+            s.finalize(ctx, directory)
+
+    def test_plan_selects_only_rejected_batches_with_their_frozen_budget(self):
+        ctx, directory, _ = self.proposal()
+        with patch.object(s, 'outputs') as out:
+            s.plan_repair(ctx, directory)
+        out.assert_called_once_with(needed='true', matrix={
+            'include': [{'batch': 1, 'max_turns': 300}]})
+
+    def test_all_accepted_reviews_skip_repair(self):
+        ctx, directory, _ = self.proposal(rejected=())
+        with patch.object(s, 'outputs') as out:
+            s.plan_repair(ctx, directory)
+        out.assert_called_once_with(needed='false', matrix={'include': []})
+        s.finalize(ctx, directory)
+
+    def test_missing_or_malformed_review_is_fatal_not_repairable(self):
+        ctx, directory, values = self.proposal()
+        (directory / 'review-0.json').unlink()
+        with self.assertRaises(FileNotFoundError):
+            s.plan_repair(ctx, directory)
+        self.records(ctx, directory, values)
+        result = s.read_json(directory / 'review-0.json')
+        result['verdict']['accurate'] = 'true'
+        s.write_json(directory / 'review-0.json', result)
+        with self.assertRaisesRegex(ValueError, 'Invalid snapshot review'):
+            s.plan_repair(ctx, directory)
+
+    def test_repair_export_preserves_other_writers_edits(self):
+        ctx, directory, _ = self.proposal()
+        s.assemble(ctx, directory)
+        original = Path(self.paths[0]).read_bytes()
+        Path(self.paths[1]).write_text('# Correct released contract\n')
+        s.export(ctx, 1, s.assembled_data(ctx, directory), directory / 'repaired.json')
+        result = s.read_json(directory / 'repaired.json')
+        self.assertEqual(result['files'], {self.paths[1]: '# Correct released contract\n'})
+        self.assertEqual(Path(self.paths[0]).read_bytes(), original)
+
+    def test_repair_export_preserves_other_batch_deletion_and_filtered_nav(self):
+        ctx, directory, values = self.proposal(rejected=(0,))
+        values[1]['files'][self.paths[1]] = None
+        s.write_json(directory / 'bundle-1.json', values[1])
+        s.assemble(ctx, directory)
+        Path(self.paths[0]).write_text('# Correct overview\n')
+        s.export(ctx, 0, s.assembled_data(ctx, directory), directory / 'repaired.json')
+        self.assertFalse(Path(self.paths[1]).exists())
+        manifest = s.read_json(self.prefix + 'manifest.json')
+        self.assertNotIn('reference/feature', manifest['pages'])
+
+    def test_repair_cannot_change_accepted_pages_main_or_metadata(self):
+        ctx, directory, _ = self.proposal()
+        for forbidden in [self.paths[0], docs.DOC_ROOT + 'reference/index.md',
+                          self.prefix + 'manifest.json']:
+            s.assemble(ctx, directory)
+            old = Path(forbidden).read_bytes()
+            Path(forbidden).write_text('Unrelated change\n')
+            with self.assertRaisesRegex(ValueError, 'outside'):
+                s.export(ctx, 1, s.assembled_data(ctx, directory), directory / 'repaired.json')
+            Path(forbidden).write_bytes(old)
+
+    def test_any_repair_invalidates_every_earlier_consistency_review(self):
+        ctx, directory, values = self.proposal()
+        values[1]['files'][self.paths[1]] = '# Correct released contract\n'
+        s.write_json(directory / 'bundle-1.json', values[1])
+        # A fresh review of the repaired page cannot preserve an old verdict for
+        # an unchanged page: that verdict checked the previous related content.
+        old_unchanged = s.read_json(directory / 'review-0.json')
+        self.records(ctx, directory, values)
+        s.write_json(directory / 'review-0.json', old_unchanged)
+        with self.assertRaisesRegex(ValueError, 'stale snapshot review'):
+            s.finalize(ctx, directory)
+        self.records(ctx, directory, values)
+        s.finalize(ctx, directory)
+        self.assertEqual(Path(self.paths[1]).read_text(), '# Correct released contract\n')
+
+    def test_record_review_binds_the_entire_assembled_proposal(self):
+        ctx, directory, values = self.proposal(rejected=())
+        raw = s.read_json(directory / 'review-0.json')['verdict']
+        with patch.dict(os.environ, REVIEW_JSON=json.dumps(raw)):
+            s.review(ctx, 0, directory, require_accepted=False)
+        record = s.read_json(directory / 'review-0.json')
+        self.assertEqual(record['snapshot_sha'], s.snapshot_hash(values))
+        raw['reviewed_pages'] *= 2
+        with patch.dict(os.environ, REVIEW_JSON=json.dumps(raw)):
+            with self.assertRaisesRegex(ValueError, 'every assigned'):
+                s.review(ctx, 0, directory, require_accepted=False)
 
 
 class RefreshBaseTests(unittest.TestCase):

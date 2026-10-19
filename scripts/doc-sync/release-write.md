@@ -29,6 +29,9 @@ audit. Keep all index pages useful. Do not create new file paths.
 Work only on the assigned one or two pages; the other batches cover the rest of
 the snapshot. Start with the page's claims and use focused searches in the source
 and histories. Do not read the entire release history or audit unrelated subsystems.
+For option and annotation tables, verify the complete supported value set in
+classification helpers and callers before writing "any other" or "unsupported".
+Check linked pages for the same contract after updating such tables.
 Reserve the last 60 turns to finish verified edits and report any unresolved gaps.
 
 This job is one batch of a whole-release snapshot audit, not an ordinary concern

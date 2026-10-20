@@ -228,6 +228,24 @@ citations are not rejected. The editor may only change the original concern.
 
 ## Version routing and release snapshots
 
+For release-audit debugging, dispatch `nightly-doc-sync.yml` with
+`release_diagnostic_run` set to an earlier nightly run that uploaded all writer
+bundles, and `release_diagnostic_batches` set to one or two batch numbers (for
+example `6,34`). This forces dry-run mode and uses a separate concurrency group,
+so it can run alongside a full audit. The checkpoint must have exactly the same
+release SHA, documentation base, seed, manifest and batch layout. Only validated
+Markdown bundles are reused; old reviews are never imported. Selected writers
+retain their original page allowlists and see the complete checkpoint for context.
+An unchanged proposal is rejected before independent review. Diagnostics stop
+after strict reviews of the selected batches: they cannot finalize, publish,
+enter the two-pass repair pipeline, or provide approval evidence for a full run.
+Use them to debug a specific content defect, then run the complete workflow on
+the final revision before opening the implementation PR.
+
+Full release stages run at most eight jobs concurrently. Diagnostics use at most
+two; the shared runner scale set remains capped at ten. This changes scheduling,
+not source coverage, model effort, review requirements or publication gates.
+
 Before ordinary discovery, `snapshots.py detect` resolves GitHub's latest published
 non-draft, non-prerelease SMG tag. It never treats a prepared folder as proof of a
 release. A latest release older than the newest registered docs version leaves

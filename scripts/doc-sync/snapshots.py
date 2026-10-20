@@ -226,6 +226,46 @@ def batch_paths(ctx, index):
     return ctx['batches'][index]
 
 
+def diagnostic_matrix(ctx, selection):
+    if not re.fullmatch(r'\d+(,\d+)*', selection):
+        raise ValueError('Diagnostic batches must be comma-separated batch numbers')
+    selected = [int(value) for value in selection.split(',')]
+    if len(selected) > 2 or len(set(selected)) != len(selected):
+        raise ValueError('Choose one or two distinct diagnostic batches')
+    for index in selected:
+        batch_paths(ctx, index)
+    return {'include': [item for item in ctx['matrix']['include'] if item['batch'] in selected]}
+
+
+def import_diagnostic(ctx, directory, checkpoint, bundles, selection):
+    """Reuse only Markdown data; never reuse a prior run's review approvals."""
+    matrix = diagnostic_matrix(ctx, selection)
+    if read_json(checkpoint / 'context.json') != ctx:
+        raise ValueError('Diagnostic checkpoint differs from the frozen release inputs')
+    before = proposal_hash(ctx, bundles)  # Requires complete, scoped, version-bound data.
+    for index in range(len(ctx['batches'])):
+        write_json(directory / f'bundle-{index}.json', read_json(bundles / f'bundle-{index}.json'))
+    write_json(directory / 'diagnostic.json', {'input_sha': before, 'matrix': matrix})
+    return matrix, before
+
+
+def prepare_diagnostic(ctx, directory):
+    run_id = os.environ.get('DIAGNOSTIC_RUN_ID', '')
+    if not re.fullmatch(r'[1-9]\d*', run_id) or os.environ.get('DRY_RUN') != 'true':
+        raise ValueError('Diagnostics require a run ID and dry-run mode')
+    repo = os.environ['GITHUB_REPOSITORY']
+    run = releases.api(f'repos/{repo}/actions/runs/{run_id}')
+    if (run.get('head_repository', {}).get('full_name') != repo
+            or run.get('path') != '.github/workflows/nightly-doc-sync.yml'
+            or run.get('event') not in ('workflow_dispatch', 'schedule')):
+        raise ValueError('Diagnostic checkpoint must come from this repository nightly workflow')
+    matrix, before = import_diagnostic(
+        ctx, directory, directory.parent / 'release-checkpoint-context',
+        directory.parent / 'release-checkpoint-bundles', os.environ.get('DIAGNOSTIC_BATCHES', ''))
+    outputs(matrix=matrix, checkpoint_sha=before)
+    print('Diagnostic only: selected pages will be rewritten and reviewed; publication is disabled')
+
+
 def regression_checks(ctx, index):
     """Known source-backed defects are audit questions, never review approvals."""
     catalog = read_json(Path(__file__).with_name('release-regressions.json'))
@@ -375,6 +415,7 @@ def review(ctx, index, directory, require_accepted=True):
         raw['reason'] += '\nDeterministic reader-contract findings: ' + json.dumps(violations)
         accepted = False
     write_json(directory / f'review-{index}.json', {'batch': index, 'bundle_sha': bundle_hash(value),
+               'diagnostic': (directory / 'diagnostic.json').exists(),
                'snapshot_sha': proposal_hash(ctx, directory), 'verdict': raw})
     if not accepted and require_accepted:
         raise ValueError('Release snapshot review rejected this batch: ' + raw['reason'])
@@ -388,6 +429,8 @@ def rejected_batches(ctx, directory):
         value = read_json(directory / f'bundle-{index}.json')
         validate_bundle(ctx, index, value)
         result = read_json(directory / f'review-{index}.json')
+        if result.get('diagnostic'):
+            raise ValueError('Diagnostic reviews cannot authorize a full snapshot')
         if (result.get('batch') != index or result.get('bundle_sha') != bundle_hash(value)
                 or result.get('snapshot_sha') != snapshot_sha):
             raise ValueError('Missing or stale snapshot review')
@@ -427,6 +470,8 @@ def require_repair_change(ctx, directory, previous_sha):
 
 def finalize(ctx, directory):
     """Require all reviewed data; models cannot forge release metadata or scripts."""
+    if (directory / 'diagnostic.json').exists():
+        raise ValueError('Diagnostics cannot finalize or publish a release snapshot')
     if rejected_batches(ctx, directory):
         raise ValueError('Missing or rejected full snapshot review')
     assemble(ctx, directory)
@@ -479,6 +524,8 @@ def refresh_base(ctx):
 
 def publish(ctx):
     """Publish a reviewed snapshot; reuse idle branches with a compare-and-swap push."""
+    if os.environ.get('DIAGNOSTIC_RUN_ID'):
+        raise ValueError('Diagnostics cannot publish a release snapshot')
     releases.verify(ctx['release'])
     repo = os.environ['GITHUB_REPOSITORY']
     live = releases.api(f'repos/{repo}/commits/main')['sha']
@@ -525,7 +572,9 @@ def main():
         prepare(directory); return
     ctx = read_json(directory / 'context.json')
     index = int(os.environ.get('BATCH', '0'))
-    if command == 'seed':
+    if command == 'prepare-diagnostic':
+        prepare_diagnostic(ctx, directory)
+    elif command == 'seed':
         seed_context(ctx)
         batch_evidence(ctx, index, directory)
     elif command == 'export':

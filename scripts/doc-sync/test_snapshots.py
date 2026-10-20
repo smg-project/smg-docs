@@ -19,6 +19,39 @@ RELEASE = {'id': 13, 'tag': 'v1.13.0', 'sha': 'a' * 40,
 
 
 class AuditBatchTests(unittest.TestCase):
+    def test_diagnostic_requires_dry_run_and_trusted_workflow_origin(self):
+        run = {'head_repository': {'full_name': 'smg-project/smg-docs'},
+               'path': '.github/workflows/nightly-doc-sync.yml', 'event': 'workflow_dispatch'}
+        env = {'DIAGNOSTIC_RUN_ID': '123', 'DRY_RUN': 'true',
+               'GITHUB_REPOSITORY': 'smg-project/smg-docs', 'DIAGNOSTIC_BATCHES': '1'}
+        with patch.dict(os.environ, env), patch.object(s.releases, 'api', return_value=run) as api, \
+                patch.object(s, 'import_diagnostic', return_value=({'include': []}, 'a' * 64)) as imported, \
+                patch.object(s, 'outputs'):
+            for override in [{'DRY_RUN': 'false'}, {'DIAGNOSTIC_RUN_ID': '../123'}]:
+                with patch.dict(os.environ, override), self.assertRaisesRegex(ValueError, 'dry-run'):
+                    s.prepare_diagnostic({}, Path('/tmp/release-docs'))
+            api.assert_not_called()
+            for invalid in [dict(run, head_repository={'full_name': 'other/fork'}),
+                            dict(run, path='.github/workflows/other.yml'),
+                            dict(run, event='pull_request')]:
+                api.return_value = invalid
+                with self.assertRaisesRegex(ValueError, 'this repository nightly'):
+                    s.prepare_diagnostic({}, Path('/tmp/release-docs'))
+            imported.assert_not_called()
+            api.return_value = run
+            s.prepare_diagnostic({}, Path('/tmp/release-docs'))
+            imported.assert_called_once_with({}, Path('/tmp/release-docs'),
+                Path('/tmp/release-checkpoint-context'), Path('/tmp/release-checkpoint-bundles'), '1')
+
+    def test_diagnostic_selection_cannot_expand_or_duplicate_scopes(self):
+        ctx = {'batches': [['one.md'], ['two.md']], 'matrix': {'include': [
+            {'batch': 0, 'max_turns': 180}, {'batch': 1, 'max_turns': 300}]}}
+        self.assertEqual(s.diagnostic_matrix(ctx, '1'),
+                         {'include': [{'batch': 1, 'max_turns': 300}]})
+        for invalid in ['', '-1', '2', '0,0', '0,1,0', '0; echo bad', '0, 1']:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                s.diagnostic_matrix(ctx, invalid)
+
     def test_every_page_is_assigned_once_in_stable_order(self):
         pages = {f'page-{i:02}.md': (b'doc', b'main') for i in reversed(range(59))}
         batches = s.audit_batches(pages)
@@ -257,6 +290,67 @@ class RepairTests(unittest.TestCase):
     cleanup = SnapshotGitTests.cleanup
     git = SnapshotGitTests.git
     context = SnapshotGitTests.context
+
+    def checkpoint(self, ctx, directory):
+        checkpoint = directory / 'prior-context'
+        checkpoint.mkdir()
+        s.write_json(checkpoint / 'context.json', ctx)
+        destination = directory / 'diagnostic'
+        destination.mkdir()
+        return checkpoint, destination
+
+    def test_diagnostic_import_keeps_full_context_but_never_imports_approvals(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination = self.checkpoint(ctx, directory)
+        matrix, before = s.import_diagnostic(ctx, destination, checkpoint, directory, '1')
+        self.assertEqual([v['batch'] for v in matrix['include']], [1])
+        self.assertEqual(s.proposal_hash(ctx, destination), before)
+        self.assertEqual(len(list(destination.glob('bundle-*.json'))), len(values))
+        self.assertEqual(list(destination.glob('review-*.json')), [])
+        with self.assertRaisesRegex(ValueError, 'unchanged'):
+            s.require_repair_change(ctx, destination, before)
+        values[1]['files'][ctx['batches'][1][0]] = '# Source-verified correction\n'
+        s.write_json(destination / 'bundle-1.json', values[1])
+        s.require_repair_change(ctx, destination, before)
+
+    def test_diagnostic_rejects_different_source_base_seed_and_page_inventory(self):
+        ctx, directory, _ = self.proposal()
+        checkpoint, destination = self.checkpoint(ctx, directory)
+        variants = [dict(ctx, base='b' * 40), dict(ctx, seed_digest='other'),
+                    dict(ctx, release={**ctx['release'], 'sha': 'c' * 40}),
+                    dict(ctx, batches=list(reversed(ctx['batches'])))]
+        for different in variants:
+            s.write_json(checkpoint / 'context.json', different)
+            with self.assertRaisesRegex(ValueError, 'frozen release inputs'):
+                s.import_diagnostic(ctx, destination, checkpoint, directory, '1')
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_diagnostic_rejects_missing_and_out_of_scope_checkpoint_data(self):
+        ctx, directory, values = self.proposal()
+        checkpoint, destination = self.checkpoint(ctx, directory)
+        (directory / 'bundle-0.json').unlink()
+        with self.assertRaises(FileNotFoundError):
+            s.import_diagnostic(ctx, destination, checkpoint, directory, '1')
+        values[0]['files']['.github/workflows/ci.yml'] = 'unsafe tooling'
+        s.write_json(directory / 'bundle-0.json', values[0])
+        with self.assertRaisesRegex(ValueError, 'assigned page'):
+            s.import_diagnostic(ctx, destination, checkpoint, directory, '1')
+
+    def test_diagnostic_results_cannot_authorize_finalization_or_publication(self):
+        ctx, directory, _ = self.proposal(rejected=())
+        s.write_json(directory / 'diagnostic.json', {})
+        raw = s.read_json(directory / 'review-0.json')['verdict']
+        with patch.dict(os.environ, {'REVIEW_JSON': json.dumps(raw)}):
+            s.review(ctx, 0, directory)
+        self.assertTrue(s.read_json(directory / 'review-0.json')['diagnostic'])
+        with self.assertRaisesRegex(ValueError, 'cannot finalize'):
+            s.finalize(ctx, directory)
+        (directory / 'diagnostic.json').unlink()
+        with self.assertRaisesRegex(ValueError, 'cannot authorize'):
+            s.rejected_batches(ctx, directory)
+        with patch.dict(os.environ, {'DIAGNOSTIC_RUN_ID': '123'}):
+            with self.assertRaisesRegex(ValueError, 'cannot publish'):
+                s.publish(ctx)
 
     def proposal(self, rejected=(1,)):
         ctx, _ = self.context()

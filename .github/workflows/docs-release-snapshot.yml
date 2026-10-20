@@ -9,24 +9,35 @@ on:
       docs-sha:
         type: string
         required: true
+      diagnostic-run-id:
+        type: string
+        default: ''
+      diagnostic-batches:
+        type: string
+        default: ''
       dry-run:
         type: boolean
         default: true
 
 permissions:
+  actions: read
   contents: read
   pull-requests: read
 
 env:
   PYTHONDONTWRITEBYTECODE: '1'
   RELEASE_JSON: ${{ inputs.release-json }}
+  DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
+  DIAGNOSTIC_BATCHES: ${{ inputs.diagnostic-batches }}
+  DRY_RUN: ${{ inputs.dry-run }}
 
 jobs:
   prepare:
     runs-on: smg-org-runner-cpu
     timeout-minutes: 20
     outputs:
-      matrix: ${{ steps.prepare.outputs.matrix }}
+      matrix: ${{ steps.diagnostic.outputs.matrix || steps.prepare.outputs.matrix }}
+      checkpoint_sha: ${{ steps.diagnostic.outputs.checkpoint_sha }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -55,6 +66,25 @@ jobs:
       - name: Freeze snapshot inputs and complete page coverage
         id: prepare
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare
+      - if: inputs.diagnostic-run-id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: release-context
+          run-id: ${{ inputs.diagnostic-run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/release-checkpoint-context
+      - if: inputs.diagnostic-run-id != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-bundle-*
+          merge-multiple: true
+          run-id: ${{ inputs.diagnostic-run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/release-checkpoint-bundles
+      - name: Validate frozen checkpoint and select diagnostic batches
+        if: inputs.diagnostic-run-id != ''
+        id: diagnostic
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare-diagnostic
       - uses: actions/upload-artifact@v4
         with:
           name: release-context
@@ -68,7 +98,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -93,7 +123,12 @@ jobs:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - name: Seed only the selected release snapshot
-        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" seed
+        run: |
+          if [ -n "$DIAGNOSTIC_RUN_ID" ]; then
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble
+          else
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" seed
+          fi
       - name: Audit each assigned page against the published release
         uses: anthropics/claude-code-action@v1
         with:
@@ -110,7 +145,12 @@ jobs:
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
       - name: Export Markdown data with strict page isolation
-        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" export
+        run: |
+          if [ -n "$DIAGNOSTIC_RUN_ID" ]; then
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" export-repair
+          else
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" export
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: release-bundle-${{ matrix.batch }}
@@ -124,7 +164,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -154,7 +194,14 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
       - name: Assemble all batches using pristine guards
-        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble
+        env:
+          REPAIR_INPUT_SHA: ${{ needs.prepare.outputs.checkpoint_sha }}
+        run: |
+          if [ -n "$DIAGNOSTIC_RUN_ID" ]; then
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repaired
+          else
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble
+          fi
       - name: Independently review every assigned release page
         id: review
         uses: anthropics/claude-code-action@v1
@@ -174,7 +221,12 @@ jobs:
       - name: Record validated findings for the bounded repair pass
         env:
           REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
-        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" record-review
+        run: |
+          if [ -n "$DIAGNOSTIC_RUN_ID" ]; then
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" review
+          else
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" record-review
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -184,6 +236,7 @@ jobs:
           if-no-files-found: warn
 
   assess:
+    if: inputs.diagnostic-run-id == ''
     needs: [prepare, review]
     runs-on: smg-org-runner-cpu
     timeout-minutes: 15
@@ -233,7 +286,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
       matrix: ${{ fromJSON(needs.assess.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -302,7 +355,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -423,7 +476,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
       matrix: ${{ fromJSON(needs.assess-followup.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -497,7 +550,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -570,7 +623,8 @@ jobs:
   publish:
     needs: [prepare, assess, repair, review-repair, assess-followup, repair-followup, final-review]
     if: >-
-      always() && needs.prepare.result == 'success' && needs.assess.result == 'success' &&
+      always() && inputs.diagnostic-run-id == '' &&
+      needs.prepare.result == 'success' && needs.assess.result == 'success' &&
       (needs.assess.outputs.needed == 'false' ||
       (needs.repair.result == 'success' && needs.review-repair.result == 'success' &&
       needs.assess-followup.result == 'success' &&

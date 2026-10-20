@@ -3,7 +3,8 @@ Use focused searches in release-history.txt and excluded-main-history.txt in the
 supplied evidence directory for the assigned pages' subjects.
 SOURCE_ROOT is exactly the published release tag. The target snapshot has been
 seeded from main only where pages were missing; existing authored release content
-was preserved. It is NOT already verified release documentation.
+was preserved. In a diagnostic run it is a saved writer proposal from an earlier
+audit. Neither input is already verified release documentation.
 
 Audit EVERY path in batch.json against the release implementation, helpers,
 callers and tests. Compare the corresponding src/lib/content page for missing

@@ -100,8 +100,13 @@
 		"id": "pd-ttft-anchor",
 		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
 		"pages": ["concepts/routing/pd-disaggregation.md", "reference/metrics.md"],
-		"source_paths": ["model_gateway/src/routers/grpc/regular/streaming.rs"],
-		"check": "Verify the gRPC PD TTFT recording anchor is prefill dispatch, not decode dispatch, and distinguish any HTTP PD timing contract. Keep concept prose and metric descriptions consistent."
+		"source_paths": [
+			"model_gateway/src/routers/grpc/regular/streaming.rs",
+			"model_gateway/src/routers/grpc/harmony/streaming.rs",
+			"model_gateway/src/routers/grpc/context.rs",
+			"model_gateway/src/routers/http/pd_router.rs"
+		],
+		"check": "Trace PD timing separately through regular chat, generate, completions, Messages and Harmony streams. Only regular gRPC chat/generate paths carry PdTiming and emit the PD TTFT pair from prefill/decode dispatch; completions, Messages and Harmony paths discard it. Generic router TTFT on paths without PdTiming uses their streaming-task start when recorded. Qualify both metric table rows and related-series prose; do not generalize the prefill anchor to every gRPC endpoint or parser path. Verify the distinct HTTP PD response-head contract and reconcile the concept page with the metrics reference."
 	},
 	{
 		"id": "removed-worker-metric-series",
@@ -127,5 +132,33 @@
 		"pages": ["concepts/routing/pd-disaggregation.md", "reference/metrics.md"],
 		"source_paths": ["model_gateway/src/observability/metrics.rs"],
 		"check": "Trace smg_pd_prefill_admission_wait_seconds through start_prometheus and the complete histogram_bucket_overrides list. No bucket matcher applies to this name, so it exports as a Prometheus summary with the default quantiles, not a bucketed histogram. The Rust histogram recording macro does not determine the Prometheus export type. Reconcile the PD concept table and metrics reference."
+	},
+	{
+		"id": "pd-kv-transfer-failure-causes",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/pd-disaggregation.md", "reference/metrics.md"],
+		"source_paths": [
+			"model_gateway/src/routers/http/pd_router.rs",
+			"model_gateway/src/routers/grpc/common/stages/request_execution.rs",
+			"model_gateway/src/observability/metrics.rs"
+		],
+		"check": "Inspect every active caller of record_pd_kv_transfer_failure. smg_pd_kv_transfer_failures_total includes missing NIXL transfer parameters with decode recomputation and HTTP MoRI-IO pair validation or missing/invalid handoff failures that reject the request. Cover sequential and concurrent MoRI-IO paths; do not describe the counter as only NIXL or claim all increments mean successful recomputation. Reconcile concept and reference descriptions."
+	},
+	{
+		"id": "released-sglang-launch-mode",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"getting-started/grpc-workers.md",
+			"getting-started/index.md",
+			"getting-started/kv-events-cache-aware.md",
+			"getting-started/pd-disaggregation.md"
+		],
+		"source_paths": [
+			"grpc_servicer/smg_grpc_servicer/sglang/plugin.py",
+			"grpc_servicer/tests/test_sglang_rust_servicer.py",
+			"scripts/launch-pd-workers.sh",
+			"grpc_servicer/README.md"
+		],
+		"check": "Verify the SGLang launch integration and runnable examples at this release: the supported command uses --grpc-mode. Do not copy later --smg-grpc-mode, --smg-http-sidecar-port, HTTP-sidecar defaults, or a deprecation claim for --grpc-mode from main unless supported by this pinned release. Keep launch commands and accompanying option tables consistent across the getting-started guides."
 	}
 ]

@@ -15,6 +15,9 @@ on:
       diagnostic-batches:
         type: string
         default: ''
+      diagnostic-stage:
+        type: string
+        default: write
       dry-run:
         type: boolean
         default: true
@@ -74,15 +77,23 @@ jobs:
         if: inputs.diagnostic-run-id != ''
         env:
           DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
+          DIAGNOSTIC_STAGE: ${{ inputs.diagnostic-stage }}
         run: |
+          case "$DIAGNOSTIC_STAGE" in
+            write) checkpoint_pattern='release-bundle-*' ;;
+            repair) checkpoint_pattern='release-repaired-bundle-*' ;;
+            repair-followup) checkpoint_pattern='release-followup-bundle-*' ;;
+            *) echo 'Invalid diagnostic checkpoint stage' >&2; exit 1 ;;
+          esac
           gh run download "$DIAGNOSTIC_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --pattern 'release-bundle-*' --dir "$RUNNER_TEMP/release-checkpoint-bundles"
+            --pattern "$checkpoint_pattern" --dir "$RUNNER_TEMP/release-checkpoint-bundles"
       - name: Validate frozen checkpoint and select diagnostic batches
         if: inputs.diagnostic-run-id != ''
         id: diagnostic
         env:
           DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
           DIAGNOSTIC_BATCHES: ${{ inputs.diagnostic-batches }}
+          DIAGNOSTIC_STAGE: ${{ inputs.diagnostic-stage }}
           DRY_RUN: ${{ inputs.dry-run }}
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare-diagnostic
       - uses: actions/upload-artifact@v4
@@ -98,7 +109,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -168,7 +179,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -292,7 +303,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.assess.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -361,7 +372,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -482,7 +493,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.assess-followup.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -556,7 +567,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: ${{ inputs.diagnostic-run-id != '' && 2 || 8 }}
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}

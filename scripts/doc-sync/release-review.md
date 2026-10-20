@@ -42,6 +42,9 @@ and flags reset by callers. Check example values and paths against validators,
 timeout scope against middleware on both buffered and streamed requests, and
 metric timing against the actual recording anchor. Compare these same claims
 in concept pages, examples, configuration tables and metric references.
+For metrics, enumerate active recording sites and their endpoint, transport and
+parser branches. A shared recorder or metric name does not imply every request
+path emits it; qualify the public contract to the paths that actually do.
 
 Read main-to-snapshot.diff for every assigned page. It compares the frozen main
 page with the current proposal, including omissions inherited from an existing

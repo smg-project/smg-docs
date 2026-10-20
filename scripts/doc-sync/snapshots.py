@@ -19,6 +19,11 @@ SECTIONS = {'getting-started', 'concepts', 'reference', 'contributing'}
 BATCH_SIZE = 2
 MAX_BATCH_BYTES = 48 * 1024
 REVIEW_GATES = ('accurate', 'complete', 'reader_focused', 'related_docs_consistent')
+DIAGNOSTIC_ARTIFACT_PREFIXES = {
+    'write': 'release-bundle',
+    'repair': 'release-repaired-bundle',
+    'repair-followup': 'release-followup-bundle',
+}
 # Releases already documented before version-aware automation was introduced.
 INITIAL_RELEASE = 'v1.12.0'
 
@@ -237,8 +242,11 @@ def diagnostic_matrix(ctx, selection):
     return {'include': [item for item in ctx['matrix']['include'] if item['batch'] in selected]}
 
 
-def import_diagnostic(ctx, directory, checkpoint, bundles, selection):
+def import_diagnostic(ctx, directory, checkpoint, bundles, selection, stage='write'):
     """Reuse only Markdown data; never reuse a prior run's review approvals."""
+    if stage not in DIAGNOSTIC_ARTIFACT_PREFIXES:
+        raise ValueError('Invalid diagnostic checkpoint stage')
+    prefix = DIAGNOSTIC_ARTIFACT_PREFIXES[stage]
     matrix = diagnostic_matrix(ctx, selection)
     if read_json(checkpoint / 'context.json') != ctx:
         raise ValueError('Diagnostic checkpoint differs from the frozen release inputs')
@@ -246,13 +254,13 @@ def import_diagnostic(ctx, directory, checkpoint, bundles, selection):
     # Validate every expected writer before copying any data into the new run.
     values = []
     for index in range(len(ctx['batches'])):
-        value = read_json(bundles / f'release-bundle-{index}' / f'bundle-{index}.json')
+        value = read_json(bundles / f'{prefix}-{index}' / f'bundle-{index}.json')
         validate_bundle(ctx, index, value)
         values.append(value)
     before = snapshot_hash(values)
     for index, value in enumerate(values):
         write_json(directory / f'bundle-{index}.json', value)
-    write_json(directory / 'diagnostic.json', {'input_sha': before, 'matrix': matrix})
+    write_json(directory / 'diagnostic.json', {'input_sha': before, 'matrix': matrix, 'stage': stage})
     return matrix, before
 
 
@@ -268,7 +276,8 @@ def prepare_diagnostic(ctx, directory):
         raise ValueError('Diagnostic checkpoint must come from this repository nightly workflow')
     matrix, before = import_diagnostic(
         ctx, directory, directory.parent / 'release-checkpoint-context',
-        directory.parent / 'release-checkpoint-bundles', os.environ.get('DIAGNOSTIC_BATCHES', ''))
+        directory.parent / 'release-checkpoint-bundles', os.environ.get('DIAGNOSTIC_BATCHES', ''),
+        os.environ.get('DIAGNOSTIC_STAGE', 'write'))
     outputs(matrix=matrix, checkpoint_sha=before)
     print('Diagnostic only: selected pages will be rewritten and reviewed; publication is disabled')
 

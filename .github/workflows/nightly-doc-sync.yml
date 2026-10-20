@@ -13,6 +13,14 @@ on:
         description: One to eight comma-separated batch numbers for the release diagnostic
         type: string
         default: ''
+      release_diagnostic_stage:
+        description: Checkpoint stage containing a complete set of Markdown bundles (no approvals reused)
+        type: choice
+        options:
+          - write
+          - repair
+          - repair-followup
+        default: write
       dry_run:
         description: Validate proposals without creating branches or PRs
         type: boolean
@@ -79,6 +87,7 @@ jobs:
       dry-run: ${{ inputs.release_diagnostic_run != '' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) || false }}
       diagnostic-run-id: ${{ inputs.release_diagnostic_run || '' }}
       diagnostic-batches: ${{ inputs.release_diagnostic_batches || '' }}
+      diagnostic-stage: ${{ inputs.release_diagnostic_stage || 'write' }}
     secrets: inherit
 
   prepare:

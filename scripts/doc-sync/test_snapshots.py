@@ -41,7 +41,11 @@ class AuditBatchTests(unittest.TestCase):
             api.return_value = run
             s.prepare_diagnostic({}, Path('/tmp/release-docs'))
             imported.assert_called_once_with({}, Path('/tmp/release-docs'),
-                Path('/tmp/release-checkpoint-context'), Path('/tmp/release-checkpoint-bundles'), '1')
+                Path('/tmp/release-checkpoint-context'), Path('/tmp/release-checkpoint-bundles'), '1', 'write')
+
+            with patch.dict(os.environ, {'DIAGNOSTIC_STAGE': 'repair-followup'}):
+                s.prepare_diagnostic({}, Path('/tmp/release-docs'))
+            self.assertEqual(imported.call_args.args[-1], 'repair-followup')
 
     def test_diagnostic_selection_cannot_expand_or_duplicate_scopes(self):
         ctx = {'batches': [['one.md'], ['two.md']], 'matrix': {'include': [
@@ -343,6 +347,41 @@ class RepairTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'frozen release inputs'):
                 s.import_diagnostic(ctx, destination, checkpoint, bundles, '1')
         self.assertEqual(list(destination.iterdir()), [])
+
+    def test_diagnostic_uses_a_complete_corrected_stage_without_old_drafts_or_approvals(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination, bundles = self.checkpoint(ctx, directory)
+        for stage in ('repair', 'repair-followup'):
+            prefix = s.DIAGNOSTIC_ARTIFACT_PREFIXES[stage]
+            corrected = json.loads(json.dumps(values))
+            for i, value in enumerate(corrected):
+                value['files'][ctx['batches'][i][0]] = f'# Corrected {stage} page {i}\n'
+                s.write_json(bundles / f'{prefix}-{i}' / f'bundle-{i}.json', value)
+            stage_output = destination / stage
+            _, before = s.import_diagnostic(ctx, stage_output, checkpoint, bundles, '1', stage)
+            self.assertEqual(before, s.snapshot_hash(corrected))
+            self.assertNotEqual(before, s.snapshot_hash(values))
+            self.assertEqual(s.proposal_hash(ctx, stage_output), before)
+            self.assertEqual(s.read_json(stage_output / 'diagnostic.json')['stage'], stage)
+            self.assertEqual(list(stage_output.glob('*review*')), [])
+            for i, value in enumerate(corrected):
+                self.assertEqual(s.read_json(stage_output / f'bundle-{i}.json'), value)
+
+    def test_diagnostic_rejects_incomplete_or_invalid_corrected_stage_without_fallback(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination, bundles = self.checkpoint(ctx, directory)
+        s.write_json(bundles / 'release-followup-bundle-0' / 'bundle-0.json', values[0])
+        with self.assertRaises(FileNotFoundError):
+            s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'repair-followup')
+        self.assertEqual(list(destination.iterdir()), [])
+        invalid = {**values[1], 'release': {**RELEASE, 'sha': 'f' * 40}}
+        s.write_json(bundles / 'release-followup-bundle-1' / 'bundle-1.json', invalid)
+        with self.assertRaises(ValueError):
+            s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'repair-followup')
+        self.assertEqual(list(destination.iterdir()), [])
+        for stage in ('unknown', '../release-review', 'write; echo bad'):
+            with self.subTest(stage=stage), self.assertRaisesRegex(ValueError, 'checkpoint stage'):
+                s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', stage)
 
     def test_diagnostic_rejects_missing_and_out_of_scope_checkpoint_data(self):
         ctx, directory, values = self.proposal()

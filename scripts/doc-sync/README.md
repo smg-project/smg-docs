@@ -239,15 +239,22 @@ so it can run alongside a full audit. The checkpoint must have exactly the same
 release SHA, documentation base, seed, manifest and batch layout. Only validated
 Markdown bundles are reused; old reviews are never imported. Selected writers
 retain their original page allowlists and see the complete checkpoint for context.
+Set `release_diagnostic_stage` to `repair` or `repair-followup` when that stage
+uploaded a complete set of corrected bundles. This retains corrections already
+made by the earlier audit instead of reintroducing its first-draft defects.
+The selected stage must contain every original batch; missing or invalid data
+fails without falling back to an older draft or mixing stages. Review approvals
+are never imported, even from a completed repair stage.
 An unchanged proposal is rejected before independent review. Diagnostics stop
 after strict reviews of the selected batches: they cannot finalize, publish,
 enter the two-pass repair pipeline, or provide approval evidence for a full run.
 Use them to debug a specific content defect, then run the complete workflow on
 the final revision before opening the implementation PR.
 
-Full release stages run at most eight jobs concurrently. Diagnostics use at most
-two; the shared runner scale set remains capped at ten. This changes scheduling,
-not source coverage, model effort, review requirements or publication gates.
+Full release stages and selected diagnostic batches run at most eight jobs
+concurrently. They share the runner pool capped at ten; any excess jobs wait for
+a runner. This changes scheduling, not source coverage, model effort, review
+requirements or publication gates.
 
 Before ordinary discovery, `snapshots.py detect` resolves GitHub's latest published
 non-draft, non-prerelease SMG tag. It never treats a prepared folder as proof of a

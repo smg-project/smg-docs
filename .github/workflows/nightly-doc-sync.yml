@@ -14,12 +14,13 @@ on:
         type: string
         default: ''
       release_diagnostic_stage:
-        description: Checkpoint stage containing a complete set of Markdown bundles (no approvals reused)
+        description: Checkpoint stage; diagnostic continues its complete proposal and rejected findings (no approvals reused)
         type: choice
         options:
           - write
           - repair
           - repair-followup
+          - diagnostic
         default: write
       dry_run:
         description: Validate proposals without creating branches or PRs

@@ -80,13 +80,17 @@ jobs:
           DIAGNOSTIC_STAGE: ${{ inputs.diagnostic-stage }}
         run: |
           case "$DIAGNOSTIC_STAGE" in
-            write) checkpoint_pattern='release-bundle-*' ;;
+            write|diagnostic) checkpoint_pattern='release-bundle-*' ;;
             repair) checkpoint_pattern='release-repaired-bundle-*' ;;
             repair-followup) checkpoint_pattern='release-followup-bundle-*' ;;
             *) echo 'Invalid diagnostic checkpoint stage' >&2; exit 1 ;;
           esac
           gh run download "$DIAGNOSTIC_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --pattern "$checkpoint_pattern" --dir "$RUNNER_TEMP/release-checkpoint-bundles"
+          if [ "$DIAGNOSTIC_STAGE" = diagnostic ]; then
+            gh run download "$DIAGNOSTIC_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'release-review-*' --dir "$RUNNER_TEMP/release-checkpoint-reviews"
+          fi
       - name: Validate frozen checkpoint and select diagnostic batches
         if: inputs.diagnostic-run-id != ''
         id: diagnostic
@@ -148,7 +152,7 @@ jobs:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
           github_token: ${{ github.token }}
           prompt: >-
-            Follow ${{ runner.temp }}/nightly-docs-tools/release-write.md.
+            Follow ${{ runner.temp }}/nightly-docs-tools/${{ inputs.diagnostic-run-id != '' && inputs.diagnostic-stage == 'diagnostic' && 'release-repair.md' || 'release-write.md' }}.
             Evidence is in ${{ runner.temp }}/release-docs and source in
             ${{ github.workspace }}/.nightly-source.
             Your hard budget is ${{ matrix.max_turns }} turns; reserve the last

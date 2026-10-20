@@ -1,8 +1,9 @@
-Read contract.md, release-docs/context.json, batch.json, your own review, and all
-validated negative reviews in repair-findings.json. A different batch's reviewer
-may have found an error on your assigned page even if your own review accepted
-it. When any reviewer finds a cross-page inconsistency, every batch receives
-this repair pass so both sides can be reconciled within their own allowlists.
+Read contract.md, release-docs/context.json, batch.json, your own review when
+present, and all validated negative reviews in repair-findings.json. A different
+batch's reviewer may have found an error on your assigned page even if your own
+review accepted it. A full audit schedules every batch for a cross-page inconsistency; a targeted
+diagnostic schedules only the selected owning batches. Reconcile findings about
+your assigned pages within their original allowlists.
 The assembled snapshot is the exact proposal the independent reviewer checked
 against SOURCE_ROOT at the published release SHA.
 
@@ -22,9 +23,10 @@ material and address all actionable findings for those pages. Do not modify
 other pages, main docs, older versions, navigation, manifests, images, scripts,
 review records or evidence. If a required correction falls outside your assigned
 paths or cannot be verified, report it instead of inventing a claim. A separate,
-pristine, read-only reviewer will recheck every page of the assembled snapshot;
-there are at most two correction passes, and a remaining final defect blocks
-the entire release PR. A later pass uses the fresh findings on the corrected
+pristine, read-only reviewer checks the corrected proposal. Full audits recheck
+every page, allow at most two correction passes, and block the entire release PR
+on any remaining final defect. Diagnostics review selected pages and cannot
+authorize publication. A later pass uses the fresh findings on the corrected
 proposal, not a repeated vote on earlier content. Make source-verified
 corrections; an unchanged rejected snapshot cannot proceed to another review.
 

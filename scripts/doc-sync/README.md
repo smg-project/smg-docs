@@ -237,7 +237,7 @@ writer cannot fix a contradiction outside its assigned paths. This forces
 dry-run mode and uses a separate concurrency group,
 so it can run alongside a full audit. The checkpoint must have exactly the same
 release SHA, documentation base, seed, manifest and batch layout. Only validated
-Markdown bundles are reused; old reviews are never imported. Selected writers
+Markdown bundles are reused; old review approvals are never imported. Selected writers
 retain their original page allowlists and see the complete checkpoint for context.
 Set `release_diagnostic_stage` to `repair` or `repair-followup` when that stage
 uploaded a complete set of corrected bundles. This retains corrections already
@@ -245,6 +245,14 @@ made by the earlier audit instead of reintroducing its first-draft defects.
 The selected stage must contain every original batch; missing or invalid data
 fails without falling back to an older draft or mixing stages. Review approvals
 are never imported, even from a completed repair stage.
+To continue a failed diagnostic, use its run ID and stage `diagnostic`. Preparation
+reconstructs that exact proposal from its frozen baseline and every selected
+writer output, validates all selected review hashes, and supplies only negative
+findings as repair guidance. Accepted page corrections are retained. Select the
+owning batches of all remaining defects; writers receive the repair prompt
+instead of starting a new draft. Missing, stale, unchanged or fully accepted
+checkpoints fail closed. Historical findings are never approval evidence, and
+fresh reviews must satisfy the current regression catalog.
 An unchanged proposal is rejected before independent review. Diagnostics stop
 after strict reviews of the selected batches: they cannot finalize, publish,
 enter the two-pass repair pipeline, or provide approval evidence for a full run.

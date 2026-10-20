@@ -41,11 +41,20 @@ class AuditBatchTests(unittest.TestCase):
             api.return_value = run
             s.prepare_diagnostic({}, Path('/tmp/release-docs'))
             imported.assert_called_once_with({}, Path('/tmp/release-docs'),
-                Path('/tmp/release-checkpoint-context'), Path('/tmp/release-checkpoint-bundles'), '1', 'write')
+                Path('/tmp/release-checkpoint-context'), Path('/tmp/release-checkpoint-bundles'), '1', 'write',
+                reviews=Path('/tmp/release-checkpoint-reviews'))
 
             with patch.dict(os.environ, {'DIAGNOSTIC_STAGE': 'repair-followup'}):
                 s.prepare_diagnostic({}, Path('/tmp/release-docs'))
             self.assertEqual(imported.call_args.args[-1], 'repair-followup')
+            with patch.dict(os.environ, {'DIAGNOSTIC_STAGE': 'diagnostic'}):
+                imported.reset_mock()
+                with self.assertRaisesRegex(ValueError, 'completed checkpoint'):
+                    s.prepare_diagnostic({}, Path('/tmp/release-docs'))
+                imported.assert_not_called()
+                api.return_value = dict(run, status='completed')
+                s.prepare_diagnostic({}, Path('/tmp/release-docs'))
+                self.assertEqual(imported.call_args.args[-1], 'diagnostic')
 
     def test_diagnostic_selection_cannot_expand_or_duplicate_scopes(self):
         ctx = {'batches': [['one.md'], ['two.md']], 'matrix': {'include': [
@@ -394,6 +403,142 @@ class RepairTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'assigned page'):
             s.import_diagnostic(ctx, destination, checkpoint, bundles, '1')
         self.assertEqual(list(destination.iterdir()), [])
+
+    def diagnostic_checkpoint(self, ctx, directory, values, selected='0', rejected=(0,)):
+        checkpoint, destination, bundles = self.checkpoint(ctx, directory)
+        matrix = s.diagnostic_matrix(ctx, selected)
+        s.write_json(checkpoint / 'diagnostic.json', {
+            'input_sha': s.snapshot_hash(values), 'matrix': matrix, 'stage': 'repair-followup'})
+        for i, value in enumerate(values):
+            s.write_json(checkpoint / f'bundle-{i}.json', value)
+        revised = json.loads(json.dumps(values))
+        revised[0]['files'][ctx['batches'][0][0]] = '# Accepted earlier correction\n'
+        for row in matrix['include']:
+            i = row['batch']
+            s.write_json(bundles / f'release-bundle-{i}' / f'bundle-{i}.json', revised[i])
+        reviews = directory / 'prior-reviews'
+        for row in matrix['include']:
+            i = row['batch']
+            verdict = {gate: True for gate in s.REVIEW_GATES}
+            verdict.update(related_docs_consistent=i not in rejected,
+                           reviewed_pages=ctx['batches'][i], regression_checks=[],
+                           reason=f'Reconcile related page {ctx["batches"][1][0]} against source')
+            s.write_json(reviews / f'release-review-{i}' / f'review-{i}.json', {
+                'batch': i, 'diagnostic': True, 'bundle_sha': s.bundle_hash(revised[i]),
+                'snapshot_sha': s.snapshot_hash(revised), 'verdict': verdict})
+        return checkpoint, destination, bundles, reviews, revised
+
+    def test_diagnostic_continuation_retains_latest_proposal_and_negative_guidance_only(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination, bundles, reviews, revised = self.diagnostic_checkpoint(
+            ctx, directory, values, selected='0,1')
+        matrix, before = s.import_diagnostic(ctx, destination, checkpoint, bundles, '1',
+                                             'diagnostic', reviews)
+        self.assertEqual(matrix, s.diagnostic_matrix(ctx, '1'))
+        self.assertEqual(before, s.snapshot_hash(revised))
+        self.assertNotEqual(before, s.snapshot_hash(values))
+        for i, value in enumerate(revised):
+            self.assertEqual(s.read_json(destination / f'bundle-{i}.json'), value)
+        findings = s.read_json(destination / 'repair-findings.json')
+        self.assertEqual([v['batch'] for v in findings], [0])
+        self.assertTrue(findings[0]['diagnostic'])
+        self.assertEqual(list(destination.glob('review-*.json')), [])
+        with self.assertRaisesRegex(ValueError, 'cannot finalize'):
+            s.finalize(ctx, destination)
+        with self.assertRaisesRegex(ValueError, 'unchanged'):
+            s.require_repair_change(ctx, destination, before)
+
+    def test_diagnostic_can_repair_related_owner_not_previously_selected(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination, bundles, reviews, revised = self.diagnostic_checkpoint(ctx, directory, values)
+        # Only the selected prior output belongs to the prior diagnostic; other pages
+        # must come from its complete baseline, not arbitrary neighboring artifacts.
+        (bundles / 'release-bundle-1' / 'bundle-1.json').unlink()
+        matrix, before = s.import_diagnostic(ctx, destination, checkpoint, bundles, '1',
+                                             'diagnostic', reviews)
+        self.assertEqual(matrix, s.diagnostic_matrix(ctx, '1'))
+        self.assertEqual(before, s.snapshot_hash(revised))
+        self.assertEqual(s.read_json(destination / 'bundle-1.json'), values[1])
+
+    def test_diagnostic_continuation_rejects_missing_data_before_copy(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination, bundles, reviews, _ = self.diagnostic_checkpoint(ctx, directory, values)
+        required = [checkpoint / 'bundle-1.json',
+                    bundles / 'release-bundle-0' / 'bundle-0.json',
+                    reviews / 'release-review-0' / 'review-0.json']
+        for path in required:
+            original = path.read_text()
+            path.unlink()
+            with self.subTest(path=path), self.assertRaises(FileNotFoundError):
+                s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'diagnostic', reviews)
+            self.assertEqual(list(destination.iterdir()), [])
+            path.write_text(original)
+        with self.assertRaisesRegex(ValueError, 'requires review feedback'):
+            s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'diagnostic')
+
+    def test_diagnostic_continuation_rejects_stale_unbound_or_invalid_feedback(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination, bundles, reviews, _ = self.diagnostic_checkpoint(ctx, directory, values)
+        path = reviews / 'release-review-0' / 'review-0.json'
+        original = s.read_json(path)
+        invalid = [dict(original, diagnostic=False), dict(original, batch=1),
+                   dict(original, bundle_sha='a' * 64), dict(original, snapshot_sha='a' * 64),
+                   dict(original, verdict={**original['verdict'], 'accurate': 'true'}),
+                   dict(original, verdict={**original['verdict'], 'reviewed_pages': []}),
+                   dict(original, verdict={**original['verdict'], 'reason': ''})]
+        for value in invalid:
+            s.write_json(path, value)
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'diagnostic', reviews)
+            self.assertEqual(list(destination.iterdir()), [])
+
+    def test_diagnostic_continuation_rejects_changed_baseline_scope_and_version(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination, bundles, reviews, _ = self.diagnostic_checkpoint(ctx, directory, values)
+        path = checkpoint / 'diagnostic.json'
+        original = s.read_json(path)
+        for value in [dict(original, input_sha='a' * 64), dict(original, matrix=[]),
+                      dict(original, matrix={'include': []}),
+                      dict(original, matrix={'include': [{'batch': 0, 'max_turns': 999}]}),
+                      dict(original, matrix={'include': [{'batch': 0}, {'batch': 0}]})]:
+            s.write_json(path, value)
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'diagnostic', reviews)
+            self.assertEqual(list(destination.iterdir()), [])
+        s.write_json(path, original)
+        invalid = {**values[0], 'release': {**RELEASE, 'sha': 'f' * 40}}
+        s.write_json(bundles / 'release-bundle-0' / 'bundle-0.json', invalid)
+        with self.assertRaises(ValueError):
+            s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'diagnostic', reviews)
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_diagnostic_continuation_cannot_reroll_unchanged_or_accepted_proposal(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination, bundles, reviews, revised = self.diagnostic_checkpoint(ctx, directory, values)
+        output = bundles / 'release-bundle-0' / 'bundle-0.json'
+        s.write_json(output, values[0])
+        with self.assertRaisesRegex(ValueError, 'unchanged'):
+            s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'diagnostic', reviews)
+        s.write_json(output, revised[0])
+        path = reviews / 'release-review-0' / 'review-0.json'
+        accepted = s.read_json(path)
+        accepted['verdict']['related_docs_consistent'] = True
+        s.write_json(path, accepted)
+        with self.assertRaisesRegex(ValueError, 'no rejected findings'):
+            s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'diagnostic', reviews)
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_historical_feedback_cannot_satisfy_current_approval_catalog(self):
+        ctx, directory, values = self.proposal(rejected=())
+        checkpoint, destination, bundles, reviews, _ = self.diagnostic_checkpoint(ctx, directory, values)
+        with patch.object(s, 'regression_checks', return_value=[{'id': 'new-regression'}]):
+            s.import_diagnostic(ctx, destination, checkpoint, bundles, '1', 'diagnostic', reviews)
+            finding = s.read_json(destination / 'repair-findings.json')[0]
+            with self.assertRaisesRegex(ValueError, 'every source-pinned'):
+                s.validate_review(ctx, 0, finding['verdict'])
+            s.write_json(destination / 'review-0.json', finding)
+            with self.assertRaisesRegex(ValueError, 'cannot authorize'):
+                s.rejected_batches(ctx, destination)
 
     def test_diagnostic_results_cannot_authorize_finalization_or_publication(self):
         ctx, directory, _ = self.proposal(rejected=())

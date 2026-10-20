@@ -160,5 +160,18 @@
 			"grpc_servicer/README.md"
 		],
 		"check": "Verify the SGLang launch integration and runnable examples at this release: the supported command uses --grpc-mode. Do not copy later --smg-grpc-mode, --smg-http-sidecar-port, HTTP-sidecar defaults, or a deprecation claim for --grpc-mode from main unless supported by this pinned release. Keep launch commands and accompanying option tables consistent across the getting-started guides."
+	},
+	{
+		"id": "mcp-iteration-provider-coverage",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/metrics.md"],
+		"source_paths": [
+			"crates/external_router/src/anthropic/router.rs",
+			"crates/external_router/src/anthropic/non_streaming.rs",
+			"crates/external_router/src/anthropic/streaming.rs",
+			"crates/external_router/src/metrics.rs",
+			"model_gateway/Cargo.toml"
+		],
+		"check": "Trace smg_mcp_tool_iterations_total across both model_gateway and external_router, including the default providers feature chain. Released Anthropic Messages MCP loops record this counter in streaming and non-streaming paths when MCP toolsets are enabled, alongside Responses API loops. Preserve this shipped provider coverage; do not narrow the metric to Responses by examining only one crate or recorder."
 	}
 ]

@@ -23,6 +23,7 @@ DIAGNOSTIC_ARTIFACT_PREFIXES = {
     'write': 'release-bundle',
     'repair': 'release-repaired-bundle',
     'repair-followup': 'release-followup-bundle',
+    'diagnostic': 'release-bundle',
 }
 # Releases already documented before version-aware automation was introduced.
 INITIAL_RELEASE = 'v1.12.0'
@@ -242,7 +243,52 @@ def diagnostic_matrix(ctx, selection):
     return {'include': [item for item in ctx['matrix']['include'] if item['batch'] in selected]}
 
 
-def import_diagnostic(ctx, directory, checkpoint, bundles, selection, stage='write'):
+def diagnostic_proposal(ctx, checkpoint, bundles, reviews):
+    """Reconstruct one diagnostic's exact proposal and retain only negative feedback."""
+    prior = read_json(checkpoint / 'diagnostic.json')
+    matrix = prior.get('matrix', {})
+    if not isinstance(matrix, dict):
+        raise ValueError('Invalid checkpoint diagnostic matrix')
+    rows = matrix.get('include', [])
+    if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) or type(row.get('batch')) is not int for row in rows):
+        raise ValueError('Invalid checkpoint diagnostic matrix')
+    if matrix != diagnostic_matrix(ctx, ','.join(str(row['batch']) for row in rows)):
+        raise ValueError('Checkpoint diagnostic matrix changed original scopes or budgets')
+    values = []
+    for index in range(len(ctx['batches'])):
+        value = read_json(checkpoint / f'bundle-{index}.json')
+        validate_bundle(ctx, index, value)
+        values.append(value)
+    if snapshot_hash(values) != prior.get('input_sha'):
+        raise ValueError('Checkpoint diagnostic baseline hash mismatch')
+    for row in rows:
+        index = row['batch']
+        value = read_json(bundles / f'release-bundle-{index}' / f'bundle-{index}.json')
+        validate_bundle(ctx, index, value)
+        values[index] = value
+    whole = snapshot_hash(values)
+    if whole == prior['input_sha']:
+        raise ValueError('Checkpoint diagnostic proposal is unchanged')
+    findings = []
+    for row in rows:
+        index = row['batch']
+        result = read_json(reviews / f'release-review-{index}' / f'review-{index}.json')
+        if (result.get('diagnostic') is not True or result.get('batch') != index
+                or result.get('bundle_sha') != bundle_hash(values[index])
+                or result.get('snapshot_sha') != whole):
+            raise ValueError('Missing or stale diagnostic feedback')
+        # The old catalog may differ. Validate evidence structure and content binding,
+        # never treat historical results as satisfying the current approval contract.
+        raw = result['verdict']
+        validate_review_evidence(ctx, index, raw)
+        if not all(raw[gate] for gate in REVIEW_GATES) or not all(c['satisfied'] for c in raw['regression_checks']):
+            findings.append(result)
+    if not findings:
+        raise ValueError('Diagnostic checkpoint has no rejected findings to repair')
+    return values, findings
+
+
+def import_diagnostic(ctx, directory, checkpoint, bundles, selection, stage='write', reviews=None):
     """Reuse only Markdown data; never reuse a prior run's review approvals."""
     if stage not in DIAGNOSTIC_ARTIFACT_PREFIXES:
         raise ValueError('Invalid diagnostic checkpoint stage')
@@ -252,14 +298,22 @@ def import_diagnostic(ctx, directory, checkpoint, bundles, selection, stage='wri
         raise ValueError('Diagnostic checkpoint differs from the frozen release inputs')
     # gh paginates the complete run and keeps each artifact in its own directory.
     # Validate every expected writer before copying any data into the new run.
-    values = []
-    for index in range(len(ctx['batches'])):
-        value = read_json(bundles / f'{prefix}-{index}' / f'bundle-{index}.json')
-        validate_bundle(ctx, index, value)
-        values.append(value)
+    findings = []
+    if stage == 'diagnostic':
+        if reviews is None:
+            raise ValueError('Diagnostic checkpoint requires review feedback')
+        values, findings = diagnostic_proposal(ctx, checkpoint, bundles, reviews)
+    else:
+        values = []
+        for index in range(len(ctx['batches'])):
+            value = read_json(bundles / f'{prefix}-{index}' / f'bundle-{index}.json')
+            validate_bundle(ctx, index, value)
+            values.append(value)
     before = snapshot_hash(values)
     for index, value in enumerate(values):
         write_json(directory / f'bundle-{index}.json', value)
+    if findings:
+        write_json(directory / 'repair-findings.json', findings)
     write_json(directory / 'diagnostic.json', {'input_sha': before, 'matrix': matrix, 'stage': stage})
     return matrix, before
 
@@ -274,10 +328,13 @@ def prepare_diagnostic(ctx, directory):
             or run.get('path') != '.github/workflows/nightly-doc-sync.yml'
             or run.get('event') not in ('workflow_dispatch', 'schedule')):
         raise ValueError('Diagnostic checkpoint must come from this repository nightly workflow')
+    stage = os.environ.get('DIAGNOSTIC_STAGE', 'write')
+    if stage == 'diagnostic' and run.get('status') != 'completed':
+        raise ValueError('Diagnostic repair requires a completed checkpoint run')
     matrix, before = import_diagnostic(
         ctx, directory, directory.parent / 'release-checkpoint-context',
         directory.parent / 'release-checkpoint-bundles', os.environ.get('DIAGNOSTIC_BATCHES', ''),
-        os.environ.get('DIAGNOSTIC_STAGE', 'write'))
+        stage, reviews=directory.parent / 'release-checkpoint-reviews')
     outputs(matrix=matrix, checkpoint_sha=before)
     print('Diagnostic only: selected pages will be rewritten and reviewed; publication is disabled')
 
@@ -390,7 +447,7 @@ def assemble(ctx, directory):
             safe_write(path, content)
 
 
-def validate_review(ctx, index, raw):
+def validate_review_evidence(ctx, index, raw):
     paths = batch_paths(ctx, index)
     reviewed = raw.get('reviewed_pages')
     if not isinstance(reviewed, list) or len(reviewed) != len(paths) or set(reviewed) != set(paths):
@@ -400,15 +457,22 @@ def validate_review(ctx, index, raw):
     if not isinstance(raw.get('reason'), str) or not raw['reason'].strip():
         raise ValueError('Missing snapshot review evidence')
     checks = raw.get('regression_checks')
-    expected = {case['id'] for case in regression_checks(ctx, index)}
-    if (not isinstance(checks, list) or len(checks) != len(expected)
-            or any(not isinstance(check, dict) or not isinstance(check.get('id'), str)
+    if (not isinstance(checks, list)
+            or any(not isinstance(check, dict) or not isinstance(check.get('id'), str) or not check['id'].strip()
                    for check in checks)
-            or {check['id'] for check in checks} != expected):
-        raise ValueError('Independent review did not cover every source-pinned regression check')
+            or len({check['id'] for check in checks}) != len(checks)):
+        raise ValueError('Invalid source-pinned regression evidence')
     if any(type(check.get('satisfied')) is not bool or not isinstance(check.get('evidence'), str)
            or not check['evidence'].strip() for check in checks):
         raise ValueError('Missing source evidence for regression check')
+
+
+def validate_review(ctx, index, raw):
+    validate_review_evidence(ctx, index, raw)
+    checks = raw['regression_checks']
+    expected = {case['id'] for case in regression_checks(ctx, index)}
+    if {check['id'] for check in checks} != expected:
+        raise ValueError('Independent review did not cover every source-pinned regression check')
     return all(raw[gate] for gate in REVIEW_GATES) and all(check['satisfied'] for check in checks)
 
 

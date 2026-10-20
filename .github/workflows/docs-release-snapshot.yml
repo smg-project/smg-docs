@@ -27,9 +27,6 @@ permissions:
 env:
   PYTHONDONTWRITEBYTECODE: '1'
   RELEASE_JSON: ${{ inputs.release-json }}
-  DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
-  DIAGNOSTIC_BATCHES: ${{ inputs.diagnostic-batches }}
-  DRY_RUN: ${{ inputs.dry-run }}
 
 jobs:
   prepare:
@@ -84,6 +81,10 @@ jobs:
       - name: Validate frozen checkpoint and select diagnostic batches
         if: inputs.diagnostic-run-id != ''
         id: diagnostic
+        env:
+          DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
+          DIAGNOSTIC_BATCHES: ${{ inputs.diagnostic-batches }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare-diagnostic
       - uses: actions/upload-artifact@v4
         with:
@@ -123,6 +124,8 @@ jobs:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - name: Seed only the selected release snapshot
+        env:
+          DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
         run: |
           if [ -n "$DIAGNOSTIC_RUN_ID" ]; then
             python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble
@@ -145,6 +148,8 @@ jobs:
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
       - name: Export Markdown data with strict page isolation
+        env:
+          DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
         run: |
           if [ -n "$DIAGNOSTIC_RUN_ID" ]; then
             python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" export-repair
@@ -195,6 +200,7 @@ jobs:
           path: ${{ runner.temp }}/release-docs
       - name: Assemble all batches using pristine guards
         env:
+          DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
           REPAIR_INPUT_SHA: ${{ needs.prepare.outputs.checkpoint_sha }}
         run: |
           if [ -n "$DIAGNOSTIC_RUN_ID" ]; then
@@ -220,6 +226,7 @@ jobs:
             --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
       - name: Record validated findings for the bounded repair pass
         env:
+          DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
           REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
         run: |
           if [ -n "$DIAGNOSTIC_RUN_ID" ]; then
@@ -700,6 +707,7 @@ jobs:
       - name: Publish one audited release snapshot PR
         env:
           GH_TOKEN: ${{ secrets.DOC_SYNC_TOKEN || github.token }}
+          DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
           DRY_RUN: ${{ inputs.dry-run }}
           DOCS_PUBLISH_BASE: ${{ steps.baseline.outputs.base }}
         run: |

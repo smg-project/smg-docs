@@ -230,8 +230,11 @@ citations are not rejected. The editor may only change the original concern.
 
 For release-audit debugging, dispatch `nightly-doc-sync.yml` with
 `release_diagnostic_run` set to an earlier nightly run that uploaded all writer
-bundles, and `release_diagnostic_batches` set to one or two batch numbers (for
-example `6,34`). This forces dry-run mode and uses a separate concurrency group,
+bundles, and `release_diagnostic_batches` set to one to eight batch numbers (for
+example `0,6,13,23,34`). Include the owning batches of any related pages named in
+the rejected review: unchanged checkpoint pages remain review context, and a
+writer cannot fix a contradiction outside its assigned paths. This forces
+dry-run mode and uses a separate concurrency group,
 so it can run alongside a full audit. The checkpoint must have exactly the same
 release SHA, documentation base, seed, manifest and batch layout. Only validated
 Markdown bundles are reused; old reviews are never imported. Selected writers

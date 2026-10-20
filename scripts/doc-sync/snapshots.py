@@ -230,8 +230,8 @@ def diagnostic_matrix(ctx, selection):
     if not re.fullmatch(r'\d+(,\d+)*', selection):
         raise ValueError('Diagnostic batches must be comma-separated batch numbers')
     selected = [int(value) for value in selection.split(',')]
-    if len(selected) > 2 or len(set(selected)) != len(selected):
-        raise ValueError('Choose one or two distinct diagnostic batches')
+    if len(selected) > 8 or len(set(selected)) != len(selected):
+        raise ValueError('Choose one to eight distinct diagnostic batches')
     for index in selected:
         batch_paths(ctx, index)
     return {'include': [item for item in ctx['matrix']['include'] if item['batch'] in selected]}

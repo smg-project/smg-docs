@@ -102,5 +102,30 @@
 		"pages": ["concepts/routing/pd-disaggregation.md", "reference/metrics.md"],
 		"source_paths": ["model_gateway/src/routers/grpc/regular/streaming.rs"],
 		"check": "Verify the gRPC PD TTFT recording anchor is prefill dispatch, not decode dispatch, and distinguish any HTTP PD timing contract. Keep concept prose and metric descriptions consistent."
+	},
+	{
+		"id": "removed-worker-metric-series",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/monitoring.md", "reference/metrics.md"],
+		"source_paths": [
+			"model_gateway/src/observability/worker_metrics.rs",
+			"model_gateway/src/worker/registry.rs",
+			"model_gateway/src/observability/metrics.rs"
+		],
+		"check": "Trace worker removal through Metrics::remove_worker_metrics and WorkerSeries::retire: removed-worker series are dropped from scrapes, not retained with smg_worker_health=-1. Distinguish a registered worker's health or engine-gauge sentinels from removal. Reconcile the monitoring guide and metrics reference."
+	},
+	{
+		"id": "default-admission-metrics",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/monitoring.md", "reference/metrics.md"],
+		"source_paths": ["model_gateway/src/app_context.rs", "model_gateway/src/main.rs"],
+		"check": "Trace maybe_rate_limiter and default_max_concurrent_requests: the default negative max-concurrent-requests value enables admission with a host-derived cap; a positive value supplies an explicit cap and zero disables it. Do not claim admission metrics require explicitly supplying --max-concurrent-requests. Describe metric emission conditions from their actual recording paths."
+	},
+	{
+		"id": "pd-prefill-wait-export-type",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/pd-disaggregation.md", "reference/metrics.md"],
+		"source_paths": ["model_gateway/src/observability/metrics.rs"],
+		"check": "Trace smg_pd_prefill_admission_wait_seconds through start_prometheus and the complete histogram_bucket_overrides list. No bucket matcher applies to this name, so it exports as a Prometheus summary with the default quantiles, not a bucketed histogram. The Rust histogram recording macro does not determine the Prometheus export type. Reconcile the PD concept table and metrics reference."
 	}
 ]

@@ -10,7 +10,7 @@ on:
         type: string
         default: ''
       release_diagnostic_batches:
-        description: One or two comma-separated batch numbers for the release diagnostic
+        description: One to eight comma-separated batch numbers for the release diagnostic
         type: string
         default: ''
       dry_run:

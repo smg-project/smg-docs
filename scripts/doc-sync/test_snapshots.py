@@ -52,6 +52,19 @@ class AuditBatchTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 s.diagnostic_matrix(ctx, invalid)
 
+    def test_diagnostic_includes_related_batches_without_changing_their_scopes_or_budgets(self):
+        ctx = {'batches': [[f'page-{i}.md'] for i in range(10)],
+               'matrix': {'include': [{'batch': i, 'max_turns': 300 if i == 6 else 180}
+                                      for i in range(10)]}}
+        original = json.loads(json.dumps(ctx))
+        for selected in [[0, 2, 4, 6, 8], list(range(8))]:
+            self.assertEqual(s.diagnostic_matrix(ctx, ','.join(map(str, selected))),
+                             {'include': [ctx['matrix']['include'][i] for i in selected]})
+        for invalid in ['0,1,2,3,4,5,6,7,8', '0,1,2,3,4,5,6,6', '0,1,2,3,4,5,6,10']:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                s.diagnostic_matrix(ctx, invalid)
+        self.assertEqual(ctx, original)
+
     def test_every_page_is_assigned_once_in_stable_order(self):
         pages = {f'page-{i:02}.md': (b'doc', b'main') for i in reversed(range(59))}
         batches = s.audit_batches(pages)
@@ -358,6 +371,20 @@ class RepairTests(unittest.TestCase):
         with patch.dict(os.environ, {'DIAGNOSTIC_RUN_ID': '123'}):
             with self.assertRaisesRegex(ValueError, 'cannot publish'):
                 s.publish(ctx)
+
+    def test_diagnostic_rejects_correct_local_pages_when_related_pages_contradict_them(self):
+        ctx, directory, values = self.proposal(rejected=())
+        s.write_json(directory / 'diagnostic.json', {})
+        raw = s.read_json(directory / 'review-0.json')['verdict']
+        raw.update(related_docs_consistent=False,
+                   reason='Assigned page is correct; the related checkpoint page has a stale default')
+        with patch.dict(os.environ, {'REVIEW_JSON': json.dumps(raw)}):
+            with self.assertRaisesRegex(ValueError, 'related checkpoint page'):
+                s.review(ctx, 0, directory)
+        result = s.read_json(directory / 'review-0.json')
+        self.assertTrue(result['diagnostic'])
+        self.assertEqual(result['verdict'], raw)
+        self.assertEqual(result['snapshot_sha'], s.snapshot_hash(values))
 
     def proposal(self, rejected=(1,)):
         ctx, _ = self.context()

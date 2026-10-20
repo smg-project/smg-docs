@@ -70,14 +70,13 @@ jobs:
           run-id: ${{ inputs.diagnostic-run-id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/release-checkpoint-context
-      - if: inputs.diagnostic-run-id != ''
-        uses: actions/download-artifact@v4
-        with:
-          pattern: release-bundle-*
-          merge-multiple: true
-          run-id: ${{ inputs.diagnostic-run-id }}
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/release-checkpoint-bundles
+      - name: Download complete checkpoint writer artifacts
+        if: inputs.diagnostic-run-id != ''
+        env:
+          DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
+        run: |
+          gh run download "$DIAGNOSTIC_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'release-bundle-*' --dir "$RUNNER_TEMP/release-checkpoint-bundles"
       - name: Validate frozen checkpoint and select diagnostic batches
         if: inputs.diagnostic-run-id != ''
         id: diagnostic

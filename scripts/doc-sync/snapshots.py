@@ -242,9 +242,16 @@ def import_diagnostic(ctx, directory, checkpoint, bundles, selection):
     matrix = diagnostic_matrix(ctx, selection)
     if read_json(checkpoint / 'context.json') != ctx:
         raise ValueError('Diagnostic checkpoint differs from the frozen release inputs')
-    before = proposal_hash(ctx, bundles)  # Requires complete, scoped, version-bound data.
+    # gh paginates the complete run and keeps each artifact in its own directory.
+    # Validate every expected writer before copying any data into the new run.
+    values = []
     for index in range(len(ctx['batches'])):
-        write_json(directory / f'bundle-{index}.json', read_json(bundles / f'bundle-{index}.json'))
+        value = read_json(bundles / f'release-bundle-{index}' / f'bundle-{index}.json')
+        validate_bundle(ctx, index, value)
+        values.append(value)
+    before = snapshot_hash(values)
+    for index, value in enumerate(values):
+        write_json(directory / f'bundle-{index}.json', value)
     write_json(directory / 'diagnostic.json', {'input_sha': before, 'matrix': matrix})
     return matrix, before
 

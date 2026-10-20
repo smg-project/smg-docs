@@ -297,12 +297,18 @@ class RepairTests(unittest.TestCase):
         s.write_json(checkpoint / 'context.json', ctx)
         destination = directory / 'diagnostic'
         destination.mkdir()
-        return checkpoint, destination
+        bundles = directory / 'prior-bundles'
+        for index in range(len(ctx['batches'])):
+            s.write_json(bundles / f'release-bundle-{index}' / f'bundle-{index}.json',
+                         s.read_json(directory / f'bundle-{index}.json'))
+        # Old approval artifacts must never enter the new evidence directory.
+        s.write_json(bundles / 'release-review-0' / 'review-0.json', {'accepted': True})
+        return checkpoint, destination, bundles
 
     def test_diagnostic_import_keeps_full_context_but_never_imports_approvals(self):
         ctx, directory, values = self.proposal(rejected=())
-        checkpoint, destination = self.checkpoint(ctx, directory)
-        matrix, before = s.import_diagnostic(ctx, destination, checkpoint, directory, '1')
+        checkpoint, destination, bundles = self.checkpoint(ctx, directory)
+        matrix, before = s.import_diagnostic(ctx, destination, checkpoint, bundles, '1')
         self.assertEqual([v['batch'] for v in matrix['include']], [1])
         self.assertEqual(s.proposal_hash(ctx, destination), before)
         self.assertEqual(len(list(destination.glob('bundle-*.json'))), len(values))
@@ -315,26 +321,27 @@ class RepairTests(unittest.TestCase):
 
     def test_diagnostic_rejects_different_source_base_seed_and_page_inventory(self):
         ctx, directory, _ = self.proposal()
-        checkpoint, destination = self.checkpoint(ctx, directory)
+        checkpoint, destination, bundles = self.checkpoint(ctx, directory)
         variants = [dict(ctx, base='b' * 40), dict(ctx, seed_digest='other'),
                     dict(ctx, release={**ctx['release'], 'sha': 'c' * 40}),
                     dict(ctx, batches=list(reversed(ctx['batches'])))]
         for different in variants:
             s.write_json(checkpoint / 'context.json', different)
             with self.assertRaisesRegex(ValueError, 'frozen release inputs'):
-                s.import_diagnostic(ctx, destination, checkpoint, directory, '1')
+                s.import_diagnostic(ctx, destination, checkpoint, bundles, '1')
         self.assertEqual(list(destination.iterdir()), [])
 
     def test_diagnostic_rejects_missing_and_out_of_scope_checkpoint_data(self):
         ctx, directory, values = self.proposal()
-        checkpoint, destination = self.checkpoint(ctx, directory)
-        (directory / 'bundle-0.json').unlink()
+        checkpoint, destination, bundles = self.checkpoint(ctx, directory)
+        (bundles / 'release-bundle-0' / 'bundle-0.json').unlink()
         with self.assertRaises(FileNotFoundError):
-            s.import_diagnostic(ctx, destination, checkpoint, directory, '1')
+            s.import_diagnostic(ctx, destination, checkpoint, bundles, '1')
         values[0]['files']['.github/workflows/ci.yml'] = 'unsafe tooling'
-        s.write_json(directory / 'bundle-0.json', values[0])
+        s.write_json(bundles / 'release-bundle-0' / 'bundle-0.json', values[0])
         with self.assertRaisesRegex(ValueError, 'assigned page'):
-            s.import_diagnostic(ctx, destination, checkpoint, directory, '1')
+            s.import_diagnostic(ctx, destination, checkpoint, bundles, '1')
+        self.assertEqual(list(destination.iterdir()), [])
 
     def test_diagnostic_results_cannot_authorize_finalization_or_publication(self):
         ctx, directory, _ = self.proposal(rejected=())

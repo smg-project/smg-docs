@@ -90,6 +90,29 @@ class SelectionTests(unittest.TestCase):
             api.assert_called_once_with('repos/smg-project/smg/commits/main')
 
 
+class RegressionCatalogTests(unittest.TestCase):
+    def test_checked_in_cases_have_unique_ids_and_scoped_source_evidence(self):
+        cases = s.read_json(Path(s.__file__).with_name('release-regressions.json'))
+        self.assertEqual(len(cases), len({case['id'] for case in cases}))
+        for case in cases:
+            self.assertRegex(case['source_sha'], r'^[a-f0-9]{40}$')
+            self.assertTrue(case['pages'] and all(s.page_path(p) for p in case['pages']))
+            self.assertTrue(case['source_paths'] and case['check'].strip())
+            for path in case['source_paths']:
+                self.assertFalse(Path(path).is_absolute())
+                self.assertNotIn('..', Path(path).parts)
+
+    def test_cases_follow_exact_source_and_assigned_pages_not_version_name(self):
+        case = s.read_json(Path(s.__file__).with_name('release-regressions.json'))[0]
+        ctx = {'release': {**RELEASE, 'sha': case['source_sha']},
+               'batches': [[s.root(RELEASE['tag']) + 'content/' + case['pages'][0]],
+                           [s.root(RELEASE['tag']) + 'content/contributing/index.md']]}
+        self.assertIn(case, s.regression_checks(ctx, 0))
+        self.assertEqual(s.regression_checks(ctx, 1), [])
+        ctx['release']['sha'] = 'f' * 40
+        self.assertEqual(s.regression_checks(ctx, 0), [])
+
+
 class SnapshotGitTests(unittest.TestCase):
     def setUp(self):
         self.old = os.getcwd()
@@ -141,7 +164,21 @@ class SnapshotGitTests(unittest.TestCase):
         return {'batch': 0, 'bundle_sha': s.bundle_hash(value),
                 'snapshot_sha': s.snapshot_hash([value]), 'verdict': {
             'accurate': True, 'complete': True, 'reader_focused': True, 'related_docs_consistent': True,
-            'reviewed_pages': self.paths, 'reason': 'Source checked', **changes}}
+            'reviewed_pages': self.paths, 'reason': 'Source checked', 'regression_checks': [], **changes}}
+
+    def test_batch_evidence_exposes_inherited_omissions_and_deleted_pages(self):
+        ctx, _ = self.context()
+        directory = Path(self.evidence.name)
+        Path(self.paths[1]).write_text('# Snapshot without the released feature\n')
+        s.batch_evidence(ctx, 0, directory)
+        diff = (directory / 'main-to-snapshot.diff').read_text()
+        self.assertIn('-# Main feature', diff)
+        self.assertIn('+# Snapshot without the released feature', diff)
+        self.assertIn('src/lib/content/reference/feature.md', diff)
+        self.assertEqual(s.read_json(directory / 'batch.json')['paths'], self.paths)
+        Path(self.paths[1]).unlink()
+        s.batch_evidence(ctx, 0, directory)
+        self.assertIn('-# Main feature', (directory / 'main-to-snapshot.diff').read_text())
 
     def test_new_snapshot_copies_main_manifest_assets_and_preserves_old_release(self):
         ctx, seed = self.context()
@@ -237,10 +274,36 @@ class RepairTests(unittest.TestCase):
     def records(self, ctx, directory, values, rejected=()):
         for i, value in enumerate(values):
             verdict = {gate: i not in rejected for gate in s.REVIEW_GATES}
-            verdict.update(reviewed_pages=ctx['batches'][i], reason='Specific release evidence')
+            verdict.update(reviewed_pages=ctx['batches'][i], reason='Specific release evidence', regression_checks=[])
             s.write_json(directory / f'review-{i}.json', {
                 'batch': i, 'bundle_sha': s.bundle_hash(value),
                 'snapshot_sha': s.snapshot_hash(values), 'verdict': verdict})
+
+    def test_negative_regression_blocks_publication_despite_positive_general_gates(self):
+        ctx, directory, _ = self.proposal(rejected=())
+        check = {'id': 'released-feature', 'satisfied': False,
+                 'evidence': 'feature.rs::render enables it; reference/feature.md omits it'}
+        raw = s.read_json(directory / 'review-1.json')['verdict']
+        raw['regression_checks'] = [check]
+        with patch.object(s, 'regression_checks', side_effect=lambda ctx, i: [check] if i == 1 else []):
+            with patch.dict(os.environ, {'REVIEW_JSON': json.dumps(raw)}):
+                s.review(ctx, 1, directory, require_accepted=False)
+            self.assertEqual(s.rejected_batches(ctx, directory), [1])
+            with self.assertRaisesRegex(ValueError, 'rejected full snapshot'):
+                s.finalize(ctx, directory)
+            self.assertEqual(s.repair_findings(ctx, directory)[0]['verdict']['regression_checks'], [check])
+
+    def test_regression_evidence_requires_exact_coverage_and_explicit_results(self):
+        ctx, directory, _ = self.proposal(rejected=())
+        raw = s.read_json(directory / 'review-1.json')['verdict']
+        check = {'id': 'released-feature', 'satisfied': True,
+                 'evidence': 'feature.rs::render and reference/feature.md agree'}
+        with patch.object(s, 'regression_checks', return_value=[check]):
+            for invalid in [None, [], [check, check], [{**check, 'id': 'unknown'}],
+                            [{**check, 'satisfied': 'true'}], [{**check, 'evidence': ''}], [None]]:
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    s.validate_review(ctx, 1, {**raw, 'regression_checks': invalid})
+            self.assertTrue(s.validate_review(ctx, 1, {**raw, 'regression_checks': [check]}))
 
     def test_record_rejection_is_repairable_but_cannot_finalize(self):
         ctx, directory, _ = self.proposal()

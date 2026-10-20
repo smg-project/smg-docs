@@ -1,0 +1,106 @@
+[
+	{
+		"id": "template-precedence",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/architecture/grpc-pipeline.md",
+			"concepts/performance/tokenizer-caching.md"
+		],
+		"source_paths": ["crates/tokenizer/src/factory.rs"],
+		"check": "Verify discover_chat_template_in_dir and its callers: an explicit template override wins; local discovery tries chat_template.jinja, then the string chat_template in tokenizer_config.json, then legacy chat_template.json, then other .jinja files. Reconcile precedence wherever the assigned page describes it."
+	},
+	{
+		"id": "mcp-policy-denial",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/extensibility/mcp.md"],
+		"source_paths": [
+			"crates/mcp/src/approval/manager.rs",
+			"crates/mcp/src/core/orchestrator.rs",
+			"crates/mcp/src/error.rs"
+		],
+		"check": "Trace PolicyOnly through ApprovalOutcome::Decided to ToolDenied(entry.tool_name()). The configured deny_with_reason text is not the caller-visible error on this path. Distinguish audit-log reason from the returned tool-name error; do not infer behavior from the unreachable Pending policy-denial branch."
+	},
+	{
+		"id": "template-clock",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/performance/tokenizer-caching.md"],
+		"source_paths": ["crates/tokenizer/src/chat_template.rs"],
+		"check": "The Template Variables section must retain released strftime_now(format) behavior and SOURCE_DATE_EPOCH reproducibility guidance. Verify render_instant, strftime and render context injection: one instant per render, local time, cached epoch override and invalid-format errors. Main contains this released material while the prepared snapshot omitted it."
+	},
+	{
+		"id": "overload-opt-in",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/reliability/rate-limiting.md",
+			"concepts/reliability/overload-protection.md"
+		],
+		"source_paths": [
+			"model_gateway/src/main.rs",
+			"model_gateway/src/routers/common/placement.rs",
+			"model_gateway/src/routers/common/overload.rs",
+			"model_gateway/src/routers/http/router.rs"
+		],
+		"check": "An all-overloaded pool steers to the least-loaded routable worker by default. The 503 overload shed requires --worker-overload-shed, which defaults false. Verify both selection and dispatch gates. Qualify every summary of overload shedding, including Why Limit Admission, consistently with the overload concept page."
+	},
+	{
+		"id": "terminal-placement-refusal",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/load-balancing.md", "concepts/reliability/retries.md"],
+		"source_paths": [
+			"model_gateway/src/routers/common/placement.rs",
+			"crates/external_router/src/retry.rs",
+			"model_gateway/src/routers/http/router.rs",
+			"model_gateway/src/routers/grpc/common/stages/worker_selection.rs"
+		],
+		"check": "A no_available_workers 503 is marked non-retryable for the router retry loop and carries Retry-After: 1 for clients. Check the Waiting-Queue Cap paragraph as well as retries: do not promise an internal retry after backoff when every worker is at the cap."
+	},
+	{
+		"id": "vllm-rust-kv-default",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/grpc-workers.md"],
+		"source_paths": [
+			"grpc_servicer/smg_grpc_servicer/vllm/rust.py",
+			"grpc_servicer/smg_grpc_servicer/rust_lifecycle.py"
+		],
+		"check": "Document the released Rust vLLM launcher KV publisher default, not only the SGLang/TokenSpeed variants: absent --kv-events-config enables the publisher, SMG_VLLM_SERVICER_KV_EVENTS=0 keeps it off, and explicit configuration is preserved. Trace default_kv_events_config through RustLauncher before engine creation."
+	},
+	{
+		"id": "consistent-hashing-branches",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/metrics.md", "concepts/routing/sticky-sessions.md"],
+		"source_paths": ["model_gateway/src/policies/consistent_hashing.rs"],
+		"check": "Compare the complete Branch enum/as_str and emission call with the policy metric table. There are six values, including implicit_key_hit for x-forwarded-for/cookie without an explicit routing key. random_fallback requires neither explicit nor implicit key. Reconcile the metrics reference and sticky-session concept page."
+	},
+	{
+		"id": "zmq-inline-payload",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/configuration.md", "concepts/architecture/multimodal.md"],
+		"source_paths": [
+			"model_gateway/src/routers/grpc/multimodal/assemble.rs",
+			"model_gateway/src/routers/grpc/backend_client.rs",
+			"model_gateway/src/routers/grpc/proto_wrapper.rs"
+		],
+		"check": "Verify the selected ZMQ path disables shm_enabled before serialization. ZMQ workers receive inline tensors; an adapter capable of reading SHM does not prove the gateway sends it. Reconcile configuration and multimodal transport descriptions."
+	},
+	{
+		"id": "wasm-example-paths",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/api/admin.md"],
+		"source_paths": ["model_gateway/src/workflow/wasm_module_registration.rs"],
+		"check": "Validate successful WASM registration examples against blocked path prefixes. /etc is rejected; success examples must use an allowed absolute path. Keep path and module name consistent in subsequent requests."
+	},
+	{
+		"id": "body-timeout-scope",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/configuration.md", "concepts/performance/request-streaming.md"],
+		"source_paths": ["model_gateway/src/middleware/body_timeout.rs", "model_gateway/src/server.rs"],
+		"check": "Verify --stream-body-stall-timeout-secs applies to buffered as well as streamed request bodies through middleware. The flag name alone does not imply streaming-only scope."
+	},
+	{
+		"id": "pd-ttft-anchor",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/pd-disaggregation.md", "reference/metrics.md"],
+		"source_paths": ["model_gateway/src/routers/grpc/regular/streaming.rs"],
+		"check": "Verify the gRPC PD TTFT recording anchor is prefill dispatch, not decode dispatch, and distinguish any HTTP PD timing contract. Keep concept prose and metric descriptions consistent."
+	}
+]

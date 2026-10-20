@@ -1,5 +1,6 @@
 """Audit one published release snapshot without trusting model-written tooling."""
 
+import difflib
 import hashlib
 import json
 import os
@@ -225,6 +226,31 @@ def batch_paths(ctx, index):
     return ctx['batches'][index]
 
 
+def regression_checks(ctx, index):
+    """Known source-backed defects are audit questions, never review approvals."""
+    catalog = read_json(Path(__file__).with_name('release-regressions.json'))
+    prefix = root(ctx['release']['tag']) + 'content/'
+    assigned = {path.removeprefix(prefix) for path in batch_paths(ctx, index)}
+    return [case for case in catalog
+            if case['source_sha'] == ctx['release']['sha'] and assigned.intersection(case['pages'])]
+
+
+def batch_evidence(ctx, index, directory):
+    """Show omissions explicitly, including when an existing release page was stale."""
+    paths = batch_paths(ctx, index)
+    prefix = root(ctx['release']['tag']) + 'content/'
+    main = tracked_bytes(ctx['base'], docs.DOC_ROOT)
+    differences = []
+    for path in paths:
+        counterpart = docs.DOC_ROOT + path.removeprefix(prefix)
+        original = main.get(counterpart, b'').decode().splitlines(keepends=True)
+        current = Path(path).read_text().splitlines(keepends=True) if Path(path).exists() else []
+        differences.extend(difflib.unified_diff(original, current, fromfile=counterpart, tofile=path))
+    (directory / 'main-to-snapshot.diff').write_text(''.join(differences))
+    write_json(directory / 'batch.json', {'paths': paths, 'release': ctx['release'],
+               'regression_checks': regression_checks(ctx, index)})
+
+
 def validate_bundle(ctx, index, value):
     paths = batch_paths(ctx, index)
     if value.get('base') != ctx['base'] or value.get('release') != ctx['release'] or value.get('batch') != index:
@@ -317,7 +343,17 @@ def validate_review(ctx, index, raw):
         raise ValueError('Invalid snapshot review')
     if not isinstance(raw.get('reason'), str) or not raw['reason'].strip():
         raise ValueError('Missing snapshot review evidence')
-    return all(raw[gate] for gate in REVIEW_GATES)
+    checks = raw.get('regression_checks')
+    expected = {case['id'] for case in regression_checks(ctx, index)}
+    if (not isinstance(checks, list) or len(checks) != len(expected)
+            or any(not isinstance(check, dict) or not isinstance(check.get('id'), str)
+                   for check in checks)
+            or {check['id'] for check in checks} != expected):
+        raise ValueError('Independent review did not cover every source-pinned regression check')
+    if any(type(check.get('satisfied')) is not bool or not isinstance(check.get('evidence'), str)
+           or not check['evidence'].strip() for check in checks):
+        raise ValueError('Missing source evidence for regression check')
+    return all(raw[gate] for gate in REVIEW_GATES) and all(check['satisfied'] for check in checks)
 
 
 def reader_bundle_violations(value):
@@ -491,7 +527,7 @@ def main():
     index = int(os.environ.get('BATCH', '0'))
     if command == 'seed':
         seed_context(ctx)
-        write_json(directory / 'batch.json', {'paths': batch_paths(ctx, index), 'release': ctx['release']})
+        batch_evidence(ctx, index, directory)
     elif command == 'export':
         # Do not re-seed here: it would overwrite the writer's work.
         seed = make_seed(ctx['base'], ctx['release'], ctx['main_manifest'])
@@ -502,7 +538,7 @@ def main():
         if command == 'assemble-repaired':
             require_repair_change(ctx, directory, os.environ.get('REPAIR_INPUT_SHA', ''))
         seed_context(ctx); assemble(ctx, directory)
-        write_json(directory / 'batch.json', {'paths': batch_paths(ctx, index), 'release': ctx['release']})
+        batch_evidence(ctx, index, directory)
     elif command in ('review', 'record-review'):
         review(ctx, index, directory, require_accepted=command == 'review')
     elif command == 'plan-repair':

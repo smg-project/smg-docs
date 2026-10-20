@@ -170,7 +170,7 @@ jobs:
           claude_args: >-
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
-            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason"]}'
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
       - name: Record validated findings for the bounded repair pass
         env:
           REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
@@ -354,7 +354,7 @@ jobs:
           claude_args: >-
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
-            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason"]}'
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
       - name: Record fresh findings after the first repair
         env:
           REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
@@ -554,7 +554,7 @@ jobs:
           claude_args: >-
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
-            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason"]}'
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
       - name: Require independent review and exact page coverage
         env:
           REVIEW_JSON: ${{ steps.review.outputs.structured_output }}

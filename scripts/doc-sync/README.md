@@ -244,6 +244,15 @@ Ordinary batches have a 180-turn hard limit; isolated oversized pages receive
 They audit against the immutable release
 checkout: remove main-only behavior, correct stale claims, and add missing released
 behavior. Every page, including unchanged pages, requires independent review.
+Every writer and reviewer receives an untruncated main-to-snapshot diff so
+released material missing from an existing snapshot is visible. Known defects
+live in `release-regressions.json`, scoped to an exact source SHA and affected
+pages. Add source-backed cases when an audit misses a contract; update them only
+after verifying a different release. They are investigation questions, never
+pre-approved claims. Independent reviewers must return a source-evidenced result
+for every applicable case; a false result rejects content, and missing/duplicate
+results fail validation. Other releases do not inherit version-specific claims.
+The complete page audit remains required in addition to these checks.
 All writer batches are assembled before reviewers check cross-page consistency.
 Deterministic reader checks cover the complete release pages, including inherited
 PR/source citations and unreleased narration. These findings are appended to the

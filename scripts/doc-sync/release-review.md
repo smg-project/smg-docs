@@ -7,7 +7,13 @@ implementation/tests for proof. Main may contain later unreleased changes.
 
 Return the required JSON: accurate, complete, reader_focused,
 related_docs_consistent (booleans), reviewed_pages (every assigned path exactly
-once) and reason (specific source evidence and any defects). A deleted page
+once), reason (specific source evidence and any defects), and regression_checks.
+Return exactly one regression_checks object per check ID in batch.json, with id,
+satisfied (boolean), and evidence (specific source path/symbol and documentation
+section checked). Return an empty array when no checks apply. A false result is
+a content rejection even when the other gates pass. Missing, duplicate or
+unknown check IDs and missing evidence fail validation. Never mark a check
+satisfied solely because this checklist describes the expected behavior. A deleted page
 passes only if its subject is unsupported in this release and incoming links/nav
 are corrected. Do not accept empty/stub pages in place of usable documentation.
 Verify whole pages, not just edited lines. Reject retained main-only features,
@@ -36,3 +42,18 @@ and flags reset by callers. Check example values and paths against validators,
 timeout scope against middleware on both buffered and streamed requests, and
 metric timing against the actual recording anchor. Compare these same claims
 in concept pages, examples, configuration tables and metric references.
+
+Read main-to-snapshot.diff for every assigned page. It compares the frozen main
+page with the current proposal, including omissions inherited from an existing
+release folder. For material present on main but absent from the snapshot,
+verify whether it shipped using the pinned source; restore shipped user-facing
+behavior and omit later behavior. Do not treat an existing snapshot or the
+absence of a feature from its current text as evidence that it was not released.
+Check complete enumerations and precedence chains, feature defaults and opt-in
+gates, and returned errors separately from audit-log messages.
+
+Investigate every regression_checks entry in batch.json against its cited source
+paths and active callers. These are known audit failures bound to this exact
+source SHA, not approval evidence and not a substitute for the whole-page audit.
+Reconcile the same contract on assigned and related pages. Keep public prose
+concise and source citations in review evidence only.

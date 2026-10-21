@@ -18,6 +18,12 @@ on:
       diagnostic-stage:
         type: string
         default: write
+      resume-run-id:
+        type: string
+        default: ''
+      resume-batches:
+        type: string
+        default: ''
       dry-run:
         type: boolean
         default: true
@@ -100,6 +106,24 @@ jobs:
           DIAGNOSTIC_STAGE: ${{ inputs.diagnostic-stage }}
           DRY_RUN: ${{ inputs.dry-run }}
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare-diagnostic
+      - name: Download failed full audit checkpoint
+        if: inputs.resume-run-id != ''
+        env:
+          RESUME_RUN_ID: ${{ inputs.resume-run-id }}
+        run: |
+          gh run download "$RESUME_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name release-context --dir "$RUNNER_TEMP/release-resume-context"
+          gh run download "$RESUME_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'release-followup-bundle-*' --pattern 'release-final-review-*' \
+            --dir "$RUNNER_TEMP/release-resume-artifacts"
+      - name: Validate complete snapshot and rejected review evidence for resume
+        if: inputs.resume-run-id != ''
+        env:
+          RESUME_RUN_ID: ${{ inputs.resume-run-id }}
+          RESUME_BATCHES: ${{ inputs.resume-batches }}
+          DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare-resume
       - uses: actions/upload-artifact@v4
         with:
           name: release-context
@@ -109,6 +133,7 @@ jobs:
 
   write:
     needs: prepare
+    if: inputs.resume-run-id == ''
     runs-on: smg-org-runner-cpu
     timeout-minutes: 90
     strategy:
@@ -179,6 +204,7 @@ jobs:
 
   review:
     needs: [prepare, write]
+    if: inputs.resume-run-id == ''
     runs-on: smg-org-runner-cpu
     timeout-minutes: 90
     strategy:
@@ -207,7 +233,8 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true
@@ -257,7 +284,10 @@ jobs:
           if-no-files-found: warn
 
   assess:
-    if: inputs.diagnostic-run-id == ''
+    if: >-
+      always() && !cancelled() && inputs.diagnostic-run-id == '' &&
+      needs.prepare.result == 'success' &&
+      (inputs.resume-run-id != '' || needs.review.result == 'success')
     needs: [prepare, review]
     runs-on: smg-org-runner-cpu
     timeout-minutes: 15
@@ -286,19 +316,28 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-review-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
       - name: Validate review evidence and select repair coverage
         id: plan
-        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" plan-repair
+        env:
+          RESUME_RUN_ID: ${{ inputs.resume-run-id }}
+        run: |
+          if [ -n "$RESUME_RUN_ID" ]; then
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" plan-resume
+          else
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" plan-repair
+          fi
 
   repair:
     needs: [prepare, assess]
@@ -331,18 +370,27 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-review-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
       - name: Assemble the rejected proposal in an isolated repair job
-        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repair
+        env:
+          RESUME_RUN_ID: ${{ inputs.resume-run-id }}
+        run: |
+          if [ -n "$RESUME_RUN_ID" ]; then
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-resume
+          else
+            python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repair
+          fi
       - name: Correct independently identified documentation defects
         uses: anthropics/claude-code-action@v1
         with:
@@ -353,7 +401,7 @@ jobs:
             Evidence is in ${{ runner.temp }}/release-docs and source in
             ${{ github.workspace }}/.nightly-source. Read all validated findings in
             repair-findings.json, including other batches' findings about your
-            assigned pages. Your own review is review-${{ matrix.batch }}.json.
+            assigned pages. Your own review, when present, is review-${{ matrix.batch }}.json.
             Your hard budget is
             ${{ matrix.max_turns }} turns; reserve the last 60 turns to finish.
           claude_args: >-
@@ -401,7 +449,8 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true
@@ -471,7 +520,8 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true
@@ -521,7 +571,8 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true
@@ -548,7 +599,7 @@ jobs:
             Evidence is in ${{ runner.temp }}/release-docs and source in
             ${{ github.workspace }}/.nightly-source. Read all validated findings in
             repair-findings.json, including other batches' findings about your
-            assigned pages. Your own review is review-${{ matrix.batch }}.json.
+            assigned pages. Your own review, when present, is review-${{ matrix.batch }}.json.
             Your hard budget is
             ${{ matrix.max_turns }} turns; reserve the last 60 turns to finish.
           claude_args: >-
@@ -596,7 +647,8 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true
@@ -677,7 +729,8 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.resume-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true

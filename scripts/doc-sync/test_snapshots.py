@@ -56,6 +56,31 @@ class AuditBatchTests(unittest.TestCase):
                 s.prepare_diagnostic({}, Path('/tmp/release-docs'))
                 self.assertEqual(imported.call_args.args[-1], 'diagnostic')
 
+    def test_resume_requires_failed_full_nightly_provenance_and_dry_run(self):
+        run = {'head_repository': {'full_name': 'smg-project/smg-docs'},
+               'path': '.github/workflows/nightly-doc-sync.yml', 'event': 'workflow_dispatch',
+               'status': 'completed', 'conclusion': 'failure'}
+        env = {'RESUME_RUN_ID': '123', 'DRY_RUN': 'true', 'RESUME_BATCHES': '1',
+               'DIAGNOSTIC_RUN_ID': '', 'GITHUB_REPOSITORY': 'smg-project/smg-docs'}
+        with patch.dict(os.environ, env), patch.object(s.releases, 'api', return_value=run) as api, \
+                patch.object(s, 'import_resume') as imported:
+            for override in [{'DRY_RUN': 'false'}, {'RESUME_RUN_ID': '../123'},
+                             {'DIAGNOSTIC_RUN_ID': '456'}]:
+                with patch.dict(os.environ, override), self.assertRaisesRegex(ValueError, 'Resume validation'):
+                    s.prepare_resume({}, Path('/tmp/release-docs'))
+            api.assert_not_called()
+            for invalid in [dict(run, status='in_progress'), dict(run, conclusion='success'),
+                            dict(run, head_repository={'full_name': 'other/fork'}),
+                            dict(run, event='pull_request'), dict(run, path='other.yml')]:
+                api.return_value = invalid
+                with self.assertRaisesRegex(ValueError, 'completed failed nightly'):
+                    s.prepare_resume({}, Path('/tmp/release-docs'))
+            imported.assert_not_called()
+            api.return_value = run
+            s.prepare_resume({}, Path('/tmp/release-docs'))
+            imported.assert_called_once_with({}, Path('/tmp/release-docs'),
+                Path('/tmp/release-resume-context'), Path('/tmp/release-resume-artifacts'), '1')
+
     def test_diagnostic_selection_cannot_expand_or_duplicate_scopes(self):
         ctx = {'batches': [['one.md'], ['two.md']], 'matrix': {'include': [
             {'batch': 0, 'max_turns': 180}, {'batch': 1, 'max_turns': 300}]}}
@@ -403,6 +428,135 @@ class RepairTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'assigned page'):
             s.import_diagnostic(ctx, destination, checkpoint, bundles, '1')
         self.assertEqual(list(destination.iterdir()), [])
+
+    def resume_checkpoint(self, rejected=(1,)):
+        ctx, directory, values = self.proposal(rejected=rejected)
+        checkpoint, destination, artifacts = self.checkpoint(ctx, directory)
+        for i, value in enumerate(values):
+            s.write_json(artifacts / f'release-followup-bundle-{i}' / f'bundle-{i}.json', value)
+            record = s.read_json(directory / f'review-{i}.json')
+            record['diagnostic'] = False
+            s.write_json(artifacts / f'release-final-review-{i}' / f'review-{i}.json', record)
+        return ctx, checkpoint, destination, artifacts, values
+
+    def test_resume_retains_complete_snapshot_and_plans_only_selected_corrections(self):
+        ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint()
+        s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        self.assertEqual(s.proposal_hash(ctx, destination), s.snapshot_hash(values))
+        self.assertEqual(list(destination.glob('review-*.json')), [])
+        self.assertFalse((destination / 'diagnostic.json').exists())
+        self.assertEqual([v['batch'] for v in s.read_json(destination / 'repair-findings.json')], [1])
+        with patch.object(s, 'outputs') as out:
+            s.plan_resume(ctx, destination)
+        out.assert_called_once_with(needed='true', matrix=s.diagnostic_matrix(ctx, '1'),
+                                    snapshot_sha=s.snapshot_hash(values))
+
+    def test_resume_allows_explicit_related_owner_without_expanding_scopes(self):
+        ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()
+        s.import_resume(ctx, destination, checkpoint, artifacts, '0,1')
+        marker = s.resume_findings(ctx, destination)
+        self.assertEqual(marker['matrix'], ctx['matrix'])
+        s.assemble(ctx, destination)
+        Path(self.paths[0]).write_text('# Related correction\n')
+        with self.assertRaisesRegex(ValueError, 'outside its page allowlist'):
+            s.export(ctx, 1, s.assembled_data(ctx, destination), destination / 'bad-bundle.json')
+
+    def test_resume_cannot_omit_a_failed_batch_or_resume_a_diagnostic(self):
+        ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()
+        with self.assertRaisesRegex(ValueError, 'every rejected batch'):
+            s.import_resume(ctx, destination, checkpoint, artifacts, '0')
+        s.write_json(checkpoint / 'diagnostic.json', {})
+        with self.assertRaisesRegex(ValueError, 'diagnostic cannot resume'):
+            s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_resume_rejects_missing_data_without_importing_partial_snapshot(self):
+        ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()
+        for path in [artifacts / 'release-followup-bundle-0/bundle-0.json',
+                     artifacts / 'release-final-review-0/review-0.json']:
+            original = path.read_text()
+            path.unlink()
+            with self.subTest(path=path), self.assertRaises(FileNotFoundError):
+                s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+            self.assertEqual(list(destination.iterdir()), [])
+            path.write_text(original)
+
+    def test_resume_rejects_changed_frozen_inputs_or_invalid_bundle(self):
+        ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint()
+        for changed in [dict(ctx, base='b' * 40), dict(ctx, seed_digest='other'),
+                        dict(ctx, release={**RELEASE, 'sha': 'c' * 40}),
+                        dict(ctx, batches=list(reversed(ctx['batches'])))]:
+            s.write_json(checkpoint / 'context.json', changed)
+            with self.assertRaisesRegex(ValueError, 'frozen release inputs'):
+                s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        s.write_json(checkpoint / 'context.json', ctx)
+        values[0]['files']['.github/workflows/ci.yml'] = 'tooling'
+        s.write_json(artifacts / 'release-followup-bundle-0/bundle-0.json', values[0])
+        with self.assertRaisesRegex(ValueError, 'assigned page'):
+            s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_resume_rejects_stale_or_non_full_review_records(self):
+        ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()
+        path = artifacts / 'release-final-review-0/review-0.json'
+        original = s.read_json(path)
+        for changed in [dict(original, diagnostic=True), dict(original, batch=1),
+                        dict(original, bundle_sha='a' * 64), dict(original, snapshot_sha='b' * 64),
+                        dict(original, verdict={**original['verdict'], 'accurate': 'true'})]:
+            s.write_json(path, changed)
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+            self.assertEqual(list(destination.iterdir()), [])
+
+    def test_resume_rejects_all_accepted_checkpoint(self):
+        ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint(rejected=())
+        with self.assertRaisesRegex(ValueError, 'no rejected findings'):
+            s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_resume_guidance_rejects_tampering_and_old_approval_files(self):
+        ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint()
+        s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        marker_path = destination / 'resume.json'
+        marker = s.read_json(marker_path)
+        s.write_json(marker_path, {**marker, 'input_sha': 'a' * 64})
+        with self.assertRaisesRegex(ValueError, 'baseline changed'):
+            s.resume_findings(ctx, destination)
+        s.write_json(marker_path, marker)
+        findings_path = destination / 'repair-findings.json'
+        findings = s.read_json(findings_path)
+        invalid = json.loads(json.dumps(findings))
+        invalid[0]['verdict'].update({gate: True for gate in s.REVIEW_GATES})
+        s.write_json(findings_path, invalid)
+        with self.assertRaisesRegex(ValueError, 'negative findings'):
+            s.resume_findings(ctx, destination)
+        s.write_json(findings_path, findings)
+        s.write_json(destination / 'review-0.json', {'accepted': True})
+        with self.assertRaisesRegex(ValueError, 'old approval records'):
+            s.resume_findings(ctx, destination)
+
+    def test_resume_needs_changed_proposal_and_every_fresh_current_review_to_finalize(self):
+        ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint()
+        s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        with self.assertRaisesRegex(ValueError, 'unchanged'):
+            s.finalize(ctx, destination)
+        values[1]['files'][self.paths[1]] = '# Corrected released behavior\n'
+        s.write_json(destination / 'bundle-1.json', values[1])
+        with self.assertRaises(FileNotFoundError):
+            s.finalize(ctx, destination)
+        # Historic acceptance has the pre-correction whole-proposal hash.
+        self.records(ctx, destination, values, rejected=())
+        stale = s.read_json(artifacts / 'release-final-review-0/review-0.json')
+        fresh = s.read_json(destination / 'review-0.json')
+        s.write_json(destination / 'review-0.json', stale)
+        with self.assertRaisesRegex(ValueError, 'stale snapshot review'):
+            s.finalize(ctx, destination)
+        s.write_json(destination / 'review-0.json', fresh)
+        with patch.object(s, 'regression_checks', return_value=[{'id': 'new-source-check'}]):
+            with self.assertRaisesRegex(ValueError, 'every source-pinned'):
+                s.finalize(ctx, destination)
+        s.finalize(ctx, destination)
+        self.assertTrue(Path(s.root(RELEASE['tag']) + 'sync.json').exists())
 
     def diagnostic_checkpoint(self, ctx, directory, values, selected='0', rejected=(0,)):
         checkpoint, destination, bundles = self.checkpoint(ctx, directory)

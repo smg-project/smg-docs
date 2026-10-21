@@ -259,6 +259,19 @@ enter the two-pass repair pipeline, or provide approval evidence for a full run.
 Use them to debug a specific content defect, then run the complete workflow on
 the final revision before opening the implementation PR.
 
+To repair a completed full run that failed final content review, set
+`release_resume_run` to that run and `release_resume_batches` to every failed
+batch plus any related page owners identified in the findings. Resume requires
+all final corrected bundles and all final review records from the same frozen
+release/base/seed/batch layout. It validates their hashes and copies only the
+Markdown and negative repair guidance. Initial writing and review are skipped;
+the selected batches enter the existing repair stage. Every page then gets a
+fresh independent review against the changed whole snapshot, followed by the
+existing optional second correction pass, site/build checks and dry-run
+publication. The initial proposal must change; prior approvals cannot authorize
+it. Resume is manual, forces dry-run, and cannot be combined with diagnostic
+mode. It avoids regenerating accepted content, not the final validation gates.
+
 Full release stages and selected diagnostic batches run at most eight jobs
 concurrently. They share the runner pool capped at ten; any excess jobs wait for
 a runner. This changes scheduling, not source coverage, model effort, review

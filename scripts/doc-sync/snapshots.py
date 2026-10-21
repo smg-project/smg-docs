@@ -339,6 +339,102 @@ def prepare_diagnostic(ctx, directory):
     print('Diagnostic only: selected pages will be rewritten and reviewed; publication is disabled')
 
 
+def checkpoint_findings(ctx, values, records, diagnostic):
+    """Validate historic content binding; return negative guidance, never approvals."""
+    if len(values) != len(ctx['batches']) or len(records) != len(values):
+        raise ValueError('Incomplete checkpoint coverage')
+    whole = snapshot_hash(values)
+    findings = []
+    for index, result in enumerate(records):
+        if (result.get('diagnostic') is not diagnostic or result.get('batch') != index
+                or result.get('bundle_sha') != bundle_hash(values[index])
+                or result.get('snapshot_sha') != whole):
+            raise ValueError('Missing or stale checkpoint review')
+        raw = result['verdict']
+        validate_review_evidence(ctx, index, raw)
+        if not all(raw[gate] for gate in REVIEW_GATES) or not all(c['satisfied'] for c in raw['regression_checks']):
+            findings.append(result)
+    if not findings:
+        raise ValueError('Checkpoint has no rejected findings to repair')
+    return findings
+
+
+def import_resume(ctx, directory, checkpoint, artifacts, selection):
+    """Resume a full failed audit with scoped corrections and fresh all-page review."""
+    if (checkpoint / 'diagnostic.json').exists():
+        raise ValueError('A diagnostic cannot resume full validation')
+    if read_json(checkpoint / 'context.json') != ctx:
+        raise ValueError('Resume checkpoint differs from the frozen release inputs')
+    matrix = diagnostic_matrix(ctx, selection)
+    values = [read_json(artifacts / f'release-followup-bundle-{i}' / f'bundle-{i}.json')
+              for i in range(len(ctx['batches']))]
+    for i, value in enumerate(values):
+        validate_bundle(ctx, i, value)
+    records = [read_json(artifacts / f'release-final-review-{i}' / f'review-{i}.json')
+               for i in range(len(values))]
+    findings = checkpoint_findings(ctx, values, records, diagnostic=False)
+    selected = {row['batch'] for row in matrix['include']}
+    if not {finding['batch'] for finding in findings} <= selected:
+        raise ValueError('Resume selection must include every rejected batch and related page owners')
+    # No checkpoint review-* files are copied, including accepted records.
+    for i, value in enumerate(values):
+        write_json(directory / f'bundle-{i}.json', value)
+    write_json(directory / 'repair-findings.json', findings)
+    write_json(directory / 'resume.json', {'input_sha': snapshot_hash(values), 'matrix': matrix})
+
+
+def prepare_resume(ctx, directory):
+    run_id = os.environ.get('RESUME_RUN_ID', '')
+    if (not re.fullmatch(r'[1-9]\d*', run_id) or os.environ.get('DRY_RUN') != 'true'
+            or os.environ.get('DIAGNOSTIC_RUN_ID')):
+        raise ValueError('Resume validation requires a run ID, dry-run and no diagnostic mode')
+    repo = os.environ['GITHUB_REPOSITORY']
+    run = releases.api(f'repos/{repo}/actions/runs/{run_id}')
+    if (run.get('head_repository', {}).get('full_name') != repo
+            or run.get('path') != '.github/workflows/nightly-doc-sync.yml'
+            or run.get('event') not in ('workflow_dispatch', 'schedule')
+            or run.get('status') != 'completed' or run.get('conclusion') != 'failure'):
+        raise ValueError('Resume checkpoint must be a completed failed nightly run from this repository')
+    import_resume(ctx, directory, directory.parent / 'release-resume-context',
+                  directory.parent / 'release-resume-artifacts', os.environ.get('RESUME_BATCHES', ''))
+
+
+def resume_findings(ctx, directory):
+    marker = read_json(directory / 'resume.json')
+    if (directory / 'diagnostic.json').exists() or list(directory.glob('review-*.json')):
+        raise ValueError('Resume guidance cannot contain old approval records or diagnostic state')
+    matrix = marker['matrix']
+    selected = [row['batch'] for row in matrix['include']]
+    if matrix != diagnostic_matrix(ctx, ','.join(map(str, selected))):
+        raise ValueError('Resume matrix changed original scopes or budgets')
+    if proposal_hash(ctx, directory) != marker['input_sha']:
+        raise ValueError('Resume baseline changed before repair')
+    findings = read_json(directory / 'repair-findings.json')
+    if not isinstance(findings, list) or not findings:
+        raise ValueError('Missing resume repair findings')
+    seen = set()
+    for result in findings:
+        index = result['batch']
+        if type(index) is not int or index not in selected or index in seen:
+            raise ValueError('Resume findings outside selected batches or duplicated')
+        seen.add(index)
+        raw = result['verdict']
+        value = read_json(directory / f'bundle-{index}.json')
+        validate_bundle(ctx, index, value)
+        validate_review_evidence(ctx, index, raw)
+        if (result.get('diagnostic') is not False or result.get('bundle_sha') != bundle_hash(value)
+                or result.get('snapshot_sha') != marker['input_sha']
+                or (all(raw[gate] for gate in REVIEW_GATES)
+                    and all(check['satisfied'] for check in raw['regression_checks']))):
+            raise ValueError('Resume requires bound negative findings, not prior approvals')
+    return marker
+
+
+def plan_resume(ctx, directory):
+    marker = resume_findings(ctx, directory)
+    outputs(needed='true', matrix=marker['matrix'], snapshot_sha=marker['input_sha'])
+
+
 def regression_checks(ctx, index):
     """Known source-backed defects are audit questions, never review approvals."""
     catalog = read_json(Path(__file__).with_name('release-regressions.json'))
@@ -552,6 +648,8 @@ def finalize(ctx, directory):
     """Require all reviewed data; models cannot forge release metadata or scripts."""
     if (directory / 'diagnostic.json').exists():
         raise ValueError('Diagnostics cannot finalize or publish a release snapshot')
+    if (directory / 'resume.json').exists():
+        require_repair_change(ctx, directory, read_json(directory / 'resume.json')['input_sha'])
     if rejected_batches(ctx, directory):
         raise ValueError('Missing or rejected full snapshot review')
     assemble(ctx, directory)
@@ -654,6 +752,10 @@ def main():
     index = int(os.environ.get('BATCH', '0'))
     if command == 'prepare-diagnostic':
         prepare_diagnostic(ctx, directory)
+    elif command == 'prepare-resume':
+        prepare_resume(ctx, directory)
+    elif command == 'plan-resume':
+        plan_resume(ctx, directory)
     elif command == 'seed':
         seed_context(ctx)
         batch_evidence(ctx, index, directory)
@@ -661,7 +763,9 @@ def main():
         # Do not re-seed here: it would overwrite the writer's work.
         seed = make_seed(ctx['base'], ctx['release'], ctx['main_manifest'])
         export(ctx, index, seed, directory / f'bundle-{index}.json')
-    elif command in ('assemble', 'assemble-repair', 'assemble-repaired'):
+    elif command in ('assemble', 'assemble-repair', 'assemble-repaired', 'assemble-resume'):
+        if command == 'assemble-resume':
+            resume_findings(ctx, directory)
         if command == 'assemble-repair':
             write_json(directory / 'repair-findings.json', repair_findings(ctx, directory))
         if command == 'assemble-repaired':

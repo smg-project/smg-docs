@@ -1,8 +1,8 @@
 Read contract.md, release-docs/context.json, batch.json, your own review when
 present, and all validated negative reviews in repair-findings.json. A different
 batch's reviewer may have found an error on your assigned page even if your own
-review accepted it. A full audit schedules every batch for a cross-page inconsistency; a targeted
-diagnostic schedules only the selected owning batches. Reconcile findings about
+review accepted it. Automatic repair schedules every batch for a cross-page inconsistency; a
+manually resumed audit or targeted diagnostic selects the known owning batches. Reconcile findings about
 your assigned pages within their original allowlists.
 The assembled snapshot is the exact proposal the independent reviewer checked
 against SOURCE_ROOT at the published release SHA.

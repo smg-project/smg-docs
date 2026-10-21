@@ -92,9 +92,13 @@
 	{
 		"id": "body-timeout-scope",
 		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
-		"pages": ["reference/configuration.md", "concepts/performance/request-streaming.md"],
+		"pages": [
+			"reference/configuration.md",
+			"concepts/performance/request-streaming.md",
+			"reference/api/openai.md"
+		],
 		"source_paths": ["model_gateway/src/middleware/body_timeout.rs", "model_gateway/src/server.rs"],
-		"check": "Verify --stream-body-stall-timeout-secs applies to buffered as well as streamed request bodies through middleware. The flag name alone does not imply streaming-only scope."
+		"check": "Verify --stream-body-stall-timeout-secs applies to buffered as well as streamed request bodies through middleware. The flag name alone does not imply streaming-only scope. Distinguish 408 request_body_stalled for the stall watchdog from request_body_timeout for a buffered read incomplete at request-timeout-secs; include both released error codes and keep API tables consistent with configuration."
 	},
 	{
 		"id": "pd-ttft-anchor",
@@ -173,5 +177,49 @@
 			"model_gateway/Cargo.toml"
 		],
 		"check": "Trace smg_mcp_tool_iterations_total across both model_gateway and external_router, including the default providers feature chain. Released Anthropic Messages MCP loops record this counter in streaming and non-streaming paths when MCP toolsets are enabled, alongside Responses API loops. Preserve this shipped provider coverage; do not narrow the metric to Responses by examining only one crate or recorder."
+	},
+	{
+		"id": "mcp-alias-approval-identity",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/extensibility/mcp.md"],
+		"source_paths": [
+			"crates/mcp/src/core/session.rs",
+			"crates/mcp/src/core/orchestrator.rs",
+			"crates/mcp/src/inventory/types.rs",
+			"crates/mcp/src/approval/policy.rs"
+		],
+		"check": "Trace aliased tool exposure and execution through McpToolSession, approval params and PolicyEngine. Alias entries replace the direct tool and use the qualified identity alias:<alias name>; original server/tool policy keys and original-server trust do not match that identity. Explain how to configure policy for the exposed alias and qualify blanket original-server denial claims. Verify precedence, alias annotations and active callers; describe the current operator-facing contract without a bug narrative."
+	},
+	{
+		"id": "admission-error-envelope",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/reliability/rate-limiting.md", "reference/api/openai.md"],
+		"source_paths": [
+			"crates/external_router/src/error.rs",
+			"model_gateway/src/middleware/concurrency.rs"
+		],
+		"check": "Verify the actual JSON error.type emitted by shed_response through create_error/error_type_for_status: gateway 503 examples use server_error, not the HTTP reason phrase Service Unavailable. Reconcile the rate-limiting example, overload guide and OpenAI error table."
+	},
+	{
+		"id": "grpc-stream-error-types",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/api/openai.md"],
+		"source_paths": [
+			"model_gateway/src/routers/grpc/utils/stream_failure.rs",
+			"model_gateway/src/routers/grpc/utils/chat_utils.rs"
+		],
+		"check": "Trace StreamFailure::error_type and the send_error_sse caller. Worker-failed streams emit stream_error, request-fault statuses use the corresponding HTTP error-body type, and internal_error is reserved for gateway processing failures. Do not label all post-first-chunk gRPC errors internal_error; keep the example and its explanation aligned."
+	},
+	{
+		"id": "messages-validation-error-header",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/api/messages.md", "reference/api/openai.md"],
+		"source_paths": [
+			"crates/protocols/src/validated.rs",
+			"model_gateway/src/middleware/messages_errors.rs",
+			"model_gateway/src/middleware/metrics.rs",
+			"crates/external_router/src/error.rs"
+		],
+		"check": "Follow real JSON extractor rejection, Messages envelope conversion and response headers. ValidatedJson inserts RejectionCode for metrics but no X-SMG-Error-Code header; Messages conversion preserves existing headers rather than creating that header from a body error code. Do not generalize a bad_request(json_parse_error) test fixture to the active extractor path. Reconcile both API references and distinguish gateway-builder error-code headers from validation failures."
 	}
 ]

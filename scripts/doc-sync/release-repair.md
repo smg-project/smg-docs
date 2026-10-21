@@ -5,7 +5,11 @@ review accepted it. Automatic repair schedules every batch for a cross-page inco
 manually resumed audit or targeted diagnostic selects the known owning batches. Reconcile findings about
 your assigned pages within their original allowlists.
 The assembled snapshot is the exact proposal the independent reviewer checked
-against SOURCE_ROOT at the published release SHA.
+against SOURCE_ROOT at the published release SHA. This is a correction pass,
+not another rewrite. Change only claims implicated by a negative finding or a
+source-pinned regression check. Preserve unrelated paragraphs and tables exactly,
+even when you could expand or improve them. If neither applies to your assigned
+pages, finish without edits. Fresh independent reviewers still audit whole pages.
 
 Verify each reported defect against the release implementation and tests, then
 correct the assigned pages. Treat the review reason as evidence to investigate,
@@ -50,18 +54,19 @@ For metrics, enumerate active recording sites and their endpoint, transport and
 parser branches. A shared recorder or metric name does not imply every request
 path emits it; qualify the public contract to the paths that actually do.
 
-Read main-to-snapshot.diff for every assigned page. It compares the frozen main
-page with the current proposal, including omissions inherited from an existing
-release folder. For material present on main but absent from the snapshot,
-verify whether it shipped using the pinned source; restore shipped user-facing
-behavior and omit later behavior. Do not treat an existing snapshot or the
-absence of a feature from its current text as evidence that it was not released.
-Check complete enumerations and precedence chains, feature defaults and opt-in
-gates, and returned errors separately from audit-log messages.
+Use main-to-snapshot.diff to investigate reported omissions on your assigned
+pages. It compares frozen main with the current proposal, including omissions
+inherited from an existing release folder. Verify whether the reported missing
+material shipped using the pinned source; restore shipped user-facing behavior
+and omit later behavior. The current snapshot is not proof that an omitted
+feature was unreleased. For each affected contract, check complete enumerations
+and precedence chains, defaults and opt-in gates, and returned errors separately
+from audit-log messages. Do not reopen unrelated sections for stylistic or
+completeness edits during this pass.
 
 Investigate every regression_checks entry in batch.json against its cited source
 paths and active callers. These are known audit failures bound to this exact
-source SHA, not approval evidence and not a substitute for the whole-page audit.
+source SHA, not approval evidence. Independent review performs the whole-page audit.
 Reconcile the same contract on assigned and related pages. Keep public prose
 concise and source citations in review evidence only.
 

@@ -314,8 +314,10 @@ review and cannot be overridden by an accepting model verdict.
 Valid negative verdicts allow at most two correction passes in separate writer jobs. Local
 findings select rejected batches; a cross-page inconsistency selects every batch
 because another page's reviewer may have missed the defect. Each writer reads all
-validated negative findings and corrects only its assigned pages, leaving correct
-content unchanged. Missing, malformed or stale review evidence remains fatal. Repairs
+validated negative findings and corrects only implicated claims on its assigned
+pages, including failed source-pinned checks. Unrelated paragraphs and tables stay
+unchanged; correction is not another rewrite or completeness audit. Missing,
+malformed or stale review evidence remains fatal. Repairs
 keep the original page allowlists; every page is then independently reviewed again
 in pristine read-only jobs. Each verdict binds both its own batch and the entire
 assembled snapshot, so a changed related page invalidates earlier reviews. A

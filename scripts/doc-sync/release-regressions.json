@@ -256,5 +256,49 @@
 			"model_gateway/src/observability/metrics.rs"
 		],
 		"check": "Verify the complete labels emitted by record_mcp_tool_call for smg_mcp_tool_calls_total: model, tool_name and result. Include model in the monitoring guide summary as well as the metric reference; do not infer label completeness from an old summary table."
+	},
+	{
+		"id": "load-monitor-startup-bound",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/reliability/overload-protection.md",
+			"reference/configuration.md",
+			"reference/api/admin.md"
+		],
+		"source_paths": [
+			"model_gateway/src/config/validation.rs",
+			"model_gateway/src/server.rs",
+			"model_gateway/src/main.rs",
+			"model_gateway/src/worker/monitor.rs",
+			"model_gateway/src/routers/common/overload.rs"
+		],
+		"check": "Trace startup through RouterConfig::validate and validate_server_settings: the global --load-monitor-interval must be greater than zero; zero is rejected before serving. Do not replace that requirement with a one-second clamp based on lower-level polling or Retry-After helpers. Distinguish a worker spec load_monitor_interval_secs override, whose group polling interval is floored to one second, from the validated global CLI setting. Keep overload, configuration and Admin API descriptions consistent."
+	},
+	{
+		"id": "cache-policy-counter-coverage",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"getting-started/kv-events-cache-aware.md",
+			"concepts/routing/cache-aware.md",
+			"reference/metrics.md"
+		],
+		"source_paths": ["model_gateway/src/policies/cache_aware.rs"],
+		"check": "Trace early returns before every record_worker_cache_aware_policy_branch call. --cache-index hash dispatch and KV-pressure fallback return before the branch counter; smg_cache_aware_policy_branch_total covers tree/event-driven selections, not every routing decision. Qualify the quick-start summary consistently with the canonical policy and metric descriptions."
+	},
+	{
+		"id": "selection-and-prefill-error-codes",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"reference/api/openai.md",
+			"concepts/reliability/rate-limiting.md",
+			"concepts/routing/pd-disaggregation.md"
+		],
+		"source_paths": [
+			"model_gateway/src/routers/grpc/common/stages/worker_selection.rs",
+			"model_gateway/src/middleware/mod.rs",
+			"model_gateway/src/routers/mod.rs",
+			"crates/external_router/src/error.rs"
+		],
+		"check": "Verify released selection_queue_timeout (503, Retry-After: 2 from middleware::SHED_RETRY_AFTER_SECS) and pd_prefill_queue_full / pd_prefill_queue_timeout (429, no Retry-After). Include all three in both the OpenAI Error Codes and Rate Limiting tables. Distinguish the gRPC remaining gateway queue-time budget from the PD-specific queue timeout, and do not use the unrelated overload module default of 10 seconds for selection_queue_timeout."
 	}
 ]

@@ -44,6 +44,7 @@ jobs:
     outputs:
       matrix: ${{ steps.diagnostic.outputs.matrix || steps.prepare.outputs.matrix }}
       checkpoint_sha: ${{ steps.diagnostic.outputs.checkpoint_sha }}
+      base: ${{ steps.resume.outputs.base || steps.prepare.outputs.base }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -117,6 +118,7 @@ jobs:
             --pattern 'release-followup-bundle-*' --pattern 'release-final-review-*' \
             --dir "$RUNNER_TEMP/release-resume-artifacts"
       - name: Validate complete snapshot and rejected review evidence for resume
+        id: resume
         if: inputs.resume-run-id != ''
         env:
           RESUME_RUN_ID: ${{ inputs.resume-run-id }}
@@ -156,7 +158,7 @@ jobs:
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
-          docs-sha: ${{ inputs.docs-sha }}
+          docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
       - uses: actions/download-artifact@v4
         with:
@@ -227,7 +229,7 @@ jobs:
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
-          docs-sha: ${{ inputs.docs-sha }}
+          docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
       - uses: actions/download-artifact@v4
         with:
@@ -310,7 +312,7 @@ jobs:
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
-          docs-sha: ${{ inputs.docs-sha }}
+          docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
       - uses: actions/download-artifact@v4
         with:
@@ -367,7 +369,7 @@ jobs:
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
-          docs-sha: ${{ inputs.docs-sha }}
+          docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
       - uses: actions/download-artifact@v4
         with:
@@ -449,7 +451,7 @@ jobs:
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
-          docs-sha: ${{ inputs.docs-sha }}
+          docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
       - uses: actions/download-artifact@v4
         with:
@@ -523,7 +525,7 @@ jobs:
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
-          docs-sha: ${{ inputs.docs-sha }}
+          docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
       - uses: actions/download-artifact@v4
         with:
@@ -577,7 +579,7 @@ jobs:
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
-          docs-sha: ${{ inputs.docs-sha }}
+          docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
       - uses: actions/download-artifact@v4
         with:
@@ -656,7 +658,7 @@ jobs:
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
-          docs-sha: ${{ inputs.docs-sha }}
+          docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
       - uses: actions/download-artifact@v4
         with:
@@ -738,7 +740,7 @@ jobs:
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
-          docs-sha: ${{ inputs.docs-sha }}
+          docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
       - uses: actions/download-artifact@v4
         with:

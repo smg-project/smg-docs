@@ -63,7 +63,8 @@ class AuditBatchTests(unittest.TestCase):
         env = {'RESUME_RUN_ID': '123', 'DRY_RUN': 'true', 'RESUME_BATCHES': '1',
                'DIAGNOSTIC_RUN_ID': '', 'GITHUB_REPOSITORY': 'smg-project/smg-docs'}
         with patch.dict(os.environ, env), patch.object(s.releases, 'api', return_value=run) as api, \
-                patch.object(s, 'import_resume') as imported:
+                patch.object(s, 'import_resume', return_value={'base': 'a' * 40}) as imported, \
+                patch.object(s, 'outputs') as out:
             for override in [{'DRY_RUN': 'false'}, {'RESUME_RUN_ID': '../123'},
                              {'DIAGNOSTIC_RUN_ID': '456'}]:
                 with patch.dict(os.environ, override), self.assertRaisesRegex(ValueError, 'Resume validation'):
@@ -80,6 +81,7 @@ class AuditBatchTests(unittest.TestCase):
             s.prepare_resume({}, Path('/tmp/release-docs'))
             imported.assert_called_once_with({}, Path('/tmp/release-docs'),
                 Path('/tmp/release-resume-context'), Path('/tmp/release-resume-artifacts'), '1')
+            out.assert_called_once_with(base='a' * 40)
 
     def test_diagnostic_selection_cannot_expand_or_duplicate_scopes(self):
         ctx = {'batches': [['one.md'], ['two.md']], 'matrix': {'include': [
@@ -451,6 +453,80 @@ class RepairTests(unittest.TestCase):
         out.assert_called_once_with(needed='true', matrix=s.diagnostic_matrix(ctx, '1'),
                                     snapshot_sha=s.snapshot_hash(values))
 
+    def authored_resume_checkpoint(self):
+        self.context()
+        self.git('add', '.')
+        self.git('commit', '-qm', 'authored release snapshot')
+        self.base = self.git('rev-parse', 'HEAD')
+        return self.resume_checkpoint()
+
+    def test_resume_after_main_edit_preserves_frozen_evidence_and_requires_fresh_reviews(self):
+        ctx, checkpoint, destination, artifacts, values = self.authored_resume_checkpoint()
+        path = docs.DOC_ROOT + 'reference/index.md'
+        Path(path).write_text('# Updated main contract\n')
+        self.git('add', path); self.git('commit', '-qm', 'main page update')
+        current = dict(ctx, base=self.git('rev-parse', 'HEAD'))
+        frozen = s.import_resume(current, destination, checkpoint, artifacts, '1')
+        self.assertEqual(frozen, ctx)
+        self.assertEqual(s.read_json(destination / 'context.json'), ctx)
+        self.assertEqual(s.proposal_hash(ctx, destination), s.snapshot_hash(values))
+        self.assertEqual(s.resume_findings(ctx, destination)['matrix'], s.diagnostic_matrix(ctx, '1'))
+        self.assertEqual(list(destination.glob('review-*.json')), [])
+        for i, value in enumerate(values):
+            self.assertEqual(s.read_json(destination / f'bundle-{i}.json'), value)
+        self.assertEqual(s.read_json(destination / 'repair-findings.json'),
+                         [s.read_json(artifacts / 'release-final-review-1/review-1.json')])
+        # Downstream jobs check out the exported frozen base, not current main.
+        self.git('reset', '--hard', frozen['base'])
+        with self.assertRaisesRegex(ValueError, 'unchanged'):
+            s.finalize(frozen, destination)
+        values[1]['files'][self.paths[1]] = '# Corrected released contract\n'
+        s.write_json(destination / 'bundle-1.json', values[1])
+        with self.assertRaises(FileNotFoundError):
+            s.finalize(frozen, destination)
+        self.records(frozen, destination, values)
+        s.finalize(frozen, destination)
+        self.assertEqual(Path(self.paths[1]).read_text(), values[1]['files'][self.paths[1]])
+
+    def test_resume_rejects_changed_release_tooling_and_page_inventory(self):
+        ctx, checkpoint, destination, artifacts, _ = self.authored_resume_checkpoint()
+        for path, text in [(self.paths[0], '# Changed release\n'),
+                           ('package.json', '{}\n'),
+                           (docs.DOC_ROOT + 'reference/new.md', '# New page\n'),
+                           (docs.DOC_ROOT + 'reference/index.md', None)]:
+            with self.subTest(path=path):
+                self.git('reset', '--hard', ctx['base'])
+                if text is None:
+                    Path(path).unlink()
+                else:
+                    Path(path).write_text(text)
+                self.git('add', '.'); self.git('commit', '-qm', 'incompatible update')
+                current = dict(ctx, base=self.git('rev-parse', 'HEAD'))
+                with self.assertRaisesRegex(ValueError, 'inputs changed'):
+                    s.import_resume(current, destination, checkpoint, artifacts, '1')
+                self.assertEqual(list(destination.iterdir()), [])
+
+    def test_resume_rejects_main_edit_that_changes_the_release_seed(self):
+        ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()
+        path = docs.DOC_ROOT + 'reference/index.md'
+        Path(path).write_text('# Changed fallback seed\n')
+        self.git('add', path); self.git('commit', '-qm', 'main seed update')
+        current = dict(ctx, base=self.git('rev-parse', 'HEAD'))
+        with self.assertRaisesRegex(ValueError, 'seed changed'):
+            s.import_resume(current, destination, checkpoint, artifacts, '1')
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_resume_rejects_unexpected_head_and_non_descendant_base(self):
+        ctx, checkpoint, destination, artifacts, _ = self.authored_resume_checkpoint()
+        unrelated = self.git('commit-tree', ctx['base'] + '^{tree}', '-m', 'unrelated root')
+        current = dict(ctx, base=unrelated)
+        with self.assertRaisesRegex(ValueError, 'base changed before validation'):
+            s.import_resume(current, destination, checkpoint, artifacts, '1')
+        self.git('reset', '--hard', unrelated)
+        with self.assertRaises(subprocess.CalledProcessError):
+            s.import_resume(current, destination, checkpoint, artifacts, '1')
+        self.assertEqual(list(destination.iterdir()), [])
+
     def test_resume_allows_explicit_related_owner_without_expanding_scopes(self):
         ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()
         s.import_resume(ctx, destination, checkpoint, artifacts, '0,1')
@@ -483,9 +559,10 @@ class RepairTests(unittest.TestCase):
 
     def test_resume_rejects_changed_frozen_inputs_or_invalid_bundle(self):
         ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint()
-        for changed in [dict(ctx, base='b' * 40), dict(ctx, seed_digest='other'),
+        for changed in [dict(ctx, base='../invalid'), dict(ctx, seed_digest='other'),
                         dict(ctx, release={**RELEASE, 'sha': 'c' * 40}),
-                        dict(ctx, batches=list(reversed(ctx['batches'])))]:
+                        dict(ctx, batches=list(reversed(ctx['batches']))),
+                        dict(ctx, main_manifest={}), dict(ctx, matrix={'include': []})]:
             s.write_json(checkpoint / 'context.json', changed)
             with self.assertRaisesRegex(ValueError, 'frozen release inputs'):
                 s.import_resume(ctx, destination, checkpoint, artifacts, '1')

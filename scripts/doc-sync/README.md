@@ -263,7 +263,12 @@ To repair a completed full run that failed final content review, set
 `release_resume_run` to that run and `release_resume_batches` to every failed
 batch plus any related page owners identified in the findings. Resume requires
 all final corrected bundles and all final review records from the same frozen
-release/base/seed/batch layout. It validates their hashes and copies only the
+release/base/seed/batch layout. If main advanced only through edits to existing
+main Markdown pages, resume permits it only when the release seed, source,
+navigation and batch layout are unchanged. It retains the original base and
+hashes for every correction and review; final publication applies the existing
+freshness checks to the latest main. Other base changes require a fresh audit.
+It validates their hashes and copies only the
 Markdown and negative repair guidance. Initial writing and review are skipped;
 the selected batches enter the existing repair stage. Every page then gets a
 fresh independent review against the changed whole snapshot, followed by the

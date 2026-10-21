@@ -363,8 +363,18 @@ def import_resume(ctx, directory, checkpoint, artifacts, selection):
     """Resume a full failed audit with scoped corrections and fresh all-page review."""
     if (checkpoint / 'diagnostic.json').exists():
         raise ValueError('A diagnostic cannot resume full validation')
-    if read_json(checkpoint / 'context.json') != ctx:
-        raise ValueError('Resume checkpoint differs from the frozen release inputs')
+    frozen = read_json(checkpoint / 'context.json')
+    if frozen != ctx:
+        if (not isinstance(frozen.get('base'), str)
+                or not re.fullmatch(r'[0-9a-f]{40}', frozen['base'])
+                or {**frozen, 'base': ctx['base']} != ctx):
+            raise ValueError('Resume checkpoint differs from the frozen release inputs')
+        if docs.git('rev-parse', 'HEAD') != ctx['base']:
+            raise ValueError('Resume documentation base changed before validation')
+        verify_working_page_update(frozen, ctx['base'])
+        # Keep the original context and content hashes. All downstream jobs
+        # check out this base; publication refreshes safe main edits later.
+        ctx = frozen
     matrix = diagnostic_matrix(ctx, selection)
     values = [read_json(artifacts / f'release-followup-bundle-{i}' / f'bundle-{i}.json')
               for i in range(len(ctx['batches']))]
@@ -381,6 +391,8 @@ def import_resume(ctx, directory, checkpoint, artifacts, selection):
         write_json(directory / f'bundle-{i}.json', value)
     write_json(directory / 'repair-findings.json', findings)
     write_json(directory / 'resume.json', {'input_sha': snapshot_hash(values), 'matrix': matrix})
+    write_json(directory / 'context.json', ctx)
+    return ctx
 
 
 def prepare_resume(ctx, directory):
@@ -395,8 +407,9 @@ def prepare_resume(ctx, directory):
             or run.get('event') not in ('workflow_dispatch', 'schedule')
             or run.get('status') != 'completed' or run.get('conclusion') != 'failure'):
         raise ValueError('Resume checkpoint must be a completed failed nightly run from this repository')
-    import_resume(ctx, directory, directory.parent / 'release-resume-context',
-                  directory.parent / 'release-resume-artifacts', os.environ.get('RESUME_BATCHES', ''))
+    frozen = import_resume(ctx, directory, directory.parent / 'release-resume-context',
+                           directory.parent / 'release-resume-artifacts', os.environ.get('RESUME_BATCHES', ''))
+    outputs(base=frozen['base'])
 
 
 def resume_findings(ctx, directory):
@@ -670,6 +683,20 @@ def finalize(ctx, directory):
     docs.mutate_git('diff', '--cached', '--check')
 
 
+def verify_working_page_update(ctx, new_base):
+    """Allow existing main Markdown edits only when the release seed is identical."""
+    docs.git('merge-base', '--is-ancestor', ctx['base'], new_base)
+    changes = docs.git('diff', '--name-status', ctx['base'], new_base).splitlines()
+    for line in changes:
+        status, path = line.split('\t', 1)
+        if status != 'M' or not path.startswith(docs.DOC_ROOT) or not path.endswith('.md'):
+            raise ValueError('Release audit inputs changed; rerun on a fresh base')
+    seed = make_seed(new_base, ctx['release'], ctx['main_manifest'])
+    digest = hashlib.sha256(b''.join(p.encode() + b'\0' + v for p, v in sorted(seed.items()))).hexdigest()
+    if digest != ctx['seed_digest']:
+        raise ValueError('Release snapshot seed changed; rerun on a fresh base')
+
+
 def refresh_base(ctx):
     """Keep reviewed release data while accepting unrelated working-page edits."""
     repo = os.environ['GITHUB_REPOSITORY']
@@ -680,16 +707,7 @@ def refresh_base(ctx):
         raise ValueError('Release audit base changed before refresh')
     if live != ctx['base']:
         docs.mutate_git('fetch', '--no-tags', 'origin', live)
-        docs.git('merge-base', '--is-ancestor', ctx['base'], live)
-        changes = docs.git('diff', '--name-status', ctx['base'], live).splitlines()
-        for line in changes:
-            status, path = line.split('\t', 1)
-            if status != 'M' or not path.startswith(docs.DOC_ROOT) or not path.endswith('.md'):
-                raise ValueError('Release audit inputs changed; rerun on a fresh base')
-        seed = make_seed(live, ctx['release'], ctx['main_manifest'])
-        digest = hashlib.sha256(b''.join(p.encode() + b'\0' + v for p, v in sorted(seed.items()))).hexdigest()
-        if digest != ctx['seed_digest']:
-            raise ValueError('Release snapshot seed changed; rerun on a fresh base')
+        verify_working_page_update(ctx, live)
         patch = subprocess.check_output(['git', '-c', 'core.hooksPath=/dev/null',
                                          'diff', '--cached', '--binary', ctx['base']])
         docs.mutate_git('reset', '--hard', live)

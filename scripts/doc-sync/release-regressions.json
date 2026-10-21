@@ -221,5 +221,40 @@
 			"crates/external_router/src/error.rs"
 		],
 		"check": "Follow real JSON extractor rejection, Messages envelope conversion and response headers. ValidatedJson inserts RejectionCode for metrics but no X-SMG-Error-Code header; Messages conversion preserves existing headers rather than creating that header from a body error code. Do not generalize a bad_request(json_parse_error) test fixture to the active extractor path. Reconcile both API references and distinguish gateway-builder error-code headers from validation failures."
+	},
+	{
+		"id": "cache-aware-adaptive-spill-margin",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/architecture/overview.md", "concepts/routing/cache-aware.md"],
+		"source_paths": ["model_gateway/src/policies/cache_aware.rs"],
+		"check": "Trace over_count_pressure_gate and absolute_margin. Both relative and absolute comparisons must pass, but the absolute margin is min(balance_abs_threshold, max(ceil(2 * sqrt(mean)), 4)), not the configured threshold alone. Keep overview summaries consistent with the canonical Cache-Aware Routing page. Prefer a concise adaptive-margin summary with a link to its Spill Gate section instead of duplicating formulas; never describe --balance-abs-threshold as the actual fixed margin."
+	},
+	{
+		"id": "cache-decision-trace-transport",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/cache-aware.md"],
+		"source_paths": [
+			"model_gateway/src/observability/cache_trace.rs",
+			"model_gateway/src/routers/grpc/pipeline.rs",
+			"model_gateway/src/routers/factory.rs"
+		],
+		"check": "Trace the actual installation of cache_trace::scope and response-header emission. At this release only the gRPC pipeline, shared by gRPC and ZMQ workers, installs the capture scope. HTTP-worker routers do not; shared policy recorder calls are inert without it. Qualify the Decision Traces section, SMG_CACHE_TRACE switches and x-smg-cache-trace request/response header behavior to the supported worker transports."
+	},
+	{
+		"id": "request-span-path-and-coverage",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/monitoring.md", "getting-started/logging.md"],
+		"source_paths": ["model_gateway/src/middleware/logging.rs", "model_gateway/src/server.rs"],
+		"check": "Trace RequestSpan::make_span and attach_edge_layers. http_request records request.uri().path(), never the full URI/query string, and the fallback is installed before edge layers so every request to the main listener is covered, including unmatched routes. Keep monitoring and logging summaries consistent; the separate health-check listener does not cross those middleware layers."
+	},
+	{
+		"id": "mcp-call-counter-labels",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/monitoring.md", "reference/metrics.md"],
+		"source_paths": [
+			"crates/external_router/src/metrics.rs",
+			"model_gateway/src/observability/metrics.rs"
+		],
+		"check": "Verify the complete labels emitted by record_mcp_tool_call for smg_mcp_tool_calls_total: model, tool_name and result. Include model in the monitoring guide summary as well as the metric reference; do not infer label completeness from an old summary table."
 	}
 ]

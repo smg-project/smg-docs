@@ -64,3 +64,9 @@ paths and active callers. These are known audit failures bound to this exact
 source SHA, not approval evidence and not a substitute for the whole-page audit.
 Reconcile the same contract on assigned and related pages. Keep public prose
 concise and source citations in review evidence only.
+
+Keep overviews and quick-start summaries concise; link to the canonical section
+for formulas or complete tables. When a summary names thresholds, transport
+support, span fields or metric labels, preserve the conditions and scope that
+change the user-facing contract. Do not simplify a qualified rule into a broader
+guarantee. Cross-check the summary against its canonical page before finishing.

@@ -6,7 +6,7 @@ pages and all same-concern mentions, including tables, introductions and example
 If required corrections lie outside the allowlist, leave the tree unchanged and
 explain which paths are missing. Never knowingly export an incomplete fix.
 
-For `version-context-*` concerns, verify behavior against the pinned checkout and
+For `version-context-*` and `release-audit-*` concerns, verify behavior against the pinned checkout and
 remove redundant release framing; the chosen source commit is the verification
 baseline, not necessarily the introducing change. Otherwise verify the primary
 source patch actually introduces the documented behavior. Unsupported, already
@@ -16,3 +16,7 @@ Follow existing Markdown/front matter. Keep fewer than 1,000 changed lines and
 one concern. Do not delete pages or edit non-documentation files. Target 60 turns
 investigating/editing within the 120-turn ceiling. Before finishing, reread every
 edited section as a service user, not as an implementation report.
+
+For release-audit corrections, discovery evidence only suggests a gap. Verify
+each claim against the pinned main implementation; preserve intentional differences
+from releases and newer main behavior. Never copy an entire release page.

@@ -13,6 +13,7 @@ import tempfile
 from urllib.parse import urlencode
 
 import nightly_docs as docs
+import release_handoff
 
 
 # Ownership is about the user question, not where a shared API type happens to
@@ -69,6 +70,7 @@ def resolve_scan(raw, history):
         concerns.append(item)
     return json.dumps({"concerns": concerns,
                        "inspected_commits": [resolve(number) for number in result["inspected_commits"]],
+                       "release_audit_checks": result.get("release_audit_checks", []),
                        "remaining_work": result["remaining_work"]})
 
 
@@ -91,7 +93,9 @@ def validate_scan(raw, context, slug, history):
             raise ValueError("Concern source was not reported as inspected")
     if len(concerns) > docs.MAX_PRS:
         raise ValueError("Scan exceeds proposal limit")
+    checks = release_handoff.validate_checks({**result, 'concerns': concerns}, context, slug)
     return {"shard": slug, "base_sha": context["base_sha"], "concerns": concerns,
+            "release_audit_checks": checks,
             "inspected_commits": inspected, "remaining_work": result["remaining_work"]}
 
 
@@ -190,6 +194,7 @@ def build_report(scans, context):
             'requested_max_prs': context.get('requested_max_prs', docs.MAX_PRS),
             'discovery_shard': context.get('discovery_shard', ''),
             'scans': scans, 'selected': selected,
+            'release_audit_checks': release_handoff.report(context, scans),
             'deferred': deferred, 'queued_concerns': queued[:docs.MAX_PRS],
             'queue_overflow': [item['key'] for item in queued[docs.MAX_PRS:]],
             'expected_shards': expected, 'missing_shards': missing, 'complete': not missing,
@@ -218,7 +223,7 @@ def pending_from_report(report, context):
     return pending_candidates(report.get('queued_concerns', []), context)[:docs.MAX_PRS]
 
 
-def previous_pending(repo, branch, context):
+def previous_report(repo, branch, context):
     """Read the latest retained main-branch plan, never another branch's pilot."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).date().isoformat()
     query = urlencode({'branch': branch, 'per_page': 100, 'created': '>=' + cutoff})
@@ -245,8 +250,12 @@ def previous_pending(repo, branch, context):
                 or set(report.get('expected_shards', []))
                 != {name for name, _, _ in SHARDS}):
             continue
-        return pending_from_report(report, context)
-    return []
+        return report
+    return {}
+
+
+def previous_pending(repo, branch, context):
+    return pending_from_report(previous_report(repo, branch, context), context)
 
 
 def scan_context(context, slug, assignments):
@@ -257,6 +266,7 @@ def scan_context(context, slug, assignments):
     primary = {line.split()[0] for line in assignments[slug]}
     history = context["code_history"]
     return {**context, "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
+            "release_audit_candidates": release_handoff.assigned(context, slug),
             "focus_commit_ids": [i for i, line in enumerate(history, 1) if line.split()[0] in primary],
             "shard": slug, "focus": focus,
             "scan_responsibilities": {name: focus for name, focus, _ in SHARDS}}
@@ -268,10 +278,18 @@ def main():
     context = json.loads((root / "context.json").read_text())
     context["source_root"] = os.environ["SOURCE_ROOT"]
     context["source_diffs"] = str(root / "nightly-docs-sources")
+    context['release_audit_evidence'] = str(root / 'release-audits')
     if command == "partition":
         scan_names(context)  # Reject invalid manual inputs before network work.
-        context['pending_concerns'] = previous_pending(
+        prior = previous_report(
             os.environ['GITHUB_REPOSITORY'], os.environ['DEFAULT_BRANCH'], context)
+        context['pending_concerns'] = pending_from_report(prior, context)
+        candidates = release_handoff.collect(context, root / 'release-audits')
+        checked = {c['candidate_id']: c['status'] for c in prior.get('release_audit_checks', [])}
+        # Unfinished and newly discovered corrections get attention first. Never
+        # reuse an old disposition as approval against a different main revision.
+        context['release_audit_candidates'] = sorted(candidates, key=lambda c: (
+            checked.get(c['id']) not in (None, 'deferred', 'proposed'), c['release'], c['doc_path']))
         (root / 'context.json').write_text(json.dumps(context, indent=2))
         assignments = partition(context)
         (root / "assignments.json").write_text(json.dumps(assignments))
@@ -308,6 +326,11 @@ def main():
                 summary.write("**Incomplete discovery**: missing validated scans from "
                               + ", ".join(report['missing_shards']) + ".\n\n")
             summary.write(f"Retained {len(report['queued_concerns'])} pending concerns.\n\n")
+            checks = report['release_audit_checks']
+            summary.write(f"Release-audit handoff: {len(checks)} candidate pages; "
+                          + ', '.join(f"{sum(c['status'] == status for c in checks)} {status}"
+                                      for status in ('proposed', 'covered', 'not_applicable', 'deferred'))
+                          + '. Dispositions are discovery evidence, not publication approval.\n\n')
             if report['queue_overflow']:
                 summary.write("**Queue overflow** (still eligible through source history):\n"
                               + "".join(f"- `{key}`\n" for key in report['queue_overflow']) + "\n")

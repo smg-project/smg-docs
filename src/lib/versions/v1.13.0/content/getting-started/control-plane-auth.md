@@ -26,11 +26,11 @@ These routes are guarded by control-plane auth middleware when configured:
 - Parser admin endpoints: `/parse/function_call`, `/parse/reasoning`
 - WASM management: `/wasm`, `/wasm/{module_uuid}`
 - Cache flush: `/flush_cache`
-- Profiling: `/start_profile`, `/stop_profile`
+- Profiling: `/start_profile`, `/stop_profile` (the engines' profilers) and `/heap_profile` (a heap profile of the gateway itself)
 - Deprecated load alias: `/get_loads` (the public `/loads` route it aliases needs no credential)
 - RL control plane: `/v1/rl/*`, mounted only with `--enable-rl`
 
-Control-plane middleware requires the **admin role** on every one of these routes. A missing or invalid credential gets `401`, and a valid credential with the `user` role gets `403`.
+Control-plane middleware authenticates every one of these routes: a missing or invalid credential gets `401`. The **admin role** is required for every method except the read-only ones: a valid credential with the `user` role can send `GET` and `HEAD` requests, and gets `403` for anything else.
 
 Control-plane credentials apply only to these routes. The inference routes, such as `/v1/chat/completions`, check the shared `--api-key` and per-tenant keys instead, and stay open when neither is set. Set `--api-key` as well to protect them.
 
@@ -48,9 +48,9 @@ This fallback is for a gateway where control-plane auth is not configured at all
 
 #### Default posture
 
-With no key configured at all, which is what the quick-start commands and the Kubernetes recipe give you, the gateway is open: anything that can reach it can list the backends with their addresses (`GET /workers`, `GET /get_loads`), register or remove backends by URL (`POST /workers`, `PUT`/`PATCH`/`DELETE /workers/{id}`), drop the engines' prefix caches (`POST /flush_cache`), start and stop the engines' profilers (`POST /start_profile`, `POST /stop_profile`), manage parsers, WASM modules and tokenizers, and send inference requests. Two read-only routes are public in every configuration and name each backend by its address as well: `GET /loads` (the backends' live loads) and `GET /engine_metrics` (the engines' own metrics). The metrics listener (`--prometheus-port`, `29000` by default, bound to `0.0.0.0`, or to `::` when `--host` is an IPv6 address) has no authentication in any configuration and names each backend by its address in its per-worker series.
+With no key configured at all, which is what the quick-start commands and the Kubernetes recipe give you, the gateway is open: anything that can reach it can list the backends with their addresses (`GET /workers`, `GET /get_loads`), register or remove backends by URL (`POST /workers`, `PUT`/`PATCH`/`DELETE /workers/{id}`), drop the engines' prefix caches (`POST /flush_cache`), start and stop the engines' profilers (`POST /start_profile`, `POST /stop_profile`), write the gateway's own heap profile to disk (`POST /heap_profile`), manage parsers, WASM modules and tokenizers, and send inference requests. Two read-only routes are public in every configuration and name each backend by its address as well: `GET /loads` (the backends' live loads) and `GET /engine_metrics` (the engines' own metrics). The metrics listener (`--prometheus-port`, `29000` by default, bound to `0.0.0.0`, or to `::` when `--host` is an IPv6 address) has no authentication in any configuration and names each backend by its address in its per-worker series.
 
-SMG keeps this default so a local start stays one command, but it says so: when a plane is open, the first log lines carry one `WARN` record whose message starts with `SECURITY POSTURE: this gateway runs without authentication`, with a field per open surface (`control_plane`, `data_plane`, and `metrics_listener` with its bound address) naming the routes and the flag that closes them. It is silent once both planes are keyed. To close them:
+SMG keeps this default so a local start stays one command, but it says so: when a plane is open, the first log lines carry one `WARN` record whose message starts with `SECURITY POSTURE: this gateway runs without authentication`, with a field per open surface (`control_plane`, `data_plane`, and `metrics_listener` with its bound address) naming the routes and the flag that closes them. It is silent once both planes are keyed; only a [high-availability mesh](../concepts/architecture/high-availability.md) listener running without TLS still logs it, naming that listener. To close them:
 
 | Surface | Flag |
 |---------|------|
@@ -78,7 +78,7 @@ curl -H "Authorization: Bearer super-secret-key" \
   http://localhost:30000/v1/tokenizers
 ```
 
-Format: `id:name:role:key` where role is `admin` or `user`. Repeat the flag to add more keys. A `user` key authenticates, but every control-plane route answers it with `403`.
+Format: `id:name:role:key` where role is `admin` or `user`; a malformed entry refuses to start rather than being dropped. Repeat the flag to add more keys. A `user` key can only send the read-only requests (`GET` and `HEAD`); every other method answers it with `403`.
 
 ---
 
@@ -93,11 +93,11 @@ smg launch \
   --jwt-role-mapping 'Gateway.User=user'
 ```
 
-JWT auth needs both `--jwt-issuer` and `--jwt-audience`. With only one of them, it stays off. SMG checks the token's signature (RS256, RS384, RS512, ES256, or ES384, with the JWKS key named by the token's `kid`), issuer, audience, and expiry, and then assigns a role:
+JWT auth needs both `--jwt-issuer` and `--jwt-audience`; with only one of them, the gateway refuses to start. SMG checks the token's signature (RS256, RS384, RS512, ES256, or ES384, with the JWKS key named by the token's `kid`), issuer, audience, expiry, and not-before (`nbf`). The expiry and not-before checks share a 30-second clock-skew leeway, and a token without an `nbf` claim passes the not-before check. SMG then assigns a role:
 
 - The role comes from the claim named by `--jwt-role-claim` (default `roles`). Only when that claim is missing does SMG read the `role`, `roles`, `groups`, and `group` claims. `--jwt-role-claim` is a flag of the Rust `smg` binary; the Python launcher (`pip install smg`, and the container image) always uses `roles`.
 - Without `--jwt-role-mapping`, a claim value of `admin` or `user` (in any case) is used as the role.
-- With mappings, only mapped values count. A token with no mapped value gets the `user` role, so control-plane routes answer it with `403`.
+- With mappings, only mapped values count. A token with no mapped value gets the `user` role, which can only send the read-only (`GET` and `HEAD`) control-plane requests.
 
 Optional explicit JWKS URI:
 
@@ -107,10 +107,7 @@ Optional explicit JWKS URI:
 
 Without it, SMG reads `<issuer>/.well-known/openid-configuration` at startup to find the JWKS URI. The discovery URL and the JWKS URI must use `https://`; plain `http://` is accepted only for `localhost`, `127.0.0.1`, and `::1`. An `https://` URL is also rejected when its host is a private, loopback, or link-local IP address, or a name ending in `.internal` or `.local`, such as an in-cluster `*.svc.cluster.local` service.
 
-When JWT validation cannot be set up at startup — the URL is rejected, or discovery fails — control-plane authentication stays required: SMG logs `Failed to initialize JWT authentication: <error>` and keeps running without JWT validation. Keys from `--control-plane-api-keys` keep working; JWTs and every other token get `401`. SMG does not retry JWT initialization while running, so restart the gateway after correcting the configuration or restoring the identity provider. This is the behavior of current main, not yet of any release.
-
-!!! warning "Released versions disable control-plane auth after a failed JWT setup"
-    In released versions, a failed JWT setup leaves all of control-plane auth off, control-plane API keys included: SMG logs `Failed to initialize control plane auth: <error>. Falling back to simple API key auth.`, and the control-plane routes fall back to the shared `--api-key` as in [Without Control Plane Auth](#without-control-plane-auth) — open when no key is configured at all.
+When JWT validation cannot be set up at startup — the URL is rejected, or discovery fails — control-plane authentication stays required: SMG logs `Failed to initialize JWT authentication: <error>` and keeps running without JWT validation. Keys from `--control-plane-api-keys` keep working; JWTs and every other token get `401`. SMG does not retry JWT initialization while running, so restart the gateway after correcting the configuration or restoring the identity provider.
 
 JWTs are validated first when configured. A token with three dot-separated parts that fails JWT validation gets `401`; SMG does not fall back to API key validation for it. Any other token is checked against the control-plane API keys.
 

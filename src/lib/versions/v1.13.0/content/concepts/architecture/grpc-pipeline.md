@@ -32,7 +32,7 @@ Optional L0 (exact match) and L1 (prefix) caches skip re-encoding prompt content
 
 ### :material-brain: Reasoning Extraction
 
-19 registered reasoning parsers move chain-of-thought into `reasoning_content` for DeepSeek, Qwen, Kimi, GLM, MiniMax, Nemotron, and more.
+21 registered reasoning parsers move chain-of-thought into `reasoning_content` for DeepSeek, Qwen, Kimi, GLM, MiniMax, Nemotron, and more.
 
 </div>
 
@@ -40,7 +40,7 @@ Optional L0 (exact match) and L1 (prefix) caches skip re-encoding prompt content
 
 ### :material-function: Tool Call Parsing
 
-24 registered tool-call parsers turn each model family's native call format into OpenAI `tool_calls`. MCP tools run in the gateway.
+26 registered tool-call parsers turn each model family's native call format into OpenAI `tool_calls`. MCP tools run in the gateway.
 
 </div>
 
@@ -112,7 +112,9 @@ Every request resolves one tool-call parser and one reasoning parser for its mod
 2. **Gateway flag**: `--tool-call-parser` / `--reasoning-parser`, which applies to every model.
 3. **Automatic detection** from the model name.
 
-The gateway checks the flag values when it starts. An unknown `--tool-call-parser` or `--reasoning-parser` value stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; the pip `smg launch` rejects it earlier as an invalid choice. Names must match a registered parser exactly (`deepseek_r1`, not `deepseek-r1`).
+These per-model parsers are the gateway's default readers (`--parser legacy`). Started with `--parser symphony`, the gateway reads Chat Completions, Messages API and Responses API output with [Symphony tables](#symphony-parsing) instead; the same names then pick the table per model, and a model whose names select nothing reads with the table of Symphony's checkpoint registry, as that section describes.
+
+The gateway checks the flag values when it starts. Under the default `--parser legacy`, a `--tool-call-parser` or `--reasoning-parser` value naming none of that flag's legacy parsers stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`. When the rejected name is one `--parser symphony` reads with — a [table's own name](#table-names) or `hf` — the error says so, ending `which --parser symphony reads with`. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
 
 ### Per-Model Overrides
 
@@ -133,7 +135,9 @@ curl -X POST http://localhost:30000/workers \
   }'
 ```
 
-Registration fails if an override names an unknown parser (`worker <url> declares unknown tool_parser '<name>' for model '<id>'`). Workers of the same model should agree. If they don't, for example during a rolling upgrade, SMG logs a warning at registration and uses the lexicographically smallest name. Kubernetes service discovery sets no parser labels, so discovered workers rely on the flags. See the [Admin API](../../reference/api/admin.md) for the worker endpoints.
+Registration fails if an override names an unknown parser (`worker <url> declares a parser override for model '<id>' the gateway cannot read with: unknown tool-call parser '<name>'`). Workers of the same model should agree. If they don't, for example during a rolling upgrade, SMG logs a warning at registration and uses the lexicographically smallest name. Kubernetes service discovery sets no parser labels, so discovered workers rely on the flags. See the [Admin API](../../reference/api/admin.md) for the worker endpoints.
+
+Under `--parser symphony`, an override may also name a [Symphony table or `hf`](#symphony-parsing), giving one model its own table without touching the rest; naming a legacy tool-call parser no table answers to sends just that model back to the legacy parsers.
 
 ### Automatic Detection
 
@@ -151,7 +155,7 @@ The reference tables under [Reasoning Parsers](#reasoning-parsers) and [Tool Cal
 
 ## Chat Templates and Native Renderers
 
-In gRPC mode the gateway builds the prompt text itself. Most models use a Jinja2 chat template. SMG takes it from a model card's `chat_template` path or `--chat-template`, then from a `chat_template.json` or `.jinja` file in the model directory, and finally from the `chat_template` field of `tokenizer_config.json`. Templates render with minijinja 2.24, so two Python Jinja2 behaviors work: conditional expressions inside keyword arguments (`namespace(name=x if x else '')`) compile, and booleans and none render as `True`, `False` and `None` (smg-project/smg#2277).
+In gRPC mode the gateway builds the prompt text itself. Most models use a Jinja2 chat template. An explicit template wins: a model card's `chat_template` path or `--chat-template`. Without one, SMG looks beside the tokenizer, in the order the engine's own tokenizer would: a `chat_template.jinja` file first, then the `chat_template` string in `tokenizer_config.json`, then the processor's legacy `chat_template.json` file, and finally any other `.jinja` file in the directory. A `chat_template` that is a list of named templates doesn't count as the config's template, so the file fallbacks still apply. Templates render with minijinja 2.24, with Python Jinja2 behaviors matched: conditional expressions inside keyword arguments (`namespace(name=x if x else '')`) compile, booleans and none render as `True`, `False` and `None`, and `dict()` and transformers' `strftime_now` are available in the template context.
 
 ### Native Renderers
 
@@ -160,19 +164,19 @@ Some checkpoints ship a Python prompt encoder instead of a Jinja template. For t
 | Renderer | Selected when `config.json` has | Thinking key (renderer default) | Native `reasoning_effort` values | Notes |
 |----------|----------------------------------|--------------|----------------------------------|-------|
 | DeepSeek-V3.2 | architecture `DeepseekV32ForCausalLM` | `thinking` (default off) | None | Tools are attached to the leading system or developer message |
-| DeepSeek-V4 | architecture `DeepseekV4ForCausalLM` | `thinking` (default off) | `high`, `max` (original checkpoints); `low`, `high`, `max` (0731 checkpoints) | A native effort value turns thinking on |
+| DeepSeek-V4 | architecture `DeepseekV4ForCausalLM` | `thinking`, or vLLM's `enable_thinking` alias (default on) | `high`, `max` (original checkpoints); `low`, `high`, `max` (0731 checkpoints) | Only a `reasoning_effort` of `none` turns thinking off; `minimal` maps to the low effort and keeps thinking on |
 | DeepSeek-V4.1 | architecture `DeepseekV41ForCausalLM` or `model_type: deepseek_v41` | `thinking`, or vLLM's `enable_thinking` alias (default on) | `low`, `high`, `xhigh`, `max`, or an integer budget from 1 to 100 | Continues a trailing assistant message natively with `continue_final_message`; reads tool-call `arguments` as written |
-| Kimi-K3 | architecture `KimiK3ForConditionalGeneration` or `model_type: kimi_k3` | `thinking` (default on) | `low`, `high`, `max` (default `max`; rendered only while thinking is on) | Encodes the prompt piece by piece, so control-token text inside a message stays text; reads tool-call `arguments` as written |
+| Kimi-K3 | architecture `KimiK3ForConditionalGeneration` or `model_type: kimi_k3` | `thinking`, or vLLM's `enable_thinking` alias (default on) | `low`, `high`, `max` (default `max`; rendered only while thinking is on) | Encodes the prompt piece by piece, so control-token text inside a message stays text; reads tool-call `arguments` as written |
 | Kimi-K2.5 | architecture `KimiK25ForConditionalGeneration` or `model_type: kimi_k25` | From the Jinja template | None | Keeps the Jinja template, but renders tool declarations as TypeScript with a port of the checkpoint's `tool_declaration_ts.py` |
 
-DeepSeek-V4 checkpoints share one `config.json`, but the 0731 refresh changed what the effort levels render. SMG tells the revisions apart from the checkpoint's `encoding/encoding_dsv4.py`. If that file is missing, it looks for a `0731` marker in the model path, and otherwise assumes the original encoding (smg-project/smg#2080). A request goes through SMG's DeepSeek request profile when a `/`-separated part of its model name is `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4.1-flash` or `deepseek-flash` (in any case), as in `deepseek-ai/DeepSeek-V4-Flash`. The profile turns thinking on unless the request turns it off, which overrides the V4 renderer's default (smg-project/smg#2671). Kimi-K3 appends a response-channel stub after the assistant header. The engine receives the stub, but the `prompt_tokens` that clients see leave it out, matching Moonshot's billing (smg-project/smg#2564).
+DeepSeek-V4 checkpoints share one `config.json`, but the 0731 refresh changed what the effort levels render. SMG tells the revisions apart from the checkpoint's `encoding/encoding_dsv4.py`. If that file is missing, as for a tokenizer directory streamed from a worker without its `encoding/` folder, SMG renders the refreshed 0731 table, the same table the engine's own server renders for every V4 checkpoint. A request goes through SMG's DeepSeek request profile when a `/`-separated part of its model name is `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4.1-flash` or `deepseek-flash` (in any case), as in `deepseek-ai/DeepSeek-V4-Flash`. The profile turns thinking on unless the request turns it off — the same default the V4 renderer applies on its own. Kimi-K3 appends a response-channel stub after the assistant header. The engine receives the stub, but the `prompt_tokens` that clients see leave it out, matching Moonshot's billing.
 
 ### Thinking and Reasoning Effort
 
 Reasoning controls reach the template as template variables. The request fields are documented in the [OpenAI-Compatible API](../../reference/api/openai.md).
 
-- **Template kwargs**: `reasoning_effort` (or `thinking.effort`, which takes precedence), `tool_choice` and `response_format` are passed to the template as kwargs of the same name. An entry in `chat_template_kwargs` overrides any of them.
-- **Thinking on or off**: `thinking.type` (`enabled` or `disabled`) sets the preference. Without it, a `reasoning_effort` of `"none"` or `"minimal"` means off. SMG writes the preference under the key the template actually reads: `enable_thinking` (Qwen3, GLM, Nemotron), `thinking` (DeepSeek, Kimi), or `thinking_mode` set to `"enabled"` or `"disabled"` (MiniMax-M3). A value you pass for that key in `chat_template_kwargs` wins.
+- **Template kwargs**: `reasoning_effort` (or `thinking.effort`, which takes precedence), `tool_choice` and `response_format` are passed to the template as kwargs of the same name. An entry in `chat_template_kwargs` overrides `tool_choice` and `response_format`, but not `reasoning_effort`: the request-level effort is written over a `reasoning_effort` entry, which applies only when the request itself sets no effort.
+- **Thinking on or off**: `thinking.type` (`enabled` or `disabled`) sets the preference. Without it, a `reasoning_effort` of `"none"` or `"minimal"` means off, with two exceptions: the DeepSeek-V4 renderer turns thinking off only for `"none"` and keeps it on for `"minimal"`, and MiniMax models keep thinking on for every effort value — an explicit effort even outranks `thinking.type: "disabled"`, which turns MiniMax thinking off only when the request sets no effort. SMG writes the preference under the key the template actually reads: `enable_thinking` (Qwen3, GLM, Nemotron), `thinking` (DeepSeek, Kimi), or `thinking_mode` set to `"enabled"` or `"disabled"` (MiniMax-M3). A value you pass for that key in `chat_template_kwargs` wins.
 - **Native effort names**: the DeepSeek-V4, V4.1 and Kimi-K3 renderers turn the values in the table above into their own effort prompt text.
 - **Parser arming**: the reasoning parser follows the same decision. When thinking is on, it starts in reasoning mode, so the prompt and the parser agree.
 
@@ -199,6 +203,8 @@ Reasoning parsers separate chain-of-thought from the final answer. Models that e
 | Qwen3 and later hybrid-thinking Qwen models | `qwen3` |
 | Qwen3 `-Thinking` checkpoints | `qwen3_thinking` |
 | GLM-4.5, GLM-4.7, GLM-5.x | `glm45` |
+| Gemma 4 | `gemma4` |
+| Hunyuan V4 | `hy_v4` |
 | Kimi-K2 (Instruct) | `kimi` |
 | Kimi-K2-Thinking | `kimi_thinking` |
 | Kimi-K2.5 | `kimi_k25` |
@@ -212,10 +218,12 @@ Reasoning parsers separate chain-of-thought from the final answer. Models that e
 
 ### Complete Parser Reference
 
-All 19 registered reasoning parsers, in auto-detection order (the first match wins):
+All 21 registered reasoning parsers, in auto-detection order (the first match wins):
 
 | Parser | Auto-detected when the model name contains | Markers | Starts in reasoning |
 |--------|--------------------------------------------|---------|---------------------|
+| `gemma4` | `gemma-4`, `gemma4` | Gemma's thought channel (`<\|channel>thought` ... `<channel\|>`); a `<\|tool_call>` also ends reasoning | No |
+| `hy_v4` | `hy4`, `hy_v4` | `<think>` / `</think>`, allowing a checkpoint-specific suffix (`<think:SUFFIX>`) | No |
 | `deepseek_r1` | `deepseek-r1` | `<think>` / `</think>` | Yes |
 | `deepseek_v41` | `deepseek-v4.1`, `deepseek_v41`, `deepseek-v41` | `<think>` / `</think>`; a `<｜DSML｜ calls>` tool block also ends reasoning | No |
 | `deepseek_v4` | `deepseek-v4`, `deepseek_v4` | `<think>` / `</think>` | No |
@@ -254,7 +262,7 @@ Reasoning separation is on by default (`separate_reasoning` defaults to `true`).
 }
 ```
 
-Set `"separate_reasoning": false` in a request to leave the reasoning text in `content`. When streaming, a parser holds back text that might be the start of a marker, such as a trailing `</thi`. At the end of the stream it releases that text to the correct field instead of dropping it (smg-project/smg#2523).
+Set `"separate_reasoning": false` in a request to leave the reasoning text in `content`. When streaming, a parser holds back text that might be the start of a marker, such as a trailing `</thi`. At the end of the stream it releases that text to the correct field instead of dropping it.
 
 ---
 
@@ -286,6 +294,8 @@ Tool call parsers turn each model's native tool-call syntax into OpenAI `tool_ca
 | DeepSeek-V4.1 | `deepseek_v41` |
 | GLM-4.5, GLM-4.6 | `glm45_moe` |
 | GLM-4.7, GLM-5.x | `glm47_moe` |
+| Gemma 4 | `gemma4` |
+| Hunyuan V4 | `hy_v4` |
 | Kimi-K2 | `kimik2` |
 | Kimi-K3 | `kimi_k3` |
 | MiniMax-M2 | `minimax_m2` |
@@ -297,12 +307,13 @@ Tool call parsers turn each model's native tool-call syntax into OpenAI `tool_ca
 
 ### Complete Parser Reference
 
-All 24 registered tool-call parsers. For auto-detection, the longest matching pattern wins. The last column shows the constraint sent for a forced `tool_choice` when the parser is set by `--tool-call-parser` or an override (see [Constrained Decoding](#constrained-decoding-xgrammar)).
+All 26 registered tool-call parsers. For auto-detection, the longest matching pattern wins. The last column shows the constraint sent for a forced `tool_choice` when the parser is set by `--tool-call-parser` or an override (see [Constrained Decoding](#constrained-decoding-xgrammar)).
 
 | Parser | Auto-detected when the model name contains | Format | Forced-call constraint |
 |--------|--------------------------------------------|--------|------------------------|
 | `passthrough` | Not auto-detected | No parsing; text is returned unchanged | JSON schema |
 | `json` | `gpt-4`, `gpt-3.5`, `claude-`, `gemini-`, `gemma-`, `palm-`, `llama-`, `meta-llama-`, `glm-` | `{"name": ..., "arguments": {...}}`, or an array of these (`parameters` is also accepted) | JSON schema |
+| `gemma4` | `gemma-4`, `gemma4` | `<\|tool_call>call:NAME{key:<\|"\|>value<\|"\|>}<tool_call\|>` | None: the model writes its native format and the parser reads it |
 | `mistral` | `mistral-`, `mixtral-` | `[TOOL_CALLS] [{"name": ..., "arguments": {...}}]` | Structural tag |
 | `qwen` | `qwen` | `<tool_call>{"name": ..., "arguments": {...}}</tool_call>` | JSON schema |
 | `qwen_xml` | `qwen3.5`, `qwen3.6`, `qwen3.8`, `qwen3-coder`, `nemotron-3` | `<tool_call><function=NAME><parameter=KEY>VALUE</parameter></function></tool_call>` | JSON schema |
@@ -317,27 +328,104 @@ All 24 registered tool-call parsers. For auto-detection, the longest matching pa
 | `deepseek_v41` | `deepseek-v4.1`, `deepseek-v41`, `deepseek_v41` | Spaced DSML: `<｜DSML｜ calls>`, `<｜DSML｜ invoke ...>`, `<｜DSML｜ parameter ...>` | Structural tag |
 | `glm45_moe` | `glm-4.5`, `glm-4.6` | `<tool_call>NAME`, then `<arg_key>K</arg_key>` / `<arg_value>V</arg_value>` pairs on separate lines | JSON schema |
 | `glm47_moe` | `glm-4.7`, `glm-5` | `<tool_call>NAME<arg_key>K</arg_key><arg_value>V</arg_value></tool_call>` | Structural tag, reasoning-aware |
+| `hy_v4` | `hy4`, or exactly `hy_v4` | A `<tool_calls>` block of `<tool_call>NAME` entries with `<arg_key>K</arg_key>` / `<arg_value>V</arg_value>` pairs; a checkpoint-specific marker suffix (`<tool_calls:SUFFIX>`) is learned from the output | Structural tag, reasoning-aware |
 | `step3` | `step3`, `step-3` | `<｜tool_call_begin｜>function<｜tool_sep｜><steptml:invoke name="...">` with `<steptml:parameter>` elements | JSON schema |
 | `kimik2` | `kimi-k2` | `<\|tool_call_begin\|>functions.NAME:IDX<\|tool_call_argument_begin\|>{json}<\|tool_call_end\|>` | Structural tag |
 | `kimi_k3` | `kimi-k3`, `kimi_k3` | XTML `tools` channel: `<\|open\|>call tool="NAME" index="N"<\|sep\|>` with `argument` elements | Structural tag |
 | `inkling` | `inkling` | TML: `<\|message_model\|>NAME<\|content_invoke_tool_json\|>{"name": ..., "args": {...}}<\|end_message\|>` | Structural tag |
 | `minimax_m2` | `minimax` | `<minimax:tool_call><invoke name="..."><parameter name="...">V</parameter></invoke></minimax:tool_call>` | JSON schema |
-| `minimax_m3` | `minimax-m3`, `mm-m3` | Every tag is prefixed with `]<]minimax[>[`; parameters nest as XML elements | JSON schema |
+| `minimax_m3` | `minimax-m3`, `mm-m3` | Every tag is prefixed with `]<]minimax[>[`; parameters nest as XML elements | Structural tag, reasoning-aware |
 | `cohere` | `command-r`, `command-a`, `c4ai-command`, `cohere` | `<\|START_ACTION\|>{"tool_name": ..., "parameters": {...}}<\|END_ACTION\|>` | JSON schema |
 | `sarashina` | `sarashina` | `[{'name': ..., 'arguments': {...}}]` as a Python literal, with an optional `<\|tool_calls\|>` prefix | JSON schema |
 
 ### Parsing Behavior
 
-- **Schema-aware arguments**: the XML-style parsers (`qwen_xml` and its aliases, `glm45_moe`, `glm47_moe`, `minimax_m2`, `minimax_m3`) convert argument values to the types the tool's JSON schema declares. `minimax_m3` also resolves properties declared under `oneOf`, `anyOf` or `allOf`. It turns an empty container element into `[]` or `{}`, and recovers the missing closing tag of an empty nested container (smg-project/smg#2370, smg-project/smg#2422, smg-project/smg#2567).
+- **Schema-aware arguments**: the tag-style parsers (`qwen_xml` and its aliases, `glm45_moe`, `glm47_moe`, `hy_v4`, `gemma4`, `minimax_m2`, `minimax_m3`) convert argument values to the types the tool's JSON schema declares. `minimax_m3` also resolves properties declared under `oneOf`, `anyOf` or `allOf`. It turns an empty container element into `[]` or `{}`, and recovers the missing closing tag of an empty nested container.
 - **Special tokens**: when a request carries tools and `tool_choice` isn't `none`, the gateway decodes with special tokens kept, so the parser sees its trigger tokens. Under a JSON-schema constraint the output has no trigger tokens, so the request's own `skip_special_tokens` applies.
-- **Streaming**: arguments stream as deltas. If a parser buffers text as a possible tool call and it never becomes one, the text is sent as `content` instead of being dropped. The `json`, `llama`, `mistral`, `qwen` and `cohere` parsers do this (smg-project/smg#2271), as do the DeepSeek DSML parsers (smg-project/smg#2525) and `minimax_m3`, which releases a false tool-call start as soon as it can no longer match (smg-project/smg#2423). `qwen_xml` keeps each call's arguments separate, even when several calls arrive in one chunk or a value contains `}` (smg-project/smg#2490).
-- **Tool call IDs**: `call_` plus 24 hex characters by default. For model names containing `kimi`, IDs follow the Kimi reference format instead: `functions.NAME:N`, or `NAME_N` when the name also contains `k3`. `N` counts tool calls across the whole conversation (smg-project/smg#2104).
+- **Streaming**: arguments stream as deltas. If a parser buffers text as a possible tool call and it never becomes one, the text is sent as `content` instead of being dropped. The `json`, `llama`, `mistral`, `qwen` and `cohere` parsers do this, as do the DeepSeek DSML parsers and `minimax_m3`, which releases a false tool-call start as soon as it can no longer match. `qwen_xml` keeps each call's arguments separate, even when several calls arrive in one chunk or a value contains `}`.
+- **Tool call IDs**: `call_` plus 24 hex characters by default. For model names containing `kimi`, IDs follow the Kimi reference format instead: `functions.NAME:N`, or `NAME_N` when the name also contains `k3`. `N` counts tool calls across the whole conversation.
 
 ### Tool Execution Flow
 
 1. **Parse**: the resolved parser extracts calls from the model output. Text outside the calls stays in `content`.
 2. **Return**: Chat Completions returns the calls in `tool_calls` with `finish_reason: "tool_calls"`, unless the engine stopped for `length` or an error. The Messages API returns `tool_use` blocks with `stop_reason: "tool_use"`.
 3. **Execute (Responses API)**: on `/v1/responses`, the gateway runs calls to MCP tools itself, appends the results to the conversation, and resumes generation. The request's `max_tool_calls`, capped by the gateway, bounds the loop. See [MCP](../extensibility/mcp.md).
+
+---
+
+## Symphony Parsing
+
+`--parser symphony` opts the gateway into reading a model's output with a **Symphony table**: one description of the model's output format that yields the reasoning, content and tool calls together, in place of the separate [reasoning](#reasoning-parsers) and [tool-call](#tool-call-parsers) parsers above. The default, `--parser legacy`, keeps those parsers. Symphony applies to Chat Completions, the Messages API and the Responses API on this pipeline — on `/v1/responses` it reads every model turn, the turns of an MCP tool loop included; every other endpoint keeps the legacy parsers. The response shape does not change: the streaming deltas and message fields clients see are the same as under the legacy parsers.
+
+### Which Table Reads a Model
+
+The parser names set for the model decide: its `tool_parser` / `reasoning_parser` [per-model overrides](#per-model-overrides), else the `--tool-call-parser` / `--reasoning-parser` flags, each name resolved separately. When both resolved names are set, the tool-call name decides. When the pair selects nothing — no names at all, or a reasoning name alone that no table answers to (`passthrough` excepted) — the table of the registry of checkpoints Symphony knows reads the model, and the legacy parsers with their own auto-detection read a model the registry doesn't know either.
+
+| Names resolved for a model | What they select |
+|----------------------------|------------------|
+| A table's name, or another name a table answers to (see [Table Names](#table-names)) | That table, for every request for the model |
+| `hf` | The table the model's `response_template` compiles into (below) |
+| Any other legacy tool-call parser's name, `passthrough` included | The legacy parsers — the per-model escape hatch when a table misreads |
+| No names | Nothing: the registry decides for a checkpoint it knows, else the legacy parsers |
+
+A name selects the legacy parsers only when it is a legacy tool-call name no table answers to, or `passthrough` as the reasoning name alone. A reasoning name alone that no table answers to, such as `deepseek_r1`, selects nothing, since every table reads the thought channel; a known checkpoint still reads with the registry's table.
+
+The registry matches the repository name — the text after the last path separator — exactly and without regard to case, under any organization or path: `Qwen/Qwen3-8B`, `qwen3-8b` and a local path ending in `Qwen3-8B` all read with the same table. Unlike legacy auto-detection, which finds a pattern anywhere in the name, a renamed or quantized checkpoint the registry does not know, such as `Qwen3-8B-FP8`, matches nothing and keeps the legacy parsers. The [`x-smg-parser` response header](#per-request-switch-and-response-header) tells you which parser read a given response.
+
+### Table Names
+
+The 27 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4.1`, `seed_oss`, `hy4`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon` and `plain`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
+
+A table also answers to the names of the legacy parsers that read its format, so a model whose override already sets one of these names switches to the table the moment the gateway starts with `--parser symphony`.
+
+| Name | Reads with table |
+|------|------------------|
+| `qwen` | `qwen3` |
+| `qwen_xml`, `qwen_coder`, `nemotron` | `qwen3_tagged` |
+| `glm47_moe` | `glm` |
+| `glm45_moe` | `glm4` |
+| `hy_v4` | `hy4` |
+| `deepseek_v41` | `deepseek_v4.1` |
+| `minimax` | `minimax_m2` |
+
+Several legacy parser names — `json`, `qwen3`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2` and `minimax_m3` — are a table's own name and read with that table. A legacy name no table answers to, such as `llama`, `mistral` or `deepseek31`, keeps the legacy parsers for its model.
+
+The gateway checks the names at startup and at worker registration, against the configured `--parser`. A legacy parser's name counts only for its own flag — `--reasoning-parser qwen_xml` fails under either `--parser` — while a table's own name and `hf` pass in either flag under `symphony`. Under `symphony`, any other name fails with `unknown tool-call parser '<name>': neither a legacy parser nor a Symphony table`. Under `legacy`, when a flag's value is rejected and Symphony reads with it — a table's own name or `hf` — the error ends `... which --parser symphony reads with`, as noted under [Parser Selection](#parser-selection).
+
+A name that selects a table but is none of its flag's legacy parsers — `ling` in either flag, `qwen3` in `--tool-call-parser` — binds the other name: it must name the same table or be unset; a legacy name the table answers to is refused there, so `qwen3_tagged` pairs with `qwen3_tagged` or nothing, not with `qwen_xml`. `hf` binds the same way: the other name must be `hf` or unset.
+
+### The `hf` Name: the Response Template's Table
+
+The name `hf` (the same name vLLM uses, and the same for both flags) reads each model with the table that the `response_template` in its tokenizer's `tokenizer_config.json` compiles into — transformers' description of how the output splits into a thought, content and tool calls. The table is compiled once per model and tokenizer; registering a new tokenizer under the model compiles it again. A model whose template is missing or does not compile refuses every request that reads with `hf`: 400 with code `invalid_parser_configuration`.
+
+### Per-Request Switch and Response Header
+
+A request's `X-SMG-Parser` header, `legacy` or `symphony`, overrides the `--parser` flag for that one request, in either direction. Any other value is refused: 400 with code `invalid_parser_header`.
+
+The response's `x-smg-parser` header names the parser that actually read it. It reports `legacy` when Symphony was chosen but no table took the request — the model's names select the legacy parsers, no table is named and the registry doesn't know the checkpoint, or a forced call fell back to a JSON-schema constraint (below) — so a client comparing the two modes can tell which one read each answer.
+
+### What the Table Reads
+
+A request's options select a variant of the table rather than a different reader, matching what the legacy path would run:
+
+- With no tools declared, or `tool_choice: none`, the table reads without its calls, so call syntax stays in `content` as text.
+- With `separate_reasoning: false`, the table reads without its thought, so reasoning stays in `content`. On the Messages API, thinking blocks are always separate, so only the calls vary.
+
+### Constraints Under Symphony
+
+When a table reads a request, its structural tag stands in for the constraint of a forced or required `tool_choice`, and, on an `hf`-read model, for a JSON `response_format`, so the engine's constrained output is in exactly the syntax the table parses. The engine receives the tag alone, never the tag and a competing constraint:
+
+- A registry table with no tag for the forced call leaves the decision to the [legacy constraint rules](#when-a-constraint-is-sent). When those send a JSON schema, the output has no table markers, so the legacy parsers read that response and `x-smg-parser` reports `legacy`.
+- A registry table leaves a JSON `response_format` to the engine's JSON schema, as the legacy path does; the table still reads that response.
+- `hf` refuses what its table cannot both constrain and read, with 400 `invalid_parser_configuration`: a forced call or a JSON `response_format` its table has no tag for, a `regex` or `ebnf` constraint, and a forced call or JSON answer on a prompt that continues the assistant's message, since a tag writes a turn from its start.
+
+### Grammar on `auto` Tool Choice
+
+A worker whose `constrained_decoding` policy is `always` — set as a [worker label or spec field](../../reference/api/admin.md#worker-spec), or reported by the engine itself — tells the gateway its engine takes a grammar on every turn. When a table reads a chat or Messages request that allows calls under `auto` (or no `tool_choice`), the gateway then sends the table's tag for the request's callable tools: no call required, at most one when `parallel_tool_calls` is `false` (Messages: `disable_parallel_tool_use`). The default policy, `requested`, sends a grammar only when the request asks for one.
+
+Nothing is sent, and nothing refused, when the request carries a constraint of its own (a JSON `response_format`, `regex`, `ebnf`), has no callable tools, forbids calls with `tool_choice: none`, continues the assistant's message, or the table has no tag for the calls.
+
+Under PD disaggregation the decode worker's policy applies. The policy is read once, for the worker first selected for the request; a retry re-shapes the tag for the worker it picks, but keeps the first worker's decision to send one.
 
 ---
 
@@ -363,17 +451,19 @@ The Harmony pipeline (gpt-oss) builds its structural tags before encoding (`mode
 | Request | Constraint |
 |---------|------------|
 | No tools, or `tool_choice` is `auto` or `none` | None. The parser extracts calls from free-form output |
-| `tool_choice` is `required`, names a function, or is `allowed_tools` with `mode: "required"` | A **structural tag** when `--tool-call-parser` or an override sets a parser that has one; otherwise a **JSON schema** |
+| `tool_choice` is `required`, names a function, or is `allowed_tools` with `mode: "required"` | A **structural tag** when `--tool-call-parser` or an override sets a parser that has one; **none** for `gemma4`, which emits its native format for the parser to read; otherwise a **JSON schema** |
 
 | Type | Parsers | What it constrains |
 |------|---------|--------------------|
-| `structural_tag` | `mistral`, `deepseek_v41`, `glm47_moe`, `kimik2`, `kimi_k3`, `inkling` | The model's own format: trigger tokens, call framing, and argument JSON. The model-specific parser reads the result |
+| `structural_tag` | `mistral`, `deepseek_v41`, `glm47_moe`, `hy_v4`, `kimik2`, `kimi_k3`, `inkling`, `minimax_m3` | The model's own format: trigger tokens, call framing, and argument JSON. The model-specific parser reads the result |
 | `json_schema` | Fallback for every other case, auto-detected parsers included | Plain JSON. A named function constrains its `parameters`. `required` constrains an array of `{"name", "parameters"}` objects, with `$defs` merged across tools; conflicting definitions return 400 `invalid_tool_configuration` |
 
-Two parsers add rules on top of their structural tag:
+When a [Symphony table](#symphony-parsing) reads the request, its own structural tag takes the place of this choice (see [Constraints Under Symphony](#constraints-under-symphony)), and a worker whose `constrained_decoding` policy is `always` gets a tag for `auto` tool choice too (see [Grammar on `auto` Tool Choice](#grammar-on-auto-tool-choice)).
 
-- **`glm47_moe`**: when thinking is on, GLM-4.7-family templates end the prompt inside `<think>`. SMG then wraps the GLM tag in a reasoning prefix: free text that must close with `</think>`, with tool-call tokens excluded, followed by the forced call. The model reasons first, and the call can't end up inside the thinking block where the reasoning parser would absorb it. On SGLang workers the gateway then turns off SGLang's own `require_reasoning` deferral for that request (smg-project/smg#2550). GLM requests without tools, or with `tool_choice` `auto` or `none`, carry no grammar (smg-project/smg#2549, smg-project/smg#2550).
-- **`kimi_k3`**: each argument grammar carries the tool schema's `$defs` / `definitions` block, so parameters that use `$ref` compile instead of failing the request (smg-project/smg#2392).
+Some parsers add rules on top of their structural tag:
+
+- **`glm47_moe`, `minimax_m3`, `hy_v4`**: when thinking is on, these families' templates end the prompt inside the thinking block, so a grammar applied from the model's first token would force the call into the thought, where the reasoning parser would absorb it. SMG wraps the tag so the model reasons first, shaped by where the selected worker's engine starts a grammar on a thinking prompt — its `constrained_decoding_start` label, which the gRPC servicers advertise from the engine's configuration. An engine that defers the grammar behind its own reasoning parser (`after_reasoning`: SGLang running a reasoning parser) gets the bare calls, forced right at the thought's end. An engine that applies the grammar from the first generated token (`first_token`: TokenSpeed, or SGLang without a reasoning parser) gets a thought block closed by the thinking marker, with the think and call markers excluded, and then the calls. A worker that doesn't say gets a shape that fits either kind: free text that writes none of the call markers, with nothing owed at its end. Under PD disaggregation the decode worker's label counts, and a retry re-shapes the tag for the worker it picks.
+- **`kimi_k3`**: each argument grammar carries the tool schema's `$defs` / `definitions` block, so parameters that use `$ref` compile instead of failing the request.
 
 ### Combining with Structured Output
 
@@ -397,8 +487,9 @@ See [gRPC Workers](../../getting-started/grpc-workers.md) for the launch command
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--reasoning-parser` | Auto | Reasoning parser for every model without a per-model override |
-| `--tool-call-parser` | Auto | Tool-call parser for every model without a per-model override. Also opts the parser into structural-tag constraints |
+| `--parser` | `legacy` | Which parser reads a Chat Completions, Messages or Responses API response: `legacy` (the per-model parsers on this page) or `symphony` ([Symphony tables](#symphony-parsing)). A request's `X-SMG-Parser` header overrides it for that request |
+| `--reasoning-parser` | Auto | Reasoning parser for every model without a per-model override. Under `--parser symphony`, may name a Symphony table or `hf`; a model with no name anywhere reads with [Symphony's registry](#which-table-reads-a-model) |
+| `--tool-call-parser` | Auto | Tool-call parser for every model without a per-model override. Also opts the parser into structural-tag constraints. Under `--parser symphony`, may name a Symphony table or `hf`; a model with no name anywhere reads with [Symphony's registry](#which-table-reads-a-model) |
 | `--chat-template` | None | Jinja chat template file. Without it, SMG looks in the model directory. The DeepSeek and Kimi-K3 native renderers ignore it |
 | `--mcp-config-path` | None | Path to MCP server configuration file |
 
@@ -516,8 +607,9 @@ RUST_LOG=warn,smg=info,llm_tokenizer=debug smg launch ...
 |---------|-------|----------|
 | Reasoning stays in `content` | No reasoning parser matched the model name, or the request set `separate_reasoning: false` | Set `--reasoning-parser` or a per-model override; compare the name with the patterns above |
 | Tool calls come back as text in `content` | No tool parser matched, or the parser doesn't fit the model's format | Set `--tool-call-parser` or a `tool_parser` override for that model |
-| Gateway exits at startup with `unknown tool-call parser` or `unknown reasoning parser`, or the pip `smg launch` reports `invalid choice` | The name isn't registered | Use a name from the reference tables above; names use underscores |
-| Worker registration fails with `declares unknown tool_parser` | A label or model card names an unregistered parser | Fix the override name |
+| Gateway exits at startup with `unknown tool-call parser` or `unknown reasoning parser`, or the pip `smg launch` reports `invalid choice` | The name isn't one of that flag's legacy parsers; an error ending `which --parser symphony reads with` means Symphony reads with the name, but the gateway runs the default `--parser legacy` | Use a name from the reference tables above (names use underscores), or start the gateway with `--parser symphony` for a table's name |
+| The `x-smg-parser` response header says `legacy` under `--parser symphony` | No table took the request: the model's names keep the legacy parsers, no table is named and the registry doesn't know the checkpoint's exact repository name, or a forced call fell back to a JSON-schema constraint | Name a table or `hf` in the model's `tool_parser` override, or in `--tool-call-parser` for a checkpoint the registry doesn't know; see [Symphony Parsing](#symphony-parsing) |
+| Worker registration fails with `declares a parser override ... the gateway cannot read with` | A label or model card names a parser the configured `--parser` can't read with — under `--parser legacy`, Symphony table names and `hf` among them | Fix the override name, or start the gateway with `--parser symphony` for a table's name |
 | Forced tool calls or `response_format` not enforced | The engine runs without a grammar backend | Start TokenSpeed with `--grammar-backend xgrammar`; give TensorRT-LLM `guided_decoding_backend: xgrammar` |
 | MCP tools time out | Slow tool execution | Check MCP server configuration |
 

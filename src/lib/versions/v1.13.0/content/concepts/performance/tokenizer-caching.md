@@ -32,7 +32,7 @@ Boundary-aligned prefix matching that tokenizes only the suffix on hit. Ideal fo
 
 ### :material-memory: Bounded Memory
 
-L0 is capped by entry count and L1 by an approximate byte budget. An L0 entry holds the whole input and its encoding, so its size grows with prompt length.
+L0 is capped by an entry count and a byte budget, L1 by an approximate byte budget. An L0 entry holds the whole input and its encoding, so its size grows with prompt length.
 
 </div>
 
@@ -102,6 +102,7 @@ Identical prompts repeated across a batch hit L0. Prompts that share a template 
 
 - Hash-based O(1) lookup, keyed on the whole input text
 - Entry size grows with input length
+- Capped by entry count and a byte budget; an input whose entry would exceed a quarter of the budget is not cached
 - Approximate LRU eviction when full (samples 8 entries and evicts the least recently used)
 
 **Best for**: Identical requests, repeated batch inputs
@@ -181,8 +182,6 @@ User: How do I install it?
 
 **Result**: Turn 2 tokenizes only the new messages, not the shared history. The hit also stores one new entry covering Turn 2's prompt up to its own deepest boundary, so Turn 3 matches right after Turn 2's last special token — even when Turn 2's match came from a prefix shared with other conversations, such as a common system prompt.
 
-In v1.11.0 and earlier a hit stores nothing: every later turn keeps matching the deepest boundary the last miss stored and re-tokenizes everything after it.
-
 ---
 
 ## Configuration
@@ -212,10 +211,10 @@ smg --model-path /models/llama-3.1-8b-instruct/tokenizer.json ...
 
 When pointing to a local directory, SMG looks for a HuggingFace
 `tokenizer.json`, a `vocab.json` plus `merges.txt` pair, or a tiktoken file
-(`tiktoken.model` or `*.tiktoken`). When
-pulling from the HuggingFace Hub, SMG additionally falls back to
-`tokenizer_config.json` and `vocab.json` in the downloaded snapshot if a
-primary tokenizer file is not present.
+(`tiktoken.model` or `*.tiktoken`). When pulling from the HuggingFace Hub,
+SMG looks for the same files in the downloaded snapshot: `tokenizer.json`,
+then a tiktoken file, then the `vocab.json` plus `merges.txt` pair. A
+`tokenizer_config.json` alone is not a tokenizer.
 
 #### `--tokenizer-path`
 
@@ -256,10 +255,12 @@ Path to a Jinja2 chat template file.
 **Template discovery priority**:
 
 1. Explicit `--chat-template` path (highest priority)
-2. `chat_template.json` in model directory
-3. `chat_template.jinja` in model directory
-4. Any `.jinja` file in model directory
-5. `chat_template` field in `tokenizer_config.json`
+2. `chat_template.jinja` in the model directory
+3. A `chat_template` string in `tokenizer_config.json`
+4. Legacy `chat_template.json` in the model directory
+5. Any other `.jinja` file in the model directory
+
+A `chat_template` entry in `tokenizer_config.json` that is not a single string (such as a named-template list) is not read, and discovery falls through to the file fallbacks.
 
 #### Template Variables
 
@@ -272,8 +273,13 @@ Chat templates use Jinja2 syntax with access to:
 | `tools` | Optional array of tool definitions |
 | `documents` | Optional array of document context |
 | `bos_token`, `eos_token`, `unk_token`, `pad_token` | The tokenizer's special tokens, when it defines them |
+| `strftime_now` | Function writing the current date and time with a strftime format (see below) |
 
 Keys in a request's `chat_template_kwargs` are passed to the template as extra variables.
+
+`strftime_now` matches the function HuggingFace Transformers provides to chat templates: `{{ strftime_now('%Y-%m-%d') }}` writes today's date in the server's local time, like Python's `datetime.now().strftime(format)`. Every call in one render writes the same instant. An invalid strftime format fails the render with an error naming `strftime_now`.
+
+To make a prompt that writes the date reproducible, set `SOURCE_DATE_EPOCH` in SMG's environment to the desired instant as seconds since the Unix epoch (the reproducible-builds convention). SMG reads it once, at the first render, and every render then writes that instant instead of the clock. A value that is not a whole number of seconds is ignored, and the clock is used.
 
 #### Template Examples
 
@@ -346,6 +352,18 @@ Maximum number of entries in the L0 cache.
 
 </div>
 
+<div class="card" markdown>
+
+#### `--tokenizer-cache-l0-max-memory`
+
+Byte budget of the L0 cache, counting input texts, token IDs, and per-entry overhead. An input whose entry would exceed a quarter of the budget is not cached.
+
+| Option | `--tokenizer-cache-l0-max-memory` |
+|--------|-----------------------------------|
+| Default | `268435456` (256 MB) |
+
+</div>
+
 </div>
 
 ### L1 Cache Configuration
@@ -386,7 +404,7 @@ Maximum memory for the L1 cache in bytes.
 
 ### L0 Cache Sizing
 
-L0 is capped by entry count, not bytes. Each entry keeps the full input text and its encoding, so its size grows with the input: small for a short prompt, and roughly 2 MB per entry was observed for large inputs (smg-project/smg#2603). Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that actually repeat in your traffic, and watch process memory when you raise it.
+L0 is capped by an entry count and a byte budget. Each entry keeps the full input text and its encoding, so its size grows with the input: small for a short prompt, megabytes for a large one. SMG charges each entry its text bytes, token IDs, and per-entry overhead against `--tokenizer-cache-l0-max-memory` (default 256 MB) and evicts when a new entry would exceed either limit; an input whose entry alone would exceed a quarter of the byte budget is not cached at all. Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that actually repeat in your traffic, and the byte budget from how large those prompts are.
 
 ### L1 Cache Sizing
 
@@ -400,8 +418,6 @@ L1 cache is bounded by total memory:
 | 200 MB | Long context applications |
 
 On a miss, L1 stores one entry per special-token boundary of the input: the token IDs of the whole prefix up to that boundary. On a hit, it stores one more entry — the prefix up to the input's own deepest boundary — when that boundary lies past the match, so steady hit traffic also grows the cache. SMG charges each entry the prefix's length in bytes plus 4 bytes per token, so a long multi-turn prompt with many boundaries counts for many times its own length. When new entries would exceed the budget, SMG evicts approximately least recently used entries (sampling 32 at a time) to make room. The budget is an estimate of cache contents, not a cap on process memory.
-
-In v1.11.0 and earlier a hit stores nothing; only misses grow the cache.
 
 ---
 
@@ -455,10 +471,11 @@ For deployments with limited memory.
 smg \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --tokenizer-cache-enable-l0 \
-  --tokenizer-cache-l0-max-entries 5000
+  --tokenizer-cache-l0-max-entries 5000 \
+  --tokenizer-cache-l0-max-memory 67108864
 ```
 
-**Expected**: a lower entry cap bounds L0 memory; hits only on exact repeats
+**Expected**: a lower entry cap and byte budget bound L0 memory; hits only on exact repeats
 
 </div>
 
@@ -504,8 +521,7 @@ smg \
 
 ## Monitoring & Observability
 
-The gateway exports cache activity on its Prometheus `/metrics` endpoint
-(smg-project/smg#2603):
+The gateway exports cache activity on its Prometheus `/metrics` endpoint:
 
 | Metric | Labels | Meaning |
 |--------|--------|---------|
@@ -524,7 +540,7 @@ sum by (layer) (rate(smg_tokenizer_cache_lookups_total{result="hit"}[5m]))
 sum by (layer) (rate(smg_tokenizer_cache_lookups_total[5m]))
 ```
 
-See the [Metrics Reference](../../reference/metrics.md#tokenizer-cache-metrics)
+See the [Metrics Reference](../../reference/metrics.md#tokenizer-metrics)
 for details.
 
 ### Sizing Signals to Watch
@@ -534,8 +550,8 @@ Use these signals when tuning `--tokenizer-cache-l0-max-entries` and
 
 - A low L0 hit ratio with a steady L0 eviction rate
   (`rate(smg_tokenizer_cache_evictions_total{layer="l0"}[5m])`) means more
-  distinct inputs arrive than L0 holds; raise `max-entries` if the workload
-  repeats inputs at all.
+  distinct inputs arrive than L0 holds; raise `max-entries` — or the L0 byte
+  budget, when the inputs are large — if the workload repeats inputs at all.
 - L1 evictions mean the prefix cache is at its memory bound. Multi-turn chat
   traffic with growing context benefits from a larger L1 budget; see
   [L1 Cache Sizing](#l1-cache-sizing).
@@ -543,9 +559,9 @@ Use these signals when tuning `--tokenizer-cache-l0-max-entries` and
   from reuse of large prompts: a high hit ratio with little reused volume
   saves little tokenization work.
 - Each L0 entry keeps the full input text and its encoding, so entry size
-  grows with prompt length; the out-of-memory investigation that led to these
-  metrics (smg-project/smg#2603) observed entries of roughly 2 MB for large
-  inputs. Watch `smg_allocator_allocated_bytes` when raising `max-entries`.
+  grows with prompt length: large inputs can take megabytes per entry. Watch
+  `smg_allocator_allocated_bytes` when raising `max-entries` or
+  `--tokenizer-cache-l0-max-memory`.
 
 ---
 

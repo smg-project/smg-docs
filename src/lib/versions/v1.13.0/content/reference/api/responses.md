@@ -47,6 +47,10 @@ Unless noted otherwise, the behavior on this page is that of gRPC workers. Store
 responses and conversations live in SMG's history backend (`--history-backend`, default
 `memory`); see [Chat History](../../concepts/data/chat-history.md).
 
+Stored responses and conversations are scoped to the tenant that created them — another
+tenant's ID is answered exactly as an unknown one; see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope).
+
 ---
 
 ## Base URL
@@ -70,15 +74,16 @@ POST /v1/responses
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `model` | string | Yes | Model identifier |
-| `input` | string or array | Yes | Input text or array of input items. Must not be empty. In v1.11.0 and earlier an array must also contain at least one message; see [Input Formats](#input-formats) |
+| `input` | string or array | Yes | Input text or array of input items. Must not be empty; see [Input Formats](#input-formats) |
 | `instructions` | string | No | System instructions for the model |
-| `max_output_tokens` | integer | No | Maximum tokens to generate (at least 16) |
+| `max_output_tokens` | integer | No | Maximum tokens to generate (at least 1) |
 | `max_tool_calls` | integer | No | Maximum tool calls SMG executes for this response (at least 1); see [Tool Call Limits](#tool-call-limits) |
 | `temperature` | number | No | Sampling temperature (0-2), default: 1.0 |
 | `top_p` | number | No | Nucleus sampling parameter, greater than 0 and at most 1 |
 | `stream` | boolean | No | Enable streaming responses |
 | `stream_options` | object | No | Streaming options, such as `include_obfuscation` |
 | `store` | boolean | No | Store response for later retrieval, default: true |
+| `background` | boolean | No | Return a `queued` response object at once and run the request in the background; see [Background Mode](#background-mode) |
 | `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, and built-in tool types |
 | `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` requires `tools` |
 | `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
@@ -91,20 +96,13 @@ POST /v1/responses
 | `metadata` | object | No | Custom metadata, echoed in the response; at most 16 pairs, keys up to 64 characters, string values up to 512 characters |
 | `user` | string | No | End-user identifier |
 
-An unknown top-level parameter is rejected with `400` `json_parse_error`: every parameter
-SMG accepts is declared. Besides the fields above and the
+An unknown top-level parameter is rejected with `400` (`unknown_parameter`): every
+parameter SMG accepts is declared. Besides the fields above and the
 [SGLang extensions](#sglang-extensions), the declared set covers the public API's
-`background`, `service_tier`, `truncation`, `prompt`, `prompt_cache_key`,
-`prompt_cache_retention`, `safety_identifier`, and `context_management`, plus SMG's own
-`request_id` and `priority`. `background` is accepted, but SMG does not run responses in
-the background: every response is returned synchronously or streamed.
-
-These rules match the public API's request contract and are new on main after v1.12.0. In
-v1.12.0 and earlier, unknown top-level parameters (`background` included) are ignored,
-`max_output_tokens` only has to be at least 1, `metadata` is not size-checked, and
-`top_logprobs` without `message.output_text.logprobs` in `include` is rejected with
-`400` — on main that combination is accepted. The input-role, tool, and structured-output
-rules below are likewise new on main and not enforced in v1.12.0 and earlier.
+`service_tier`, `truncation`, `prompt`, `prompt_cache_key`, `prompt_cache_retention`,
+`safety_identifier`, and `context_management`, plus SMG's own `request_id` and
+`priority`. `top_logprobs` is accepted with or without `message.output_text.logprobs`
+in `include`.
 
 ### Input Formats
 
@@ -181,11 +179,11 @@ request that replays the history, as in the previous example, likewise needs no 
 message after the tool result. On gpt-oss (Harmony) models each result's `call_id` must
 match a `function_call` earlier in the resolved input — the replayed items plus any
 history loaded from `previous_response_id` — and an unmatched result is rejected with
-`400` `harmony_build_failed` (`No function call found for call_id: ...`).
-
-Accepting an `input` array without any message requires v1.12.0 or later. v1.11.0 and
-earlier reject such an array with `400` (`Input items must contain at least one message`),
-so on those releases a continuation must include a message item.
+`400` `harmony_build_failed` (`No function call found for call_id: ...`). On models under
+the OpenAI and DeepSeek [provider profiles](openai.md#provider-profiles), a result whose
+`call_id` the preceding assistant tool-call turn did not issue is rejected with `400`
+(`convert_request_failed`); a result with no call turn before it at all is passed to the
+engine.
 
 ### Tool Configuration
 
@@ -292,7 +290,7 @@ a request that declares it is rejected with `400` (`tool_not_supported`).
 
 Effort tiers, lowest to highest: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`,
 `max`. `none` turns reasoning off; a `reasoning` object without `effort` defaults to
-`medium`. Any other value is rejected with `400` `json_parse_error`. `summary` accepts
+`medium`. Any other value is rejected with `400` (`invalid_value`). `summary` accepts
 `auto`, `concise`, or `detailed`.
 
 On gRPC workers the tier reaches the chat pipeline as the same `reasoning_effort` string,
@@ -364,8 +362,47 @@ complete call was parsed before the stop. Streaming and non-streaming responses 
 same rules.
 
 gpt-oss (Harmony) models check the limit before a batch runs and do not execute a batch
-that would exceed it; a non-streaming response then ends `failed` with
-`max_tool_calls_exceeded`.
+that would exceed it; the response then ends `failed` with `max_tool_calls_exceeded`, and
+a stream ends with the `response.failed` terminal event carrying the same error.
+
+### Background Mode
+
+With `"background": true`, SMG answers before the response is generated: it stores a
+response object with `"status": "queued"` under a new response ID and returns it at once,
+and the request runs in the background behind that ID. The queued object echoes the
+request's parameters, carries `"background": true`, and has no output or usage yet. Poll
+[`GET /v1/responses/{response_id}`](#get-response) to follow the stored object through
+`queued` → `in_progress` → `completed`, `incomplete`, `failed`, or `cancelled`, or stop
+the run with [`POST /v1/responses/{response_id}/cancel`](#cancel-response).
+
+```bash
+curl http://localhost:30000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "input": "Write a detailed research report on AI trends",
+    "background": true
+  }'
+```
+
+- **Streaming.** With `"stream": true` the client keeps the stream: `response.created`
+  reports the response `queued`, a `response.queued` event follows, and the usual events
+  stream as generation proceeds. The work runs behind the stored ID either way, so a
+  client that disconnects early does not stop generation: the response still finishes and
+  is stored. A cancelled background stream ends without a terminal event.
+- **Limits.** `--max-background-responses` (default 1024) caps how many background
+  responses the gateway runs at once. A request beyond the cap is rejected with `429`
+  `background_responses_limit_reached`; retry later or send the request without
+  `background`. Setting the flag to `0` turns background mode off: requests with
+  `background: true` then run in the foreground like any other request.
+- **`store: false`.** An unstored background response still runs in the background and
+  can be polled while it runs; after it reaches a terminal status its result stays
+  retrievable for roughly ten minutes and is then deleted. Nothing of it is written to
+  conversation history, and it is not a valid `previous_response_id` (`400`
+  `previous_response_not_found`).
+- **History backend.** The stored response object is the run's state, kept in SMG's
+  history backend. With `--history-backend none` the `queued` object is still returned,
+  but no record exists behind it: the response cannot be polled or cancelled.
 
 ### Example Request
 
@@ -475,6 +512,9 @@ The response's own `status`:
 | `completed` | Finished normally, including a stop at your `max_tool_calls` |
 | `incomplete` | `max_output_tokens` was reached; `incomplete_details.reason` is `max_output_tokens` |
 | `failed` | Generation failed or the internal tool-call cap was hit; `error` carries `code` and `message` |
+| `queued` | [Background](#background-mode) response waiting for its run to start |
+| `in_progress` | Background response still generating |
+| `cancelled` | Background response stopped by [Cancel Response](#cancel-response) |
 
 For a failed generation, `error` keeps the upstream error's `code` (or `type`) and
 `message` when the pipeline reported them; otherwise it is `server_error` with
@@ -561,7 +601,8 @@ Reasoning streams first, as its own item. A streamed `function_call` item opens 
 `"status": "in_progress"` and closes with its final status.
 
 **Terminal events.** Exactly one of these ends the stream, unless an internal SMG error
-cuts it short with an error frame:
+cuts it short with an error frame or a cancel ends a [background](#background-mode)
+stream with no terminal event:
 
 | Event | `response.status` |
 |-------|-------------------|
@@ -571,8 +612,10 @@ cuts it short with an error frame:
 
 Before the terminal event, SMG closes every item that is still open, exactly once, even
 when generation fails. Partial output stays in the terminal response with its unfinished
-status. gpt-oss (Harmony) streams always end with `response.completed`, or with an `error`
-event when their pipeline fails.
+status. gpt-oss (Harmony) streams never end with `response.incomplete`: they end with
+`response.completed`, with `response.failed` (`error.code` `max_tool_calls_exceeded`) when
+the [tool-call limit](#tool-call-limits) is hit, or with an `error` event when their
+pipeline fails.
 
 **MCP-specific streaming events:**
 
@@ -666,7 +709,14 @@ curl http://localhost:30000/v1/responses/resp_abc123def456
 Returns the stored response object as shown in the Create Response section. SMG reads it
 from its own history backend, which the gRPC and external-provider paths fill when `store`
 is `true`; responses produced by HTTP workers are stored by the worker and are not
-retrievable through SMG. An unknown ID returns `404` with code `not_found`.
+retrievable through SMG. An unknown ID — or another tenant's response — returns `404`
+with code `not_found`.
+
+A [background](#background-mode) response reads back as `queued` or `in_progress` while
+it runs and as its terminal object once it ends; its input items are stored with the
+queued record, so [List Response Input Items](#list-response-input-items) answers from
+the first poll. A `store: false` background response stays retrievable for roughly ten
+minutes after it ends.
 
 ---
 
@@ -676,9 +726,18 @@ retrievable through SMG. An unknown ID returns `404` with code `not_found`.
 POST /v1/responses/{response_id}/cancel
 ```
 
-Attempts to cancel an in-progress response. Behavior depends on the connection mode:
+Cancels a [background](#background-mode) response. Behavior depends on the connection
+mode:
 
-- **gRPC workers**: Background mode is not supported, so there is nothing to cancel. A stored `completed` response returns `400` `response_already_completed`, a `failed` one `400` `response_already_failed`, any other stored response `400` `cancellation_not_supported`, and an unknown ID `404` `response_not_found`.
+- **gRPC workers**: A `queued` or `in_progress` background response is stopped and
+  returned with `"status": "cancelled"`. This also works across gateways that share a
+  history backend: the record is closed as `cancelled`, and the gateway running the
+  response notices within a few seconds and drops the work. Cancelling an already
+  `cancelled` response returns its object again. A `completed` or `incomplete` response
+  returns `400` `response_already_completed`, a `failed` one `400`
+  `response_already_failed`, a response not created with `background: true` `400`
+  `cancellation_not_supported`, and an unknown ID — or another tenant's response — `404`
+  `response_not_found`.
 - **HTTP workers**: The request is sent to every registered worker; SMG returns the first successful answer, otherwise the last error. Whether cancellation succeeds depends on backend support.
 
 ### Path Parameters
@@ -695,20 +754,35 @@ curl -X POST http://localhost:30000/v1/responses/resp_abc123def456/cancel
 
 ### Response
 
-**HTTP workers**: Returns the response object from the backend.
+**gRPC workers**: Returns the cancelled response object (abbreviated):
 
-**gRPC workers**: Returns a `400 Bad Request` error:
+```json
+{
+  "id": "resp_abc123def456",
+  "object": "response",
+  "created_at": 1705312345,
+  "completed_at": 1705312349,
+  "status": "cancelled",
+  "background": true,
+  "model": "meta-llama/Llama-3.1-8B-Instruct",
+  "output": []
+}
+```
+
+Cancelling a response that was not created with `background: true` returns:
 
 ```json
 {
   "error": {
-    "type": "Bad Request",
+    "type": "invalid_request_error",
     "code": "cancellation_not_supported",
-    "message": "Background mode is not supported. Synchronous and streaming responses cannot be cancelled.",
+    "message": "Only responses created with 'background': true can be cancelled.",
     "param": null
   }
 }
 ```
+
+**HTTP workers**: Returns the response object from the backend.
 
 ---
 
@@ -742,7 +816,10 @@ curl -X DELETE http://localhost:30000/v1/responses/resp_abc123def456
 }
 ```
 
-An unknown ID returns `404` with code `not_found`.
+An unknown ID — or another tenant's response — returns `404` with code `not_found`.
+
+Deleting a [background](#background-mode) response that is still `queued` or
+`in_progress` also stops its run: the work is dropped and no result is stored.
 
 ---
 
@@ -788,16 +865,26 @@ curl http://localhost:30000/v1/responses/resp_abc123def456/input_items
 All stored input items are returned in one page (`has_more` is always `false`). Items
 stored without an ID get a generated `msg_` ID.
 
+An unknown ID — or another tenant's response — returns `404` with code `not_found`.
+
 ---
 
 ## Conversation Management
 
 Conversations provide persistent storage for multi-turn interactions, enabling chat history to be maintained across multiple requests.
 
-The conversation endpoints report errors as `{"error": "<message>"}`, except for two
-structured errors: `item_already_in_conversation` under
-[Create Conversation Items](#create-conversation-items) and the `invalid_value` rejection
-of a bad `include` query under [Get Conversation Item](#get-conversation-item).
+The conversation endpoints use the gateway's error envelope (see
+[Error Format](#error-format)): a missing conversation answers `404` with code
+`not_found`, and an invalid request `400` with code `invalid_request`. Three rejections
+carry their own `code` and `param`: `item_already_in_conversation` and the
+`string_above_max_length` refusal of an item ID over 64 bytes, both under
+[Create Conversation Items](#create-conversation-items), and the `invalid_value`
+rejection of a bad `include` query under [Get Conversation Item](#get-conversation-item).
+
+A conversation is scoped to the tenant that created it: on every route below, and as
+the `conversation` of a new response, another tenant's conversation ID answers `404`,
+the same as an unknown ID (see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
 ### Create Conversation
 
@@ -1000,7 +1087,7 @@ These item types are fully supported:
 - `reasoning` - Model reasoning content
 - `mcp_list_tools` - MCP tool listing
 - `mcp_call` - MCP tool invocation
-- `item_reference` - Reference to an existing item by `id`
+- `item_reference` - Reference to an existing item by `id`; an unknown ID — or another tenant's item — returns `404`
 
 These types are stored, but the response adds a `warnings` entry because SMG does not
 implement them yet: `function_call`, `function_call_output`, `file_search_call`,
@@ -1021,6 +1108,12 @@ An item whose `id` is already in the conversation is rejected with:
   }
 }
 ```
+
+An item submitted with an explicit `id` that already names a stored item the caller may
+see — its own, or one stored without a tenant — reuses that stored item as-is. An ID that
+belongs to another tenant's item is rejected with `400` (`Item id '...' cannot be used`),
+neither serving nor overwriting it (see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
 ### Example Request
 
@@ -1262,13 +1355,15 @@ items, the next request's `input` can be only their `function_call_output` items
 
 ### Error Format
 
-Errors that SMG generates use the gateway envelope, with the HTTP reason phrase as `type`
-and the code repeated in the `X-SMG-Error-Code` header:
+Errors that SMG generates use the gateway envelope, with the code repeated in the
+`X-SMG-Error-Code` header. `type` is the public API's vocabulary: `invalid_request_error`
+for 4xx errors (except `permission_error` for 403 and `rate_limit_error` for 429) and
+`server_error` for 5xx:
 
 ```json
 {
   "error": {
-    "type": "Not Found",
+    "type": "invalid_request_error",
     "code": "conversation_not_found",
     "message": "Conversation 'conv_abc123' not found. Please create the conversation first using the conversations API.",
     "param": null
@@ -1276,25 +1371,32 @@ and the code repeated in the `X-SMG-Error-Code` header:
 }
 ```
 
-Request parsing and validation failures use `type: invalid_request_error` instead: a body
-that cannot be parsed has `code` `json_parse_error`, and a failed validation rule has
-`code` `400` with the rule's message in `message`. See
+Request parsing and validation failures use the same envelope but carry no
+`X-SMG-Error-Code` header, and their `code` names what was wrong: a syntax error is
+`invalid_json`, a missing `Content-Type: application/json` header `json_parse_error`, a
+body of the wrong shape `unknown_parameter`, `missing_required_parameter`,
+`invalid_value`, `invalid_type`, or `integer_below_min_value`, and a failed validation
+rule the rule's own code, with the offending field in `param` when one is known. See
 [Error Responses](openai.md#error-responses) for the full envelope description.
 
 ### Common Errors
 
 | HTTP Status | `code` | Description |
 |-------------|--------|-------------|
-| 400 | `400`, `json_parse_error` | Malformed request or validation failure |
-| 400 | `previous_response_not_found` | `previous_response_id` is not in SMG's storage |
-| 400 | `convert_request_failed` | gRPC: an input item the chat pipeline cannot represent, such as media in a `function_call_output` |
-| 401 | — | Invalid or missing API key (empty body) |
+| 400 | `invalid_json`, `json_parse_error`, a shape or rule code | Malformed request or validation failure; see [Error Format](#error-format) |
+| 400 | `previous_response_not_found` | `previous_response_id` is not in SMG's storage, or is another tenant's response |
+| 400 | `convert_request_failed` | gRPC: an input item the chat pipeline cannot represent, such as media in a `function_call_output`, or a tool result no earlier call issued |
+| 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |
+| 401 | `invalid_api_key` | Invalid or missing API key |
 | 404 | `model_not_found` | No worker serves the model |
-| 404 | `conversation_not_found` | The `conversation` does not exist |
-| 404 | `not_found` | Unknown response ID on get, delete, or input items |
+| 404 | `conversation_not_found` | The `conversation` does not exist, or belongs to another tenant |
+| 404 | `not_found` | Unknown or another tenant's response ID on get, delete, or input items |
+| 404 | `response_not_found` | Unknown or another tenant's response ID on cancel |
 | 424 | `connect_mcp_server_failed` | A declared MCP server could not be reached |
 | 429 | `admission_queue_full`, `scheduler_queue_full` | Admission control; see [Rate Limiting](openai.md#rate-limiting) |
-| 500 | `load_previous_response_chain_failed`, `check_conversation_failed`, `storage_error` | Storage failures |
+| 429 | `background_responses_limit_reached` | The gateway already runs `--max-background-responses` background responses; see [Background Mode](#background-mode) |
+| 500 | `load_previous_response_chain_failed`, `check_conversation_failed`, `storage_error`, `internal_error` | The history store answered with an error |
+| 503 | `storage_unavailable` | The history store did not answer (unreachable or timed out); retry |
 | 503 | `no_available_workers` | No healthy workers available |
 
 ### Validation Errors
@@ -1304,7 +1406,8 @@ that cannot be parsed has `code` `json_parse_error`, and a failed validation rul
   "error": {
     "message": "conversation: Invalid 'conversation': 'invalid-id'. Expected an ID that begins with 'conv_'.",
     "type": "invalid_request_error",
-    "code": 400
+    "param": "conversation",
+    "code": "invalid_conversation_id"
   }
 }
 ```
@@ -1314,7 +1417,8 @@ that cannot be parsed has `code` `json_parse_error`, and a failed validation rul
   "error": {
     "message": "__all__: Mutually exclusive parameters. Ensure you are only providing one of: 'previous_response_id' or 'conversation'.",
     "type": "invalid_request_error",
-    "code": 400
+    "param": null,
+    "code": "mutually_exclusive_parameters"
   }
 }
 ```
@@ -1337,7 +1441,7 @@ The Responses API includes additional sampling parameters specific to SGLang:
 Where they take effect:
 
 - **HTTP workers** receive them with the request.
-- **gpt-oss (Harmony) models on gRPC**: all but `stop` are applied; `stop` is not passed to the engine yet.
+- **gpt-oss (Harmony) models on gRPC**: all but `stop` are applied; `stop` is not passed to the engine.
 - **Other models on gRPC**: the request is converted to a chat request without these fields, so they have no effect.
 
 Example:

@@ -31,7 +31,7 @@ SMG connects to workers over HTTP, gRPC, or ZMQ, and supports both local inferen
 | Google (Gemini) | HTTP | `https://generativelanguage.googleapis.com` |
 | Any OpenAI-compatible API | HTTP | `https://your-provider.com` |
 
-ZMQ workers (`ipc://`) run on the same host as SMG, which connects directly to the engine core with no engine API server in between. SGLang over ZMQ is newer than v1.11.0. See [ZMQ Direct Workers](zmq-workers.md).
+ZMQ workers (`ipc://`) run on the same host as SMG, which connects directly to the engine core with no engine API server in between. See [ZMQ Direct Workers](zmq-workers.md).
 
 ## Static Workers via CLI
 
@@ -106,7 +106,7 @@ Route to a cloud provider by setting `--backend` to its router and passing the p
       --port 30000
     ```
 
-    Serves the Interactions API (`/v1/interactions`): non-streaming requests with `"store": false` in v1.12.0. Callers send `x-goog-api-key` (or `Authorization: Bearer <key>`). `--backend gemini` belongs to the Rust `smg` binary; the Python launcher does not accept it.
+    Serves the Interactions API (`/v1/interactions`): non-streaming requests with `"store": false`. Callers send `x-goog-api-key` (or `Authorization: Bearer <key>`). `--backend gemini` belongs to the Rust `smg` binary; the Python launcher does not accept it.
 
 The OpenAI-compatible router (`--backend openai`) also adjusts each request for the provider that serves its model, detected from the model name (for example, xAI handling for `grok*` models).
 

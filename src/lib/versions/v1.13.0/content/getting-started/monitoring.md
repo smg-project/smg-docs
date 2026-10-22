@@ -32,7 +32,7 @@ smg launch \
   --prometheus-host 0.0.0.0
 ```
 
-At startup SMG logs `Metrics server listening on <address> (/metrics)`. The port must be greater than `0`: `--prometheus-port 0` is rejected at startup even though `--help` describes it as an OS-assigned port. If the port is already in use, SMG fails at startup with `failed to bind metrics server on <address>`.
+At startup SMG logs `Metrics server listening on <address> (/metrics)`. The port must be greater than `0`: `--prometheus-port 0` is rejected at startup. If the port is already in use, SMG fails at startup with `failed to bind metrics server on <address>`.
 
 !!! warning "The metrics listener has no authentication"
     `/metrics` answers anyone who can reach the port, in every configuration (`--api-key` and the control-plane keys do not apply to it), and its per-worker series name each backend by its address. Bind it to a private address with `--prometheus-host`, and in Kubernetes fence the port with a NetworkPolicy that admits only the scraper. See [Default posture](control-plane-auth.md#default-posture).
@@ -76,14 +76,14 @@ smg launch \
 | `--enable-trace` | `false` | Enable OpenTelemetry tracing |
 | `--otlp-traces-endpoint` | `localhost:4317` | OTLP gRPC collector endpoint, as `host:port` (`http://` is added when no scheme is given) |
 
-Spans are batched and exported over OTLP gRPC with the service name `smg`. The gateway exports its own request spans: `http_request` for each HTTP request that matches a route (method, URI, request ID, status code, and latency in microseconds) and `grpc_execute` for each dispatch through the gRPC pipeline (request type, request ID, model, and mode).
+Spans are batched and exported over OTLP gRPC with the service name `smg`. The gateway exports its own request spans: `http_request` for every request to the main listener, including unmatched routes (method, path, request ID, status code, and latency in microseconds — the span carries the request's path, never its query string), and `grpc_execute` for each dispatch through the gRPC pipeline (request type, request ID, model, and mode). The separate health-check listener is not traced.
 
 ### Trace propagation
 
 With `--enable-trace`, SMG uses W3C TraceContext headers:
 
 - `traceparent` and `tracestate` on an incoming client request make the gateway's spans part of the caller's trace.
-- Requests the HTTP routers (regular and PD) send to workers carry the current `traceparent` and `tracestate`. Requests to gRPC workers do not carry trace context in v1.11.0.
+- Requests the HTTP routers (regular and PD) send to workers carry the current `traceparent` and `tracestate`, and requests to gRPC workers carry the same context in their request metadata. Requests to ZMQ workers do not carry trace context.
 
 Without `--enable-trace`, SMG neither reads nor adds these headers.
 
@@ -182,13 +182,15 @@ If you deploy with the SMG Helm chart, set `router.metrics.serviceMonitor.enable
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `smg_worker_health` | Gauge | Health status (1=Ready, 0=not Ready, -1=removed) |
+| `smg_worker_health` | Gauge | Health status (1=Ready, 0=not Ready) |
 | `smg_worker_requests_active` | Gauge | Active requests per worker |
 | `smg_worker_cb_state` | Gauge | Circuit breaker state |
 | `smg_worker_retries_total` | Counter | Retry attempts |
 | `smg_workers_overloaded` | Gauge | Workers excluded as overloaded, per model |
 | `smg_worker_overload_shed_total` | Counter | Requests shed with `worker_overload_protection_shed`, by stage |
 | `smg_engine_token_usage` | Gauge | Engine-reported KV-cache usage per worker |
+
+When a worker's registration is removed, every series with its `worker` label is dropped from the scrape; the `smg_engine_*` gauges of a worker that leaves `Ready` while registered are set to `-1` until it reports load again.
 
 ### Routing Policy Metrics
 
@@ -202,13 +204,13 @@ If you deploy with the SMG Helm chart, set `router.metrics.serviceMonitor.enable
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `smg_mcp_tool_calls_total` | Counter | Tool invocations by tool_name, result |
+| `smg_mcp_tool_calls_total` | Counter | Tool invocations by model, tool_name, result |
 | `smg_mcp_tool_duration_seconds` | Histogram | Tool execution time |
 | `smg_mcp_servers_active` | Gauge | Connected MCP servers |
 
-Several of these exist only when their feature is on: admission metrics need `--max-concurrent-requests` (the multimodal rejection reasons need `--multimodal-max-inflight-bytes` instead), the `smg_workers_overloaded` gauge needs worker overload protection, and PD metrics need PD mode.
+Several of these exist only when their feature is on: the `smg_workers_overloaded` gauge needs worker overload protection, and PD metrics need PD mode. Admission control is on by default (`--max-concurrent-requests` defaults to a host-derived cap), so the admission metrics are exported unless it is disabled with `--max-concurrent-requests 0`; the multimodal rejection reason needs `--multimodal-max-inflight-bytes`. With the opt-in [priority scheduler](../reference/priority-scheduler.md#metrics), the limiter is replaced: admission outcomes are in its `smg_scheduler_*` metrics, and `smg_http_rate_limit_total` counts only rejections from an explicit `--rate-limit-tokens-per-second` budget.
 
-Unreleased: current main publishes `smg_worker_overload_shed_total` at zero for every stage from start-up, whether or not overload protection is enabled, so the series exist before any shed; only the gauge still waits for protection to flag a worker. See [Overload Protection Metrics](../reference/metrics.md#overload-protection-metrics).
+SMG publishes `smg_worker_overload_shed_total` at zero for every stage from start-up, whether or not overload protection is enabled, so the per-stage series exist before any shed; only the `smg_workers_overloaded` gauge waits for protection to flag a worker. See [Overload Protection Metrics](../reference/metrics.md#overload-protection-metrics).
 
 [View all metrics →](../reference/metrics.md)
 
@@ -443,7 +445,8 @@ count(smg_worker_health == 0)
 # Circuit breaker states
 count by (worker) (smg_worker_cb_state == 1)
 
-# Engine KV-cache usage per worker (removed and non-Ready workers report -1)
+# Engine KV-cache usage per worker (a worker that leaves Ready reports -1;
+# removed workers drop out of the scrape)
 max by (worker) (smg_engine_token_usage >= 0)
 ```
 
@@ -503,21 +506,21 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
     2. Check SMG was started with `--enable-trace`
 
-    3. Verify the collector is receiving spans. Requests to gRPC workers do not carry trace context, so engine-side spans join the trace only for HTTP workers.
+    3. Verify the collector is receiving spans. Requests to HTTP and gRPC workers carry trace context; requests to ZMQ workers do not, so their engine-side spans cannot join the trace.
 
     4. Keep SMG's log level at `info` or more verbose. The log filter also applies to spans, and the request spans are INFO-level, so `--log-level warn` (or a `RUST_LOG` that drops INFO for `smg`) filters them out before they are exported.
 
 ??? question "Missing metrics"
 
-    1. A series appears only after the first event that records it, so a metric can be absent on an idle gateway.
+    1. Most series appear only after the first event that records them, so a metric can be absent on an idle gateway. The overload-shed, retry, and circuit-breaker transition families are exceptions, published at zero before any event (details below).
 
-    2. Some groups need their feature enabled: admission metrics need `--max-concurrent-requests`, the `smg_workers_overloaded` gauge needs worker overload protection, and PD, discovery, RL, and mesh metrics need their modes. Allocator metrics are absent on musl and MSVC builds.
+    2. Some groups need their feature enabled: the `smg_workers_overloaded` gauge needs worker overload protection, and PD, discovery, RL, and mesh metrics need their modes. Admission metrics are on by default; they disappear with `--max-concurrent-requests 0`, and the opt-in priority scheduler replaces them with its own `smg_scheduler_*` metrics (only rejections from an explicit `--rate-limit-tokens-per-second` budget still count in `smg_http_rate_limit_total`). Allocator metrics are absent on musl and MSVC builds.
 
     3. Some metrics only appear for specific paths (for example, TTFT is recorded for streaming responses on the gRPC router).
 
     4. Verify metric names against the [Metrics Reference](../reference/metrics.md). Names such as `smg_router_stage_duration_seconds` and the `smg_db_*` metrics are declared in code but never emitted.
 
-    Unreleased: current main publishes the overload-shed and retry families at zero from start-up — whether or not overload protection is enabled — and each worker's circuit-breaker transition counters at zero when that worker is registered. The eager retry series cover the `regular`, `prefill`, and `decode` worker types only; the external-provider counters (`worker_type="external"`) still appear on their first respective event, `smg_worker_retries_total` on the first retry and `smg_worker_retries_exhausted_total` on the first exhaustion. On a gateway built from main, absence of the start-up families points at a scrape problem rather than inactivity, while a missing transition series means no worker with that label is registered. The [Metrics Reference](../reference/metrics.md) lists the exact series.
+    SMG publishes the overload-shed and retry families at zero from start-up, whether or not overload protection is enabled. Each worker's circuit-breaker transition counters are likewise published at zero when that worker is registered. The start-up retry series cover the `regular`, `prefill`, and `decode` worker types only; the external-provider counters (`worker_type="external"`) appear only on their first event: `smg_worker_retries_total` on the first retry, `smg_worker_retries_exhausted_total` on the first exhaustion. Absence of the start-up families therefore points at a scrape problem rather than inactivity, while a missing transition series means no worker with that label is registered. The [Metrics Reference](../reference/metrics.md) lists the exact series.
 
 ---
 

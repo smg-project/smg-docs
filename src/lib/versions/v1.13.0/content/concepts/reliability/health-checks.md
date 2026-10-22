@@ -129,6 +129,8 @@ The failure count restarts when a worker enters `NotReady`, so a `Ready` worker 
 
 The default follows `--service-discovery`. With discovery on, removal is followed by re-registration, so recovery completes on its own. Without discovery, nothing would add a removed worker back, so the default keeps failed workers in place instead of permanently shrinking a static fleet.
 
+Re-registration is probed before it takes effect: an HTTP or gRPC worker is created and activated only after a startup probe reaches its engine, retried every `--worker-startup-check-interval` seconds until `--worker-startup-timeout-secs`, so a still-down engine waits in registration instead of being registered `Ready` and demoted again. A ZMQ worker's explicit `ipc://` URL is accepted without a probe; it re-registers as `Pending` and is promoted when its engine completes its handshake.
+
 | Command | Auto-recovery |
 |---------|---------------|
 | `smg launch --service-discovery ...` | On |
@@ -165,7 +167,7 @@ smg \
 | `--health-check-endpoint` | `/health` | HTTP path probed on HTTP workers |
 | `--disable-health-check` | `false` | Disable background probing (ZMQ workers keep their local check) |
 | `--remove-unhealthy-workers` | follows `--service-discovery` | Remove workers that reach `Failed` (alias `--worker-auto-recovery`); see [Worker Auto-Recovery](#worker-auto-recovery) |
-| `--drain-settle-secs` | `5` | Seconds a `Ready` worker stays `Draining` before removal; `0` removes immediately. Not accepted by the Python launcher yet |
+| `--drain-settle-secs` | `5` | Seconds a `Ready` worker stays `Draining` before removal; `0` removes immediately. Not accepted by the Python launcher |
 
 ### Per-Worker Overrides
 
@@ -345,8 +347,6 @@ The gates exclude a worker independently, but recovery is coupled: a promotion b
 
 The trial follows the usual [half-open rules](circuit-breakers.md#state-transitions): `--cb-success-threshold` consecutive successes close the circuit, and one failure reopens it for a full timeout. Passing probes on a worker that is already `Ready` are not a promotion and start no new trial, so a flapping worker gets one trial per demotion-and-promotion cycle.
 
-Promotion readmission is newer than v1.12.0; see [State Transitions](circuit-breakers.md#state-transitions) for the behavior of earlier releases.
-
 **Key differences**:
 
 - **Health checks**: Proactive background monitoring (no request impact)
@@ -363,7 +363,7 @@ Both are recommended for production deployments. The hash-based policies (`consi
 | Metric | Labels | Description |
 |--------|--------|-------------|
 | `smg_worker_health_checks_total` | `worker_type`, `result` | Probe results; `result` is `success` or `failure` |
-| `smg_worker_health` | `worker` | `1` when the worker is `Ready`, `0` otherwise, and `-1` once the worker has been removed |
+| `smg_worker_health` | `worker` | `1` when the worker is `Ready`, `0` otherwise; a removed worker's series is dropped from `/metrics` |
 
 ### Useful PromQL Queries
 
@@ -422,8 +422,8 @@ groups:
           summary: "Worker {{ $labels.worker }} is unhealthy"
 
       - alert: MajorityUnhealthy
-        # Removed workers report -1, so count only registered ones
-        expr: count(smg_worker_health == 0) > count(smg_worker_health >= 0) / 2
+        # A removed worker's series leaves /metrics, so every series is a registered worker
+        expr: count(smg_worker_health == 0) > count(smg_worker_health) / 2
         for: 1m
         labels:
           severity: critical

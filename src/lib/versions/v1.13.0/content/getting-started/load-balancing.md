@@ -36,11 +36,13 @@ smg --worker-urls http://w1:8000 http://w2:8000 --policy cache_aware
 | `random` | — | — | — | Testing |
 | `passthrough` | — | — | — | Single worker |
 
+On every policy, worker overload protection (on by default) leaves a worker out of selection while its reported waiting queue is at or above `--worker-overload-waiting-requests` (default `8`) or its KV usage at or above `--worker-overload-token-usage` (default `0.8`) and another worker is under them; when every worker is over them, the request goes to the least-loaded one, unless `--worker-overload-shed` asks for a `503` instead. See [Overload Protection](../concepts/reliability/overload-protection.md).
+
 ---
 
 ## Cache-Aware (Recommended)
 
-The production default. Routes each request to a worker that already holds its prefix; when no worker holds enough of it, or the holder is far busier than the rest, it routes to the worker with the lowest expected wait (the [`least_load`](#least-load) score).
+The production default. Routes each request to a worker that already holds its prefix; when no worker holds enough of it, or the holder is far busier than the rest, it routes to the worker with the lowest expected wait (the [`least_load`](#least-load) score). A share of cache misses goes to workers that are new or hold a thin cache (the warm-up slice), so every worker builds a cache instead of idling.
 
 ```bash
 smg \
@@ -54,7 +56,7 @@ smg \
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--cache-threshold` | `0.3` | Minimum matched-prefix share (0.0–1.0) before a request is pinned to a worker that holds the prefix. At or below it, the request goes to the worker with the lowest expected wait |
-| `--balance-abs-threshold` | `64` | Spill gate, absolute part: a matched worker is skipped when its in-flight requests exceed the mean across available workers by more than this many and also exceed `--balance-rel-threshold` × that mean |
+| `--balance-abs-threshold` | `64` | Spill gate, absolute part: a matched worker is skipped when its in-flight requests exceed the mean across available workers by more than this many and also exceed `--balance-rel-threshold` × that mean. The margin is capped at the in-flight count's natural swing at the pool's mean (two standard deviations, never under four requests unless this value is lower), so a small pool can spill at all |
 | `--balance-rel-threshold` | `1.5` | Spill gate, relative part: a multiple of that mean (at least `1.0`); fires only together with the absolute part |
 | `--eviction-interval` | `120` (Python launcher: `60`) | Seconds between cache-tree eviction cycles. The Python launcher behind `pip install smg` and the container images names the flag `--eviction-interval-secs` |
 | `--max-tree-size` | `67108864` | Maximum total size of each model's prefix tree (characters for HTTP, tokens for gRPC), shared across all workers |
@@ -75,7 +77,7 @@ smg --policy power_of_two --worker-urls http://w1:8000 http://w2:8000
 |-----------|---------|-------------|
 | `--power-of-two-load-metric` | `expected_wait` | What candidates are compared by: `expected_wait` (lower expected wait of the sampled pair), `requests` (the pair's in-flight request counts, the expected wait breaking ties), or `least_requests` (no pair — the fewest in-flight requests across every available worker, then the expected wait) |
 
-The in-flight metrics compare the gateway's own request counts without reading load reports; see [Comparison Metric](../concepts/routing/load-balancing.md#comparison-metric) for how each value selects, and for the versions that support the flag.
+The in-flight metrics compare the gateway's own request counts without reading load reports; see [Comparison Metric](../concepts/routing/load-balancing.md#comparison-metric) for how each value selects.
 
 Best for large or heterogeneous fleets where cache locality doesn't matter.
 
@@ -105,7 +107,7 @@ When every worker is at the waiting-queue cap, the request fails with `503` inst
 
 ## Consistent Hashing
 
-Header-based routing with minimal redistribution on scaling. Routes based on `X-SMG-Routing-Key` header or implicit keys (`Authorization`, `X-Forwarded-For`, `Cookie`).
+Header-based routing with minimal redistribution on scaling. Routes based on the `X-SMG-Routing-Key` header or implicit keys (`X-Forwarded-For`, `Cookie`). `Authorization` is deliberately not an implicit key: every client sharing an API key would hash to one worker.
 
 ```bash
 smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
@@ -118,7 +120,7 @@ smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
 | `X-SMG-Target-Worker` | Route to a worker by 0-based index into the model's available workers; `503` if that index has no available worker |
 | `X-SMG-Routing-Key` | Consistent hash routing for session affinity. Non-empty UTF-8, at most 128 bytes; add names with `--routing-key-headers` |
 
-**Priority:** `X-SMG-Target-Worker` > body `rid` (with `--routing-key-override`) > routing-key header > implicit keys > random fallback
+**Priority:** `X-SMG-Target-Worker` > routing-key header > body `rid` (with `--routing-key-override`) > implicit keys > random fallback
 
 Best for session affinity and user-to-worker pinning.
 

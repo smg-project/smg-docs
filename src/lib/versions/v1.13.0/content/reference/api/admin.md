@@ -12,7 +12,7 @@ SMG provides administrative endpoints for managing tokenizers, workers, WASM mod
 Manage tokenizers for text processing and tokenization.
 
 !!! note "Authentication"
-    These are control-plane routes. When control-plane auth is configured, use a control-plane credential with the `admin` role. Otherwise, use the shared `--api-key` if configured. With neither control-plane auth nor any API keys configured, the routes are open. Tenant keys never grant admin access; with only `--tenant-api-key` configured, every admin request gets `401`. See [Authentication](#authentication).
+    These are control-plane routes. When control-plane auth is configured, use a control-plane credential: the `admin` role allows every method, and the `user` role only the read-only `GET` and `HEAD` requests (`403` for the rest). Otherwise, use the shared `--api-key` if configured. With neither control-plane auth nor any API keys configured, the routes are open. Tenant keys never grant admin access; with only `--tenant-api-key` configured, every admin request gets `401`. See [Authentication](#authentication).
 
 ### Add Tokenizer
 
@@ -194,7 +194,7 @@ Register, inspect, update, and remove backend workers at runtime.
 `worker_id` is the UUID that `POST /workers` returns. Changes are asynchronous: the gateway checks the request, queues a job, and answers `202 Accepted`. Follow the job with `GET /workers/{worker_id}`.
 
 !!! note "Authentication"
-    These are control-plane routes. With [control-plane auth](../../getting-started/control-plane-auth.md) configured, they need a credential with the admin role (`401` without a valid one, `403` for other roles). Otherwise they need `Authorization: Bearer <key>` with the gateway `--api-key`. Per-tenant keys are not accepted, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
+    These are control-plane routes. With [control-plane auth](../../getting-started/control-plane-auth.md) configured, they need a valid credential (`401` without one): the `admin` role for every method, while the `user` role may send the read-only `GET` and `HEAD` requests and gets `403` for anything else. Otherwise they need `Authorization: Bearer <key>` with the gateway `--api-key`. Per-tenant keys are not accepted, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
 
 ### Create Worker
 
@@ -208,7 +208,7 @@ Registers a worker. The body is a [worker spec](#worker-spec); only `url` is req
 |--------|-----------|----------|
 | `http://`, `https://` | HTTP | SGLang, vLLM, or other OpenAI-compatible HTTP servers, and external providers. Hosts ending in `openai.com`, `anthropic.com`, `x.ai`, or `googleapis.com` register as external automatically. |
 | `grpc://`, `grpcs://` | gRPC | SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX gRPC servers. See [gRPC Workers](../../getting-started/grpc-workers.md). |
-| `ipc://<path>` | ZMQ | A vLLM, TokenSpeed, or SGLang engine core on the same host (SGLang over ZMQ is newer than v1.11.0). See [ZMQ Workers](../../getting-started/zmq-workers.md). |
+| `ipc://<path>` | ZMQ | A vLLM, TokenSpeed, or SGLang engine core on the same host. See [ZMQ Workers](../../getting-started/zmq-workers.md). |
 
 The scheme must be lowercase. Send the spec as JSON:
 
@@ -300,14 +300,15 @@ curl -X POST http://localhost:30000/workers \
 
 ### Worker Spec
 
-The body of `POST /workers` and `PUT /workers/{worker_id}`. Only `url` is required. The nested blocks (`health`, `overload`, `http_pool`, `resilience`) are partial: a field you leave out falls back to the gateway default. Unknown fields are ignored rather than rejected, so check the spelling. A known field with the wrong type, or an unknown enum value, is rejected with `422`.
+The body of `POST /workers` and `PUT /workers/{worker_id}`. Only `url` is required. The nested blocks (`health`, `overload`, `http_pool`, `resilience`) are partial: a field you leave out falls back to the gateway default. Unknown fields are ignored rather than rejected, so check the spelling. A known field with the wrong type, or an unknown enum value, is rejected with `400` in the [worker error format](#worker-errors).
 
 **Identity and transport**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `url` | string | required | Worker address. The scheme selects the transport (see [Create Worker](#create-worker)). Each URL can be registered once. |
-| `runtime_type` | string | `unspecified` | `sglang`, `vllm`, `trtllm`, `mlx`, `tokenspeed`, `generic` (an OpenAI-compatible HTTP server whose engine is unknown), or `external` (a third-party API, required for a provider behind a host the gateway does not recognize). `unspecified` detects the engine: over HTTP from `/v1/models`, `/version`, and `/server_info`, registering an unidentified OpenAI-compatible server as `generic`; over gRPC by trying `sglang`, `vllm`, `trtllm`, `tokenspeed`, then `mlx`. ZMQ workers default to `vllm`. Also accepted as `runtime`. |
+| `runtime_type` | string | `unspecified` | `sglang`, `vllm`, `trtllm`, `mlx`, `tokenspeed`, `generic` (an OpenAI-compatible HTTP server whose engine is unknown), or `external` (a third-party API behind a host the gateway does not recognize). `unspecified` detects the engine: over HTTP from `/v1/models`, `/version`, and `/server_info`, registering an unidentified OpenAI-compatible server as `generic`; over gRPC by trying `sglang`, `vllm`, `trtllm`, `tokenspeed`, then `mlx`. ZMQ workers default to `vllm`. Also accepted as `runtime`. |
+| `provider` | string | detected | Provider profile an external worker's traffic is dispatched under: `openai`, `xai`, `anthropic`, `gemini`, or a custom name, which rides the OpenAI-compatible router. Detected from a known provider host when unset; a model card's own `provider` wins for that model. Registration is refused with `PROVIDER_NOT_COMPILED` when a needed provider router is not compiled into the build. |
 | `worker_type` | string | `regular` | `regular`, `prefill`, `decode`, or `encode` (EPD encode worker). See [PD Disaggregation](../../concepts/routing/pd-disaggregation.md). |
 | `api_key` | string | none | Key the gateway presents to the worker. Write-only: never returned. Workers added through the API do not inherit the gateway `--api-key`. For provider keys, see [External Providers](../../getting-started/external-providers.md). |
 
@@ -327,7 +328,7 @@ Model card fields (`models[]`):
 | `model_type` | Capabilities, any of `chat`, `completions`, `responses`, `embeddings`, `rerank`, `generate`, `vision`, `tools`, `reasoning`, `image_gen`, `audio`, `moderation`. Default: `["chat", "completions", "responses", "tools"]`. |
 | `context_length` | Context window in tokens. |
 | `chat_template` | Chat template path used when the gateway loads the tokenizer for a gRPC or ZMQ worker. |
-| `tool_parser`, `reasoning_parser` | Parser names for this model on the gRPC path, overriding `--tool-call-parser` and `--reasoning-parser`. An unknown name fails registration. |
+| `tool_parser`, `reasoning_parser` | Parser names for this model on the gRPC path, overriding `--tool-call-parser` and `--reasoning-parser`. Under `--parser symphony`, they may also name a [Symphony table or `hf`](../../concepts/architecture/grpc-pipeline.md#symphony-parsing). A name the configured `--parser` cannot read with fails registration. |
 
 Cards also accept `display_name`, `hf_model_type`, `architectures`, `provider`, `tokenizer_path`, `metadata`, `id2label`, and `num_labels`.
 
@@ -335,19 +336,24 @@ Labels with built-in meaning:
 
 | Label | Effect |
 |-------|--------|
-| `realtime` | `"true"` (exactly) lets the worker serve the [Realtime API](openai.md#realtime-api). |
+| `realtime` | `"true"` lets the worker serve the [Realtime API](openai.md#realtime-api); the only other accepted value is `"false"`. |
+| `supports_vision` | `"true"` or `"false"`: whether the worker's engine has a vision encoder. Requests with image or video input route only to vision-capable workers of the model. |
 | `tool_parser`, `reasoning_parser` | Same as the model card fields, when the card does not set them. |
+| `constrained_decoding` | When the gateway hands this worker's engine a grammar: `requested` (the default) only when the request asks for one, or `always` for an engine that takes a grammar on every turn — under [Symphony parsing](../../concepts/architecture/grpc-pipeline.md#symphony-parsing), a request that allows tool calls under `auto` then gets the table's structural tag for them. Any other value fails registration or the label update. gRPC engines can report the label themselves; a spec field of the same name takes the same values and wins over the label. |
 | `served_model_name`, `model_id`, `model_path` | Model ID when `models` is empty, checked in this order. |
 | `tokenizer_path`, `model_path` | Where the gateway loads the tokenizer for a gRPC or ZMQ worker, ahead of `--tokenizer-path` and `--model-path`. |
-| `pairing_protocol` | Explicit PD pairing key: a prefill and a decode worker that both set it pair only when the values match. |
-| `kv_connector`, `kv_role`, `kv_engine_id` | Moved into the spec fields of the same name at registration (a non-empty `kv_connector` or `kv_engine_id` field wins over the label). |
+| `max_running_requests`, `max_num_seqs` | Positive count the routers read as the worker's running-request window. |
+| `pairing_protocol` | Explicit PD pairing key: a prefill and a decode worker that both set it pair only when the values match. A spec field of the same name wins over the label. |
+| `kv_connector`, `kv_role`, `kv_engine_id` | Moved into the spec fields of the same name at registration (a non-empty spec field of the same name wins over the label). |
+
+`POST` and `PATCH` check these label values, together with the size caps listed under [Worker Errors](#worker-errors); a value the routers cannot read is rejected with `400` before any job is queued.
 
 **Routing metadata**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `priority` | integer | `50` | Stored and returned in responses. No built-in routing policy reads it in v1.11.0. |
-| `cost` | number | `1.0` | Stored and returned in responses. No built-in routing policy reads it in v1.11.0. |
+| `priority` | integer | `50` | Stored and returned in responses. No built-in routing policy reads it. |
+| `cost` | number | `1.0` | Stored and returned in responses. No built-in routing policy reads it. Must be a finite number above `0`. |
 
 **Health checks (`health`)**: per-worker overrides of the gateway health-check flags. See [Health Checks](../../concepts/reliability/health-checks.md).
 
@@ -364,10 +370,12 @@ Labels with built-in meaning:
 
 | Field | Type | Gateway default | Description |
 |-------|------|-----------------|-------------|
-| `waiting_requests` | integer, at least 1 | `--worker-overload-waiting-requests` | Waiting requests, summed across DP ranks, at or above which the worker leaves routing. |
-| `token_usage` | number in (0.0, 1.0] | `--worker-overload-token-usage` (0.9 under `--worker-overload-protection`) | Mean KV-cache usage across DP ranks at or above which the worker leaves routing. |
+| `waiting_requests` | integer, at least 1 | `--worker-overload-waiting-requests` (8 under `--worker-overload-protection`) | Waiting requests, summed across DP ranks, at or above which the worker leaves routing. |
+| `token_usage` | number in (0.0, 1.0] | `--worker-overload-token-usage` (0.8 under `--worker-overload-protection`) | Mean KV-cache usage across DP ranks at or above which the worker leaves routing. |
 
 Either field turns overload protection on for this worker, even when the gateway flags leave it off; a field you leave out uses the gateway value. The worker returns to routing once a load report is below both thresholds. An out-of-range value fails registration. `PATCH` cannot change this block; use `PUT`.
+
+**Load monitoring (`load_monitor_interval_secs`)**: how often the load monitor polls this worker's engine, in seconds. The monitor polls workers in groups (same model, worker type, and transport): a group polls at the smallest override among its workers, floored to one second. Workers without an override poll every `--load-monitor-interval` seconds (10 by default; the flag must be greater than zero, and the gateway refuses to start on `0`).
 
 **HTTP client (`http_pool`)**: applies to HTTP workers, including external providers. See [Request Streaming](../../concepts/performance/request-streaming.md).
 
@@ -390,6 +398,10 @@ Either field turns overload protection on for this worker, even when the gateway
 | `retryable_status_codes` | integer array | `[408, 429, 500, 502, 503, 504]` | Statuses counted as circuit-breaker failures. Replaces the default set; it does not change which responses are retried. |
 | `capacity_status_codes` | integer array | `[429]` | Capacity-pushback statuses, which the circuit breaker never counts, as either failure or success. Replaces the default set. |
 
+The retry fields (`max_retries`, `initial_backoff_ms`, `max_backoff_ms`, `backoff_multiplier`, `jitter_factor`, `disable_retry`) are not per-worker: when a spec sets any of them, registration writes the resolved retry settings for every model the worker serves, and the last registration for a model wins. `disable_circuit_breaker` is accepted but has no effect; use the gateway-wide `--disable-circuit-breaker`.
+
+**Multimodal transport**: `multimodal_tensor_transport` (`inline`, `shm`, `auto`, or `rdma`; `rdma` needs a build with the `mm-rdma` feature and NIXL) and `multimodal_shm_min_bytes` override the gateway-wide `--multimodal-tensor-transport` and `--multimodal-shm-min-bytes` for tensors sent to this worker. The override of the worker that runs the vision encoder applies: the `encode` worker in EPD mode, otherwise the prefill or single worker. See [Multimodal](../../concepts/architecture/multimodal.md).
+
 **ZMQ workers**: see [ZMQ Workers](../../getting-started/zmq-workers.md).
 
 | Field | Type | Default | Description |
@@ -397,37 +409,34 @@ Either field turns overload protection on for this worker, even when the gateway
 | `dp_size` | integer | none | On an `ipc://` worker, the number of data-parallel engines that dial into its one socket set. A value above 1 makes a grouped worker, and the gateway spreads requests across the group's engines. On other workers the gateway sets this field itself during data-parallel discovery. |
 | `zmq_handshake_address` | string | derived | `tcp://` address the gateway binds for the engine handshake. The default is `tcp://127.0.0.1:<port>`, with the port (20000 to 29999) derived from the `ipc://` path. Set it for an engine that dials a fixed address, such as `tcp://127.0.0.1:30500`, TokenSpeed's default. |
 
-Registration of a ZMQ worker fails when the runtime is not `vllm`, `tokenspeed`, or `sglang` (`sglang` over ZMQ is newer than v1.11.0; v1.11.0 accepts only the first two), when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, when `dp_size` is above 1 on a gateway running with `--dp-aware`, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
+Registration of a ZMQ worker fails when the runtime is not `vllm`, `tokenspeed`, or `sglang`, when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, when `dp_size` is above 1 on a gateway running with `--dp-aware`, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
 
 **PD disaggregation and KV transfer**: see [PD Disaggregation](../../concepts/routing/pd-disaggregation.md).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `bootstrap_port` | integer | none | KV bootstrap port of a `prefill` or `encode` worker. The gRPC and vLLM Mooncake paths use `8998` when it is unset. |
+| `bootstrap_port` | integer | none | KV bootstrap port of a `prefill` or `encode` worker, from 1 to 65535. The gRPC and vLLM Mooncake paths use `8998` when it is unset. |
 | `kv_connector` | string | engine-reported | KV connector, such as `MooncakeConnector` or `NixlConnector`. Overrides the value a vLLM gRPC engine reports. |
+| `kv_role` | string | engine-reported | KV transfer role (`kv_producer`, `kv_consumer`, or `kv_both`). Wins over a `kv_role` label. |
 | `kv_engine_id` | string | engine-reported | vLLM `kv_transfer_config.engine_id`, used for Mooncake PD. For gRPC prefill and decode workers, the gateway reads it from the engine again when the worker recovers from `failed` or `not_ready` (a restarted engine gets a new ID), and the engine's value wins. |
+| `pairing_protocol` | string | none | Explicit PD pairing key, winning over the `pairing_protocol` label. A prefill and a decode worker pair only when their values match. |
+| `kv_block_size` | integer, at least 1 | engine-reported | Seeds the tokens-per-block size [KV events cache-aware routing](../../getting-started/kv-events-cache-aware.md) uses for this worker's model, until the worker's event stream reports the engine's page size, which then wins. |
 
-`health`, `http_pool`, and `resilience` take effect but are not echoed back by `GET /workers`; `overload` is.
+`GET /workers` echoes the spec as it was registered, including every nested block above; only `api_key` is never returned.
 
 !!! warning "Accepted but not applied"
-    v1.11.0 accepts these fields without an error, but a worker registered through this API does not use them:
+    These fields are accepted without an error, but a worker registered through this API does not use them:
 
     - `connection_mode`: the URL scheme decides the transport, and responses report the result (`http`, `grpc`, or `zmq`).
-    - `provider`: only checked against the provider routers compiled into the build (see `PROVIDER_NOT_COMPILED` under [Worker Errors](#worker-errors)); it is not kept on the worker. For a provider behind a host the gateway does not recognize, set `runtime_type` to `external`.
-    - `kv_role`: set a `kv_role` label instead. vLLM gRPC engines report it themselves.
-    - `pairing_protocol`: set a `pairing_protocol` label instead, or `SMG_PAIRING_PROTOCOL` in the engine's environment for gRPC engines.
-    - `multimodal_tensor_transport` and `multimodal_shm_min_bytes`: use the gateway-wide `--multimodal-tensor-transport` and `--multimodal-shm-min-bytes` (see [Multimodal](../../concepts/architecture/multimodal.md)).
-    - `load_monitor_interval_secs`: use `--load-monitor-interval`.
-    - `kv_block_size`: the engine's KV event stream reports the block size.
-    - `max_connection_attempts`: unused, and responses always show the default `20`; registration keeps probing until `--worker-startup-timeout-secs`.
-    - The `resilience` retry fields (`max_retries`, `initial_backoff_ms`, `max_backoff_ms`, `backoff_multiplier`, `jitter_factor`, `disable_retry`) and `disable_circuit_breaker`: use the gateway-wide `--retry-*`, `--disable-retries`, and `--disable-circuit-breaker` flags.
-    - `dp_base_url`, `dp_rank`, and `dp_size` (except on ZMQ workers): the gateway sets them on data-parallel workers under `--dp-aware`.
+    - `max_connection_attempts`: unused; registration keeps probing until `--worker-startup-timeout-secs`.
+    - `resilience.disable_circuit_breaker`: use the gateway-wide `--disable-circuit-breaker`.
+    - `dp_base_url`, `dp_rank`, and `dp_size` (except on ZMQ workers): the gateway sets them on data-parallel workers under `--dp-aware`. A `dp_rank` without a `dp_size`, or not below it, is still rejected with `400`.
 
 ---
 
 ### Worker Errors
 
-Worker endpoints report errors as `{"error": "<message>", "code": "<CODE>"}`, not in the shape described under [Error Responses](#error-responses):
+Worker endpoints report every error as `{"error": "<message>", "code": "<CODE>"}`, not in the shape described under [Error Responses](#error-responses):
 
 ```json
 {
@@ -438,20 +447,22 @@ Worker endpoints report errors as `{"error": "<message>", "code": "<CODE>"}`, no
 
 | Status | `code` | When |
 |--------|--------|------|
-| `400` | `BAD_REQUEST` | `worker_id` is not a UUID. The `url` is empty, does not start with a lowercase `http://`, `https://`, `grpc://`, `grpcs://`, or `ipc://` scheme, is not a valid URL or has no host, or is an `ipc://` URL without a path. A `PUT` changes the URL or is sent to a gateway running with `--dp-aware`. |
-| `400` | `PROVIDER_NOT_COMPILED` | The spec targets a provider whose router is not compiled into this build. |
+| `400` | `BAD_REQUEST` | A body that cannot be read as a worker spec: missing `Content-Type: application/json`, malformed JSON, a missing `url`, a wrong type, or an unknown value such as `"worker_type": "prefil"`. A `worker_id` that is not a UUID. The `url` is empty, does not start with a lowercase `http://`, `https://`, `grpc://`, `grpcs://`, or `ipc://` scheme, is not a valid URL or has no host, is an `ipc://` URL without a path, or is longer than 2048 bytes. A field or label the routers cannot read (below). A `PUT` changes the URL or is sent to a gateway running with `--dp-aware`. |
+| `400` | `PROVIDER_NOT_COMPILED` | The spec targets a provider whose router is not compiled into this build. The message names the Cargo feature that adds it. |
 | `404` | `WORKER_NOT_FOUND` | No worker has this ID. |
 | `409` | `WORKER_ALREADY_EXISTS` | `POST` for a URL that is already registered. The message names the existing ID. |
 | `409` | `WORKER_CREATE_IN_PROGRESS` | `POST` for a URL whose registration is still running. The message names the ID to poll. |
+| `413` | `PAYLOAD_TOO_LARGE` | The body is larger than `--max-payload-size`. |
 | `500` | `INTERNAL_SERVER_ERROR` | The job queue is unavailable or full. |
 
-A body that does not parse never reaches these checks. The gateway answers with a plain-text body: `415` when `Content-Type: application/json` is missing, `400` for malformed JSON, and `422` (`Failed to deserialize the JSON body into the target type: ...`) for a missing `url`, a wrong type, or an unknown value such as `"worker_type": "prefil"`.
+`POST` and `PATCH` check the fields and labels the routers rely on before queuing the job, and the `400` names the offending field: a `cost` that is not a finite number above `0`; a `kv_block_size` or `dp_size` below `1`; a `dp_rank` without a `dp_size` or not below it; a `bootstrap_port` of `0`; more than 128 labels (or a `PATCH` whose merge would add keys past that cap); a label key that is not 1 to 128 printable ASCII characters without spaces; a label value over 4096 bytes or carrying control characters; a `max_running_requests`, `max_num_seqs`, or `dp_size` label that is not a positive count; a `supports_vision` or `realtime` label that is neither `"true"` nor `"false"`.
 
 Other problems surface in the background job, after the `202`:
 
 - `overload.waiting_requests` of `0`, or `overload.token_usage` outside (0.0, 1.0]
 - the ZMQ constraints listed under [Worker Spec](#worker-spec)
-- an unknown `tool_parser` or `reasoning_parser`
+- a `tool_parser` or `reasoning_parser` the configured `--parser` cannot read with
+- a `constrained_decoding` label that names neither `requested` nor `always`
 - a worker that never answers, or `http_pool.http2: true` for a worker that only speaks HTTP/1.1
 
 ---
@@ -515,6 +526,7 @@ Each worker object carries its spec fields (never `api_key`) plus:
 | `model_id` | ID of the first model card. Absent for workers without a model list. |
 | `is_healthy` | `true` when `status` is `ready`. |
 | `status` | `pending` (registered, not yet proven healthy), `ready`, `not_ready` (failing probes, may recover), `failed`, or `draining` (being removed). Only `ready` workers receive traffic. |
+| `stalled` | Present while the gateway's liveness tracker keeps the worker out of routing although its health status stands: `unreachable` or `wedged`. |
 | `load` | Requests the gateway has in flight to this worker. |
 | `http2` | Whether the gateway speaks HTTP/2 to this worker. |
 | `pd_pairing` | Prefill and decode workers only: the key used to pair them for KV transfer, either the explicit `pairing_protocol` or `runtime/transport/layout`. |
@@ -597,7 +609,7 @@ Changes a few fields in place. Omitted fields keep their current values. The wor
 
 Any other field, such as `overload`, `http_pool`, `resilience`, or `models`, is ignored. Use `PUT` to change those.
 
-In v1.11.0, a `PATCH` also rebuilds the worker's circuit breaker with built-in thresholds (5 failures, 2 successes, 30 seconds), ignoring the gateway's circuit-breaker flags and any `resilience` overrides until a `PUT` re-registers the worker.
+The worker keeps its circuit breaker across the update: both the thresholds resolved at registration and the breaker's live state (open, half-open, failure counts).
 
 **Response:** `202 Accepted`
 ```json
@@ -659,7 +671,7 @@ Asks every registered HTTP and gRPC worker to drop its KV prefix cache. The call
 |--------|-------------------|
 | HTTP | `POST {worker_url}/flush_cache`, with the worker's API key (if it has one) as a bearer token and a 45-second timeout. Any non-2xx answer counts as a failure, so the engine must serve this route (SGLang's HTTP server does). |
 | gRPC SGLang, TokenSpeed | `FlushCache` RPC. |
-| gRPC vLLM | `FlushCache` RPC, new in v1.11.0. Needs `smg-grpc-servicer` 0.12.0 or later; older servicers answer `UNIMPLEMENTED`. Resets vLLM's local prefix cache without preempting running requests or clearing connector caches. The gateway makes a single attempt, so a reset that vLLM refuses while requests are in flight is reported under `failed`. |
+| gRPC vLLM | `FlushCache` RPC. Needs `smg-grpc-servicer` 0.12.0 or later; older servicers answer `UNIMPLEMENTED`. Resets vLLM's local prefix cache without preempting running requests or clearing connector caches. The gateway makes a single attempt, so a reset that vLLM refuses while requests are in flight is reported under `failed`. |
 | gRPC TRT-LLM, MLX | Not supported: reported under `failed` (`UNIMPLEMENTED`). |
 | ZMQ (`ipc://`) | Skipped, because the transport has no cache-flush RPC. Counted in `total_zmq_workers_skipped`. |
 
@@ -721,9 +733,9 @@ GET /get_loads
 
 Returns the engine load the gateway's load monitor last collected: one entry per worker per DP rank, plus a fleet-wide `aggregate`. The body uses the same schema engines report on `/v1/loads`, with every entry tagged by `worker` and `worker_type`.
 
-The response is built from the monitor's cached snapshot, the same numbers the routing policies act on, so no request reaches a worker. Values can be up to one poll interval old (`--load-monitor-interval`, 10 seconds by default). Serving from the cache is also what makes the route safe to poll from another SMG gateway that registers this one as a worker.
+The response is built from the monitor's cached snapshot, the same numbers the routing policies act on, so no request reaches a worker. Values can be up to one poll interval old (`--load-monitor-interval`, 10 seconds by default; a worker spec `load_monitor_interval_secs` shortens its group's interval — see [Worker Spec](#worker-spec)). Serving from the cache is also what makes the route safe to poll from another SMG gateway that registers this one as a worker.
 
-- **Auth**: `/loads` is a public route, served without auth like `/health`. `/get_loads` is a deprecated alias that stays on the admin tier and requires admin [authentication](#authentication).
+- **Auth**: `/loads` is a public route, served without auth like `/health`. `/get_loads` is a deprecated alias that stays on the control-plane tier and requires control-plane [authentication](#authentication).
 - **Filter**: `?model=<model_id>` limits the response to workers serving that model.
 - **Missing workers**: workers without a current report (not `Ready` yet, no load source, or a failed last poll) are left out rather than reported as idle. Before the first poll, `loads` is empty and `aggregate` is absent.
 
@@ -731,7 +743,7 @@ The response is built from the monitor's cached snapshot, the same numbers the r
 ```json
 {
   "timestamp": "2026-09-24T18:20:11.482913+00:00",
-  "version": "smg-1.11.0",
+  "version": "smg-1.13.0",
   "dp_rank_count": 2,
   "loads": [
     {
@@ -796,9 +808,6 @@ The response is built from the monitor's cached snapshot, the same numbers the r
 
 The same per-worker report appears as `engine_load` on `GET /workers` and `GET /workers/{worker_id}`. It is unrelated to their `load` field, which counts requests the gateway has in flight to the worker. [Overload Protection](../../concepts/reliability/overload-protection.md) explains where each backend's report comes from.
 
-!!! warning "Changed in v1.11.0"
-    `GET /get_loads` used to call every worker on each request and return `{"workers": [{"worker", "load", "details"}]}`. It now returns the `/loads` body above. Callers that read `.workers[].load` must switch to `.loads[]` or `.aggregate`.
-
 ---
 
 ## Model Information
@@ -811,7 +820,7 @@ Query model and server information. These are public routes and need no authenti
 GET /v1/models
 ```
 
-Returns the models that the registered self-hosted workers serve, read from the gateway's worker registry rather than from the workers. A caller that sends its own provider key gets the external providers' model list instead, fetched with that key. See [List Models](openai.md#list-models) for the details.
+Returns the models that the registered self-hosted workers serve, read from the gateway's worker registry rather than from the workers. A caller that sends its own provider key gets the external providers' model list instead, fetched with that key; one of the gateway's own keys is always answered from the registry, never forwarded. A request that carries the `anthropic-version` header gets the list, and any error, in the Anthropic Messages shapes instead. See [List Models](openai.md#list-models) for the details.
 
 **Response:** `200 OK`
 ```json
@@ -828,7 +837,17 @@ Returns the models that the registered self-hosted workers serve, read from the 
 }
 ```
 
-`created` is always `0`. With no self-hosted model to list, the route answers `503` with the plain-text body `No models available`.
+`created` is always `0`. With no self-hosted model to list, the route answers `503` in the gateway [error envelope](#error-responses), with `no_models_available` as the `code`.
+
+---
+
+### Get Model
+
+```
+GET /v1/models/{model_id}
+```
+
+Returns one self-hosted model by its ID or one of its aliases, as a single object in the same shape as a [List Models](#list-models) entry (the Anthropic shape under an `anthropic-version` header). The ID's slashes can be sent raw or percent-encoded. An unknown model gets `404` in the [error envelope](#error-responses), with `model_not_found` as the `code`.
 
 ---
 
@@ -871,7 +890,7 @@ Forwards the request the same way as [Get Model Info](#get-model-info) and retur
 
 ## WASM Module Management
 
-Manage WebAssembly plugins. Modules are registered from files accessible to the gateway process; the request body contains descriptors with paths, not binary payloads.
+Manage WebAssembly plugins. Modules are registered from files accessible to the gateway process; the request body contains descriptors with paths, not binary payloads. A module path must be absolute, end in `.wasm` (also after resolving symlinks), and contain no `.` or `..` components. Paths under `/etc`, `/proc`, `/sys`, `/dev`, `/boot`, `/root`, `/var/log`, and `/var/run` are refused, as is a module whose content (SHA-256) is already registered.
 
 These routes need `--enable-wasm`. Without it, each answers `500 Internal Server Error` with an empty body.
 
@@ -889,7 +908,7 @@ Registers one or more WASM modules.
   "modules": [
     {
       "name": "custom-middleware",
-      "file_path": "/etc/smg/wasm/custom-middleware.wasm",
+      "file_path": "/opt/smg/wasm/custom-middleware.wasm",
       "module_type": "Middleware",
       "attach_points": [
         {"Middleware": "OnRequest"},
@@ -900,7 +919,7 @@ Registers one or more WASM modules.
 }
 ```
 
-The only supported `module_type` today is `Middleware`. Valid `Middleware` attach points are `OnRequest`, `OnResponse`, and `OnError`, but `OnError` modules never run in v1.11.0: the middleware calls only `OnRequest` and `OnResponse` modules, and skips `OnResponse` for streaming responses.
+The only supported `module_type` is `Middleware`. Valid `Middleware` attach points are `OnRequest`, `OnResponse`, and `OnError`, but `OnError` modules never run: the middleware calls only `OnRequest` and `OnResponse` modules, and skips `OnResponse` for streaming responses.
 
 **Response:** `200 OK` on full success, `400 Bad Request` if any module failed to register. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message).
 
@@ -909,7 +928,7 @@ The only supported `module_type` today is `Middleware`. Valid `Middleware` attac
   "modules": [
     {
       "name": "custom-middleware",
-      "file_path": "/etc/smg/wasm/custom-middleware.wasm",
+      "file_path": "/opt/smg/wasm/custom-middleware.wasm",
       "module_type": "Middleware",
       "attach_points": [
         {"Middleware": "OnRequest"},
@@ -941,7 +960,7 @@ Returns all registered WASM modules together with aggregate execution metrics.
       "module_uuid": "550e8400-e29b-41d4-a716-446655440000",
       "module_meta": {
         "name": "custom-middleware",
-        "file_path": "/etc/smg/wasm/custom-middleware.wasm",
+        "file_path": "/opt/smg/wasm/custom-middleware.wasm",
         "sha256_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "size_bytes": 65536,
         "created_at": "2024-01-15T12:00:00.000000000Z",
@@ -991,10 +1010,10 @@ The admin endpoints do not share one error format. The body depends on the part 
 
 | Source | Status | Body |
 |--------|--------|------|
-| Control-plane auth | `401`, `403` | Plain text, such as `Missing or invalid Authorization header`, `Invalid authentication token`, or `Admin role required for control plane access`. A `401` carries `WWW-Authenticate: Bearer realm="control-plane"` |
-| `--api-key` auth, when control-plane auth is not configured | `401` | Empty |
-| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor |
-| [Worker endpoints](#worker-errors) | `400`, `404`, `409`, `500` | `{"error": "<message>", "code": "<CODE>"}` |
+| Control-plane auth | `401`, `403` | Plain text, such as `Missing or invalid Authorization header`, `Invalid authentication token`, or `Admin role required for this control plane operation`. A `401` carries `WWW-Authenticate: Bearer realm="control-plane"` |
+| `--api-key` auth, when control-plane auth is not configured | `401` | The JSON envelope below with `"code": "invalid_api_key"`, without the `X-SMG-Error-Code` header, plus `WWW-Authenticate: Bearer realm="data-plane"` (with `error="invalid_token"` added when a key was sent but is not a configured one). The `401` a gateway with only tenant keys answers to every call has the same body |
+| A request body that does not parse, on the tokenizer and WASM routes | `400`, `415`, `422` | Plain text from the JSON extractor |
+| [Worker endpoints](#worker-errors) | `400`, `404`, `409`, `413`, `500` | `{"error": "<message>", "code": "<CODE>"}`, including for a body that does not parse |
 | [Get Tokenizer](#get-tokenizer), [Get Tokenizer Status](#get-tokenizer-status) | `404` | `{"error": {"message": "<message>", "type": "tokenizer_not_found"}}`, with `"type": "not_found"` from Get Tokenizer Status |
 | [Add Tokenizer](#add-tokenizer) | `409`, `503` | The `202` body shape with `"status": "failed"` |
 | [Remove Tokenizer](#remove-tokenizer) | `404` | `{"success": false, "message": "<message>"}` |
@@ -1008,7 +1027,7 @@ Errors that the gateway generates itself, for example when no worker is availabl
 ```json
 {
   "error": {
-    "type": "Service Unavailable",
+    "type": "server_error",
     "code": "no_workers",
     "message": "No workers are available",
     "param": null
@@ -1016,7 +1035,7 @@ Errors that the gateway generates itself, for example when no worker is availabl
 }
 ```
 
-`type` is the reason phrase of the HTTP status (`Not Found`, `Service Unavailable`, ...), and `param` is always `null`. The inference endpoints use the same envelope; see [Error Responses](openai.md#error-responses) in the OpenAI-compatible API reference.
+`type` classifies the status: `rate_limit_error` on `429`, `permission_error` on `403`, `server_error` on every `5xx`, and `invalid_request_error` on every other `4xx`. `param` is always `null`. The inference endpoints use the same envelope; see [Error Responses](openai.md#error-responses) in the OpenAI-compatible API reference.
 
 ---
 
@@ -1024,7 +1043,7 @@ Errors that the gateway generates itself, for example when no worker is availabl
 
 The tokenizer, worker, WASM, cache flush, and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
 
-1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT whose role is `admin`. A missing or invalid credential gets `401`, and one with another role gets `403`. The shared `--api-key` is not accepted.
+1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT. A missing or invalid credential gets `401`. The `admin` role allows every method; the `user` role allows only the read-only `GET` and `HEAD` requests and gets `403` for the rest. The shared `--api-key` is not accepted.
 2. **Without it**: the shared `--api-key`. Per-tenant `--tenant-api-key` keys are rejected, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
 
 Public endpoints need no authentication: the health probes, `/loads`, `/engine_metrics`, and the [Model Information](#model-information) routes. See [Auth Model](extensions.md#auth-model) for every route's tier.

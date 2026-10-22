@@ -11,8 +11,7 @@ Reinforcement learning (RL) training loops send rollout traffic through SMG, but
 #### Before you begin
 
 - Completed the [Getting Started](index.md) guide
-- SMG v1.11.0 or later (the RL control plane first shipped in v1.11.0)
-- Engines registered as HTTP workers (`http://` or `https://` URLs); the control plane cannot proxy gRPC or ZMQ workers
+- Workers with a control endpoint: an HTTP worker has one automatically, a gRPC or ZMQ worker needs an `rl.control_url` label (see [Control Endpoints](#control-endpoints))
 - An admin credential if the gateway uses [Control Plane Auth](control-plane-auth.md)
 
 </div>
@@ -21,7 +20,7 @@ Reinforcement learning (RL) training loops send rollout traffic through SMG, but
 
 ## Overview
 
-SMG v1.11.0 ships milestone M1 of the RL control plane: three route groups under `/v1/rl`.
+SMG ships milestone M1 of the RL control plane: three route groups under `/v1/rl`.
 
 | Capability | Route | What it does |
 |---|---|---|
@@ -34,7 +33,7 @@ Control calls stay out of the inference path. They skip routing policies, retrie
 ### What M1 Does Not Do
 
 - **No engine-neutral operations.** SMG forwards each engine's own route names and request bodies unchanged (for example SGLang's `update_weights_from_disk`). It does not translate a pause or a refit from one engine's API to another's. The [capability table](#capabilities) describes what each engine supports, but SMG does not check it before forwarding a call.
-- **HTTP workers only.** A gRPC or ZMQ worker fails with `unsupported_connection_mode`.
+- **No control calls without a control endpoint.** Control calls go to a worker's [control endpoint](#control-endpoints), whatever its data transport. An HTTP worker is controlled through itself; a gRPC or ZMQ worker without an `rl.control_url` label fails with `no_control_endpoint`.
 - **No retries and no streaming.** A refit is not idempotent, so a failed call is reported, not retried. Each call returns one buffered response.
 - **No pause or refit tracking.** Routing is unchanged: inference requests keep reaching a paused or refitting engine according to the routing policy.
 - **Registration-time weight version.** `weight_version` in discovery is the value recorded when the worker registered. SMG does not refresh it after a refit.
@@ -43,7 +42,7 @@ Control calls stay out of the inference path. They skip routing policies, retrie
 
 ## Enable the Control Plane
 
-The control plane is compiled into every SMG build but is off by default. Without `--enable-rl`, SMG mounts nothing under `/v1/rl`: every `/v1/rl/*` request returns `404` with an empty body, and no `smg_rl_*` metrics are emitted.
+The control plane is compiled into every SMG build but is off by default. Without `--enable-rl`, SMG mounts nothing under `/v1/rl`: every `/v1/rl/*` request gets the gateway's unknown-URL answer — `404` with a JSON body whose `error.code` is `unknown_url` — and no `smg_rl_*` metrics are emitted.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -67,7 +66,7 @@ smg launch \
 
 `--disable-health-check` and `--disable-circuit-breaker` match what the slime and vime training frameworks set on their own routers, so a transient engine error does not open a breaker for a whole training step. `--request-timeout-secs 14400` covers multi-hour agentic rollouts. Raise `--rl-control-timeout-secs` if a refit from disk takes longer than 10 minutes.
 
-With `smg serve`, add the `--router-` prefix to the flags and start the workers over HTTP. The `smg serve` default connection mode, `grpc`, cannot be proxied.
+With `smg serve`, add the `--router-` prefix to the flags. This example starts the workers over HTTP, so each one is controlled through itself; a worker started in the default connection mode, `grpc`, needs a [control endpoint](#control-endpoints) of its own.
 
 ```bash
 smg serve \
@@ -92,7 +91,7 @@ See the [Configuration Reference](../reference/configuration.md#rl-control-plane
 
 | Gateway auth setup | What `/v1/rl/*` accepts |
 |---|---|
-| Control-plane auth (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`) | A control-plane API key or JWT with the `admin` role, as `Authorization: Bearer <token>`. A missing or unknown token gets `401`; a valid token without the admin role gets `403`. |
+| Control-plane auth (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`) | A control-plane API key or JWT, as `Authorization: Bearer <token>`. A missing or unknown token gets `401`. The `admin` role allows every method; the `user` role allows only `GET` and `HEAD` — which still includes discovery, the `GET` passthrough, and `GET` fan-out — and gets `403` for `POST`. |
 | `--api-key` without control-plane auth | `Authorization: Bearer <api-key>`; anything else gets `401` |
 | `--tenant-api-key` without `--api-key` or control-plane auth | Nothing: every request gets `401` |
 | No keys | Every request; use this only for local development |
@@ -101,12 +100,14 @@ Per-tenant keys (`--tenant-api-key`) are never accepted on these routes. When co
 
 When SMG calls an engine, it sends:
 
-- The request method, the engine path, the query string without `selector`, and the body bytes, unchanged, to the worker's base URL.
+- The request method, the engine path, the query string without `selector`, and the body bytes, unchanged, to the worker's [control endpoint](#control-endpoints).
 - The caller's `Content-Type`, or `application/json` when the request has a body but no content type.
 - Only the `x-request-id`, `traceparent`, and `tracestate` headers from the caller. The caller's `Authorization` header is never forwarded.
 - The worker's own API key, if it has one, as `Authorization: Bearer <key>`. Workers added with `--worker-urls` or service discovery use `--api-key`; `POST /workers` takes an `api_key` field.
 
-Calls go through the HTTP client SMG already negotiated for that worker, so they keep its HTTP version, TLS identity and CA roots, and connection pool settings.
+Calls to an HTTP worker go through the HTTP client SMG already negotiated for it, so they keep its HTTP version, TLS identity and CA roots, and connection pool settings. Calls to a gRPC or ZMQ worker's control endpoint use a shared HTTP/1.1 client built from the worker's pool settings, with the same TLS identity and CA roots as SMG's other upstream clients.
+
+The `rl.control_url` label is trusted: whatever host it names receives the worker's API key as a bearer token, so only engines and operators you trust may set it.
 
 !!! warning "No route allowlist"
     The control plane forwards any `GET` or `POST` engine path that passes [path validation](#engine-paths), including inference routes. A credential that can reach `/v1/rl/*` can call any of those routes on every engine behind SMG, so treat it as an engine admin credential.
@@ -135,6 +136,7 @@ Response for one SGLang worker (`labels` trimmed):
       "model_id": "meta-llama/Llama-3.1-8B-Instruct",
       "worker_type": "regular",
       "connection_mode": "http",
+      "control_url": "http://rollout-0:30000",
       "tp_size": 1,
       "dp_size": 1,
       "pp_size": 1,
@@ -171,12 +173,13 @@ Response for one SGLang worker (`labels` trimmed):
 |---|---|
 | `id` | Worker ID, the same one `GET /workers` reports. Use it in the per-worker routes. |
 | `url` | Registered URL. DP-aware ranks carry an `@<rank>` suffix; a collapsed row shows its lowest rank. |
-| `base_url` | Address that control calls are sent to |
+| `base_url` | The worker's engine address: the registered URL without the `@<rank>` suffix |
 | `engine` | `sglang`, `vllm`, `trtllm`, `tokenspeed`, `mlx`, `generic`, `external`, or `unknown` |
 | `engine_version` | The worker's `version` label, or `null` |
 | `model_id` | Model the worker serves |
 | `worker_type` | `regular`, `prefill`, `decode`, or `encode` |
-| `connection_mode` | `http`, `grpc`, or `zmq`. Only `http` workers can be proxied. |
+| `connection_mode` | `http`, `grpc`, or `zmq` — the worker's data transport. Control calls go to `control_url` instead. |
+| `control_url` | Where control calls are sent: the worker itself for an HTTP worker, the resolved `rl.control_url` label otherwise, or `null` when the worker has no [control endpoint](#control-endpoints) |
 | `tp_size`, `dp_size`, `pp_size` | From the worker's labels; `null` when missing or not an integer |
 | `dp_ranks` | Number of DP-aware ranks collapsed into this row; `1` for other workers |
 | `role` | The worker's `role` label, or `null` |
@@ -199,28 +202,45 @@ curl -X POST http://localhost:30000/workers \
   }'
 ```
 
+### Control Endpoints
+
+Control calls go to a worker's control endpoint, which is independent of its data transport:
+
+- **HTTP workers** are controlled through themselves. An `rl.control_url` label on an HTTP worker is ignored.
+- **gRPC and ZMQ workers** need an `rl.control_url` label naming an HTTP server that implements the engine's control routes. Set it with the `labels` field of `POST /workers` or `PATCH /workers/{id}`, or let the engine advertise it.
+
+A TokenSpeed gRPC engine launched with `--rl-control-host` and `--rl-control-port` advertises its control server in server info, and SMG turns the advertisement into the label at registration. Give `--rl-control-host` an address SMG can reach: the engine does not advertise a wildcard bind (`0.0.0.0`, `::`), and the default loopback is right only when SMG runs on the same machine.
+
+Label the worker yourself when the engine does not advertise: the [Rust TokenSpeed servicer](grpc-workers.md#rust-tokenspeed-servicer) carries no `rl.*` advertisement, and a TokenSpeed engine started by `smg serve` in ZMQ mode runs no control server at all, so its label can only name a control server you run yourself.
+
+A wildcard host in a label you set (`http://0.0.0.0:40100`) is replaced by the worker's own host; a worker with no host of its own (an `ipc://` ZMQ worker) keeps the label as given. The result is the `control_url` discovery field, and a worker whose `control_url` is `null` fails every control call with [`no_control_endpoint`](#errors).
+
+SMG authenticates to the control endpoint with the worker's own API key (see [Security](#security)). When the engine's control server has a key of its own (TokenSpeed's `--rl-control-api-key`), set it as the worker's `api_key`: `PATCH /workers/{id}`, or the `api_key` field of `POST /workers`.
+
 ### Capabilities
 
 `capabilities` comes from a static per-engine table:
 
-| Field | SGLang | vLLM | Other engines |
-|---|---|---|---|
-| `pause_modes` | `abort`, `retract`, `in_place` | `abort`, `wait`, `keep` | none |
-| `update_from` | `disk`, `tensor`, `distributed` | `disk`, `distributed` | none |
-| `abort` | `true` | `false` | `false` |
-| `flush_cache` | `true` | `false` | `false` |
-| `sleep_wake` | `true` | `true` | `false` |
-| `reports_weight_version` | `true` | `false` | `false` |
+| Field | SGLang | vLLM | TokenSpeed | Other engines |
+|---|---|---|---|---|
+| `pause_modes` | `abort`, `retract`, `in_place` | `abort`, `wait`, `keep` | `wait`, `abort` | none |
+| `update_from` | `disk`, `tensor`, `distributed` | `disk`, `distributed` | `distributed` | none |
+| `abort` | `true` | `false` | `true` | `false` |
+| `flush_cache` | `true` | `false` | `true` | `false` |
+| `sleep_wake` | `true` | `true` | `true` | `false` |
+| `reports_weight_version` | `true` | `false` | `true` | `false` |
 
 `pause_modes` lists the `mode` values the engine's pause route accepts, `update_from` lists the weight sources it can refit from, and `reports_weight_version` says whether it reports a weight version after a refit.
 
-Worker labels override the table. `rl.pause_modes` and `rl.update_from` take comma-separated lists. `rl.abort`, `rl.flush_cache`, `rl.sleep_wake`, and `rl.reports_weight_version` are `true` when the value is `true` (in any case) and `false` for any other value. `source` is `static`, or `label` when at least one `rl.*` label overrode the table.
+TokenSpeed refits are trainer-driven over NCCL: send `init_weights_update_group`, `update_weights_from_distributed`, and `destroy_weights_update_group` to each worker through the [per-worker route](#call-one-worker). `update_weights_from_disk` and `update_weights_from_tensor` answer `501` on TokenSpeed.
+
+Worker labels override the table. `rl.pause_modes` and `rl.update_from` take comma-separated lists. `rl.abort`, `rl.flush_cache`, `rl.sleep_wake`, and `rl.reports_weight_version` are `true` when the value is `true` (in any case) and `false` for any other value. `source` is `static`, or `label` when at least one `rl.*` label overrode the table. A TokenSpeed gRPC engine advertises its own `rl.*` labels in server info alongside `rl.control_url`, so an engine that supports more than its static row (for example a `keep` pause mode) reports that itself.
 
 ---
 
 ## Call One Worker
 
-`GET` or `POST /v1/rl/workers/{id}/engine/{path}` sends one request to `<base_url>/<path>` on that worker:
+`GET` or `POST /v1/rl/workers/{id}/engine/{path}` sends one request to `<control_url>/<path>`, the worker's [control endpoint](#control-endpoints):
 
 ```bash
 curl -X POST "http://localhost:30000/v1/rl/workers/${WORKER_ID}/engine/update_weights_from_disk" \
@@ -331,14 +351,14 @@ Response with one failed target (`body` trimmed):
 | `total` | Number of targets |
 | `succeeded` | Targets that returned 2xx |
 
-Each `failed[]` entry has `worker_id`, `url`, `error`, and `message`, plus `status` for `upstream_error` and `connection_mode` for `unsupported_connection_mode`:
+Each `failed[]` entry has `worker_id`, `url`, `error`, and `message`, plus `status` for `upstream_error` and `connection_mode` for `no_control_endpoint`:
 
 | `error` | Meaning | Also in `results` |
 |---|---|---|
 | `upstream_error` | The engine answered with a non-2xx status; `message` is `HTTP <status>` | Yes |
 | `upstream_unreachable` | SMG could not connect to the engine or read its response | No |
 | `upstream_timeout` | Connecting timed out, or the engine sent no response within `--rl-control-timeout-secs` | No |
-| `unsupported_connection_mode` | The worker is gRPC or ZMQ | No |
+| `no_control_endpoint` | The worker has no [control endpoint](#control-endpoints), or SMG has no HTTP client to reach it | No |
 
 SMG does not retry or roll back. Engines that succeeded keep the change; use `failed[]` to decide what to do for the others.
 
@@ -369,7 +389,7 @@ Keys are the worker's labels plus these keys that SMG derives from the registry,
 | `engine=sglang, health=ready` | SGLang workers that are ready |
 | `base_url=http://rollout-0:30000` | One engine, including all of its DP ranks |
 | `model=meta-llama/Llama-3.1-8B-Instruct, tp_size=1` | Workers serving that model with `tp_size` 1 |
-| `connection_mode=http` | Only workers the control plane can proxy |
+| `connection_mode=http` | HTTP workers, which always have a control endpoint |
 
 ---
 
@@ -384,7 +404,7 @@ A failure on the SMG side returns JSON `{"error": "<code>", "message": "<text>"}
 | `400` | `invalid_selector` | Fan-out | The selector does not parse | `offset` |
 | `400` | `no_workers_match` | Fan-out | No worker matches the selector | `selector` |
 | `404` | `worker_not_found` | Worker lookup, per-worker call | Unknown worker ID | `id` |
-| `422` | `unsupported_connection_mode` | Per-worker call | The worker is gRPC or ZMQ | `worker_id`, `url`, `connection_mode` |
+| `422` | `no_control_endpoint` | Per-worker call | The worker has no [control endpoint](#control-endpoints), or SMG has no HTTP client to reach it; `message` says which | `worker_id`, `url`, `connection_mode` |
 | `502` | `upstream_unreachable` | Per-worker call | SMG could not connect to the engine or read its response | `worker_id`, `url` |
 | `504` | `upstream_timeout` | Per-worker call | Connecting timed out, or the engine sent no response within `--rl-control-timeout-secs` | `worker_id`, `url` |
 
@@ -406,7 +426,7 @@ In a fan-out, a failed target never changes the status beyond `207`; it is repor
 
 ## Python Client
 
-`smg.rl` is a client for these routes. It ships in the `smg` package from v1.11.0 and uses only the Python standard library:
+`smg.rl` is a client for these routes. It ships in the `smg` package and uses only the Python standard library:
 
 ```bash
 pip install smg
@@ -442,7 +462,7 @@ The results are dataclasses:
 
 | Type | Fields |
 |---|---|
-| `Worker` | The discovery row: `id`, `url`, `base_url`, `engine`, `engine_version`, `model_id`, `worker_type`, `connection_mode`, `tp_size`, `dp_size`, `pp_size`, `dp_ranks`, `role`, `health`, `weight_version`, `labels`, and `capabilities` (a dict) |
+| `Worker` | The discovery row: `id`, `url`, `base_url`, `engine`, `engine_version`, `model_id`, `worker_type`, `connection_mode`, `tp_size`, `dp_size`, `pp_size`, `dp_ranks`, `role`, `health`, `weight_version`, `control_url`, `labels`, and `capabilities` (a dict) |
 | `CallResult` | `worker_id`, `url`, `status`, `latency_ms`, `body` |
 | `FanoutResult` | `results` (worker ID to `CallResult`), `failed` (a list of `FanoutFailure`), `total`, `succeeded` |
 | `FanoutFailure` | `worker_id`, `url`, `status`, `error`, `message` |
@@ -493,7 +513,7 @@ info = rl.call(workers[0].id, "server_info", method="GET")
 print(info.status, info.body)
 ```
 
-The full example then sends a `/generate` request through SMG and checks that `meta_info.weight_version` reports the new version, because discovery's `weight_version` is not refreshed after a refit. Newer than v1.11.0, the same check works for a TokenSpeed gRPC worker, whose refit must reach the engine directly; see [Troubleshooting](#troubleshooting). See [`examples/rl`](https://github.com/smg-project/smg/tree/main/examples/rl).
+The full example then sends a `/generate` request through SMG and checks that `meta_info.weight_version` reports the new version, because discovery's `weight_version` is not refreshed after a refit. The same check works for a TokenSpeed gRPC worker; see [Troubleshooting](#troubleshooting). See [`examples/rl`](https://github.com/smg-project/smg/tree/main/examples/rl).
 
 ---
 
@@ -507,7 +527,7 @@ The full example then sends a `/generate` request through SMG and checks that `m
 | `smg_rl_fanout_duration_seconds` | Histogram | — | Wall time of one fan-out request |
 
 - `op` is the engine path when it is one of the control operations SMG recognizes, and `other` for any other path, so arbitrary paths cannot create new label values. The recognized operations are `pause_generation`, `continue_generation`, `update_weights_from_disk`, `update_weights_from_tensor`, `update_weights_from_distributed`, `init_weights_update_group`, `destroy_weights_update_group`, `update_weight_version`, `flush_cache`, `abort_request`, `release_memory_occupation`, `resume_memory_occupation`, `pause`, `resume`, `sleep`, `wake_up`, `collective_rpc`, `server_info`, `get_server_info`, and `health`.
-- A worker skipped as `unsupported_connection_mode` is not counted in `smg_rl_control_calls_total`. A fan-out rejected before target resolution (`selector_required`, `invalid_selector`, or `invalid_engine_path`) is not counted in `smg_rl_fanout_total`.
+- A worker that failed with `no_control_endpoint` is not counted in `smg_rl_control_calls_total`. A fan-out rejected before target resolution (`selector_required`, `invalid_selector`, or `invalid_engine_path`) is not counted in `smg_rl_fanout_total`.
 - Both histograms use SMG's duration buckets, which `--prometheus-duration-buckets` overrides.
 - Each series appears the first time SMG records it. Without `--enable-rl`, there are none.
 
@@ -527,7 +547,7 @@ See [Monitoring](monitoring.md) for scraping SMG metrics.
 
 ### Logs
 
-Every engine call that gets a response logs an `rl.proxy` event with `worker_id`, `url`, `method`, `path`, `status`, and `latency_ms`. Every fan-out that reaches its targets logs an `rl.fanout` event with `path`, `selector`, `total`, `succeeded`, `failed`, and `latency_ms`.
+Every engine call that gets a response logs an `rl.proxy` event with `worker_id`, `url`, `control_url`, `method`, `path`, `status`, and `latency_ms`. Every fan-out that reaches its targets logs an `rl.fanout` event with `path`, `selector`, `total`, `succeeded`, `failed`, and `latency_ms`.
 
 Both are INFO events on the `smg_rl` log target. SMG's default log filter includes them at the default `--log-level info`, because its `smg=info` entry matches every target that starts with `smg`. `RUST_LOG` replaces the default filter; to see only these events and warnings:
 
@@ -541,17 +561,17 @@ RUST_LOG=warn,smg_rl=info smg launch \
 
 ## Troubleshooting
 
-??? question "Every /v1/rl/* request returns 404 with an empty body"
+??? question "Every /v1/rl/* request returns 404 with code unknown_url"
 
-    The control plane is not mounted. Start SMG with `--enable-rl` (`--router-enable-rl` with `smg serve`). With the Python client, this shows up as `RlError` with code `http_error` and status 404.
+    The control plane is not mounted. Start SMG with `--enable-rl` (`--router-enable-rl` with `smg serve`). The `404` body is the gateway's JSON error envelope with `error.code` set to `unknown_url`, not the control plane's flat `{"error": "<code>", ...}` format. With the Python client, this shows up as `RlError` with status 404 whose `payload` is that envelope.
 
-    An unknown worker ID also returns `404`, but with a JSON body: `{"error": "worker_not_found", ...}`.
+    An unknown worker ID also returns `404`, but from the control plane itself: `{"error": "worker_not_found", ...}`.
 
 ??? question "401 or 403 from /v1/rl/*"
 
     `401` means the bearer token is missing or not accepted. With control-plane auth, use an admin control-plane API key or JWT; the shared `--api-key` is not accepted. Without control-plane auth, use the `--api-key` value. Per-tenant keys are never accepted, and a gateway configured with only `--tenant-api-key` rejects every control-plane request.
 
-    `403` means the token is valid but its role is not `admin`.
+    `403` means the token is valid but its role only allows the read-only methods: a `user`-role token may send `GET` and `HEAD` requests, while `POST` — pause, refit, and the other mutating control operations — needs the `admin` role.
 
 ??? question "A fan-out returns 207, or the Python client raises FanoutError"
 
@@ -560,7 +580,7 @@ RUST_LOG=warn,smg_rl=info smg launch \
     - `upstream_unreachable`: the engine is down or unreachable. Once it is back, the next call reaches it; control calls do not use circuit breakers.
     - `upstream_timeout`: the call took longer than `--rl-control-timeout-secs`, or connecting to the engine timed out. Raise the flag for long refits.
     - `upstream_error`: the engine rejected the call. Its answer is in `results[<worker_id>].body`.
-    - `unsupported_connection_mode`: the selector matched a gRPC or ZMQ worker. Add `connection_mode=http` to the selector.
+    - `no_control_endpoint`: the selector matched a gRPC or ZMQ worker that has no `rl.control_url` label. Give it a [control endpoint](#control-endpoints), or keep such workers out of the selector (for example with `connection_mode=http`).
 
 ??? question "SGLang returns 400 to pause_generation or continue_generation"
 
@@ -575,8 +595,8 @@ RUST_LOG=warn,smg_rl=info smg launch \
     This is expected. Discovery reports the `weight_version` label recorded when the worker registered, and the control plane does not refresh it. Read the live version from `/generate`'s `meta_info.weight_version` instead. Who reports it there depends on the worker:
 
     - **HTTP SGLang workers.** SMG forwards `/generate` to the engine, and SGLang reports its own live version.
-    - **TokenSpeed gRPC workers, newer than v1.11.0.** SMG builds `/generate` responses for gRPC workers itself, and it reports the version the TokenSpeed engine stamped on that very response — the engine's live `server_args.weight_version`, which a refit updates — on streaming chunks too. The worker must run the Python servicer (`python -m smg_grpc_servicer.tokenspeed`); smg-grpc-servicer 0.13.1 with smg-grpc-proto 0.4.23 are the first versions that carry the field. When the engine stamps nothing, an empty value, or its `default` placeholder, SMG falls back to the registration-time label. The refit itself still cannot go through the control plane, which does not proxy gRPC workers.
-    - **Every other gRPC or ZMQ worker**, and TokenSpeed gRPC workers in v1.11.0, gets the registration-time label (or `default`), which a refit does not change. Only `/generate` carries the engine-stamped value: Chat Completions' `system_fingerprint` is the registration-time label even for TokenSpeed.
+    - **TokenSpeed gRPC workers.** SMG builds `/generate` responses for gRPC workers itself, and it reports the version the TokenSpeed engine stamped on that very response — the engine's live `server_args.weight_version`, which a [refit](#capabilities) updates — on streaming chunks too. The worker must run the Python servicer (`python -m smg_grpc_servicer.tokenspeed`), with smg-grpc-servicer 0.13.1 or later and smg-grpc-proto 0.4.23 or later to carry the field. When the engine stamps nothing, an empty value, or its `default` placeholder, SMG falls back to the registration-time label.
+    - **Every other gRPC or ZMQ worker** gets the registration-time label (or `default`), which a refit does not change. Only `/generate` carries the engine-stamped value: Chat Completions' `system_fingerprint` is the registration-time label even for TokenSpeed.
 
 ??? question "Long refits fail with upstream_timeout or a client timeout"
 

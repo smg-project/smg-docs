@@ -32,7 +32,7 @@ Store complete conversation history including messages, tool calls, and reasonin
 
 ### :material-tune: Configurable Retention
 
-Redis entries expire after `--redis-retention-days` (default 30 days). The other backends keep data until it's deleted (the in-memory backend, until the gateway restarts).
+Redis entries expire after `--redis-retention-days` (default 30 days). The in-memory backend keeps the newest records within count and retention bounds. PostgreSQL and Oracle keep data until it's deleted.
 
 </div>
 
@@ -44,7 +44,7 @@ Redis entries expire after `--redis-retention-days` (default 30 days). The other
 
 | Backend | Use Case | Persistence | Scalability |
 |---------|----------|-------------|-------------|
-| `memory` | Development, testing | Process lifetime | Single instance |
+| `memory` | Development, testing | Process lifetime, bounded | Single instance |
 | `none` | Stateless deployments | None | N/A |
 | `postgres` | Production, self-hosted | Durable | High |
 | `redis` | Caching, ephemeral storage | Configurable TTL | High |
@@ -63,6 +63,8 @@ smg --history-backend <backend> [backend-specific options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--history-backend` | `memory` | Storage backend: `memory`, `none`, `oracle`, `postgres`, `redis` |
+
+At startup, SMG contacts the configured PostgreSQL or Redis store once — one connection and one round trip — and refuses to start when the store is unreachable or does not answer within the store's per-call timeout. Once serving, every call to a PostgreSQL or Redis store (waiting for a pooled connection, connecting, and the operation itself) is bounded by `--postgres-op-timeout-secs` or `--redis-op-timeout-secs` (default 5 seconds). A call past the bound, or a store that is down, is answered `503` with code `storage_unavailable` instead of holding the request for as long as the client waits.
 
 ---
 
@@ -92,11 +94,21 @@ smg --history-backend memory
 
 - Data lost on restart
 - Not shared across instances
-- Memory grows with conversations
+- Records dropped at the count and retention bounds
 
 </div>
 
 </div>
+
+### Configuration Options
+
+The records live in the gateway's own memory, so they are bounded. The defaults hold a default deployment at a few hundred MB: a stored response of a short exchange takes about 12 KB, a conversation item about 1.5 KB.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--history-memory-max-responses` | `10000` | Most stored responses kept; the oldest go first, checked on every write. A background response still running is not dropped by a count bound |
+| `--history-memory-max-items` | `100000` | Most conversation items kept; the oldest go first and leave every conversation that listed them |
+| `--history-memory-retention-secs` | `86400` | How long a record is kept, in seconds; `0` keeps a record until a count bound drops it. A conversation is kept that long after its last use (created, read, or updated) |
 
 ---
 
@@ -122,6 +134,7 @@ Production-ready storage with PostgreSQL.
 |--------|---------|-------------|
 | `--postgres-db-url` | - | PostgreSQL connection URL |
 | `--postgres-pool-max-size` | `16` | Maximum connection pool size |
+| `--postgres-op-timeout-secs` | `5` | Bound in seconds on each store call (pool wait, connect, and the statement); a call past it is answered `503` `storage_unavailable`. Must be greater than 0 |
 
 ### Connection URL Format
 
@@ -160,7 +173,7 @@ smg --history-backend postgres \
 </div>
 
 !!! warning "No TLS to PostgreSQL"
-    In v1.12.0, SMG connects to PostgreSQL without TLS, so the connection is unencrypted. `sslmode=disable` and `sslmode=prefer` (the default) both connect in plaintext, `sslmode=require` fails to connect, and any other `sslmode` value (such as `verify-full`) is rejected as an invalid URL. To encrypt traffic to the database, put a TLS tunnel between SMG and PostgreSQL, such as a sidecar proxy that connects to the database over TLS.
+    SMG connects to PostgreSQL without TLS, so the connection is unencrypted. `sslmode=disable` and `sslmode=prefer` (the default) both connect in plaintext, `sslmode=require` fails to connect, and any other `sslmode` value (such as `verify-full`) is rejected as an invalid URL. To encrypt traffic to the database, put a TLS tunnel between SMG and PostgreSQL, such as a sidecar proxy that connects to the database over TLS.
 
 ---
 
@@ -174,7 +187,8 @@ High-performance caching with optional persistence and TTL-based retention.
 |--------|---------|-------------|
 | `--redis-url` | - | Redis connection URL |
 | `--redis-pool-max-size` | `16` | Maximum connection pool size |
-| `--redis-retention-days` | `30` | Data retention in days (-1 for persistent; write it as `--redis-retention-days=-1`, since the Rust CLI rejects a separate `-1` argument) |
+| `--redis-retention-days` | `30` | Data retention in days: at least 1, or `-1` for persistent records. `0` is refused |
+| `--redis-op-timeout-secs` | `5` | Bound in seconds on each store call (pool wait, connect, and the command; replaces the client library's 500 ms / 1 s defaults); a call past it is answered `503` `storage_unavailable`. Must be greater than 0 |
 
 ### Connection URL Format
 
@@ -183,7 +197,7 @@ redis://[:password@]host[:port][/db]
 ```
 
 !!! warning "No TLS to Redis"
-    SMG v1.11.0 is built without Redis TLS support. A `rediss://` URL passes validation, but SMG fails to start because it cannot create the connection pool.
+    SMG is built without Redis TLS support. A `rediss://` URL passes validation, but SMG fails to start because the Redis client cannot be created without TLS support.
 
 ### Examples
 
@@ -284,14 +298,16 @@ smg --history-backend oracle \
 
 ## Schema Migrations
 
-At startup, the PostgreSQL and Oracle backends create their tables if they don't exist, then compare the database's recorded schema version (the `_schema_versions` table) with the migrations SMG ships. SMG applies pending migrations only when auto-migration is on. Otherwise it refuses to start and prints the SQL to apply by hand. A new, empty database has pending migrations too, so turn auto-migration on for the first start:
+At startup, the PostgreSQL and Oracle backends create their tables if they don't exist, then compare the database's recorded schema version (the `_schema_versions` table) with the migrations SMG ships. On PostgreSQL this runs once per database, in one transaction under a schema lock, so gateways starting together take turns; a fresh, empty database gets its tables in their final shape and starts at the latest version, with nothing pending. On Oracle, a fresh database starts with every migration pending.
+
+SMG applies pending migrations only when auto-migration is on. Otherwise it refuses to start and prints the SQL to apply by hand:
 
 ```bash
 DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
   --postgres-db-url "postgres://user:password@localhost:5432/smg"
 ```
 
-`DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
+`DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied. A database whose recorded version is ahead of the migrations the running build knows — usually after rolling the gateway image back — is refused at startup; set `version:` at or above the recorded version to run against it anyway. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
 
 ---
 
@@ -304,6 +320,7 @@ Container for a sequence of interactions:
 - Conversation ID
 - Creation timestamp
 - Metadata (the key-value object the client attaches)
+- Tenant identity of the creating request, when the gateway resolved one (see [Tenant Scope](#tenant-scope))
 
 ### Conversation Items
 
@@ -327,6 +344,40 @@ Complete response records including:
 - Model information
 - Timestamps and metadata
 - Token usage
+- Tenant identity of the creating request, when the gateway resolved one (see [Tenant Scope](#tenant-scope))
+
+---
+
+## Tenant Scope
+
+Every stored response, conversation, and conversation item records the tenant identity the gateway resolved for the request that created it, when it resolved one. A response or conversation stored under a tenant is served only to callers of that tenant.
+
+That holds on every route that reads, continues, or deletes a stored record: a response's tenant gates getting it or its input items, deleting or cancelling it, and continuing it with `previous_response_id`; a conversation's tenant gates naming it as the `conversation` of a new response and every `/v1/conversations` operation. Another tenant's ID is answered exactly as an unknown ID — `404`, or `400` (`previous_response_not_found`) for a `previous_response_id` — so a response or conversation ID tells a caller nothing about another tenant's records.
+
+A conversation item's tenant guards it only where a request reaches the stored item directly by its ID, rather than through a conversation that holds it: an `item_reference` to another tenant's item answers `404` exactly as a missing item would, and adding an item under an `id` that another tenant's item already uses is refused with `400` (`Item id '...' cannot be used`) rather than serving or overwriting it.
+
+Access to a conversation's items is governed by the conversation alone: every caller the conversation is visible to can list, get, and delete each of its items — and receives them as model context — whatever tenant an individual item records. Items a tenanted caller adds to a conversation stored without a tenant are therefore readable and deletable by every caller of that conversation.
+
+A tenant is stored only for an identity the gateway can vouch for, as its canonical tenant key — the same key [tenant rate limiting](../../reference/tenant-rate-limiting.md) uses:
+
+| Caller | Stored tenant |
+|--------|---------------|
+| A per-tenant API key (`--tenant-api-key tenant_id:key`) | `auth:<tenant_id>` |
+| A trusted tenant header (`--trust-tenant-header`, header named by `--tenant-header-name`, default `x-smg-tenant-id`) | `header:<value>` |
+| The shared `--api-key` | `auth:` followed by the hex SHA-256 of the key — one identity for every caller of the key |
+| No API key and no trusted header (callers known by IP address only, or anonymous) | None |
+
+An identity from an API key wins over the header: a caller that authenticates with any API key is stored under that key's identity even when it also sends the trusted header.
+
+The shared `--api-key` identity has two consequences: all of its callers share one scope and can read each other's stored history, and rotating the key changes the identity, so records stored under the old key answer as unknown IDs afterward.
+
+A tenant ID can be at most 200 bytes: a longer `--tenant-api-key` tenant ID is refused at startup, and a longer trusted header value is rejected with `400` (`invalid_tenant_header`) rather than silently ignored.
+
+Records stored **without** a tenant stay readable, continuable, and deletable by every caller. That covers records created while the gateway resolved no tenant identity for the caller (known by IP address only, or anonymous), and records stored before SMG recorded tenants — an upgrade does not retroactively scope existing records.
+
+A history loaded through `previous_response_id` ends at the first record stored under another tenant, the same as it would at a missing record; when the referenced response itself belongs to another tenant, the request is rejected with `400` (`previous_response_not_found`). See the [Responses API](../../reference/api/responses.md#error-responses) for the per-route errors.
+
+All backends persist the tenant with each record; on PostgreSQL and Oracle the `tenant` column is added by schema migration 4 (see [Schema Migrations](#schema-migrations)).
 
 ---
 
@@ -400,7 +451,8 @@ smg --history-backend redis \
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| Connection timeouts | Slow network | Increase pool timeout |
+| Startup fails with `history backend ... is unreachable at start-up` | SMG could not reach the store, or it didn't answer within the per-call timeout | Check the store and the connection URL |
+| Stateful endpoints answer `503` `storage_unavailable` | The store is down, or slower than the per-call bound | Check the store; raise `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` |
 | Pool exhaustion | High concurrency | Increase pool size |
 | Data not persisting | Wrong backend | Verify `--history-backend` setting |
 | Redis data expiring | TTL too short | Increase `--redis-retention-days` |

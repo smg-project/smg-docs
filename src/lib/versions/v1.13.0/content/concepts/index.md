@@ -104,7 +104,7 @@ Understand how SMG is structured internally:
 - [Architecture Overview](architecture/overview.md) — High-level system design
 - [Service Discovery](architecture/service-discovery.md) — Kubernetes integration and worker registration
 - [gRPC Pipeline](architecture/grpc-pipeline.md) — Token-level streaming implementation
-- [Multimodal Pipeline](architecture/multimodal.md) — How images and video reach gRPC workers
+- [Multimodal Pipeline](architecture/multimodal.md) — How images, video, and audio reach gRPC workers
 - [High Availability](architecture/high-availability.md) — Multi-instance mesh networking
 
 ### Routing
@@ -138,10 +138,22 @@ Understand how SMG handles failures:
 - [Rate Limiting](reliability/rate-limiting.md) — Gateway concurrency limits and request queuing
 - [Tenant Rate Limiting](reliability/tenant-rate-limiting.md) — Per-tenant token and request budgets
 - [Priority Scheduling](reliability/priority-scheduling.md) — Priority classes, reserved capacity, and preemption
-- [Overload Protection](reliability/overload-protection.md) — Excluding saturated workers and shedding load
+- [Overload Protection](reliability/overload-protection.md) — Excluding saturated workers, with opt-in load shedding
 - [Retries](reliability/retries.md) — Retrying transient failures with backoff
 - [Health Checks](reliability/health-checks.md) — Detecting unhealthy workers and taking them out of rotation
 - [Graceful Shutdown](reliability/graceful-shutdown.md) — Draining in-flight requests before the gateway stops
+
+### Data
+
+Store conversation data behind the gateway:
+
+- [Chat History](data/chat-history.md) — Storage backends for conversations and stored responses
+
+### Security
+
+Control access to SMG:
+
+- [Authentication](security/authentication.md) — API keys, JWT/OIDC, and role-based access control
 
 ---
 

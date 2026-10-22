@@ -4,7 +4,7 @@ title: ZMQ Direct Workers
 
 # ZMQ Direct Workers
 
-When SMG and the inference engine share a host, SMG can connect straight to the engine core over ZMQ. No engine HTTP server or gRPC servicer sits in the path: the engine runs headless (scheduling and model execution only), SMG does everything else — tokenization, chat templates, parsing, stop handling, and routing — and the two exchange token IDs over local `ipc://` sockets. Direct ZMQ connections were added in v1.10.0.
+When SMG and the inference engine share a host, SMG can connect straight to the engine core over ZMQ. No engine HTTP server or gRPC servicer sits in the path: the engine runs headless (scheduling and model execution only), SMG does everything else — tokenization, chat templates, parsing, stop handling, and routing — and the two exchange token IDs over local `ipc://` sockets.
 
 <div class="prerequisites" markdown>
 
@@ -68,8 +68,6 @@ All of these engines use the same handshake, so SMG can't tell which one dialed 
 
 These are the only three ZMQ runtimes: `smg serve` accepts `--connection-mode zmq` only with `--backend vllm`, `--backend tokenspeed`, or `--backend sglang`, and the gateway rejects any other runtime with `ZMQ worker ... has unsupported runtime ...: only vllm, tokenspeed and sglang are supported over the ZMQ direct backend`. TensorRT-LLM and MLX can't use ZMQ; connect those engines over [gRPC](grpc-workers.md).
 
-SGLang over ZMQ requires SMG v1.12.0 or newer.
-
 SMG doesn't check engine versions at connect time, and its decoders accept fields that newer engine releases append. SMG's CI runs the ZMQ suites against vLLM 0.31.0, SGLang 0.5.21, and a pinned TokenSpeed revision.
 
 ---
@@ -125,9 +123,10 @@ What `smg serve` sets up in ZMQ mode:
 | TokenSpeed defaults | Adds `--grammar-backend xgrammar` and `--enable-output-logprobs` unless you pass your own value for either flag |
 | Engine health wait | Skipped. The gateway starts at once, and `/readiness` returns 503 until a worker has completed its handshake and the tokenizer has loaded |
 | Gateway runtime | `--backend` is forwarded so the gateway speaks the engine's wire protocol |
-| Replicas | `--data-parallel-size N` starts `N` independent single-engine workers, each with its own socket path and GPU slice. The launch stops early if two replicas' paths derive the same handshake port (`ZMQ handshake port collision on ...`); change `--worker-base-port` |
+| Replicas | `smg serve`'s own `--data-parallel-size N` starts `N` independent single-engine workers, each with its own socket path and GPU slice. The launch stops early if two replicas' paths derive the same handshake port (`ZMQ handshake port collision on ...`); change `--worker-base-port` |
+| Grouped worker | An engine-level `--data-parallel-size N` after `--` puts `N` engines behind one worker: the launcher carries the value into the headless engine command and sets the gateway's `--zmq-engine-count` to match (see [Data-Parallel Engines](#data-parallel-engines)) |
 
-The launcher builds these engine commands. If you pass a flag the launcher sets, your copy is dropped, except for the two TokenSpeed defaults above, where your value is used:
+The launcher builds these engine commands. If you pass a flag the launcher sets, your copy is dropped, with two exceptions: the two TokenSpeed defaults above, where your value is used, and vLLM's `--data-parallel-size`, whose value replaces the launcher's `--data-parallel-size 1 --data-parallel-size-local 1` pair:
 
 ```text
 # vLLM
@@ -149,7 +148,7 @@ python -m smg_grpc_servicer.sglang.headless \
 
 With `--backend sglang`, the launcher refuses an engine-level `--dp-size` above 1 with `--dp-size > 1 is not supported over the SGLang ZMQ wire yet; use --connection-mode grpc for data parallelism`.
 
-To put several data-parallel vLLM or TokenSpeed engines behind one worker, start the engines yourself and use `smg launch --zmq-engine-count` (see [Data-Parallel Engines](#data-parallel-engines)).
+To put several data-parallel vLLM or TokenSpeed engines behind one worker, pass an engine-level `--data-parallel-size` after `--`, or start the engines yourself and use `smg launch --zmq-engine-count` (see [Data-Parallel Engines](#data-parallel-engines)).
 
 ---
 
@@ -284,13 +283,24 @@ Registration runs in the background (the API answers `202 Accepted`), so a rejec
 There are two ways to run data parallelism over ZMQ:
 
 - **Replicas:** several single-engine workers, each with its own socket path. The gateway's routing policy spreads requests across them. `smg serve --data-parallel-size N` sets this up.
-- **Grouped worker:** one worker URL and one socket set, with `N` data-parallel engines behind it. The gateway sees one worker and picks the engine (rank) for each request itself.
+- **Grouped worker:** one worker URL and one socket set, with `N` data-parallel engines behind it. The gateway sees one worker and picks the engine (rank) for each request itself. `smg serve` sets this up when you pass an engine-level `--data-parallel-size N` after `--`.
 
 Replicas work with every ZMQ engine. Grouped workers are a vLLM and TokenSpeed setup: data parallelism over the SGLang ZMQ wire isn't supported yet, and `smg serve` refuses to start an SGLang engine with a data-parallel size above 1 in ZMQ mode (use gRPC for SGLang data parallelism).
 
 ### Configure a Grouped Worker
 
-Start the engine group with its data-parallel size, then tell the gateway how many engines to wait for:
+With `smg serve`, pass the engine's data-parallel size after `--`. The launcher carries it into the headless engine command (for vLLM, as `--data-parallel-size N --data-parallel-size-local N`; for TokenSpeed, as your flag) and sets the gateway's `--zmq-engine-count` to match:
+
+```bash
+smg serve \
+  --backend vllm \
+  --connection-mode zmq \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --router-model-path meta-llama/Llama-3.1-8B-Instruct \
+  -- --data-parallel-size 2
+```
+
+With manual setup, start the engine group with its data-parallel size, then tell the gateway how many engines to wait for:
 
 === "vLLM"
 
@@ -354,7 +364,7 @@ score = max(requests SMG has in flight on the rank, running + waiting)
 Rank selection happens inside the connection. Routing policies see the group as one worker, and requests are never pinned to a rank.
 
 !!! note "TokenSpeed attention-DP rank affinity uses gRPC"
-    v1.10.1 added rank affinity for TokenSpeed attention data parallelism, which keeps multi-turn requests on the rank that holds their prefix cache. It works over gRPC with `--dp-aware`: the TokenSpeed gRPC servicer advertises a `dp_size` label only when the engine and its protocol stubs support rank pinning (the capability handshake) and the width is above 1, and the gateway then registers one worker per rank and pins `data_parallel_rank` on each request. Single-rank engines register as ordinary, unpinned workers. None of this applies over ZMQ: TokenSpeed ZMQ requests carry no rank field, and ZMQ workers can't be dp-aware expanded.
+    Rank affinity for TokenSpeed attention data parallelism keeps multi-turn requests on the rank that holds their prefix cache. It works over gRPC with `--dp-aware`: the TokenSpeed gRPC servicer advertises a `dp_size` label only when the engine and its protocol stubs support rank pinning (the capability handshake) and the width is above 1, and the gateway then registers one worker per rank and pins `data_parallel_rank` on each request. Single-rank engines register as ordinary, unpinned workers. None of this applies over ZMQ: TokenSpeed ZMQ requests carry no rank field, and ZMQ workers can't be dp-aware expanded.
 
 ---
 
@@ -365,12 +375,13 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | Registered | The worker starts as `pending`. SMG binds its sockets and starts the handshake right away |
 | Connected | SMG promotes the worker to `ready` the moment the handshake completes, without waiting for the health-check success threshold |
 | Serving | Health probes read a local liveness flag; the engine has no health RPC. `/readiness` stays at 503 with `tokenizer not yet registered` until the model's tokenizer has loaded |
-| Engine lost | SMG marks the connection dead when the engine signals that it died (vLLM does so on a fatal error, TokenSpeed also on shutdown, and SGLang whenever its scheduler's event loop exits), the socket fails, a request send blocks for 10 seconds, three outputs in a row can't be decoded, or no output arrives for 300 seconds while requests are in flight. In-flight requests fail. The next health probe drops the dead connection, and a later probe binds the sockets again so a restarted engine can reconnect |
+| Engine lost | SMG marks the connection dead when the engine signals that it died (vLLM does so on a fatal error, TokenSpeed also on shutdown, and SGLang whenever its scheduler's event loop exits), the socket fails, three outputs in a row can't be decoded, the engine leaves a frame unaccepted on its input for 300 seconds, or in-flight requests spend a combined 300 seconds without any output. In-flight requests fail. The next health probe drops the dead connection, and a later probe binds the sockets again so a restarted engine can reconnect |
 | Removed | `DELETE /workers/{worker_id}` drains the worker, then removes it; a handshake still in progress is cancelled and its sockets are released |
 
 - Health checks stay on for ZMQ workers even with `--disable-health-check` or a per-worker `disable_health_check`, because the probe is what reconnects a restarted engine. SMG logs `Ignoring disabled health checks for ZMQ worker ...`.
 - With `--remove-unhealthy-workers`, a ZMQ worker whose engine stays down is removed and nothing re-adds it. The flag is off by default unless service discovery is enabled; leave it off for ZMQ workers so they rejoin when their engine restarts.
-- The 300-second silence limit is fixed. A single request whose prefill takes longer than that on an otherwise idle engine is failed as if the engine had died.
+- An engine that stops reading its input (a paused or frozen engine core) fails requests, not the connection. A request the engine does not accept within 10 seconds fails with a retryable `503`, and a retry can select a different worker (see [Retries](../concepts/reliability/retries.md)); the requests the engine already holds keep streaming. The unaccepted frame is still delivered when the engine reads again, followed by an abort, so the engine drops the failed request instead of generating output nobody is waiting for. While the input is blocked, 256 requests or 32 MiB of request payload may wait behind it; a request that would take the waiting requests past either bound gets the `503` immediately instead of after the 10-second wait.
+- The 10-second and 300-second windows are fixed. Output silence accumulates across requests: the time the engine has had requests in flight since its last output adds up over consecutive busy periods, and only an output of any kind — or 300 seconds with nothing in flight — resets the count. A single request whose prefill takes longer than 300 seconds on an otherwise idle engine is failed as if the engine had died.
 - Updating a ZMQ worker's properties, such as labels or priority, keeps its live connection.
 
 ---
@@ -396,7 +407,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | Limit | What you see |
 |-------|--------------|
 | Same host only | Sockets are local `ipc://` paths with a loopback handshake. ZMQ workers are never synced to [high-availability mesh](../concepts/architecture/high-availability.md) peers; each belongs to the gateway that registered it |
-| No prefill, decode, or encode workers | Registration fails with `ZMQ worker ... cannot serve worker type ...`. PD and EPD routing select only gRPC workers |
+| No prefill, decode, or encode workers | Registration fails with `ZMQ worker ... cannot serve worker type ...`. PD legs run over HTTP or gRPC, and EPD legs over gRPC only (see [PD Disaggregation](../concepts/routing/pd-disaggregation.md)) |
 | No KV-event stream | `cache_aware` tracks ZMQ workers with its approximate prefix tree, and SMG logs `... the ZMQ transport has no KV-event stream ...` |
 | No embeddings | `501` with code `unsupported_backend`: `ZMQ backend does not support embeddings yet` |
 | No engine admin operations | `POST /flush_cache` skips ZMQ workers, and profiling fails with `start_profile is not supported over ZMQ`. LoRA loading, weight updates, and sleep/wake aren't available over ZMQ |
@@ -405,7 +416,8 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | vLLM multimodal | Mixed image and video in one request: `400`, `the vLLM ZMQ backend takes one modality per request ...`. Worker-side media processing (media references) needs a gRPC vLLM worker: `400`, `multimodal_not_supported` |
 | TokenSpeed logprobs | `top_logprobs` above 1, or `token_ids_logprob`: `400`, `... not supported over the TokenSpeed ZMQ backend` |
 | TokenSpeed MRoPE models | `400`: `MRoPE position tensors are not derivable over the TokenSpeed ZMQ wire yet; use the gRPC transport for this model` |
-| SGLang multimodal, hidden states, `token_ids_logprob` | `400` naming the feature, such as `multimodal inputs are not supported over the SGLang ZMQ backend yet` |
+| SGLang multimodal, hidden states | `400` naming the feature, such as `multimodal inputs are not supported over the SGLang ZMQ backend yet` |
+| SGLang `token_ids_logprob` | `501`: `selected-token logprobs require the SGLang gRPC servicer` |
 | SGLang data parallelism | The wire has no DP yet; `smg serve` refuses it (see [Data-Parallel Engines](#data-parallel-engines)) |
 
 ---
@@ -482,7 +494,7 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
     **Solutions:**
 
     1. `has no model identity`: start SMG with `--model-path` (with `smg serve`, `--router-model-path`), or set a `model_path` label on the worker.
-    2. `has unsupported runtime`: use `vllm`, `tokenspeed`, or `sglang` (`sglang` over ZMQ needs v1.12.0 or newer).
+    2. `has unsupported runtime`: use `vllm`, `tokenspeed`, or `sglang`.
     3. `would bind handshake address ..., already claimed by worker ...`: two socket paths hash to the same port. Rename one, or set `zmq_handshake_address`.
     4. `zmq_handshake_address must be a tcp:// address` or `ZMQ worker URL must be ipc://<path>`: fix the address or URL.
     5. `cannot serve worker type`: ZMQ workers must be `regular`.

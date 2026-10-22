@@ -26,9 +26,10 @@ SMG supports TLS configurations for securing communications:
 | **Server TLS** | HTTPS for client → gateway communication | Available |
 | **Client mTLS** | Mutual TLS for gateway → HTTP worker communication | Python launcher only |
 | **gRPC worker transport** | Gateway → gRPC worker (`grpc://`) connections | Plaintext; mTLS through a service mesh |
+| **Router mesh mTLS** | Router → router traffic in a [router mesh](../concepts/architecture/high-availability.md) | Available |
 
 !!! info "Client mTLS"
-    The client certificate flags (`--client-cert-path`, `--client-key-path`, and `--ca-cert-paths`) exist only in the Python launcher: `smg launch` from pip, and the container image. The Rust `smg` binary has no client certificate flags in v1.11.0. See [Client mTLS to Workers](#client-mtls-to-workers).
+    The client certificate flags (`--client-cert-path`, `--client-key-path`, and `--ca-cert-paths`) exist only in the Python launcher: `smg launch` from pip, and the container image. The Rust `smg` binary has no client certificate flags. See [Client mTLS to Workers](#client-mtls-to-workers).
 
 ---
 
@@ -106,6 +107,8 @@ smg \
 
 Set both flags or neither: SMG refuses to start with only one of them, or when it can't read one of the files. Both files are PEM. HTTPS covers the main listener only; the Prometheus metrics endpoint (`--prometheus-port`) stays plain HTTP.
 
+At startup, SMG checks each private key file's permissions and logs one warning when more of the system than the file's owner can read or write it — it expects mode 0600 or 0400, or 0640 when another user owns the file — but it still starts. The check covers `--tls-key-path`, `--client-key-path` and `--mesh-tls-key`.
+
 ### Verification
 
 ```bash
@@ -142,16 +145,40 @@ If you run the Rust binary, terminate mTLS toward the workers outside SMG, for e
 
 ## Gateway to gRPC Workers
 
-The connection from the gateway to a gRPC worker (a `grpc://` URL, or a pod that service discovery registered) is plaintext, and neither end can be configured otherwise today:
+The connection from the gateway to a gRPC worker (a `grpc://` URL, or a pod that service discovery registered) is plaintext, and neither end can be configured otherwise:
 
 - The gateway builds every gRPC channel with the same keep-alive and window profile and attaches no TLS configuration to it: no server-certificate verification, no CA bundle and no client certificate. `--client-cert-path`, `--client-key-path` and `--ca-cert-paths` act on the HTTPS clients above and change nothing on a gRPC dial. A `grpcs://` URL is accepted, but the dial fails at once: the log shows `grpc health check failed for explicitly configured worker URL grpcs://...: gRPC connection failed: transport error`, the registration is retried, and the worker never registers.
-- The vLLM gRPC entrypoint, and the TokenSpeed and MLX servicers, listen on an insecure port only. The SGLang servicer accepts `--ssl-certfile` and `--ssl-keyfile` (and `--ssl-ca-certs` to require client certificates), but since the gateway presents no certificate on gRPC, that does not give you a mutually authenticated hop either.
+- The vLLM gRPC entrypoint, and the TokenSpeed and MLX servicers, listen on an insecure port only. The SGLang servicer accepts `--ssl-certfile` and `--ssl-keyfile` (and `--ssl-ca-certs` to verify a client certificate when one is presented, without requiring one), but since the gateway presents no certificate on gRPC, that does not give you a mutually authenticated hop either.
 
-Native TLS on the gRPC channel is not scheduled. The supported way to encrypt and authenticate this hop is a service mesh: run the gateway and the workers with sidecar proxies (for example Istio or Linkerd) in strict mutual-TLS mode. The gateway keeps dialing `grpc://` to its local proxy, and the proxies secure the connection between the pods. What to check in the mesh configuration:
+SMG has no native TLS on the gRPC channel. The supported way to encrypt and authenticate this hop is a service mesh: run the gateway and the workers with sidecar proxies (for example Istio or Linkerd) in strict mutual-TLS mode. The gateway keeps dialing `grpc://` to its local proxy, and the proxies secure the connection between the pods. What to check in the mesh configuration:
 
 - **HTTP/2 passthrough.** The proxies must treat the worker port as gRPC (HTTP/2), for example through a Service port named `grpc-<name>` or `appProtocol: grpc`, so the long-lived streams are proxied as streams rather than buffered: one `Generate` stream per in-flight request, and, under a cache-aware routing policy (the only configuration in which the gateway subscribes), one `SubscribeKvEvents` stream per worker, open for as long as the worker is registered, which carries the KV cache events and the worker's load records.
 - **Pod-IP destinations.** Service discovery registers each pod as `grpc://<pod-ip>:<port>`, not by Service name. Confirm that the mesh applies mutual TLS to connections addressed directly to the pod IPs of workloads in the mesh, or pass `--worker-urls` with names the mesh routes.
-- **Keepalive and idle timeouts.** The gateway sends an HTTP/2 keepalive ping every 30 seconds on each channel and expects the answer within 10 seconds; a connect attempt is bounded at 10 seconds. The local proxy answers the pings itself, so a worker that dies behind a live proxy is noticed by failing requests and by the health probe (every `--health-check-interval-secs` seconds, 60 by default, after `--health-failure-threshold` consecutive failures, 3 by default), not by the keepalive. On the `SubscribeKvEvents` stream the Rust servicer sends a load-only heartbeat after one second of silence, and every five seconds on an idle engine, so a proxy's per-stream idle timeout (Envoy's default is five minutes) does not reset it; the Python servicers send nothing while the engine is idle, so behind such a timeout an idle worker's subscription is reset at that cadence, and the gateway reconnects with backoff and resubscribes from its last sequence.
+- **Keepalive and idle timeouts.** The gateway sends an HTTP/2 keepalive ping every 30 seconds on each channel and expects the answer within 10 seconds; a connect attempt is bounded at 10 seconds. The local proxy answers the pings itself, so a worker that dies behind a live proxy is noticed by failing requests and by the health probe (every `--health-check-interval-secs` seconds, 60 by default, after `--health-failure-threshold` consecutive failures, 3 by default), not by the keepalive. On the `SubscribeKvEvents` stream the Rust servicer and the Python servicers alike send a load-only heartbeat after one second of silence, and every five seconds on an idle engine, so a proxy's per-stream idle timeout (Envoy's default is five minutes) does not reset the subscription. A Python servicer starts the heartbeats with the stream's first event batch, so a subscription whose engine has not yet published one can sit silent behind such a timeout and be reset at its cadence; the gateway reconnects with backoff and resubscribes from its last sequence.
+
+---
+
+## Router Mesh mTLS
+
+This section is about SMG's own [router mesh](../concepts/architecture/high-availability.md) (`--enable-mesh`), not the service-mesh sidecars above. Traffic between the routers of a mesh is plaintext gRPC by default; three flags, set together, turn on mutual TLS for it:
+
+```bash
+smg launch --enable-mesh \
+  --mesh-advertise-host 10.0.0.1 \
+  --mesh-tls-ca-cert /etc/certs/mesh-ca.crt \
+  --mesh-tls-cert /etc/certs/node.crt \
+  --mesh-tls-key /etc/certs/node.key
+```
+
+| Flag | Description |
+|------|-------------|
+| `--mesh-tls-ca-cert` | The CA certificate (PEM) the mesh peers' certificates chain to. |
+| `--mesh-tls-cert` | This node's certificate (PEM), with the node's IP address as a SAN: peers verify it against the address they dial. |
+| `--mesh-tls-key` | This node's private key (PKCS#8 PEM). |
+
+With the three flags, the mesh listener serves TLS and requires a peer certificate, and every gossip and sync dial presents this node's certificate. Set all three or none: a partial set is rejected, and each file must be readable at startup. The flags exist on both the Rust `smg` binary and the Python launcher, and the startup log names whether the mesh is plaintext or mTLS.
+
+One limitation: when a router's probes to a peer fail, it announces the peer's new Suspected or Down status with a direct broadcast to the mesh members, itself included — that broadcast is the only path by which the status enters any member's table, the detecting router's own included. The broadcast dials without the node's certificate, so an mTLS mesh rejects it (each refusal logs `Failed to broadcast`), and the failure detection records nothing: an unreachable router stays listed as Alive on every member. [Kubernetes router discovery](../concepts/architecture/high-availability.md) (`--router-selector`) is unaffected: each router's own pod watcher marks a deleted router pod Down and an unhealthy one Suspected, independently of these broadcasts.
 
 ---
 

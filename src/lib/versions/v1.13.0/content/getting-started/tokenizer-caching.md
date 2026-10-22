@@ -69,8 +69,9 @@ smg \
 |-----------|---------|-------------|
 | `--tokenizer-cache-enable-l0` | `false` | Enable exact match cache |
 | `--tokenizer-cache-l0-max-entries` | `10000` | Maximum number of cached entries |
+| `--tokenizer-cache-l0-max-memory` | `268435456` (256 MB) | Maximum memory in bytes (texts, token IDs, and per-entry overhead) |
 
-Each entry keeps the full input text and its encoding, so its size grows with prompt length.
+Each entry keeps the input text and its token IDs, so its size grows with prompt length.
 
 ### L1 Cache
 
@@ -85,7 +86,7 @@ Each entry keeps the full input text and its encoding, so its size grows with pr
 
 ### L0 Sizing
 
-L0 caps the number of entries, not their bytes. An entry for a short prompt is small, but roughly 2 MB per entry was observed for large inputs (smg-project/smg#2603). Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that repeat in your traffic, and watch process memory as you raise it.
+L0 is bounded two ways: by `--tokenizer-cache-l0-max-entries` and by the `--tokenizer-cache-l0-max-memory` byte budget. An entry is charged its text's bytes plus 4 bytes per token plus a fixed overhead; reaching either bound evicts approximately least-recently-used entries, and an input whose entry alone would take more than a quarter of the byte budget is not cached at all. Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that repeat in your traffic; the byte budget caps the cache's memory when those prompts are long.
 
 ### L1 Sizing
 
@@ -97,8 +98,6 @@ L0 caps the number of entries, not their bytes. An entry for a short prompt is s
 | 200 MB | Long context applications |
 
 On a miss, L1 stores an entry for every special-token boundary of the input, holding the token IDs of the whole prefix up to that boundary. On a hit it stores one more, for the prefix up to the input's own deepest boundary, so each turn of a conversation leaves the entry its next turn matches. Each entry is charged the prefix's length in bytes plus 4 bytes per token, so a long multi-turn prompt with many boundaries counts for many times its own length, and hits as well as misses grow the cache toward the memory bound.
-
-In v1.11.0 and earlier a hit stores nothing; only misses grow the cache.
 
 ---
 
@@ -146,7 +145,7 @@ In v1.11.0 and earlier a hit stores nothing; only misses grow the cache.
 
 ## Monitor Cache Activity
 
-SMG exports cache counters on its Prometheus endpoint (smg-project/smg#2603): `smg_tokenizer_cache_lookups_total` (labels `layer` and `result`), `smg_tokenizer_cache_evictions_total`, and `smg_tokenizer_cache_reused_bytes_total` (label `layer`). `layer` is `l0` or `l1`; `result` is `hit` or `miss`. Check each layer's hit ratio:
+SMG exports cache counters on its Prometheus endpoint, each labeled by `layer` (`l0` or `l1`): `smg_tokenizer_cache_lookups_total` (with a `result` label, `hit` or `miss`), `smg_tokenizer_cache_evictions_total`, and `smg_tokenizer_cache_reused_bytes_total`. Check each layer's hit ratio:
 
 ```promql
 sum by (layer) (rate(smg_tokenizer_cache_lookups_total{result="hit"}[5m]))
@@ -154,7 +153,7 @@ sum by (layer) (rate(smg_tokenizer_cache_lookups_total{result="hit"}[5m]))
 sum by (layer) (rate(smg_tokenizer_cache_lookups_total[5m]))
 ```
 
-A low hit ratio together with a steady eviction rate means the cache is too small for the workload. See the [Metrics Reference](../reference/metrics.md#tokenizer-cache-metrics) for the full definitions.
+A low hit ratio together with a steady eviction rate means the cache is too small for the workload. See the [Metrics Reference](../reference/metrics.md#tokenizer-metrics) for the full definitions.
 
 ---
 

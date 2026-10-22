@@ -4,7 +4,7 @@ title: Contributing
 
 # Contributing to SMG
 
-Thank you for your interest in contributing to Shepherd Model Gateway (SMG). The gateway's source code lives in [smg-project/smg](https://github.com/smg-project/smg). This documentation lives in a separate repository, [smg-project/smg-docs](https://github.com/smg-project/smg-docs), and is published at [lightseek.org/smg](https://lightseek.org/smg). The smg repository's [CONTRIBUTING.md](https://github.com/smg-project/smg/blob/main/CONTRIBUTING.md) is the front door; these pages hold the details.
+Thank you for your interest in contributing to Shepherd Model Gateway (SMG). The gateway's source code lives in [smg-project/smg](https://github.com/smg-project/smg). This documentation lives in a separate repository, [smg-project/smg-docs](https://github.com/smg-project/smg-docs), and is published at [lightseek.org/smg](https://lightseek.org/smg). The smg repository's `CONTRIBUTING.md` is the front door; these pages hold the details.
 
 ---
 
@@ -16,17 +16,17 @@ Thank you for your interest in contributing to Shepherd Model Gateway (SMG). The
 
     ---
 
-    Found a bug? The bug report form asks for reproduction steps, expected and actual behavior, the component, routing policy, and connection mode, your configuration, and logs.
+    Found a bug? Open a new issue with the **Bug Report** form, which asks for reproduction steps, expected and actual behavior, the component, routing policy, and connection mode, your configuration, and logs.
 
-    [:octicons-arrow-right-24: Report a bug](https://github.com/smg-project/smg/issues/new?template=1-bug-report.yml)
+    [:octicons-arrow-right-24: Report a bug](https://github.com/smg-project/smg/issues)
 
 -   :material-lightbulb:{ .lg .middle } **Suggest Features**
 
     ---
 
-    Describe the problem you're solving and your proposed solution. Latency, throughput, and memory problems have their own performance issue form.
+    Open a new issue with the **Feature Request** form: describe the problem you're solving and your proposed solution. Latency, throughput, and memory problems have their own **Performance Issue** form.
 
-    [:octicons-arrow-right-24: Request a feature](https://github.com/smg-project/smg/issues/new?template=2-feature-request.yml)
+    [:octicons-arrow-right-24: Request a feature](https://github.com/smg-project/smg/issues)
 
 -   :material-code-tags:{ .lg .middle } **Contribute Code**
 
@@ -60,10 +60,10 @@ cd smg
 
 ### 2. Install the Toolchain
 
+The checkout pins its own Rust version: `rust-toolchain.toml` names Rust 1.98.0 (the version CI uses) with clippy and rustfmt, and rustup installs and uses it on your first `cargo` command in the repository. Only the nightly rustfmt used by the format gate is a separate install:
+
 ```bash
-# Rust 1.98.0 (the version CI uses) for this checkout, plus nightly rustfmt
-rustup toolchain install 1.98.0
-rustup override set 1.98.0
+# Nightly rustfmt for `cargo +nightly fmt`
 rustup toolchain install nightly --profile minimal --component rustfmt
 
 # Git hooks: formatting, lint, DCO sign-off, and commit-message checks
@@ -80,8 +80,8 @@ You also need `protoc` and a C toolchain with OpenSSL headers; see [Prerequisite
 # Branch names must be <type>/<description> or <username>/<description>
 git checkout -b feat/my-change
 
-cargo build --locked
-cargo test --locked
+cargo build
+cargo test
 ```
 
 ### 4. Commit and Open a Pull Request
@@ -91,7 +91,7 @@ git commit -s -m "feat(policies): describe the change"
 git push origin feat/my-change
 ```
 
-Open the pull request against `main` and fill in the [PR template](https://github.com/smg-project/smg/blob/main/.github/PULL_REQUEST_TEMPLATE.md).
+Open the pull request against `main` and fill in the PR template, which GitHub pre-fills from the repository's `.github/PULL_REQUEST_TEMPLATE.md`.
 
 ---
 
@@ -102,8 +102,8 @@ Every PR must pass these checks locally before you request review. "Probably pas
 | # | Command | Expectation |
 |---|---------|-------------|
 | 1 | `cargo +nightly fmt --all` | No output (silent success) |
-| 2 | `cargo clippy --locked --all-targets --all-features -- -D warnings` | Zero warnings, zero errors |
-| 3 | `cargo test --locked` | `test result: ok` with 0 failures |
+| 2 | `cargo clippy --all-targets --all-features -- -D warnings` | Zero warnings, zero errors |
+| 3 | `cargo test` | `test result: ok` with 0 failures |
 | 4 | `make python-dev` (only if `config/types.rs`, `protocols/`, or `bindings/` changed) | Builds successfully |
 | 5 | Commit format | Conventional commit, DCO sign-off present, no AI attribution |
 
@@ -159,7 +159,7 @@ Name branches `<type>/<description>` (for example `feat/add-auth` or `fix/null-p
 
 `main` accepts squash merges only. A pull request can merge once it has:
 
-- two approving reviews, including one from a [code owner](https://github.com/smg-project/smg/blob/main/.github/CODEOWNERS) of the changed paths
+- two approving reviews, including one from a code owner of the changed paths (listed in `.github/CODEOWNERS`)
 - every review thread resolved
 - passing required checks: `finish` (the summary job of the PR test workflow, which fails if any lint, test, or e2e job failed), `DCO`, and `PR Title & Commit Messages`
 
@@ -179,7 +179,7 @@ Agents such as Claude Code, Cursor, and Copilot are welcome. Three ground rules:
 
 ## Reviewing
 
-Reviews follow [REVIEW.md](https://github.com/smg-project/smg/blob/main/REVIEW.md). Prefix every inline comment with a severity marker:
+Reviews follow `REVIEW.md` at the repository root. Prefix every inline comment with a severity marker:
 
 | Marker | Severity | Meaning |
 |--------|----------|---------|
@@ -197,12 +197,12 @@ REVIEW.md also lists the subsystem pitfalls reviewers look for; config changes, 
 
 ## Governance
 
-SMG's [GOVERNANCE.md](https://github.com/smg-project/smg/blob/main/GOVERNANCE.md) follows the spirit of the Linux Foundation's [Minimum Viable Governance](https://github.com/github/MVG) framework.
+SMG's `GOVERNANCE.md` follows the spirit of the Linux Foundation's [Minimum Viable Governance](https://github.com/github/MVG) framework.
 
 | Role | Who | Responsibilities |
 |------|-----|------------------|
 | **Contributors** | Anyone who files issues, joins discussions, or opens pull requests | No special status required |
-| **Code owners** | Contributors with sustained, high-quality work in an area, listed in [CODEOWNERS](https://github.com/smg-project/smg/blob/main/.github/CODEOWNERS) | Review and approve changes in their areas |
+| **Code owners** | Contributors with sustained, high-quality work in an area, listed in `.github/CODEOWNERS` | Review and approve changes in their areas |
 | **Core maintainers** | Listed in GOVERNANCE.md; the default (`*`) owners in CODEOWNERS | Direction, architecture, releases, and the health of the project |
 
 - Day-to-day technical decisions use **lazy consensus** on pull requests and issues.
@@ -213,13 +213,13 @@ SMG's [GOVERNANCE.md](https://github.com/smg-project/smg/blob/main/GOVERNANCE.md
 
 ## Documentation Changes
 
-These docs are not in the smg repository: its old `docs/` folder was removed when the documentation moved to [smg-project/smg-docs](https://github.com/smg-project/smg-docs) (smg-project/smg#2012). The docs repository follows the same conventions as smg (`<type>/<description>` or `<username>/<description>` branch names, Conventional Commits PR titles, DCO sign-off, no AI attribution) and runs the same PR checks. See [Documentation](development.md#documentation) for the local preview workflow.
+These docs are not in the smg repository: they live in [smg-project/smg-docs](https://github.com/smg-project/smg-docs). The docs repository follows the same conventions as smg (`<type>/<description>` or `<username>/<description>` branch names, Conventional Commits PR titles, DCO sign-off, no AI attribution) and runs the same PR checks. See [Documentation](development.md#documentation) for the local preview workflow.
 
 ---
 
 ## Reporting Security Issues
 
-Do not open a public issue for a security vulnerability. Report it privately instead: contact a maintainer listed in [CODEOWNERS](https://github.com/smg-project/smg/blob/main/.github/CODEOWNERS), or reach out in the `#security` channel of the [Lightseek Slack](https://slack.lightseek.org).
+Do not open a public issue for a security vulnerability. Report it privately instead: contact a maintainer listed in `.github/CODEOWNERS`, or reach out in the `#security` channel of the [Lightseek Slack](https://slack.lightseek.org).
 
 ---
 
@@ -233,10 +233,10 @@ Do not open a public issue for a security vulnerability. Report it privately ins
 
 ## Code of Conduct
 
-We are committed to providing a welcoming and inclusive environment. The [Code of Conduct](https://github.com/smg-project/smg/blob/main/CODE_OF_CONDUCT.md) applies to every interaction in the repository and in community spaces.
+We are committed to providing a welcoming and inclusive environment. The repository's Code of Conduct (`CODE_OF_CONDUCT.md`) applies to every interaction in the repository and in community spaces.
 
 ---
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](https://github.com/smg-project/smg/blob/main/LICENSE).
+By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) (the repository's `LICENSE` file).

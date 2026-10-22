@@ -33,7 +33,7 @@ smg launch \
 - Up to 200 more wait in arrival order. A request that finds the queue full gets **429**; one that waits longer than 30 seconds gets **503**. Both carry `Retry-After: 2`.
 - Size `--max-concurrent-requests` from what your workers can run at once; see [Sizing Guidelines](../concepts/reliability/rate-limiting.md#sizing-guidelines).
 
-Leave `--rate-limit-tokens-per-second` unset. A positive rate also refills the bucket over time, so requests in flight can exceed the cap. Set it only to keep the pre-v1.10 burst-rate behavior:
+To also cap the sustained admission rate, set `--rate-limit-tokens-per-second`. Admission then spends rate budget that only the refill replaces (at the configured rate, bursting up to `--max-concurrent-requests`), while a finished request frees its concurrency slot alone — requests in flight still never exceed the cap. Unset or `0` means no rate limit, so the concurrency cap works alone:
 
 ```bash
 smg launch \
@@ -86,7 +86,7 @@ smg launch \
 
 A worker's circuit opens after 10 consecutive failed requests (`408`, `500`, `502`, `503`, `504`, or no response). A `429` from a worker is capacity pushback: it can still be retried, but it never opens or closes the circuit. See [What Counts as a Failure](../concepts/reliability/circuit-breakers.md#what-counts-as-a-failure). `--cb-window-duration-secs` is accepted but not used by the breaker.
 
-A request that is retried on the same worker charges that worker's breaker once, however many of its attempts fail there. Per-request counting is newer than v1.12.0 and covers HTTP workers in regular mode and gRPC and ZMQ workers; for HTTP workers in PD mode, for external providers, and on every path in v1.12.0 and earlier, each failed attempt counts, so one request's retries can add several failures to a worker's counter. See [State Transitions](../concepts/reliability/circuit-breakers.md#state-transitions).
+A request that is retried on the same worker charges that worker's breaker once, however many of its attempts fail there. Per-request counting covers HTTP workers in regular mode and gRPC and ZMQ workers; for HTTP workers in PD mode and for external providers, each failed attempt counts, so one request's retries can add several failures to a worker's counter. See [State Transitions](../concepts/reliability/circuit-breakers.md#state-transitions).
 
 Disable only for controlled testing:
 

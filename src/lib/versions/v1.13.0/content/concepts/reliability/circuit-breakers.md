@@ -117,9 +117,7 @@ The circuit **opens** when:
 consecutive_failures >= failure_threshold
 ```
 
-`consecutive_failures` counts failed requests, not attempts: however many of a request's retries fail on the same worker, that worker's breaker is charged one failure, so the threshold's meaning does not shift with `--retry-max-retries`. Per-request counting applies to HTTP workers in regular mode and to gRPC and ZMQ workers (regular, PD, and EPD dispatch). For HTTP workers in PD mode and for external provider workers, every failed attempt still counts individually.
-
-Per-request counting is newer than v1.12.0. In v1.12.0 and earlier, every failed attempt increments the counter on every path: with the default five attempts per request, two failed requests on one worker can produce the ten failures the default threshold needs.
+`consecutive_failures` counts failed requests, not attempts: however many of a request's retries fail on the same worker, that worker's breaker is charged one failure, so the threshold's meaning does not shift with `--retry-max-retries`. Per-request counting applies to HTTP workers in regular mode and to gRPC and ZMQ workers (regular, PD, and EPD dispatch). For HTTP workers in PD mode and for external provider workers, every failed attempt counts individually.
 
 A single successful request resets `consecutive_failures` to zero. `--cb-window-duration-secs` is accepted and validated but is not consumed by the state machine — failures are tracked with a running consecutive-failure counter rather than a sliding window.
 
@@ -130,8 +128,6 @@ Once the circuit has been open for `--cb-timeout-duration-secs`, the next check 
 A promotion back to `Ready` is a second trigger: when a demoted worker's [health checks](health-checks.md) pass again and promote it — or any other path returns it to `Ready` — its open circuit moves to half-open at once, so the worker takes traffic as soon as its health returns instead of waiting out the timeout. The trial is the same one the timeout starts: `--cb-success-threshold` consecutive successes close the circuit, and any failure reopens it for a full timeout.
 
 A promotion also resets the consecutive-failure count of a circuit the outage left closed, so the first failure after the worker's return does not open the circuit on the outage's account. Each promotion starts at most one trial: passing probes on a worker that is already `Ready` are not a promotion, so a circuit that reopens during the trial waits for its open timeout or for the worker's next demotion and promotion.
-
-Promotion readmission is newer than v1.12.0. In v1.12.0 and earlier, a worker promoted by its health probes stayed unroutable until the open timeout passed.
 
 ### Half-Open → Closed
 
@@ -145,7 +141,7 @@ If any request fails during half-open, the circuit reopens immediately and the o
 
 ## What Counts as a Failure
 
-The breaker classifies outcomes by the status of the response a worker sends back. Since v1.10, capacity pushback is not a failure:
+The breaker classifies outcomes by the status of the response a worker sends back. Capacity pushback is not a failure:
 
 | Worker outcome | Recorded as |
 |----------------|-------------|
@@ -208,7 +204,7 @@ smg launch \
 
 The thresholds must be at least `1`, and the durations must be greater than `0`.
 
-`--cb-failure-threshold` counts failed requests (newer than v1.12.0; earlier releases count failed attempts); see [State Transitions](#state-transitions).
+`--cb-failure-threshold` counts failed requests, not attempts; see [State Transitions](#state-transitions).
 
 ### Configuration Examples
 
@@ -297,16 +293,14 @@ Once every worker for the model has an open circuit, requests get 503 `no_availa
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `smg_worker_cb_state` | Gauge | `worker` | Current state: `0` closed, `1` open, `2` half-open. Set to `-1` after the worker is removed |
+| `smg_worker_cb_state` | Gauge | `worker` | Current state: `0` closed, `1` open, `2` half-open |
 | `smg_worker_cb_transitions_total` | Counter | `worker`, `from`, `to` | State transitions; `from` and `to` are `closed`, `open`, or `half_open` |
 | `smg_worker_cb_outcomes_total` | Counter | `worker`, `outcome` | Recorded outcomes, `success` or `failure`. Capacity pushback records nothing |
 | `smg_worker_cb_consecutive_failures` | Gauge | `worker` | Current consecutive-failure count |
 | `smg_worker_cb_consecutive_successes` | Gauge | `worker` | Current consecutive-success count |
 | `smg_worker_cb_health_readmissions_total` | Counter | `worker` | Open circuits moved to half-open by a promotion back to `Ready` instead of by the open timeout. Published at zero for each worker |
 
-The `worker` label is the worker URL.
-
-`smg_worker_cb_health_readmissions_total` is newer than v1.12.0; see [State Transitions](#state-transitions).
+The `worker` label is the worker URL. A removed worker's series are dropped from the scrape; they restart from zero if the same address registers again.
 
 ### Useful PromQL Queries
 
@@ -367,8 +361,8 @@ groups:
           summary: "Circuit breaker open for {{ $labels.worker }}"
 
       - alert: AllCircuitsOpen
-        # Removed workers report -1, so compare against live workers only.
-        expr: count(smg_worker_cb_state == 1) == count(smg_worker_cb_state >= 0)
+        # Removed workers drop out of the scrape, so every series is a live worker.
+        expr: count(smg_worker_cb_state == 1) == count(smg_worker_cb_state)
         for: 30s
         labels:
           severity: critical
@@ -383,7 +377,7 @@ groups:
 ### Retries
 
 - For local workers, each retry attempt runs worker selection again, so a worker whose circuit is open is skipped.
-- A request's retries on the same worker charge its breaker once; see [State Transitions](#state-transitions) for the paths this covers and the v1.12.0 behavior.
+- A request's retries on the same worker charge its breaker once; see [State Transitions](#state-transitions) for the paths this covers.
 - If every worker is unavailable, the attempt gets 503 `no_available_workers`.
 - A half-open worker is selected like any other; its outcomes decide whether the circuit closes or reopens.
 - A 429 from a worker is retried when retries are enabled, but leaves that worker's breaker untouched.
@@ -398,7 +392,7 @@ Circuit breakers and health checks are independent gates: health checks probe wo
 | Passing | Open | No, until the circuit moves to half-open — at the open timeout, or at once when a promotion back to `Ready` readmits it |
 | Failing | Any | No |
 
-The gates exclude a worker independently, but recovery is coupled: a promotion back to `Ready` puts the worker's open circuit on trial immediately, while an open circuit on a worker that is already `Ready` waits out `--cb-timeout-duration-secs`. See [State Transitions](#state-transitions) for the trial rules and the v1.12.0 behavior.
+The gates exclude a worker independently, but recovery is coupled: a promotion back to `Ready` puts the worker's open circuit on trial immediately, while an open circuit on a worker that is already `Ready` waits out `--cb-timeout-duration-secs`. See [State Transitions](#state-transitions) for the trial rules.
 
 ---
 

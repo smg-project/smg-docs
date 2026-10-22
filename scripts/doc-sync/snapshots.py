@@ -359,10 +359,8 @@ def checkpoint_findings(ctx, values, records, diagnostic):
     return findings
 
 
-def import_resume(ctx, directory, checkpoint, artifacts, selection):
-    """Resume a full failed audit with scoped corrections and fresh all-page review."""
-    if (checkpoint / 'diagnostic.json').exists():
-        raise ValueError('A diagnostic cannot resume full validation')
+def checkpoint_context(ctx, checkpoint):
+    """Keep the original review inputs when only compatible main prose advanced."""
     frozen = read_json(checkpoint / 'context.json')
     if frozen != ctx:
         if (not isinstance(frozen.get('base'), str)
@@ -375,7 +373,10 @@ def import_resume(ctx, directory, checkpoint, artifacts, selection):
         # Keep the original context and content hashes. All downstream jobs
         # check out this base; publication refreshes safe main edits later.
         ctx = frozen
-    matrix = diagnostic_matrix(ctx, selection)
+    return ctx
+
+
+def checkpoint_bundles(ctx, checkpoint, artifacts):
     # Match final-review/publication overlays. Repair artifacts cover only the
     # selected batches; resumed runs retain their baseline in release-context.
     values = []
@@ -390,6 +391,16 @@ def import_resume(ctx, directory, checkpoint, artifacts, selection):
         values.append(read_json(path))
     for i, value in enumerate(values):
         validate_bundle(ctx, i, value)
+    return values
+
+
+def import_resume(ctx, directory, checkpoint, artifacts, selection):
+    """Resume a full failed audit with scoped corrections and fresh all-page review."""
+    if (checkpoint / 'diagnostic.json').exists():
+        raise ValueError('A diagnostic cannot resume full validation')
+    ctx = checkpoint_context(ctx, checkpoint)
+    matrix = diagnostic_matrix(ctx, selection)
+    values = checkpoint_bundles(ctx, checkpoint, artifacts)
     records = [read_json(artifacts / f'release-final-review-{i}' / f'review-{i}.json')
                for i in range(len(values))]
     findings = checkpoint_findings(ctx, values, records, diagnostic=False)
@@ -420,6 +431,95 @@ def prepare_resume(ctx, directory):
     frozen = import_resume(ctx, directory, directory.parent / 'release-resume-context',
                            directory.parent / 'release-resume-artifacts', os.environ.get('RESUME_BATCHES', ''))
     outputs(base=frozen['base'])
+
+
+# A publication can reuse approvals only for the exact successful proposal and
+# the same source-audit instructions. Current structural/reader validators also
+# run again; neither a diagnostic nor an unchanged rejected proposal qualifies.
+REVIEW_POLICY_PATHS = (
+    'scripts/doc-sync/release-review.md', 'scripts/doc-sync/release-regressions.json',
+    'scripts/doc-sync/release-write.md', 'scripts/doc-sync/release-repair.md',
+    'scripts/doc-sync/nightly_docs.py', 'scripts/doc-sync/releases.py',
+)
+REVIEW_STAGES = (
+    ('final-review', 'release-final-review'),
+    ('review-repair', 'release-repair-review'),
+    ('review', 'release-review'),
+)
+
+
+def promotion_stage(ctx, jobs):
+    """Require a complete successful review stage and the final build/publish job."""
+    for name in ('publish', 'complete'):
+        matches = [j for j in jobs if j['name'] == 'release-snapshot / ' + name]
+        if len(matches) != 1 or matches[0]['conclusion'] != 'success':
+            raise ValueError('Publication checkpoint did not complete all final checks')
+    for stage, prefix in REVIEW_STAGES:
+        matches = [j for j in jobs if j['name'].startswith('release-snapshot / ' + stage + ' (')]
+        if not matches:
+            continue
+        expected = {f'release-snapshot / {stage} ({row["batch"]}, {row["max_turns"]})'
+                    for row in ctx['matrix']['include']}
+        if (len(matches) != len(expected) or {j['name'] for j in matches} != expected
+                or any(j['conclusion'] != 'success' for j in matches)):
+            raise ValueError('Publication checkpoint lacks a complete successful review stage')
+        return prefix
+    raise ValueError('Publication checkpoint has no independent reviews')
+
+
+def import_promotion(ctx, directory, checkpoint, artifacts, review_prefix, provenance):
+    if (checkpoint / 'diagnostic.json').exists() or (checkpoint / 'promotion.json').exists():
+        raise ValueError('Publication requires an original full audit, not a diagnostic or promotion')
+    ctx = checkpoint_context(ctx, checkpoint)
+    values = checkpoint_bundles(ctx, checkpoint, artifacts)
+    whole = snapshot_hash(values)
+    records = []
+    for i, value in enumerate(values):
+        result = read_json(artifacts / f'{review_prefix}-{i}' / f'review-{i}.json')
+        if (result.get('diagnostic') is not False or result.get('batch') != i
+                or result.get('bundle_sha') != bundle_hash(value) or result.get('snapshot_sha') != whole):
+            raise ValueError('Missing or stale publication review')
+        if not validate_review(ctx, i, result['verdict']) or reader_bundle_violations(value):
+            raise ValueError('Publication requires every independent review to accept the exact snapshot')
+        records.append(result)
+    # Validate everything before importing any approval or page. No scripts,
+    # Git metadata, or model-generated manifests cross this boundary.
+    for i, (value, result) in enumerate(zip(values, records)):
+        write_json(directory / f'bundle-{i}.json', value)
+        write_json(directory / f'review-{i}.json', result)
+    write_json(directory / 'context.json', ctx)
+    write_json(directory / 'promotion.json', {**provenance, 'snapshot_sha': whole})
+    return ctx
+
+
+def prepare_promotion(ctx, directory):
+    run_id = os.environ.get('PROMOTION_RUN_ID', '')
+    if (not re.fullmatch(r'[1-9]\d*', run_id) or os.environ.get('RESUME_RUN_ID')
+            or os.environ.get('DIAGNOSTIC_RUN_ID')):
+        raise ValueError('Publication requires one successful run ID without repair or diagnostic mode')
+    repo = os.environ['GITHUB_REPOSITORY']
+    run = releases.api(f'repos/{repo}/actions/runs/{run_id}')
+    if (run.get('head_repository', {}).get('full_name') != repo
+            or run.get('path') != '.github/workflows/nightly-doc-sync.yml'
+            or run.get('event') not in ('workflow_dispatch', 'schedule')
+            or run.get('status') != 'completed' or run.get('conclusion') != 'success'
+            or not re.fullmatch(r'[0-9a-f]{40}', run.get('head_sha', ''))
+            or type(run.get('run_attempt')) is not int or run['run_attempt'] < 1):
+        raise ValueError('Publication checkpoint must be a successful full nightly run from this repository')
+    head = run['head_sha']
+    current = os.environ['GITHUB_SHA']
+    docs.git('merge-base', '--is-ancestor', head, current)
+    for path in REVIEW_POLICY_PATHS:
+        if docs.git('rev-parse', f'{head}:{path}') != docs.git('rev-parse', f'{current}:{path}'):
+            raise ValueError('Source review policy changed; a fresh full review is required')
+    endpoint = f'repos/{repo}/actions/runs/{run_id}/attempts/{run["run_attempt"]}/jobs?per_page=100'
+    chunks = json.loads(docs.run('gh', 'api', endpoint, '--paginate', '--slurp'))
+    prefix = promotion_stage(ctx, [job for chunk in chunks for job in chunk['jobs']])
+    provenance = {'run_id': run_id, 'head_sha': head, 'run_attempt': run['run_attempt']}
+    frozen = import_promotion(ctx, directory, directory.parent / 'release-promotion-context',
+                              directory.parent / 'release-promotion-artifacts', prefix, provenance)
+    outputs(base=frozen['base'])
+    print(f'Validated exact successful snapshot from run {run_id}; no generation or review reroll')
 
 
 def resume_findings(ctx, directory):
@@ -673,6 +773,9 @@ def finalize(ctx, directory):
         raise ValueError('Diagnostics cannot finalize or publish a release snapshot')
     if (directory / 'resume.json').exists():
         require_repair_change(ctx, directory, read_json(directory / 'resume.json')['input_sha'])
+    if (directory / 'promotion.json').exists():
+        if proposal_hash(ctx, directory) != read_json(directory / 'promotion.json')['snapshot_sha']:
+            raise ValueError('Promoted snapshot changed after validation')
     if rejected_batches(ctx, directory):
         raise ValueError('Missing or rejected full snapshot review')
     assemble(ctx, directory)
@@ -691,6 +794,26 @@ def finalize(ctx, directory):
         raise ValueError('Snapshot changes outside the selected version')
     docs.mutate_git('add', '--', *sorted(changed))
     docs.mutate_git('diff', '--cached', '--check')
+
+
+def verify_promoted_pages(ctx, directory):
+    """The site build must not change the reviewed pages or their staged bytes."""
+    marker = directory / 'promotion.json'
+    if not marker.exists():
+        return
+    if proposal_hash(ctx, directory) != read_json(marker)['snapshot_sha']:
+        raise ValueError('Promoted snapshot changed after validation')
+    for index in range(len(ctx['batches'])):
+        value = read_json(directory / f'bundle-{index}.json')
+        for path, content in validate_bundle(ctx, index, value).items():
+            p = Path(path)
+            if content is None:
+                if p.exists() or p.is_symlink() or docs.git('ls-files', '--', path):
+                    raise ValueError('Deleted reviewed page was restored before publication')
+            elif (not p.is_file() or any(q.is_symlink() for q in (p, *p.parents))
+                  or p.read_bytes() != content.encode()
+                  or subprocess.check_output(['git', 'show', ':' + path]) != content.encode()):
+                raise ValueError('Reviewed page bytes changed before publication')
 
 
 def verify_working_page_update(ctx, new_base):
@@ -780,6 +903,8 @@ def main():
     index = int(os.environ.get('BATCH', '0'))
     if command == 'prepare-diagnostic':
         prepare_diagnostic(ctx, directory)
+    elif command == 'prepare-promotion':
+        prepare_promotion(ctx, directory)
     elif command == 'prepare-resume':
         prepare_resume(ctx, directory)
     elif command == 'plan-resume':
@@ -812,6 +937,7 @@ def main():
     elif command == 'refresh':
         refresh_base(ctx)
     elif command == 'publish':
+        verify_promoted_pages(ctx, directory)
         publish(ctx)
     else:
         raise ValueError('Unknown snapshot command')

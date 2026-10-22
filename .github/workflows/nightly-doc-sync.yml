@@ -22,6 +22,10 @@ on:
           - repair-followup
           - diagnostic
         default: write
+      release_publish_run:
+        description: Optional successful full nightly run to publish unchanged, with fresh build and freshness checks
+        type: string
+        default: ''
       release_resume_run:
         description: Optional failed full nightly run to resume from its final snapshot (dry-run validation)
         type: string
@@ -84,7 +88,7 @@ jobs:
 
   release-snapshot:
     needs: release-check
-    if: needs.release-check.outputs.needed == 'true' || inputs.release_diagnostic_run != '' || inputs.release_resume_run != ''
+    if: needs.release-check.outputs.needed == 'true' || inputs.release_diagnostic_run != '' || inputs.release_resume_run != '' || inputs.release_publish_run != ''
     permissions:
       actions: read
       contents: write
@@ -97,6 +101,7 @@ jobs:
       diagnostic-run-id: ${{ inputs.release_diagnostic_run || '' }}
       diagnostic-batches: ${{ inputs.release_diagnostic_batches || '' }}
       diagnostic-stage: ${{ inputs.release_diagnostic_stage || 'write' }}
+      promotion-run-id: ${{ inputs.release_publish_run || '' }}
       resume-run-id: ${{ inputs.release_resume_run || '' }}
       resume-batches: ${{ inputs.release_resume_batches || '' }}
     secrets: inherit
@@ -107,7 +112,7 @@ jobs:
       actions: read
       contents: read
       pull-requests: read
-    if: inputs.release_diagnostic_run == '' && inputs.release_resume_run == '' && needs.release-check.outputs.needed != 'true' && github.repository == 'smg-project/smg-docs' && (github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    if: inputs.release_publish_run == '' && inputs.release_diagnostic_run == '' && inputs.release_resume_run == '' && needs.release-check.outputs.needed != 'true' && github.repository == 'smg-project/smg-docs' && (github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: smg-org-runner-cpu
     timeout-minutes: 45
     outputs:

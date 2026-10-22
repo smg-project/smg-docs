@@ -280,6 +280,21 @@ publication. The initial proposal must change; prior approvals cannot authorize
 it. Resume is manual, forces dry-run, and cannot be combined with diagnostic
 mode. It avoids regenerating accepted content, not the final validation gates.
 
+To publish a successful full audit without regenerating its documentation, set
+`release_publish_run` to that run ID. Keep `dry_run: true` to test the publication
+path; set it to `false` to open the release PR. This mode cannot be combined with
+resume or diagnostic inputs. The selected run must have completed all page
+reviews and final site/build checks successfully, originate from this repository's
+nightly workflow, and use an ancestor revision with unchanged review instructions
+and regression checks. Diagnostic and publication-only runs cannot supply approvals.
+
+Publication reconstructs the exact reviewed snapshot and checks every page scope,
+whole-snapshot hash, review verdict and current reader rule. It then repeats the
+version/link/type/build checks and release/base freshness checks. Changed inputs,
+missing approvals, or changed page bytes fail closed; no writer or model reviewer
+runs. This preserves a successful correction instead of starting a new generation.
+The original resume mode remains dry-run-only and still requires fresh reviews.
+
 Full release stages and selected diagnostic batches run at most eight jobs
 concurrently. They share the runner pool capped at ten; any excess jobs wait for
 a runner. This changes scheduling, not source coverage, model effort, review

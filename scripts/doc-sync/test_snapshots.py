@@ -438,11 +438,54 @@ class RepairTests(unittest.TestCase):
         ctx, directory, values = self.proposal(rejected=rejected)
         checkpoint, destination, artifacts = self.checkpoint(ctx, directory)
         for i, value in enumerate(values):
+            original = {**value, 'files': {p: '# Earlier writer draft\n' for p in value['files']}}
+            s.write_json(artifacts / f'release-bundle-{i}' / f'bundle-{i}.json', original)
             s.write_json(artifacts / f'release-followup-bundle-{i}' / f'bundle-{i}.json', value)
             record = s.read_json(directory / f'review-{i}.json')
             record['diagnostic'] = False
             s.write_json(artifacts / f'release-final-review-{i}' / f'review-{i}.json', record)
         return ctx, checkpoint, destination, artifacts, values
+
+    def test_resume_reconstructs_partial_repairs_from_each_available_baseline(self):
+        ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint()
+        # Batch 1 has both repair layers; the second must win over earlier text.
+        original = s.read_json(artifacts / 'release-bundle-1/bundle-1.json')
+        s.write_json(artifacts / 'release-repaired-bundle-1/bundle-1.json', original)
+        (artifacts / 'release-followup-bundle-0/bundle-0.json').unlink()
+        for layer in ('release-bundle', 'release-repaired-bundle', 'context'):
+            with self.subTest(layer=layer):
+                for prefix in ('release-bundle', 'release-repaired-bundle'):
+                    (artifacts / f'{prefix}-0/bundle-0.json').unlink(missing_ok=True)
+                if layer == 'context':
+                    s.write_json(checkpoint / 'resume.json', {'input_sha': 'old baseline'})
+                    s.write_json(checkpoint / 'bundle-0.json', values[0])
+                else:
+                    s.write_json(artifacts / f'{layer}-0/bundle-0.json', values[0])
+                    if layer == 'release-repaired-bundle':
+                        s.write_json(artifacts / 'release-bundle-0/bundle-0.json',
+                                     {**values[0], 'files': {self.paths[0]: '# Stale base\n'}})
+                output = destination / layer
+                s.import_resume(ctx, output, checkpoint, artifacts, '1')
+                self.assertEqual(s.proposal_hash(ctx, output), s.snapshot_hash(values))
+                self.assertEqual([s.read_json(output / f'bundle-{i}.json') for i in range(2)], values)
+                self.assertEqual(list(output.glob('review-*.json')), [])
+                self.assertEqual([v['batch'] for v in s.read_json(output / 'repair-findings.json')], [1])
+
+    def test_resume_rejects_stale_fallback_when_a_newer_artifact_is_missing(self):
+        ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()
+        (artifacts / 'release-followup-bundle-0/bundle-0.json').unlink()
+        with self.assertRaisesRegex(ValueError, 'stale checkpoint review'):
+            s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_resume_does_not_fall_back_from_invalid_newer_bundle(self):
+        ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint()
+        s.write_json(artifacts / 'release-bundle-0/bundle-0.json', values[0])
+        path = artifacts / 'release-followup-bundle-0/bundle-0.json'
+        path.write_text('{invalid JSON')
+        with self.assertRaises(json.JSONDecodeError):
+            s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        self.assertEqual(list(destination.iterdir()), [])
 
     def test_resume_retains_complete_snapshot_and_plans_only_selected_corrections(self):
         ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint()
@@ -551,6 +594,7 @@ class RepairTests(unittest.TestCase):
 
     def test_resume_rejects_missing_data_without_importing_partial_snapshot(self):
         ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()
+        (artifacts / 'release-bundle-0/bundle-0.json').unlink()
         for path in [artifacts / 'release-followup-bundle-0/bundle-0.json',
                      artifacts / 'release-final-review-0/review-0.json']:
             original = path.read_text()

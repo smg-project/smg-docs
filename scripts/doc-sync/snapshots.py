@@ -376,8 +376,18 @@ def import_resume(ctx, directory, checkpoint, artifacts, selection):
         # check out this base; publication refreshes safe main edits later.
         ctx = frozen
     matrix = diagnostic_matrix(ctx, selection)
-    values = [read_json(artifacts / f'release-followup-bundle-{i}' / f'bundle-{i}.json')
-              for i in range(len(ctx['batches']))]
+    # Match final-review/publication overlays. Repair artifacts cover only the
+    # selected batches; resumed runs retain their baseline in release-context.
+    values = []
+    for i in range(len(ctx['batches'])):
+        candidates = [artifacts / f'{prefix}-{i}' / f'bundle-{i}.json' for prefix in
+                      ('release-followup-bundle', 'release-repaired-bundle', 'release-bundle')]
+        if (checkpoint / 'resume.json').exists():
+            candidates.append(checkpoint / f'bundle-{i}.json')
+        path = next((path for path in candidates if path.exists()), None)
+        if path is None:
+            raise FileNotFoundError(f'Missing checkpoint bundle for batch {i}')
+        values.append(read_json(path))
     for i, value in enumerate(values):
         validate_bundle(ctx, i, value)
     records = [read_json(artifacts / f'release-final-review-{i}' / f'review-{i}.json')

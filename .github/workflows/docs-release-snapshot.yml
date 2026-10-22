@@ -115,6 +115,7 @@ jobs:
           gh run download "$RESUME_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name release-context --dir "$RUNNER_TEMP/release-resume-context"
           gh run download "$RESUME_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'release-bundle-*' --pattern 'release-repaired-bundle-*' \
             --pattern 'release-followup-bundle-*' --pattern 'release-final-review-*' \
             --dir "$RUNNER_TEMP/release-resume-artifacts"
       - name: Validate complete snapshot and rejected review evidence for resume

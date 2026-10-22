@@ -300,5 +300,42 @@
 			"crates/external_router/src/error.rs"
 		],
 		"check": "Verify released selection_queue_timeout (503, Retry-After: 2 from middleware::SHED_RETRY_AFTER_SECS) and pd_prefill_queue_full / pd_prefill_queue_timeout (429, no Retry-After). Include all three in both the OpenAI Error Codes and Rate Limiting tables. Distinguish the gRPC remaining gateway queue-time budget from the PD-specific queue timeout, and do not use the unrelated overload module default of 10 seconds for selection_queue_timeout."
+	},
+	{
+		"id": "discovered-moriio-connector",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/architecture/service-discovery.md",
+			"concepts/routing/pd-disaggregation.md"
+		],
+		"source_paths": [
+			"model_gateway/src/service_discovery/kubernetes.rs",
+			"model_gateway/src/routers/common/kv_transfer.rs",
+			"model_gateway/src/routers/http/pd_router.rs",
+			"model_gateway/src/worker/worker.rs"
+		],
+		"check": "Verify smg.ai/kv-connector through discovery and actual PD dispatch. The discovery warning claims passthrough for unlisted connectors, but MoRIIOConnector selects KvConnectorMode::MoriIo at dispatch. moriio_endpoint requires read/write moriio_mode labels unavailable from the supported pod annotations; missing labels cause 503 moriio_pair_misconfigured. Carve this released connector out of any other value is passthrough claims and direct MoRI-IO workers to registration with the required labels, linking the canonical PD section. Do not treat the discovery warning as proof of request behavior."
+	},
+	{
+		"id": "discovery-recovery-registration-health",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/reliability/health-checks.md",
+			"concepts/architecture/service-discovery.md"
+		],
+		"source_paths": [
+			"model_gateway/src/workflow/steps/mod.rs",
+			"model_gateway/src/workflow/steps/local/detect_connection.rs",
+			"model_gateway/src/workflow/steps/util.rs",
+			"model_gateway/src/workflow/job_queue.rs"
+		],
+		"check": "Trace discovery auto-recovery through AddWorker and the local worker_registration workflow. HTTP/gRPC connection detection requires a successful health probe before worker creation/activation and retries at startup cadence; a still-down engine waits for registration rather than being repeatedly registered Ready and demoted by background probes. Keep the health-checks Worker Auto-Recovery table consistent with service discovery. Distinguish ZMQ explicit ipc reachability and activation semantics rather than generalizing HTTP/gRPC probes to it."
+	},
+	{
+		"id": "contributor-checkout-toolchain-pin",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["contributing/index.md", "contributing/development.md"],
+		"source_paths": ["rust-toolchain.toml", "CONTRIBUTING.md"],
+		"check": "The released checkout contains rust-toolchain.toml pinning Rust 1.98.0 with clippy/rustfmt. Align Quick Start and Development: let rustup honor that checked-in pin instead of instructing a persistent rustup override set 1.98.0, which can shadow later pin changes. Nightly rustfmt remains a separate explicit nightly toolchain. Keep actionable prerequisite versions without claiming the repository lacks its toolchain file."
 	}
 ]

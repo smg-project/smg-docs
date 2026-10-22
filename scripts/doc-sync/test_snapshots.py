@@ -193,10 +193,13 @@ class RegressionCatalogTests(unittest.TestCase):
         ctx = {'release': {**RELEASE, 'sha': case['source_sha']},
                'batches': [[s.root(RELEASE['tag']) + 'content/' + case['pages'][0]],
                            [s.root(RELEASE['tag']) + 'content/contributing/index.md']]}
-        self.assertIn(case, s.regression_checks(ctx, 0))
-        self.assertEqual(s.regression_checks(ctx, 1), [])
-        ctx['release']['sha'] = 'f' * 40
-        self.assertEqual(s.regression_checks(ctx, 0), [])
+        # Exercise this case's scope without assuming another real page will
+        # never receive a regression check as the catalog grows.
+        with patch.object(s, 'read_json', return_value=[case]):
+            self.assertIn(case, s.regression_checks(ctx, 0))
+            self.assertEqual(s.regression_checks(ctx, 1), [])
+            ctx['release']['sha'] = 'f' * 40
+            self.assertEqual(s.regression_checks(ctx, 0), [])
 
 
 class SnapshotGitTests(unittest.TestCase):

@@ -51,6 +51,20 @@ Page candidates can contain several concerns; never bundle them to finish a
 candidate. Reuse an existing pending concern's slug; do not reword a previously
 merged/declined concern to evade deduplication. Keep unfinished candidates visible.
 
+Candidate pages are discovery starting points, not PR boundaries. When the same
+correction affects a guide and its reference, propose ONE concern covering every
+canonical page. Do not split it into "endpoint names" and "pipeline names", or
+promise that separate PRs will later make the docs consistent. Choose one owning
+candidate for the proposal; mark other affected candidates deferred and explain
+which proposal covers that part, without linking a foreign candidate's slug.
+
+A completed release audit does not supersede a closed, unmerged main-doc PR.
+Adding another parser/feature or changing the candidate/slug does not authorize
+reviving its declined correction. Honor release_deferred exactly as supplied.
+Otherwise defer the overlapping correction with the PR number and reason; if it
+cannot be separated without leaving contradictory related docs, defer the whole
+concern and work on another verified gap.
+
 Return the supplied JSON schema, at most max_prs concerns. Each concern answers
 one concrete user question or corrects one stale claim. A large code commit can
 produce several separate concerns. Use concise [Docs] titles of at most 120 characters including the prefix, and lowercase

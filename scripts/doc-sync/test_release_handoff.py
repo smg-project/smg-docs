@@ -62,10 +62,11 @@ class CollectorTests(unittest.TestCase):
     def test_committed_audit_exports_both_diffs_and_stable_identity(self):
         item, = self.collect()
         self.assertEqual(item['shard'], 'deploy-config')
-        evidence = json.loads((self.root / 'evidence' / item['file']).read_text())
-        self.assertIn('-Old claim', evidence['audit_diff'])
-        self.assertIn('+Correct released claim', evidence['main_diff'])
-        self.assertEqual(evidence['source_sha'], self.source_main)
+        evidence = (self.root / 'evidence' / item['file']).read_text()
+        self.assertIn('=== audit_diff ===\n', evidence)
+        self.assertIn('\n-Old claim\n', evidence)
+        self.assertIn('\n+Correct released claim\n', evidence)
+        self.assertIn(self.source_main, evidence)
         self.write(self.path, 'Newer main behavior; still needs the correction\n')
         self.commit(self.repo)
         self.assertEqual(self.collect()[0]['id'], item['id'])
@@ -75,6 +76,14 @@ class CollectorTests(unittest.TestCase):
         self.commit(self.repo)
         self.write(self.marker, json.dumps(self.state))
         self.assertEqual(self.collect(), [])
+
+    def test_large_evidence_retains_readable_lines_and_final_correction(self):
+        self.write(self.release_path, ''.join(f'Correct claim {i}\n' for i in range(1000)))
+        self.commit(self.repo)
+        item, = self.collect()
+        evidence = (self.root / 'evidence' / item['file']).read_text()
+        self.assertIn('\n+Correct claim 999\n', evidence)
+        self.assertLess(max(map(len, evidence.splitlines())), 200)
 
     def test_corrected_main_stops_generating_candidate(self):
         self.write(self.path, 'Correct released claim\n')
@@ -96,8 +105,8 @@ class CollectorTests(unittest.TestCase):
         self.commit(self.repo)
         items = self.collect()
         item, = [i for i in items if i['doc_path'] == docs.DOC_ROOT + name]
-        evidence = json.loads((self.root / 'evidence' / item['file']).read_text())
-        self.assertIn('-Unsupported feature', evidence['audit_diff'])
+        evidence = (self.root / 'evidence' / item['file']).read_text()
+        self.assertIn('\n-Unsupported feature\n', evidence)
 
     def test_invalid_source_ancestry_and_marker_fail_closed(self):
         with patch.object(docs, 'source_git', side_effect=ValueError('not ancestor')):

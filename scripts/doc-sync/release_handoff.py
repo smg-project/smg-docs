@@ -3,7 +3,6 @@
 import difflib
 import hashlib
 import json
-from pathlib import Path
 import re
 
 import nightly_docs as docs
@@ -54,6 +53,8 @@ def owner(path):
 
 
 def diff(before, after, old, new):
+    before = before + '\n' if before else ''
+    after = after + '\n' if after else ''
     return ''.join(difflib.unified_diff(before.splitlines(True), after.splitlines(True),
                                       fromfile=old, tofile=new))
 
@@ -107,12 +108,16 @@ def collect(context, directory):
             identity = hashlib.sha256(json.dumps(
                 [release['sha'], path, before, audited]).encode()).hexdigest()[:16]
             candidate = {'id': identity, 'release': tag, 'release_sha': release['sha'],
-                         'doc_path': path, 'shard': owner(path), 'file': identity + '.json'}
+                         'doc_path': path, 'shard': owner(path), 'file': identity + '.patch'}
             evidence = {**candidate, 'docs_base': base, 'audit_base': old_base,
-                        'source_sha': source,
-                        'audit_diff': diff(before, audited, 'audit-input/' + name, tag + '/' + name),
-                        'main_diff': diff(working, audited, 'main/' + name, tag + '/' + name)}
-            (directory / candidate['file']).write_text(json.dumps(evidence, indent=2) + '\n')
+                        'source_sha': source}
+            # Keep patch lines literal: a JSON-escaped whole diff is one enormous
+            # line that model file readers truncate even when the file is small.
+            (directory / candidate['file']).write_text(
+                json.dumps(evidence, indent=2) + '\n\n=== audit_diff ===\n'
+                + diff(before, audited, 'audit-input/' + name, tag + '/' + name)
+                + '\n=== main_diff ===\n'
+                + diff(working, audited, 'main/' + name, tag + '/' + name))
             candidates.append(candidate)
     return candidates
 

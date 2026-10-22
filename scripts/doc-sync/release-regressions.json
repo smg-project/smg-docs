@@ -1,0 +1,341 @@
+[
+	{
+		"id": "template-precedence",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/architecture/grpc-pipeline.md",
+			"concepts/performance/tokenizer-caching.md"
+		],
+		"source_paths": ["crates/tokenizer/src/factory.rs"],
+		"check": "Verify discover_chat_template_in_dir and its callers: an explicit template override wins; local discovery tries chat_template.jinja, then the string chat_template in tokenizer_config.json, then legacy chat_template.json, then other .jinja files. Reconcile precedence wherever the assigned page describes it."
+	},
+	{
+		"id": "mcp-policy-denial",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/extensibility/mcp.md"],
+		"source_paths": [
+			"crates/mcp/src/approval/manager.rs",
+			"crates/mcp/src/core/orchestrator.rs",
+			"crates/mcp/src/error.rs"
+		],
+		"check": "Trace PolicyOnly through ApprovalOutcome::Decided to ToolDenied(entry.tool_name()). The configured deny_with_reason text is not the caller-visible error on this path. Distinguish audit-log reason from the returned tool-name error; do not infer behavior from the unreachable Pending policy-denial branch."
+	},
+	{
+		"id": "template-clock",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/performance/tokenizer-caching.md"],
+		"source_paths": ["crates/tokenizer/src/chat_template.rs"],
+		"check": "The Template Variables section must retain released strftime_now(format) behavior and SOURCE_DATE_EPOCH reproducibility guidance. Verify render_instant, strftime and render context injection: one instant per render, local time, cached epoch override and invalid-format errors. Main contains this released material while the prepared snapshot omitted it."
+	},
+	{
+		"id": "overload-opt-in",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/reliability/rate-limiting.md",
+			"concepts/reliability/overload-protection.md"
+		],
+		"source_paths": [
+			"model_gateway/src/main.rs",
+			"model_gateway/src/routers/common/placement.rs",
+			"model_gateway/src/routers/common/overload.rs",
+			"model_gateway/src/routers/http/router.rs"
+		],
+		"check": "An all-overloaded pool steers to the least-loaded routable worker by default. The 503 overload shed requires --worker-overload-shed, which defaults false. Verify both selection and dispatch gates. Qualify every summary of overload shedding, including Why Limit Admission, consistently with the overload concept page."
+	},
+	{
+		"id": "terminal-placement-refusal",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/load-balancing.md", "concepts/reliability/retries.md"],
+		"source_paths": [
+			"model_gateway/src/routers/common/placement.rs",
+			"crates/external_router/src/retry.rs",
+			"model_gateway/src/routers/http/router.rs",
+			"model_gateway/src/routers/grpc/common/stages/worker_selection.rs"
+		],
+		"check": "A no_available_workers 503 is marked non-retryable for the router retry loop and carries Retry-After: 1 for clients. Check the Waiting-Queue Cap paragraph as well as retries: do not promise an internal retry after backoff when every worker is at the cap."
+	},
+	{
+		"id": "vllm-rust-kv-default",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/grpc-workers.md"],
+		"source_paths": [
+			"grpc_servicer/smg_grpc_servicer/vllm/rust.py",
+			"grpc_servicer/smg_grpc_servicer/rust_lifecycle.py"
+		],
+		"check": "Document the released Rust vLLM launcher KV publisher default, not only the SGLang/TokenSpeed variants: absent --kv-events-config enables the publisher, SMG_VLLM_SERVICER_KV_EVENTS=0 keeps it off, and explicit configuration is preserved. Trace default_kv_events_config through RustLauncher before engine creation."
+	},
+	{
+		"id": "consistent-hashing-branches",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/metrics.md", "concepts/routing/sticky-sessions.md"],
+		"source_paths": ["model_gateway/src/policies/consistent_hashing.rs"],
+		"check": "Compare the complete Branch enum/as_str and emission call with the policy metric table. There are six values, including implicit_key_hit for x-forwarded-for/cookie without an explicit routing key. random_fallback requires neither explicit nor implicit key. Reconcile the metrics reference and sticky-session concept page."
+	},
+	{
+		"id": "zmq-inline-payload",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/configuration.md", "concepts/architecture/multimodal.md"],
+		"source_paths": [
+			"model_gateway/src/routers/grpc/multimodal/assemble.rs",
+			"model_gateway/src/routers/grpc/backend_client.rs",
+			"model_gateway/src/routers/grpc/proto_wrapper.rs"
+		],
+		"check": "Verify the selected ZMQ path disables shm_enabled before serialization. ZMQ workers receive inline tensors; an adapter capable of reading SHM does not prove the gateway sends it. Reconcile configuration and multimodal transport descriptions."
+	},
+	{
+		"id": "wasm-example-paths",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/api/admin.md"],
+		"source_paths": ["model_gateway/src/workflow/wasm_module_registration.rs"],
+		"check": "Validate successful WASM registration examples against blocked path prefixes. /etc is rejected; success examples must use an allowed absolute path. Keep path and module name consistent in subsequent requests."
+	},
+	{
+		"id": "body-timeout-scope",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"reference/configuration.md",
+			"concepts/performance/request-streaming.md",
+			"reference/api/openai.md"
+		],
+		"source_paths": ["model_gateway/src/middleware/body_timeout.rs", "model_gateway/src/server.rs"],
+		"check": "Verify --stream-body-stall-timeout-secs applies to buffered as well as streamed request bodies through middleware. The flag name alone does not imply streaming-only scope. Distinguish 408 request_body_stalled for the stall watchdog from request_body_timeout for a buffered read incomplete at request-timeout-secs; include both released error codes and keep API tables consistent with configuration."
+	},
+	{
+		"id": "pd-ttft-anchor",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/pd-disaggregation.md", "reference/metrics.md"],
+		"source_paths": [
+			"model_gateway/src/routers/grpc/regular/streaming.rs",
+			"model_gateway/src/routers/grpc/harmony/streaming.rs",
+			"model_gateway/src/routers/grpc/context.rs",
+			"model_gateway/src/routers/http/pd_router.rs"
+		],
+		"check": "Trace PD timing separately through regular chat, generate, completions, Messages and Harmony streams. Only regular gRPC chat/generate paths carry PdTiming and emit the PD TTFT pair from prefill/decode dispatch; completions, Messages and Harmony paths discard it. Generic router TTFT on paths without PdTiming uses their streaming-task start when recorded. Qualify both metric table rows and related-series prose; do not generalize the prefill anchor to every gRPC endpoint or parser path. Verify the distinct HTTP PD response-head contract and reconcile the concept page with the metrics reference."
+	},
+	{
+		"id": "removed-worker-metric-series",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/monitoring.md", "reference/metrics.md"],
+		"source_paths": [
+			"model_gateway/src/observability/worker_metrics.rs",
+			"model_gateway/src/worker/registry.rs",
+			"model_gateway/src/observability/metrics.rs"
+		],
+		"check": "Trace worker removal through Metrics::remove_worker_metrics and WorkerSeries::retire: removed-worker series are dropped from scrapes, not retained with smg_worker_health=-1. Distinguish a registered worker's health or engine-gauge sentinels from removal. Reconcile the monitoring guide and metrics reference."
+	},
+	{
+		"id": "default-admission-metrics",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/monitoring.md", "reference/metrics.md"],
+		"source_paths": ["model_gateway/src/app_context.rs", "model_gateway/src/main.rs"],
+		"check": "Trace maybe_rate_limiter and default_max_concurrent_requests: the default negative max-concurrent-requests value enables admission with a host-derived cap; a positive value supplies an explicit cap and zero disables it. Do not claim admission metrics require explicitly supplying --max-concurrent-requests. Describe metric emission conditions from their actual recording paths."
+	},
+	{
+		"id": "pd-prefill-wait-export-type",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/pd-disaggregation.md", "reference/metrics.md"],
+		"source_paths": ["model_gateway/src/observability/metrics.rs"],
+		"check": "Trace smg_pd_prefill_admission_wait_seconds through start_prometheus and the complete histogram_bucket_overrides list. No bucket matcher applies to this name, so it exports as a Prometheus summary with the default quantiles, not a bucketed histogram. The Rust histogram recording macro does not determine the Prometheus export type. Reconcile the PD concept table and metrics reference."
+	},
+	{
+		"id": "pd-kv-transfer-failure-causes",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/pd-disaggregation.md", "reference/metrics.md"],
+		"source_paths": [
+			"model_gateway/src/routers/http/pd_router.rs",
+			"model_gateway/src/routers/grpc/common/stages/request_execution.rs",
+			"model_gateway/src/observability/metrics.rs"
+		],
+		"check": "Inspect every active caller of record_pd_kv_transfer_failure. smg_pd_kv_transfer_failures_total includes missing NIXL transfer parameters with decode recomputation and HTTP MoRI-IO pair validation or missing/invalid handoff failures that reject the request. Cover sequential and concurrent MoRI-IO paths; do not describe the counter as only NIXL or claim all increments mean successful recomputation. Reconcile concept and reference descriptions."
+	},
+	{
+		"id": "released-sglang-launch-mode",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"getting-started/grpc-workers.md",
+			"getting-started/index.md",
+			"getting-started/kv-events-cache-aware.md",
+			"getting-started/pd-disaggregation.md"
+		],
+		"source_paths": [
+			"grpc_servicer/smg_grpc_servicer/sglang/plugin.py",
+			"grpc_servicer/tests/test_sglang_rust_servicer.py",
+			"scripts/launch-pd-workers.sh",
+			"grpc_servicer/README.md"
+		],
+		"check": "Verify the SGLang launch integration and runnable examples at this release: the supported command uses --grpc-mode. Do not copy later --smg-grpc-mode, --smg-http-sidecar-port, HTTP-sidecar defaults, or a deprecation claim for --grpc-mode from main unless supported by this pinned release. Keep launch commands and accompanying option tables consistent across the getting-started guides."
+	},
+	{
+		"id": "mcp-iteration-provider-coverage",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/metrics.md"],
+		"source_paths": [
+			"crates/external_router/src/anthropic/router.rs",
+			"crates/external_router/src/anthropic/non_streaming.rs",
+			"crates/external_router/src/anthropic/streaming.rs",
+			"crates/external_router/src/metrics.rs",
+			"model_gateway/Cargo.toml"
+		],
+		"check": "Trace smg_mcp_tool_iterations_total across both model_gateway and external_router, including the default providers feature chain. Released Anthropic Messages MCP loops record this counter in streaming and non-streaming paths when MCP toolsets are enabled, alongside Responses API loops. Preserve this shipped provider coverage; do not narrow the metric to Responses by examining only one crate or recorder."
+	},
+	{
+		"id": "mcp-alias-approval-identity",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/extensibility/mcp.md"],
+		"source_paths": [
+			"crates/mcp/src/core/session.rs",
+			"crates/mcp/src/core/orchestrator.rs",
+			"crates/mcp/src/inventory/types.rs",
+			"crates/mcp/src/approval/policy.rs"
+		],
+		"check": "Trace aliased tool exposure and execution through McpToolSession, approval params and PolicyEngine. Alias entries replace the direct tool and use the qualified identity alias:<alias name>; original server/tool policy keys and original-server trust do not match that identity. Explain how to configure policy for the exposed alias and qualify blanket original-server denial claims. Verify precedence, alias annotations and active callers; describe the current operator-facing contract without a bug narrative."
+	},
+	{
+		"id": "admission-error-envelope",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/reliability/rate-limiting.md", "reference/api/openai.md"],
+		"source_paths": [
+			"crates/external_router/src/error.rs",
+			"model_gateway/src/middleware/concurrency.rs"
+		],
+		"check": "Verify the actual JSON error.type emitted by shed_response through create_error/error_type_for_status: gateway 503 examples use server_error, not the HTTP reason phrase Service Unavailable. Reconcile the rate-limiting example, overload guide and OpenAI error table."
+	},
+	{
+		"id": "grpc-stream-error-types",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/api/openai.md"],
+		"source_paths": [
+			"model_gateway/src/routers/grpc/utils/stream_failure.rs",
+			"model_gateway/src/routers/grpc/utils/chat_utils.rs"
+		],
+		"check": "Trace StreamFailure::error_type and the send_error_sse caller. Worker-failed streams emit stream_error, request-fault statuses use the corresponding HTTP error-body type, and internal_error is reserved for gateway processing failures. Do not label all post-first-chunk gRPC errors internal_error; keep the example and its explanation aligned."
+	},
+	{
+		"id": "messages-validation-error-header",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["reference/api/messages.md", "reference/api/openai.md"],
+		"source_paths": [
+			"crates/protocols/src/validated.rs",
+			"model_gateway/src/middleware/messages_errors.rs",
+			"model_gateway/src/middleware/metrics.rs",
+			"crates/external_router/src/error.rs"
+		],
+		"check": "Follow real JSON extractor rejection, Messages envelope conversion and response headers. ValidatedJson inserts RejectionCode for metrics but no X-SMG-Error-Code header; Messages conversion preserves existing headers rather than creating that header from a body error code. Do not generalize a bad_request(json_parse_error) test fixture to the active extractor path. Reconcile both API references and distinguish gateway-builder error-code headers from validation failures."
+	},
+	{
+		"id": "cache-aware-adaptive-spill-margin",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/architecture/overview.md", "concepts/routing/cache-aware.md"],
+		"source_paths": ["model_gateway/src/policies/cache_aware.rs"],
+		"check": "Trace over_count_pressure_gate and absolute_margin. Both relative and absolute comparisons must pass, but the absolute margin is min(balance_abs_threshold, max(ceil(2 * sqrt(mean)), 4)), not the configured threshold alone. Keep overview summaries consistent with the canonical Cache-Aware Routing page. Prefer a concise adaptive-margin summary with a link to its Spill Gate section instead of duplicating formulas; never describe --balance-abs-threshold as the actual fixed margin."
+	},
+	{
+		"id": "cache-decision-trace-transport",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/routing/cache-aware.md"],
+		"source_paths": [
+			"model_gateway/src/observability/cache_trace.rs",
+			"model_gateway/src/routers/grpc/pipeline.rs",
+			"model_gateway/src/routers/factory.rs"
+		],
+		"check": "Trace the actual installation of cache_trace::scope and response-header emission. At this release only the gRPC pipeline, shared by gRPC and ZMQ workers, installs the capture scope. HTTP-worker routers do not; shared policy recorder calls are inert without it. Qualify the Decision Traces section, SMG_CACHE_TRACE switches and x-smg-cache-trace request/response header behavior to the supported worker transports."
+	},
+	{
+		"id": "request-span-path-and-coverage",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/monitoring.md", "getting-started/logging.md"],
+		"source_paths": ["model_gateway/src/middleware/logging.rs", "model_gateway/src/server.rs"],
+		"check": "Trace RequestSpan::make_span and attach_edge_layers. http_request records request.uri().path(), never the full URI/query string, and the fallback is installed before edge layers so every request to the main listener is covered, including unmatched routes. Keep monitoring and logging summaries consistent; the separate health-check listener does not cross those middleware layers."
+	},
+	{
+		"id": "mcp-call-counter-labels",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["getting-started/monitoring.md", "reference/metrics.md"],
+		"source_paths": [
+			"crates/external_router/src/metrics.rs",
+			"model_gateway/src/observability/metrics.rs"
+		],
+		"check": "Verify the complete labels emitted by record_mcp_tool_call for smg_mcp_tool_calls_total: model, tool_name and result. Include model in the monitoring guide summary as well as the metric reference; do not infer label completeness from an old summary table."
+	},
+	{
+		"id": "load-monitor-startup-bound",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/reliability/overload-protection.md",
+			"reference/configuration.md",
+			"reference/api/admin.md"
+		],
+		"source_paths": [
+			"model_gateway/src/config/validation.rs",
+			"model_gateway/src/server.rs",
+			"model_gateway/src/main.rs",
+			"model_gateway/src/worker/monitor.rs",
+			"model_gateway/src/routers/common/overload.rs"
+		],
+		"check": "Trace startup through RouterConfig::validate and validate_server_settings: the global --load-monitor-interval must be greater than zero; zero is rejected before serving. Do not replace that requirement with a one-second clamp based on lower-level polling or Retry-After helpers. Distinguish a worker spec load_monitor_interval_secs override, whose group polling interval is floored to one second, from the validated global CLI setting. Keep overload, configuration and Admin API descriptions consistent."
+	},
+	{
+		"id": "cache-policy-counter-coverage",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"getting-started/kv-events-cache-aware.md",
+			"concepts/routing/cache-aware.md",
+			"reference/metrics.md"
+		],
+		"source_paths": ["model_gateway/src/policies/cache_aware.rs"],
+		"check": "Trace early returns before every record_worker_cache_aware_policy_branch call. --cache-index hash dispatch and KV-pressure fallback return before the branch counter; smg_cache_aware_policy_branch_total covers tree/event-driven selections, not every routing decision. Qualify the quick-start summary consistently with the canonical policy and metric descriptions."
+	},
+	{
+		"id": "selection-and-prefill-error-codes",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"reference/api/openai.md",
+			"concepts/reliability/rate-limiting.md",
+			"concepts/routing/pd-disaggregation.md"
+		],
+		"source_paths": [
+			"model_gateway/src/routers/grpc/common/stages/worker_selection.rs",
+			"model_gateway/src/middleware/mod.rs",
+			"model_gateway/src/routers/mod.rs",
+			"crates/external_router/src/error.rs"
+		],
+		"check": "Verify released selection_queue_timeout (503, Retry-After: 2 from middleware::SHED_RETRY_AFTER_SECS) and pd_prefill_queue_full / pd_prefill_queue_timeout (429, no Retry-After). Include all three in both the OpenAI Error Codes and Rate Limiting tables. Distinguish the gRPC remaining gateway queue-time budget from the PD-specific queue timeout, and do not use the unrelated overload module default of 10 seconds for selection_queue_timeout."
+	},
+	{
+		"id": "discovered-moriio-connector",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/architecture/service-discovery.md",
+			"concepts/routing/pd-disaggregation.md"
+		],
+		"source_paths": [
+			"model_gateway/src/service_discovery/kubernetes.rs",
+			"model_gateway/src/routers/common/kv_transfer.rs",
+			"model_gateway/src/routers/http/pd_router.rs",
+			"model_gateway/src/worker/worker.rs"
+		],
+		"check": "Verify smg.ai/kv-connector through discovery and actual PD dispatch. The discovery warning claims passthrough for unlisted connectors, but MoRIIOConnector selects KvConnectorMode::MoriIo at dispatch. moriio_endpoint requires read/write moriio_mode labels unavailable from the supported pod annotations; missing labels cause 503 moriio_pair_misconfigured. Carve this released connector out of any other value is passthrough claims and direct MoRI-IO workers to registration with the required labels, linking the canonical PD section. Do not treat the discovery warning as proof of request behavior."
+	},
+	{
+		"id": "discovery-recovery-registration-health",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/reliability/health-checks.md",
+			"concepts/architecture/service-discovery.md"
+		],
+		"source_paths": [
+			"model_gateway/src/workflow/steps/mod.rs",
+			"model_gateway/src/workflow/steps/local/detect_connection.rs",
+			"model_gateway/src/workflow/steps/util.rs",
+			"model_gateway/src/workflow/job_queue.rs"
+		],
+		"check": "Trace discovery auto-recovery through AddWorker and the local worker_registration workflow. HTTP/gRPC connection detection requires a successful health probe before worker creation/activation and retries at startup cadence; a still-down engine waits for registration rather than being repeatedly registered Ready and demoted by background probes. Keep the health-checks Worker Auto-Recovery table consistent with service discovery. Distinguish ZMQ explicit ipc reachability and activation semantics rather than generalizing HTTP/gRPC probes to it."
+	},
+	{
+		"id": "contributor-checkout-toolchain-pin",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["contributing/index.md", "contributing/development.md"],
+		"source_paths": ["rust-toolchain.toml", "CONTRIBUTING.md"],
+		"check": "The released checkout contains rust-toolchain.toml pinning Rust 1.98.0 with clippy/rustfmt. Align Quick Start and Development: let rustup honor that checked-in pin instead of instructing a persistent rustup override set 1.98.0, which can shadow later pin changes. Nightly rustfmt remains a separate explicit nightly toolchain. Keep actionable prerequisite versions without claiming the repository lacks its toolchain file."
+	}
+]

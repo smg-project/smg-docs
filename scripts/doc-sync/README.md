@@ -228,6 +228,63 @@ citations are not rejected. The editor may only change the original concern.
 
 ## Version routing and release snapshots
 
+For release-audit debugging, dispatch `nightly-doc-sync.yml` with
+`release_diagnostic_run` set to an earlier nightly run that uploaded all writer
+bundles, and `release_diagnostic_batches` set to one to eight batch numbers (for
+example `0,6,13,23,34`). Include the owning batches of any related pages named in
+the rejected review: unchanged checkpoint pages remain review context, and a
+writer cannot fix a contradiction outside its assigned paths. This forces
+dry-run mode and uses a separate concurrency group,
+so it can run alongside a full audit. The checkpoint must have exactly the same
+release SHA, documentation base, seed, manifest and batch layout. Only validated
+Markdown bundles are reused; old review approvals are never imported. Selected writers
+retain their original page allowlists and see the complete checkpoint for context.
+Set `release_diagnostic_stage` to `repair` or `repair-followup` when that stage
+uploaded a complete set of corrected bundles. This retains corrections already
+made by the earlier audit instead of reintroducing its first-draft defects.
+The selected stage must contain every original batch; missing or invalid data
+fails without falling back to an older draft or mixing stages. Review approvals
+are never imported, even from a completed repair stage.
+To continue a failed diagnostic, use its run ID and stage `diagnostic`. Preparation
+reconstructs that exact proposal from its frozen baseline and every selected
+writer output, validates all selected review hashes, and supplies only negative
+findings as repair guidance. Accepted page corrections are retained. Select the
+owning batches of all remaining defects; writers receive the repair prompt
+instead of starting a new draft. Missing, stale, unchanged or fully accepted
+checkpoints fail closed. Historical findings are never approval evidence, and
+fresh reviews must satisfy the current regression catalog.
+An unchanged proposal is rejected before independent review. Diagnostics stop
+after strict reviews of the selected batches: they cannot finalize, publish,
+enter the two-pass repair pipeline, or provide approval evidence for a full run.
+Use them to debug a specific content defect, then run the complete workflow on
+the final revision before opening the implementation PR.
+
+To repair a completed full run that failed final content review, set
+`release_resume_run` to that run and `release_resume_batches` to every failed
+batch plus any related page owners identified in the findings. Resume requires
+complete final bundle coverage and all final review records from the same frozen
+release/base/seed/batch layout. It reconstructs each batch from the retained
+baseline, writer output, first repair and second repair, in that order; repair
+stages may cover only selected batches. Final review hashes must match the
+reconstructed proposal. If main advanced only through edits to existing
+main Markdown pages, resume permits it only when the release seed, source,
+navigation and batch layout are unchanged. It retains the original base and
+hashes for every correction and review; final publication applies the existing
+freshness checks to the latest main. Other base changes require a fresh audit.
+It validates their hashes and copies only the
+Markdown and negative repair guidance. Initial writing and review are skipped;
+the selected batches enter the existing repair stage. Every page then gets a
+fresh independent review against the changed whole snapshot, followed by the
+existing optional second correction pass, site/build checks and dry-run
+publication. The initial proposal must change; prior approvals cannot authorize
+it. Resume is manual, forces dry-run, and cannot be combined with diagnostic
+mode. It avoids regenerating accepted content, not the final validation gates.
+
+Full release stages and selected diagnostic batches run at most eight jobs
+concurrently. They share the runner pool capped at ten; any excess jobs wait for
+a runner. This changes scheduling, not source coverage, model effort, review
+requirements or publication gates.
+
 Before ordinary discovery, `snapshots.py detect` resolves GitHub's latest published
 non-draft, non-prerelease SMG tag. It never treats a prepared folder as proof of a
 release. A latest release older than the newest registered docs version leaves
@@ -237,16 +294,51 @@ When that prepared version actually ships, it is audited despite already existin
 `docs-release-snapshot.yml` reconciles a newly published tag when its `sync.json`
 does not record the same verified release identity. It preserves existing snapshot
 Markdown and images, copies missing pages/assets from main, and freezes navigation
-and aliases. Writers audit six pages per batch against the immutable release
+and aliases. Writers audit at most two pages per batch, with a 48 KiB reading
+budget based on the larger of each snapshot/main page; larger pages run alone.
+Ordinary batches have a 180-turn hard limit; isolated oversized pages receive
+300 turns for both writing and independent review, with completion headroom.
+They audit against the immutable release
 checkout: remove main-only behavior, correct stale claims, and add missing released
 behavior. Every page, including unchanged pages, requires independent review.
+Every writer and reviewer receives an untruncated main-to-snapshot diff so
+released material missing from an existing snapshot is visible. Known defects
+live in `release-regressions.json`, scoped to an exact source SHA and affected
+pages. Add source-backed cases when an audit misses a contract; update them only
+after verifying a different release. They are investigation questions, never
+pre-approved claims. Independent reviewers must return a source-evidenced result
+for every applicable case; a false result rejects content, and missing/duplicate
+results fail validation. Other releases do not inherit version-specific claims.
+The complete page audit remains required in addition to these checks.
 All writer batches are assembled before reviewers check cross-page consistency.
+Deterministic reader checks cover the complete release pages, including inherited
+PR/source citations and unreleased narration. These findings are appended to the
+review and cannot be overridden by an accepting model verdict.
+Valid negative verdicts allow at most two correction passes in separate writer jobs. Local
+findings select rejected batches; a cross-page inconsistency selects every batch
+because another page's reviewer may have missed the defect. Each writer reads all
+validated negative findings and corrects only implicated claims on its assigned
+pages, including failed source-pinned checks. Unrelated paragraphs and tables stay
+unchanged; correction is not another rewrite or completeness audit. Missing,
+malformed or stale review evidence remains fatal. Repairs
+keep the original page allowlists; every page is then independently reviewed again
+in pristine read-only jobs. Each verdict binds both its own batch and the entire
+assembled snapshot, so a changed related page invalidates earlier reviews. A
+remaining negative verdict after the second pass blocks publication. New findings
+after the first correction feed the second pass. Each pass must change the
+rejected snapshot before any fresh review; the workflow never retries reviews
+until an unchanged proposal happens to pass.
 Only data crosses into pristine review/publication jobs. Missing, rejected,
 wrong-base or altered bundles block the entire snapshot PR. Unsupported pages
 may be removed along with their navigation entry; dangling links fail site tests.
 
-All-version page/link/navigation tests, type checks and the production build must
-pass. Publication rechecks release identity, docs main freshness and daily quota.
+Before final site validation, publication can refresh to a newer main commit
+when only existing working Markdown pages changed and the frozen snapshot seed
+is identical. Reviewed release bytes and their hashes stay fixed. New/deleted
+pages, release content, assets, navigation, registry or tooling changes require a
+fresh audit. All-version page/link/navigation tests, type checks and the production
+build run on the refreshed tree. Publication rechecks release identity, the
+validated main revision and daily quota; a later race still fails safely.
 A release PR uses `docs/release-vX.Y.Z-<sha>` and contains one release lifecycle
 concern, including the mechanical snapshot copy. This whole-snapshot operation
 is exempt from the ordinary 999-line cap; normal main/maintenance PRs retain it.

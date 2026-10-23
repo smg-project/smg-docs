@@ -202,8 +202,8 @@ If you deploy with the SMG Helm chart, set `router.metrics.serviceMonitor.enable
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `smg_mcp_tool_calls_total` | Counter | Tool invocations by tool_name, result |
-| `smg_mcp_tool_duration_seconds` | Histogram | Tool execution time |
+| `smg_mcp_tool_calls_total` | Counter | Tool invocations by model, tool_name, result |
+| `smg_mcp_tool_duration_seconds` | Histogram | Tool execution time by model, tool_name |
 | `smg_mcp_servers_active` | Gauge | Connected MCP servers |
 
 Several of these exist only when their feature is on: admission metrics need `--max-concurrent-requests` (the multimodal rejection reasons need `--multimodal-max-inflight-bytes` instead), the `smg_workers_overloaded` gauge needs worker overload protection, and PD metrics need PD mode.

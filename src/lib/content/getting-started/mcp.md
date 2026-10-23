@@ -191,7 +191,7 @@ curl http://localhost:30000/health
 curl http://localhost:29000/metrics | grep smg_mcp
 ```
 
-`smg_mcp_tool_calls_total` counts calls by `tool_name` and `result`, and `smg_mcp_tool_duration_seconds` records how long each call took.
+`smg_mcp_tool_calls_total` counts calls by `model`, `tool_name`, and `result`, and `smg_mcp_tool_duration_seconds` records each call's duration by `model` and `tool_name`.
 
 ---
 

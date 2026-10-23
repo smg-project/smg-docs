@@ -467,7 +467,13 @@ When a [Symphony table](#symphony-parsing) reads the request, its own structural
 
 Some parsers add rules on top of their structural tag:
 
-- **`glm47_moe`, `minimax_m3`**: when thinking is on, these families' templates end the prompt inside the thinking block, so a grammar applied from the model's first token would force the call into the thought, where the reasoning parser would absorb it. SMG wraps the tag so the model reasons first, shaped by where the selected worker's engine starts a grammar on a thinking prompt — its `constrained_decoding_start` label, which the gRPC servicers advertise from the engine's configuration. An engine that defers the grammar behind its own reasoning parser (`after_reasoning`: SGLang running a reasoning parser) gets the bare calls, forced right at the thought's end. An engine that applies the grammar from the first generated token (`first_token`: TokenSpeed always, SGLang without a reasoning parser; vLLM advertises either, from its structured-outputs config) gets a thought block closed by the thinking marker, with the think and call markers excluded, and then the calls. A worker that doesn't say gets a shape that fits either kind: free text that writes none of the call markers, with nothing owed at its end. Under PD disaggregation the decode worker's label counts, and a retry re-shapes the tag for the worker it picks.
+- **`glm47_moe`, `minimax_m3`**: when thinking is on, these families' templates end the prompt inside the thinking block, so a grammar applied from the model's first token would force the call into the thought, where the reasoning parser would absorb it. SMG wraps the tag so the model reasons first, shaped by where the selected worker's engine starts a grammar on a thinking prompt — its `constrained_decoding_start` label, which the gRPC servicers advertise from the engine's configuration:
+
+    - `after_reasoning` (SGLang running a reasoning parser): the engine defers the grammar behind its own reasoning parser, so the tag holds the bare calls, forced right at the thought's end.
+    - `first_token` (TokenSpeed always; SGLang without a reasoning parser; vLLM advertises either, from its structured-outputs config): the engine applies the grammar from the first generated token, so the tag opens with a thought block closed by the family's thought-end marker — the think and call markers excluded — and the calls follow.
+    - No label: free text that writes none of the call markers, with nothing owed at its end — a shape that fits either kind of engine.
+
+    Under PD disaggregation the decode worker's label counts, and a retry re-shapes the tag for the worker it picks.
 - **`kimi_k3`**: each argument grammar carries the tool schema's `$defs` / `definitions` block, so parameters that use `$ref` compile instead of failing the request.
 
 ### Combining with Structured Output

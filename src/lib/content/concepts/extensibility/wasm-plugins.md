@@ -62,7 +62,7 @@ SMG runs every plugin attached at a point, in no defined order: don't rely on de
 2. **Reject(status)**: Stop processing and return an error response immediately
 3. **Modify(changes)**: Apply transformations and continue
 
-If any plugin returns `Reject`, subsequent plugins are skipped and the error response is returned to the client: on a request, the status with an empty body; on a response, the status with the response body so far. On `/v1/messages` and its sub-paths, an error status from `Reject` instead arrives in the [Messages API's error envelope](../../reference/api/messages.md#errors), like every other error on those routes. A plugin that fails or runs past its time limit is skipped, and processing continues with the next one.
+If any plugin returns `Reject`, subsequent plugins are skipped and the error response is returned to the client: on a request, the status with an empty body; on a response, the status with the response body so far. On `/v1/messages` and its sub-paths, an error status from `Reject` instead reaches the client in the [Messages API's error envelope](../../reference/api/messages.md#errors), like every other error on those routes. A plugin that fails or runs past its time limit is skipped, and processing continues with the next one.
 
 !!! warning "Authentication plugins fail open on errors"
     An `OnRequest` authentication plugin must not be the only authentication control: if it fails or times out, an unauthenticated request can continue to a worker. Configure independent [gateway authentication](../security/authentication.md), such as `--api-key`, so access remains protected when the plugin is skipped. Returning `Reject` for invalid credentials does not protect against plugin failures or timeouts.

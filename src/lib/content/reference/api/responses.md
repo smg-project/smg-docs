@@ -527,8 +527,8 @@ For a failed generation, `error` keeps the upstream error's `code` (or `type`) a
 `max_tool_calls_exceeded` the internal cap.
 
 gpt-oss (Harmony) models report `completed` even when `max_output_tokens` cuts the output
-short; only the tool-call limit fails their response, streamed or not (see
-[Tool Call Limits](#tool-call-limits)).
+short; the tool-call limit is the only limit that fails their response, streamed or not
+(see [Tool Call Limits](#tool-call-limits)).
 
 ### Usage
 

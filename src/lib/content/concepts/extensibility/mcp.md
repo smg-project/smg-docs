@@ -94,7 +94,7 @@ Static servers are declared under `servers` in the [configuration file](#configu
 - **Referencing.** A Responses request uses a static server by setting `server_label` to the server's `name` and leaving out `server_url`. Built-in tool routing only uses static servers.
 - **Tool discovery.** SMG lists the server's tools when it connects and lists them again when the server sends a `tools/list_changed` (or resource or prompt list-changed) notification. There is no periodic refresh.
 - **Restarts.** When a Streamable HTTP server restarts and reports the old session as expired (HTTP 404), the client opens a new session on the next call.
-- **Reconnection.** A dropped connection is rebuilt on use, not in the background: when a call fails because the connection to the server dropped — including a stdio server whose process has exited — SMG reconnects the server while handling that call, with up to 5 attempts and exponential backoff (waits of 0.5, 1, 2, then 4 seconds between attempts). For a stdio server this starts a new `command` process, and the server's tools are listed again on the new connection. The interrupted call itself still fails (see [Interrupted Calls](#interrupted-calls)); later calls use the new connection. If all 5 attempts fail, SMG removes the server and later calls fail with `Server not found: <name>` until the gateway restarts.
+- **Reconnection.** A dropped connection is rebuilt on use, not in the background: when a call fails because the connection to the server dropped — including a stdio server whose process has exited — SMG reconnects the server while handling that call, with up to 5 attempts and exponential backoff (waits of 0.5, 1, 2, then 4 seconds between attempts). For a stdio server, reconnecting starts a new `command` process. The server's tools are listed again on the new connection. The interrupted call itself still fails (see [Interrupted Calls](#interrupted-calls)); later calls use the new connection. If all 5 attempts fail, SMG removes the server and later calls fail with `Server not found: <name>` until the gateway restarts.
 - **Server logs.** Log messages that a static server sends are written to SMG's log at the matching level.
 
 ### Dynamic Servers
@@ -160,7 +160,7 @@ If the connection to an MCP server drops while a call is in flight, SMG cannot t
 Tool call outcome unknown: server 'orders' disconnected while executing 'place_order'; the call was not retried because the tool is not marked idempotent or read-only
 ```
 
-Only a call to a tool that declares the MCP `idempotentHint` or `readOnlyHint` annotation is eligible to be re-issued on a new connection. SMG does not currently use these annotations from a server's tool list for this check, so every interrupted call fails this way.
+Only a call to a tool that declares the MCP `idempotentHint` or `readOnlyHint` annotation is eligible to be re-issued on a new connection. SMG does not use these annotations from a server's tool list for this check, so every interrupted call fails this way.
 
 While handling the interrupted call, SMG also [reconnects a dropped static server](#static-servers), restarting a stdio server's process, so later calls run on the new connection. Dynamic (pooled) connections are not reconnected this way.
 

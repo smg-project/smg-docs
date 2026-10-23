@@ -116,7 +116,7 @@ Errors use the body `{"error": {"message": "...", "type": "..."}}`:
 
 Runs one tool-call parser over complete model output, the same way the gateway parses a non-streaming response in its default (legacy) parser mode.
 
-[`--parser symphony`](../concepts/architecture/grpc-pipeline.md#symphony-parsing) and the `X-SMG-Parser` header change only the serving pipeline. This endpoint always runs the legacy parser named in `tool_call_parser`, never a Symphony table, and a name only a table answers to isn't accepted here.
+[`--parser symphony`](../concepts/architecture/grpc-pipeline.md#symphony-parsing) and the `X-SMG-Parser` header change only the serving pipeline. This endpoint always runs the legacy parser named in `tool_call_parser`, never a Symphony table; a name that only a table answers to is rejected as unknown.
 
 | Field | Type | Description |
 |-------|------|-------------|

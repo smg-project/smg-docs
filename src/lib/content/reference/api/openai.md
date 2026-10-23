@@ -702,12 +702,11 @@ sent them; error frames are the one exception (see [Upstream Errors](#upstream-e
 
 #### Upstream Errors
 
-A refusal loses the provider-side account identifiers before it reaches the caller:
-phrases naming an organization (`org-…`) or a project (`proj_…`) in a JSON error's
-`error.message` are removed, as on every provider relay (see
+A refusal loses the account identifiers in a JSON error's `error.message` before it
+reaches the caller: phrases naming an organization (`organization org-…`) or a project
+(`project proj_…`) are removed, as on every provider relay (see
 [Provider Error Responses](../../getting-started/external-providers.md#provider-error-responses)).
-This applies on both routers, so error frames from local realtime workers are rewritten
-too.
+Both routers do this, so error frames from local realtime workers are sanitized too.
 
 - A non-success answer to a realtime REST call or to the `/v1/realtime/calls` SDP
   exchange is returned under the upstream's status and content type with its body

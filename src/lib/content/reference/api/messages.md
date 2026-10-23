@@ -396,7 +396,7 @@ Clients then call SMG as in the [Anthropic API example](#example-request).
 
 - SMG sends each request to `<worker URL>/v1/messages`, so the worker URL is the API origin without `/v1`. The request carries the client's `x-api-key`, `Authorization`, `anthropic-version`, and `anthropic-beta` headers; SMG adds none of them.
 - Streaming responses are relayed as they arrive. Non-streaming responses are parsed into SMG's Messages schema and re-serialized; a body that does not parse returns `502` with code `parse_error`.
-- An upstream error is returned with its status and body, minus the account identifiers in the body's `error.message`: phrases naming an organization (`org-…`) or a project (`proj_…`) are removed (see [Provider Error Responses](../../getting-started/external-providers.md#provider-error-responses)). An error Anthropic answers as an SSE stream is relayed as it arrives.
+- An upstream error is returned with its status and body, minus the organization and project identifiers in the body's `error.message` (see [Provider Error Responses](../../getting-started/external-providers.md#provider-error-responses)). An error Anthropic answers as an SSE stream is relayed as it arrives.
 - `/v1/messages/count_tokens` returns `501`.
 
 ---
@@ -484,7 +484,7 @@ SMG produces Anthropic's error format (`{"type": "error", ...}`) only inside an 
 | Gateway authentication fails | `401` | Empty |
 | SMG itself: routing, the gRPC pipeline, the MCP tool loop | Varies | The standard JSON error envelope, plus an `X-SMG-Error-Code` header |
 | HTTP or PD worker | Upstream status | The upstream body, unchanged |
-| The Anthropic API | Upstream status | The upstream body, minus the account identifiers in its error message (see [Anthropic API Backend](#anthropic-api-backend)) |
+| The Anthropic API | Upstream status | The upstream body, minus the organization and project identifiers in its error message (see [Anthropic API Backend](#anthropic-api-backend)) |
 
 The standard envelope names the HTTP status in `type` and repeats `code` in the `X-SMG-Error-Code` header. For example, an over-long prompt on a gRPC worker:
 

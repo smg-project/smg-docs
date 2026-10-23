@@ -126,13 +126,15 @@ How the two combine depends on the router:
 
 ## Provider Error Responses
 
-When a provider refuses a request — on chat completions, Responses, Messages, Gemini Interactions, or a realtime call — SMG relays the refusal under the provider's status, with the provider-side account identifiers removed from the body first, so callers cannot learn which provider account the gateway uses from a refusal:
+When a provider refuses a request — on chat completions, Responses, Messages, Gemini Interactions, or a realtime call — SMG relays the refusal under the provider's status but removes the provider-side account identifiers from the body, so callers cannot learn which provider account the gateway uses:
 
 - Phrases naming an organization (`organization org-…`) or a project (`project proj_…`) in a JSON body's `error.message` are removed, whatever their case.
 - The message of an error whose `code` is `invalid_image_url` is replaced with `Invalid Image URL`.
 - Everything else is relayed as the provider sent it: the error's `type` and `code`, the rest of the message, and any non-JSON body, which passes through unchanged.
 
-On chat completions, Messages, and realtime calls, the gateway logs a preview of the provider's original error at `warn`. The same scrubbing applies where a provider's error text reaches the caller indirectly: the error frames of a realtime WebSocket session (see [Upstream Errors](../reference/api/openai.md#upstream-errors)) and the failure message when a provider refuses a model call in SMG's MCP tool loop.
+The same scrubbing applies where a provider's error text reaches the caller indirectly: in the error frames of a realtime WebSocket session (see [Upstream Errors](../reference/api/openai.md#upstream-errors)) and in the failure message when a provider refuses a model call in SMG's MCP tool loop.
+
+On chat completions, Messages, and realtime calls, the gateway logs a preview of the provider's original error at `warn`.
 
 ---
 

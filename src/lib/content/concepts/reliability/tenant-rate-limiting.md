@@ -92,9 +92,9 @@ A denied reservation returns **429** with the gateway's standard JSON error enve
 
 Tenant rate limiting is wired into SMG's **gRPC router**, covering the Chat, Generate, Completion, Messages, Decisions, Embeddings, Classify, and Audio Transcriptions endpoints (Harmony-mode chat is covered too — it shares the same entry point as regular chat). The gRPC router serves [ZMQ-connected workers](../../getting-started/zmq-workers.md) too — `--connection-mode zmq` builds the same router and pipeline — and the reservation happens before a worker is even selected, so for every covered endpoint except Decisions, enforcement is identical whichever transport the workers use. Tenant rate limiting is **not wired into** the Responses endpoint or any of the HTTP-passthrough / external-provider routers.
 
-Settlement follows what each endpoint's backend actually reports: an embeddings or classify response carries only a prompt token count — there is no completion to charge — so those requests settle against the backend's reported prompt tokens alone. A transcription settles against the backend's reported prompt and completion counts, like a chat response, even though the transcript returned to the client carries no usage object.
-
 Decisions is the one endpoint where the worker transport matters: the gRPC router serves it only on gRPC-connected SGLang workers, so a Decisions request for a model served entirely by ZMQ-connected workers is rejected as unsupported before any budget is reserved.
+
+Settlement follows what each endpoint's backend actually reports: an embeddings or classify response carries only a prompt token count — there is no completion to charge — so those requests settle against the backend's reported prompt tokens alone. A transcription settles against the backend's reported prompt and completion counts, like a chat response, even though the transcript returned to the client carries no usage object.
 
 The `--tenant-rate-limit-*` flags belong to the Rust `smg` binary. The Python launcher (`smg launch` from pip, and the container image) does not accept them in v1.12.0.
 

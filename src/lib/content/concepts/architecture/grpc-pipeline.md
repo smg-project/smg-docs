@@ -470,7 +470,7 @@ Some parsers add rules on top of their structural tag:
 - **`glm47_moe`, `minimax_m3`**: when thinking is on, these families' templates end the prompt inside the thinking block, so a grammar applied from the model's first token would force the call into the thought, where the reasoning parser would absorb it. SMG instead wraps the tag so the model reasons first, in the shape the selected worker's engine needs. The worker's `constrained_decoding_start` label, which the gRPC servicers advertise from the engine's configuration, says where that engine starts a grammar on a thinking prompt (vLLM advertises either value, from its structured-outputs config):
 
     - `after_reasoning` (SGLang running a reasoning parser): the engine defers the grammar behind its own reasoning parser, so the tag holds the bare calls, forced right at the thought's end.
-    - `first_token` (TokenSpeed always; SGLang without a reasoning parser): the engine applies the grammar from the first generated token, so the tag opens with a thought block — free text without the think and call markers, closed by the family's thought-end marker — and the calls follow.
+    - `first_token` (TokenSpeed always; SGLang without a reasoning parser): the engine applies the grammar from the first generated token, so the tag opens with a thought block — free text without the think and call markers, closed by the family's thought-end marker (`</think>`, `</mm:think>`) — and the calls follow.
     - No label: free text that writes none of the call markers and isn't required to end with any marker, then the calls — a shape that fits either kind of engine.
 
     Under PD disaggregation the decode worker's label counts, and a retry re-shapes the tag for the worker it picks.

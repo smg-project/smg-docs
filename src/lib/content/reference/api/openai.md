@@ -608,16 +608,17 @@ curl http://localhost:30000/v1/models
 
 The list covers the models served by self-hosted workers, each once under its canonical
 ID. Names configured with `--model-alias` are accepted in requests but are not listed.
-`created` is always `0`. `owned_by` is `self_hosted` for locally hosted workers, or the
-provider name (for example `openai`, `anthropic`, `xai`, `gemini`) for upstream providers.
-When no self-hosted worker serves any model, the endpoint returns `503` in the gateway's
-JSON [error envelope](#error-format) with the code `no_models_available`.
+`created` is always `0` and `owned_by` is `self_hosted`. When no self-hosted worker
+serves any model, the endpoint returns `503` in the gateway's JSON
+[error envelope](#error-format) with the code `no_models_available`.
 
 The endpoint needs no key. If the caller does send a bearer token (or an `x-api-key`
 header) that is not one of the gateway's own keys, SMG treats it as the caller's own
 provider key: it asks the registered external providers' `/v1/models` with that token and
-returns the first non-empty list, falling back to the self-hosted list. A gateway key
-(`--api-key` or `--tenant-api-key`) is never forwarded to a provider.
+returns the first non-empty list, falling back to the self-hosted list. On that provider
+list, `owned_by` is the provider name for the recognized provider hosts (`openai`,
+`anthropic`, `xai`, `gemini`) and `self_hosted` for a provider at any other host. A
+gateway key (`--api-key` or `--tenant-api-key`) is never forwarded to a provider.
 
 A request carrying an `anthropic-version` header gets the same inventory in the Anthropic
 Messages shape instead: a single page with `has_more` (always `false`), `first_id`, and

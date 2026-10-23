@@ -326,7 +326,7 @@ All 24 registered tool-call parsers. For auto-detection, the longest matching pa
 | `kimi_k3` | `kimi-k3`, `kimi_k3` | XTML `tools` channel: `<\|open\|>call tool="NAME" index="N"<\|sep\|>` with `argument` elements | Structural tag |
 | `inkling` | `inkling` | TML: `<\|message_model\|>NAME<\|content_invoke_tool_json\|>{"name": ..., "args": {...}}<\|end_message\|>` | Structural tag |
 | `minimax_m2` | `minimax` | `<minimax:tool_call><invoke name="..."><parameter name="...">V</parameter></invoke></minimax:tool_call>` | JSON schema |
-| `minimax_m3` | `minimax-m3`, `mm-m3` | Every tag is prefixed with `]<]minimax[>[`; parameters nest as XML elements | JSON schema |
+| `minimax_m3` | `minimax-m3`, `mm-m3` | Every tag is prefixed with `]<]minimax[>[`; parameters nest as XML elements | Structural tag, reasoning-aware |
 | `cohere` | `command-r`, `command-a`, `c4ai-command`, `cohere` | `<\|START_ACTION\|>{"tool_name": ..., "parameters": {...}}<\|END_ACTION\|>` | JSON schema |
 | `sarashina` | `sarashina` | `[{'name': ..., 'arguments': {...}}]` as a Python literal, with an optional `<\|tool_calls\|>` prefix | JSON schema |
 
@@ -460,15 +460,15 @@ The Harmony pipeline (gpt-oss) builds its structural tags before encoding (`mode
 
 | Type | Parsers | What it constrains |
 |------|---------|--------------------|
-| `structural_tag` | `mistral`, `deepseek_v41`, `glm47_moe`, `kimik2`, `kimi_k3`, `inkling` | The model's own format: trigger tokens, call framing, and argument JSON. The model-specific parser reads the result |
+| `structural_tag` | `mistral`, `deepseek_v41`, `glm47_moe`, `kimik2`, `kimi_k3`, `inkling`, `minimax_m3` | The model's own format: trigger tokens, call framing, and argument JSON. The model-specific parser reads the result |
 | `json_schema` | Fallback for every other case, auto-detected parsers included | Plain JSON. A named function constrains its `parameters`. `required` constrains an array of `{"name", "parameters"}` objects, with `$defs` merged across tools; conflicting definitions return 400 `invalid_tool_configuration` |
 
 When a [Symphony table](#symphony-parsing) reads the request, its own structural tag takes the place of this choice (see [Constraints Under Symphony](#constraints-under-symphony)), and a worker whose `constrained_decoding` policy is `always` gets a tag for `auto` tool choice too (see [Grammar on `auto` Tool Choice](#grammar-on-auto-tool-choice)).
 
-Two parsers add rules on top of their structural tag:
+Some parsers add rules on top of their structural tag:
 
-- **`glm47_moe`**: when thinking is on, GLM-4.7-family templates end the prompt inside `<think>`. SMG then wraps the GLM tag in a reasoning prefix: free text that must close with `</think>`, with tool-call tokens excluded, followed by the forced call. The model reasons first, and the call can't end up inside the thinking block where the reasoning parser would absorb it. On SGLang workers the gateway then turns off SGLang's own `require_reasoning` deferral for that request (smg-project/smg#2550). GLM requests without tools, or with `tool_choice` `auto` or `none`, carry no grammar (smg-project/smg#2549, smg-project/smg#2550).
-- **`kimi_k3`**: each argument grammar carries the tool schema's `$defs` / `definitions` block, so parameters that use `$ref` compile instead of failing the request (smg-project/smg#2392).
+- **`glm47_moe`, `minimax_m3`**: when thinking is on, these families' templates end the prompt inside the thinking block, so a grammar applied from the model's first token would force the call into the thought, where the reasoning parser would absorb it. SMG wraps the tag so the model reasons first, shaped by where the selected worker's engine starts a grammar on a thinking prompt — its `constrained_decoding_start` label, which the gRPC servicers advertise from the engine's configuration. An engine that defers the grammar behind its own reasoning parser (`after_reasoning`: SGLang running a reasoning parser) gets the bare calls, forced right at the thought's end. An engine that applies the grammar from the first generated token (`first_token`: TokenSpeed always, SGLang without a reasoning parser; vLLM advertises either, from its structured-outputs config) gets a thought block closed by the thinking marker, with the think and call markers excluded, and then the calls. A worker that doesn't say gets a shape that fits either kind: free text that writes none of the call markers, with nothing owed at its end. Under PD disaggregation the decode worker's label counts, and a retry re-shapes the tag for the worker it picks.
+- **`kimi_k3`**: each argument grammar carries the tool schema's `$defs` / `definitions` block, so parameters that use `$ref` compile instead of failing the request.
 
 ### Combining with Structured Output
 

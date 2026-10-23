@@ -138,16 +138,17 @@ python -m smg_grpc_servicer.tokenspeed \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051 \
-  --kv-events-config '{"enable_kv_cache_events": true, "publisher": "zmq", "endpoint": "tcp://*:5557", "topic": "kv-events"}'
+  --kv-events-config '{"enable_kv_cache_events": true, "publisher": "zmq", "endpoint": "tcp://*:5557", "replay_endpoint": "tcp://*:5558", "topic": "kv-events"}'
 ```
 
 | Field | Why |
 |---|---|
 | `enable_kv_cache_events: true` | TokenSpeed master switch. Without it the scheduler records no events even if a publisher is set. |
 | `publisher: "zmq"` | Selects the ZMQ publisher the servicer reads. Unset defaults to `"zmq"` when events are enabled; `"null"` (or any other value) disables event streaming. |
-| `endpoint` / `topic` | ZMQ `PUB` address and topic. Use a **bind-style** endpoint (`tcp://*:PORT`): TokenSpeed binds only when the endpoint contains `*` or `::` or starts with `ipc://` or `inproc://`, so a concrete address like `tcp://127.0.0.1:PORT` makes it *connect* instead, leaving nothing bound and the stream idle. With data parallelism the port is `endpoint` port + `dp_rank`, and the TokenSpeed servicer subscribes to rank 0 only. |
+| `endpoint` / `topic` | ZMQ `PUB` address and topic. Use a **bind-style** endpoint (`tcp://*:PORT`): TokenSpeed binds only when the endpoint contains `*` or `::` or starts with `ipc://` or `inproc://`, so a concrete address like `tcp://127.0.0.1:PORT` makes it *connect* instead, leaving nothing bound and the stream idle. With attention data parallelism each rank publishes on `endpoint` port + rank, and the servicer subscribes to every rank, so the index sees every rank's cache. |
+| `replay_endpoint` | As for SGLang and vLLM: a ZMQ `ROUTER` address that serves recent batches for replay. When set, the servicer fills gaps in each rank's events from it before forwarding later batches; without it, a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). Each rank serves replay on `replay_endpoint` port + rank. |
 
-`--kv-events-config` is parsed by TokenSpeed's `KVEventsConfig.from_cli`. The TokenSpeed servicer does not replay missed events; a sequence gap costs that worker at most the missed batches, bounded by SMG (see [Recovery after gaps](#recovery-after-gaps)).
+`--kv-events-config` is parsed by TokenSpeed's `KVEventsConfig.from_cli`. Gap replay needs an explicit `replay_endpoint` in the config — no default supplies one.
 
 SMG learns the block size from the `BlockStored` events; TokenSpeed's cache reuse granularity is `--prefix-granularity` (default 64 tokens; older builds call it `--block-size`, which remains an alias), so set SMG's `--block-size` to the same value.
 
@@ -244,14 +245,9 @@ While the model's event index is empty, token requests route on the approximate 
 
 Every batch on the stream carries a sequence number. `KvEventMonitor` applies batches in order and skips duplicates. When it sees a gap in the sequence, it reconnects immediately and asks the servicer to resume after the last batch it applied; after a stream error or a clean close, it reconnects with exponential backoff from 100 ms up to 5 s. A subscription call that is not answered within 2 s — a port that accepts but does not serve yet, such as an engine still starting — is abandoned and retried.
 
-| Worker | Recovery |
-|---|---|
-| SGLang, vLLM | The servicer fills any gap in a rank's events from that rank's `replay_endpoint` before forwarding later batches, so SMG receives an unbroken stream and the index stays intact. A gap it cannot fill — no `replay_endpoint`, the missed batches already left the replay buffer, the replay failed, or the engine's publisher restarted — ends the stream with `DATA_LOSS`: SMG drops that worker's index entries and starts a new subscription. |
-| TokenSpeed | No replay: after a gap, the stream resumes from the engine's current position. SMG asks once for the missed batches, and when the stream skips ahead anyway it settles the gap — up to 1,024 missed batches keep the worker's existing entries (the stores SMG missed stay invisible until those blocks are stored again), a larger gap drops them. Index updates continue either way. |
+With the default Python servicer — SGLang, vLLM and TokenSpeed alike — a gap in a rank's events is filled from that rank's `replay_endpoint` before later batches are forwarded, so SMG receives an unbroken stream and the index stays intact. The servicer waits up to five seconds for each replay message before declaring a gap unfillable. A gap it cannot fill — no `replay_endpoint`, the missed batches already left the replay buffer, the replay failed, or the engine's publisher restarted — ends the stream with `DATA_LOSS`: SMG drops that worker's index entries and starts a new subscription.
 
-The servicer waits up to five seconds for each replay message before declaring a gap unfillable.
-
-On SGLang and vLLM workers, the default Python servicer keeps nothing between subscriptions: the stream's numbering is per call, a resume cursor is answered with `OUT_OF_RANGE`, and a new subscription carries live events only. After any stream break between SMG and the servicer, SMG therefore drops the worker's index entries and rebuilds them from live events. The rebuilt index is not a snapshot of the engine's cache: affinity to that worker returns as it caches new prefixes.
+The default Python servicer keeps nothing between subscriptions: the stream's numbering is per call, a resume cursor is answered with `OUT_OF_RANGE`, and a new subscription carries live events only. After any stream break between SMG and the servicer, SMG therefore drops the worker's index entries and rebuilds them from live events. The rebuilt index is not a snapshot of the engine's cache: affinity to that worker returns as it caches new prefixes.
 
 Workers running a [Rust servicer](grpc-workers.md) keep more. Its relay follows the engine's publisher for the servicer's whole lifetime: a reconnecting gateway is served the batches after its cursor from history, and a new subscription is answered with either the engine's complete event history or an in-band snapshot of the engine's live blocks, which SMG applies in place of whatever it held for that worker. Cache affinity then survives gateway restarts and long disconnects without waiting for new stores.
 
@@ -276,7 +272,7 @@ The event index holds what the engines report: block-removed and all-blocks-clea
 | `--overlap-decay` | SMG | De-ranks candidates with a waiting-prefill backlog. Needs workers that report waiting uncached tokens (SGLang does; vLLM and TokenSpeed do not). |
 | `--selection-temperature` | SMG | Spreads picks across candidates with near-equal overlap instead of always taking the best. |
 | `--balance-token-usage-threshold` / `--overload-token-usage-threshold` | SMG | Suspend cache affinity under KV pressure (off by default). |
-| `replay_endpoint` / `buffer_steps` | SGLang and vLLM `--kv-events-config` | Enable gap replay; raise `buffer_steps` if gaps go unfilled because the missed batches already left the buffer. |
+| `replay_endpoint` / `buffer_steps` | `--kv-events-config` | Enable gap replay; raise `buffer_steps` (SGLang and vLLM) if gaps go unfilled because the missed batches already left the buffer. |
 | `hwm` | `--kv-events-config` | Raise if events are dropped under bursty load. |
 
 `--cache-threshold` does not apply to event-driven routing: any worker holding at least the request's first full block is a candidate. See [Cache-Aware Routing](../concepts/routing/cache-aware.md#tuning-knobs) for the full list of knobs.
@@ -297,12 +293,11 @@ The `smg_cache_aware_policy_branch_total` and `smg_cache_aware_match_ratio` metr
 ## Caveats
 
 - **gRPC only.** Events stream over gRPC through `smg-grpc-servicer`. HTTP workers use the approximate string tree, ZMQ (`ipc://`) workers use the approximate token tree, and MLX workers do not implement `SubscribeKvEvents`.
-- **TokenSpeed: DP rank 0 only.** The SGLang and vLLM servicers relay every data-parallel rank's publisher; the TokenSpeed servicer subscribes to rank 0's only, so for data-parallel TokenSpeed workers the index reflects rank 0's cache.
 - **One block size per model.** If workers serving the same model use different page sizes, the policy uses whichever block size a worker reported last. Keep page sizes homogeneous within a model.
 - **Per-gateway index.** Each gateway subscribes to every worker itself. With `--enable-mesh`, gateways synchronize the approximate trees, not the event index.
 - **No cache partitions.** The event index ignores the `cache_salt`, `extra_key` and LoRA fields that partition the approximate trees.
 - **Unaligned stores are skipped.** The servicers drop any `BlockStored` event whose token count is not its block count times its block size (vLLM can emit these for Mamba models); those blocks never reach the index.
-- **Replay needs `replay_endpoint`.** The SGLang and vLLM servicers fill gaps only when `replay_endpoint` is set; without it, a gap costs the worker's index entries. The TokenSpeed servicer never replays, and SMG bounds what a gap costs instead (see [Recovery after gaps](#recovery-after-gaps)).
+- **Replay needs `replay_endpoint`.** The servicers fill gaps only when `replay_endpoint` is set in `--kv-events-config`; without it, a gap costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)).
 
 ---
 
@@ -314,7 +309,7 @@ The `smg_cache_aware_policy_branch_total` and `smg_cache_aware_match_ratio` metr
 - Engine-neutral relay (per-rank subscriptions, gap replay, normalization): `grpc_servicer/smg_grpc_servicer/kv_relay.py`; the Rust servicer's relay with history and state snapshots: `crates/engine_servicer/src/kv_events.rs`
 - SGLang servicer: `grpc_servicer/smg_grpc_servicer/sglang/servicer.py` (`SubscribeKvEvents`) + per-rank sources `grpc_servicer/smg_grpc_servicer/sglang/kv_events.py`
 - vLLM servicer: `grpc_servicer/smg_grpc_servicer/vllm/servicer.py` (`SubscribeKvEvents`) + config resolver `grpc_servicer/smg_grpc_servicer/vllm/kv_events.py`
-- TokenSpeed servicer: `grpc_servicer/smg_grpc_servicer/tokenspeed/servicer.py` (`SubscribeKvEvents`, a single-rank bridge over `grpc_servicer/smg_grpc_servicer/kv_events.py`) + config resolver `grpc_servicer/smg_grpc_servicer/tokenspeed/kv_events.py`
+- TokenSpeed servicer: `grpc_servicer/smg_grpc_servicer/tokenspeed/servicer.py` (`SubscribeKvEvents`) + per-rank sources and config resolver `grpc_servicer/smg_grpc_servicer/tokenspeed/kv_events.py`
 - SGLang upstream config: `python/sglang/srt/disaggregation/kv_events.py` (class `KVEventsConfig`)
 - vLLM upstream config: `vllm/config/kv_events.py` (class `KVEventsConfig`)
 - TokenSpeed upstream config: `python/tokenspeed/runtime/pd/kv_events.py` (class `KVEventsConfig`)

@@ -146,7 +146,7 @@ python -m smg_grpc_servicer.tokenspeed \
 | `enable_kv_cache_events: true` | TokenSpeed master switch. Without it the scheduler records no events even if a publisher is set. |
 | `publisher: "zmq"` | Selects the ZMQ publisher the servicer reads. Unset defaults to `"zmq"` when events are enabled; `"null"` (or any other value) disables event streaming. |
 | `endpoint` / `topic` | ZMQ `PUB` address and topic. Use a **bind-style** endpoint (`tcp://*:PORT`): TokenSpeed binds only when the endpoint contains `*` or `::` or starts with `ipc://` or `inproc://`, so a concrete address like `tcp://127.0.0.1:PORT` makes it *connect* instead, leaving nothing bound and the stream idle. With attention data parallelism each rank publishes on `endpoint` port + rank, and the servicer subscribes to every rank, so the index sees every rank's cache. |
-| `replay_endpoint` | As for SGLang and vLLM: a ZMQ `ROUTER` address that serves recent batches for replay. When set, the servicer fills gaps in each rank's events from it before forwarding later batches; without it, a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). Each rank serves replay on `replay_endpoint` port + rank. |
+| `replay_endpoint` | As for SGLang and vLLM: the servicer fills gaps in each rank's events from it before forwarding later batches; without it, a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). Each rank serves replay on `replay_endpoint` port + rank. |
 
 `--kv-events-config` is parsed by TokenSpeed's `KVEventsConfig.from_cli`. Gap replay needs an explicit `replay_endpoint` in the config — no default supplies one.
 

@@ -21,7 +21,7 @@ This guide helps you quickly enable conversation history storage with a backend 
 
 SMG supports these history backends via `--history-backend`:
 
-- `memory` (default): in-process, non-persistent
+- `memory` (default): in-process, non-persistent, with bounded retention
 - `none`: disable history storage
 - `postgres`: durable relational storage
 - `redis`: fast key-value storage with optional retention
@@ -38,6 +38,8 @@ smg \
   --worker-urls http://worker:8000 \
   --history-backend memory
 ```
+
+The memory backend is bounded: it keeps at most 10,000 stored responses and 100,000 conversation items (the oldest go first) and drops records after 24 hours (a conversation counts from its last use). `--history-memory-max-responses`, `--history-memory-max-items`, and `--history-memory-retention-secs` adjust the bounds; a retention of `0` keeps records until a count bound drops them.
 
 ### No history
 
@@ -57,7 +59,7 @@ smg \
   --postgres-pool-max-size 16
 ```
 
-On a new database, also set `DB_AUTO_MIGRATE=true` for the first start; see [Schema migrations](#schema-migrations).
+A new database is created at the latest schema version on first start; when upgrading an existing database, see [Schema migrations](#schema-migrations).
 
 ### Redis
 
@@ -70,7 +72,7 @@ smg \
   --redis-retention-days 30
 ```
 
-Set `--redis-retention-days=-1` for persistent retention. Keep the `=`: the Rust CLI rejects `-1` as a separate argument.
+Set `--redis-retention-days -1` for persistent retention. Any other value must be at least 1.
 
 ### Oracle
 
@@ -91,7 +93,7 @@ smg \
 
 ## Schema migrations
 
-PostgreSQL and Oracle track a schema version and refuse to start while migrations are pending, printing the SQL to apply by hand. A new database has pending migrations, so set `DB_AUTO_MIGRATE=true` (or `1`) to let SMG apply them at startup:
+PostgreSQL and Oracle track a schema version and refuse to start while migrations are pending, printing the SQL to apply by hand. Set `DB_AUTO_MIGRATE=true` (or `1`) to let SMG apply pending migrations at startup:
 
 ```bash
 DB_AUTO_MIGRATE=true smg launch \
@@ -100,7 +102,7 @@ DB_AUTO_MIGRATE=true smg launch \
   --postgres-db-url "postgres://user:password@localhost:5432/smg"
 ```
 
-A `--schema-config` file can set `auto_migrate` instead. See [Chat History](../concepts/data/chat-history.md#schema-migrations).
+A new PostgreSQL database has nothing pending: SMG creates its tables at the latest schema version on first start. A new Oracle database starts with every migration pending, so turn auto-migration on for its first start. A `--schema-config` file can set `auto_migrate` instead. See [Chat History](../concepts/data/chat-history.md#schema-migrations).
 
 ---
 
@@ -130,7 +132,7 @@ You can provide Oracle credentials via environment variables (both the Rust bina
 - `ATP_POOL_MAX`
 - `ATP_POOL_TIMEOUT_SECS`
 
-The Rust `smg` binary reads no environment variables for PostgreSQL or Redis. Only the Python launcher reads `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `REDIS_URL`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS`, as defaults for its flags.
+The Rust `smg` binary reads no environment variables for PostgreSQL or Redis. Only the Python launcher reads `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `POSTGRES_OP_TIMEOUT_SECS`, `REDIS_URL`, `REDIS_POOL_MAX`, `REDIS_RETENTION_DAYS`, and `REDIS_OP_TIMEOUT_SECS`, as defaults for its flags.
 
 ---
 
@@ -140,7 +142,9 @@ The Rust `smg` binary reads no environment variables for PostgreSQL or Redis. On
 curl http://localhost:30000/health
 ```
 
-If startup fails, SMG returns a config validation error (for example missing DB URL or Oracle credentials). PostgreSQL and Oracle also connect at startup to create tables and check migrations, so an unreachable database or pending migrations stop startup. Redis connects on first use, so a Redis problem shows up on the first request that stores or reads history.
+If startup fails, SMG returns a config validation error (for example missing DB URL or Oracle credentials). Every remote backend is contacted at startup: SMG refuses to start when its history store is unreachable, and PostgreSQL and Oracle also create their tables and check migrations then.
+
+Once running, a store that becomes unavailable is answered `503` with error code `storage_unavailable` on the endpoints that store or read history. Each call to the PostgreSQL or Redis store is bounded by `--postgres-op-timeout-secs` or `--redis-op-timeout-secs` (default 5 seconds); a call past the bound gets the same `503`.
 
 ---
 

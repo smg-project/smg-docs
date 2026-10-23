@@ -122,7 +122,7 @@ metadata:
 - vLLM's HTTP server does not report its KV connector, so HTTP vLLM workers need `smg.ai/kv-connector` for a KV handoff. gRPC workers report it themselves.
 - On a pod that runs several workers (`smg.ai/worker-ports`), `smg.ai/kv-engine-id` needs a comma-separated list with one distinct id per port, in order. `sglang.ai/bootstrap-port` takes either one port for all of them or one port per worker port.
 - `--kv-connector-annotation` and `--kv-engine-id-annotation` rename the two `smg.ai/kv-*` annotations.
-- SMG reads annotations when it registers a pod; replace the pod after changing them.
+- Editing these annotations on a live pod updates its registered workers in place on a later reconcile pass; no pod replacement is needed.
 - Service discovery turns on IGW mode automatically; PD mode and the per-role policies are kept.
 - For EPD, use `--epd-disaggregation` and add an `--encode-selector`; encode pods take the bootstrap-port annotation too.
 

@@ -39,7 +39,7 @@ Every admitted request is assigned one of four classes. They are strictly ordere
 A request's class comes from the `x-smg-priority` header, then is **clamped down** to the maximum class the tenant is allowed to use. The header can only ever *lower* a request's class relative to the tenant cap — it can never promote a tenant above its ceiling. A free-tier tenant cannot escalate itself to `system` by setting a header. See the [reference page](../../reference/priority-scheduler.md) for the exact header contract.
 
 !!! note "`system` is for the control plane"
-    `system` is reserved for internal control-plane traffic. In practice the tenant clamp keeps external tenants out of it: their policy caps them below `system`, so no external request lands there regardless of the header they send.
+    `system` is reserved for internal control-plane traffic. The tenant clamp keeps external tenants out of it: a tenant not granted a higher class in the scheduler configuration is capped at `default`, so no external request lands in `system` regardless of the header it sends.
 
 ---
 
@@ -51,13 +51,13 @@ When a slot frees, the scheduler's dispatcher wakes and tries to admit waiting r
 
 ### Reserved slots
 
-Each class can reserve a share of capacity. A reservation is a floor, not a fixed partition:
+Each class can reserve capacity: an absolute floor of slots, a share of live capacity, or both — the effective reservation is whichever is larger, recomputed as capacity changes. A reservation is a hold, not a fixed partition:
 
 - A higher class's **unused** reservation is held back from lower classes. If `interactive` has reserved slots it is not currently using, `bulk` and `default` cannot consume them — they stay available so an arriving `interactive` request is admitted immediately instead of queueing.
 - Once a higher class **actually uses** a reserved slot, the hold collapses one-for-one; the slot is simply in flight.
 - A class's own reservation never counts against its own headroom.
 
-This is why `system` and `interactive` ship with reservations by default while `default` and `bulk` reserve nothing — interactive traffic should almost never wait behind a batch burst. The sum of all reservations must fit under capacity; if it does not at startup, the scheduler refuses to build and the gateway falls back to legacy admission.
+By default `system` reserves a fixed floor of slots, `interactive` reserves a floor plus a share of capacity (so its reservation grows with the fleet), `default` reserves a small share, and `bulk` reserves nothing — interactive traffic should almost never wait behind a batch burst. If the configured reservations, at the fleet's initial capacity, add up to more than that capacity, the scheduler refuses to build and the gateway [falls back to legacy admission](#fallback-to-legacy-admission). A capacity dip after startup never triggers the fallback: the reservations are scaled down proportionally to fit, and restored when capacity recovers. The exact values and knobs are in the [reference](../../reference/priority-scheduler.md).
 
 ---
 
@@ -66,9 +66,9 @@ This is why `system` and `interactive` ship with reservations by default while `
 When no slot is immediately available, a request does not fail right away — it joins a **per-class FIFO queue**. Each class has its own queue with its own depth limit and its own wait timeout:
 
 - If the queue is already at its configured depth, the request is rejected immediately (**429**, `Retry-After: 2`).
-- If the request waits longer than the class's timeout, it is rejected (**503**, `Retry-After: 2`). Before v1.10 this was a 408.
+- If the request waits longer than the class's timeout, it is rejected (**503**, `Retry-After: 2`).
 
-A client that disconnects *while queued* is not detected by the scheduler, because its cancel signal isn't yet wired to client disconnect at this stage. If the server notices the disconnect (usually right away when the request body is small), the waiting request is dropped, but its queue entry keeps its place, and counts toward the queue depth, until the dispatcher reaches it and skips it. If the disconnect goes unnoticed (for example, behind a larger HTTP/1.1 request body that has not been read yet), the request stays queued until it is admitted or its timeout fires. (The **499** code exists for this case but isn't emitted today.)
+A client that disconnects *while queued* normally takes its waiting request down with it: the abandoned wait is counted as a `client_cancelled` admission outcome, its queue entry is marked cancelled, and the dispatcher discards it instead of admitting it — until then the entry still counts toward the queue depth. A disconnect the server does not notice (for example, behind a larger HTTP/1.1 request body that has not been read yet) leaves the request queued until it is admitted or its timeout fires. A **499** response (`scheduler_client_cancelled`) covers the remaining edge, an admission that resolves for a client that already went away; it is essentially never seen, since that client is gone.
 
 Higher classes have shorter queues and shorter timeouts (fail fast, the latency matters); lower classes have deeper queues and longer timeouts (wait patiently, throughput matters). The dispatcher drains queues in **strict priority order** — `system` first, then `interactive`, `default`, and `bulk`, fully draining a higher tier before serving a lower one. A sustained higher-priority flood *will* hold off a lower tier; the [starvation guard](#starvation-promotion) below is what keeps that from lasting forever.
 
@@ -88,8 +88,8 @@ The TTFT boundary is the rule that makes this safe:
 
 A preempted request receives **503** with `Retry-After: 1` and an `X-SMG-Preempted: true` header, so clients and proxies can tell a preemption apart from an ordinary overload and retry promptly. If the victim's slot does not free within a short budget, the preemptor simply falls through to the queue — the cancel has already fired, so the slot frees shortly regardless.
 
-!!! warning "Preemption requires cancel-aware handlers"
-    A victim only actually unwinds if its request handler honors the scheduler's cancel signal. Until every long-running handler is wired to that signal, `can_preempt` is expected to stay off in practice even though the machinery is in place — a marked-but-not-unwound victim has its first data frame truncated rather than its upstream work stopped.
+!!! note "How a victim unwinds"
+    The generation handlers run their upstream work against the scheduler's cancel signal: a victim that has not yet produced a response has that work dropped and answers the preemption `503` immediately. A victim preempted after its response headers are out, but before its first body byte, has that first data frame truncated by the response wrapper instead.
 
 ---
 
@@ -109,18 +109,19 @@ The dispatcher checks for starved waiters **lowest priority first** (the classes
 
 ## Fallback to legacy admission
 
-The priority scheduler is designed to **fail safe**. It only takes over when it is both enabled and able to start cleanly:
+The admission path is chosen once at startup:
 
 - If the scheduler is **disabled** (the default), the gateway wires the legacy concurrency-limit middleware — no scheduler is even constructed.
-- If the scheduler is **enabled but misconfigured** — unparsable YAML, or reservations that sum to more than the live capacity — the gateway logs the failure at `ERROR` and **falls back to legacy admission** rather than aborting startup. A broken scheduler config must never take the data plane down.
+- If the scheduler is **enabled** and the `--priority-scheduler-config` YAML cannot be read, parsed or validated — including an unknown key or an unknown class name — the gateway **refuses to start**. A typo must not silently yield a scheduler without the policies the operator wrote.
+- If the scheduler is enabled with a valid configuration, but the reservations add up to more than the fleet's capacity at startup, the failure is logged at `ERROR` and the gateway **falls back to legacy admission** rather than aborting — a too-small fleet must not take the data plane down. Capacity changes after startup never trigger the fallback; reservations are scaled to fit instead.
 
-In both cases the request path is the familiar token-bucket concurrency limiter described in [Rate Limiting](rate-limiting.md). The admission path is chosen once at startup.
+In the disabled and fallback cases the request path is the familiar token-bucket concurrency limiter described in [Rate Limiting](rate-limiting.md).
 
 ---
 
 ## Observability
 
-The scheduler emits Prometheus metrics for admission outcomes, queue waits, preemptions, priority clamps, and per-class capacity pressure. These are the signals you watch to size reservations and queue depths, and to detect clients mis-setting the priority header. The full list is in the [Metrics Reference](../../reference/metrics.md).
+The scheduler emits Prometheus metrics for admission outcomes, queue waits, preemptions, starvation promotions, priority clamps, and per-class capacity pressure. These are the signals you watch to size reservations and queue depths, and to detect clients mis-setting the priority header. The full list is in the [Metrics Reference](../../reference/metrics.md).
 
 ---
 

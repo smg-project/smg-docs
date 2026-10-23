@@ -18,7 +18,7 @@ The mesh does not steer client traffic. Put the routers behind a load balancer o
 
 ### :material-shield-check: Fault Tolerance
 
-When a router fails, the others keep serving with the workers and cache-aware routing state it already shared. Your load balancer sends its clients to them.
+When a router fails, the others keep serving and your load balancer sends its clients to them. The cache-aware routing state the failed router shared stays; workers only it registered are removed shortly after its peers mark it `DOWN`.
 
 </div>
 
@@ -138,7 +138,7 @@ smg launch --enable-mesh --mesh-advertise-host 10.0.0.2 --mesh-port 39527 \
     --mesh-peer-urls 10.0.0.1:39527
 ```
 
-Router 2 has no workers of its own; it imports router 1's workers through the mesh.
+Router 2 has no workers of its own; it imports router 1's workers through the mesh. Imports last only while their owner is in the mesh: if router 1 goes down for good, router 2 removes them shortly after marking it `DOWN` (see [Worker Registry Sync](#worker-registry-sync)). Register a worker on every router that must keep serving it, as in [Basic Configuration](#basic-configuration).
 
 ### Command Line Options
 
@@ -150,13 +150,37 @@ Router 2 has no workers of its own; it imports router 1's workers through the me
 | `--mesh-advertise-host` | `--mesh-host` | IP address that peers dial. Required when `--mesh-host` is an unspecified address such as `0.0.0.0` |
 | `--mesh-port` | `39527` | Mesh port, used for both binding and advertising. `0` is rejected |
 | `--mesh-peer-urls` | (none) | Bootstrap peer as `IP:port`. Only the first entry is used |
+| `--mesh-tls-ca-cert` | (none) | CA certificate (PEM) that mesh peer certificates must chain to. Set together with `--mesh-tls-cert` and `--mesh-tls-key` to enable [mesh mTLS](#mesh-mtls) |
+| `--mesh-tls-cert` | (none) | This node's certificate (PEM), with the node's IP as a SAN |
+| `--mesh-tls-key` | (none) | This node's private key (PKCS#8 PEM) |
 | `--router-selector` | (none) | Label selector for [Kubernetes router discovery](#kubernetes-router-discovery). Takes effect only with `--service-discovery` |
 
 !!! note "Mesh addresses must be IP addresses"
     `--mesh-host`, `--mesh-advertise-host`, and `--mesh-peer-urls` are parsed as socket addresses and never resolved through DNS. A hostname such as `smg-0.smg-mesh:39527` fails at startup: the Python CLI reports `Invalid mesh peer URL`, the Rust binary `Invalid value for field 'mesh_peer_urls'`. With the default `--mesh-host 0.0.0.0`, the router also refuses to start until `--mesh-advertise-host` names a routable IP, so peers never try to dial an unspecified address. On Kubernetes, use [router discovery](#kubernetes-router-discovery) instead of peer URLs.
 
-!!! warning "The mesh port is not authenticated"
-    Mesh traffic is plaintext gRPC and peers are not authenticated: v1.12 has no option to enable TLS on the mesh port. Anything that can reach the mesh port can join the cluster and publish workers to every router, so expose the port only to other routers (for example with a firewall rule or a Kubernetes NetworkPolicy).
+!!! warning "The mesh port is plaintext by default"
+    Without the `--mesh-tls-*` flags, mesh traffic is plaintext gRPC and peers are not authenticated: anything that can reach the mesh port can join the cluster and publish workers to every router. A router started with a plaintext mesh says so in its first log lines, with a `SECURITY POSTURE` warning that names the mesh listener and the flags that close it. Enable [mesh mTLS](#mesh-mtls) so only routers holding a certificate from your CA can join, and expose the port only to other routers either way (for example with a firewall rule or a Kubernetes NetworkPolicy).
+
+### Mesh mTLS
+
+`--mesh-tls-ca-cert`, `--mesh-tls-cert`, and `--mesh-tls-key` encrypt the mesh port and authenticate both ends of every mesh connection. The three flags come together: a router started with only one or two of them refuses to start, and the error names the missing flags.
+
+```bash
+smg launch --enable-mesh --mesh-advertise-host 10.0.0.1 \
+    --mesh-tls-ca-cert /etc/smg/mesh/ca.pem \
+    --mesh-tls-cert /etc/smg/mesh/node.pem \
+    --mesh-tls-key /etc/smg/mesh/node-key.pem
+```
+
+With the flags set, the mesh listener serves TLS with the node's certificate and accepts only peers that present a certificate chaining to the CA. Probes, indirect probes, and sync streams dial with this node's certificate and verify the peer's against the CA.
+
+Status broadcasts are the exception: the announcement a router sends when it marks a peer `SUSPECTED` or `DOWN` dials in plaintext, which a TLS mesh listener rejects (each refusal logs `Failed to broadcast`). That broadcast — sent to the detecting router too — is the only way any router records those statuses, so on an mTLS mesh gossip never marks an unreachable peer: it stays `ALIVE` everywhere, peers keep probing it, and the workers imported from it are not removed as departed (see [Worker Registry Sync](#worker-registry-sync)). [Kubernetes router discovery](#kubernetes-router-discovery) does not use these broadcasts — it marks a peer `SUSPECTED` or `DOWN` from the pod watch — so pair mTLS with router discovery where failure detection matters.
+
+Issue every router a certificate from the same CA that carries the node's IP — the address its peers dial, so its `--mesh-advertise-host` — as an IP SAN. A dial verifies the peer's certificate against the address it dials, and mesh addresses are always IPs (see the note above), so a certificate with only a hostname never matches. An IPv6 node's SAN is the unbracketed address: `fd00::7`, not `[fd00::7]`.
+
+The private key must be PKCS#8 PEM. Each of the three files must exist and be readable at startup, or the router fails to start with an error naming the flag whose file it cannot read; the router also warns when the key file is readable or writable by its group or by others. The mesh listener reads the certificate and key once at startup and does not reload them; to rotate certificates, restart the router.
+
+Configure every router in the cluster the same way: a router with the flags serves and dials only TLS, a router without them only plaintext, so a mixed cluster's routers cannot reach each other.
 
 ### Python Entrypoint
 
@@ -232,7 +256,7 @@ smg launch --enable-mesh \
 
 1. **Probe**: Every second, each router pings one random peer that is not `DOWN` or `LEAVING`. The ping carries the sender's membership table, and the receiver adopts any entry with a higher version.
 2. **Indirect probe**: If the ping fails, the router asks up to three other `ALIVE` peers to ping the target (ping-req).
-3. **Suspect, then down**: If no probe reaches the target, it moves from `ALIVE` to `SUSPECTED`, or from `SUSPECTED` to `DOWN`, and the new status is broadcast to every `ALIVE` peer.
+3. **Suspect, then down**: If no probe reaches the target, it moves from `ALIVE` to `SUSPECTED`, or from `SUSPECTED` to `DOWN`. The new status is broadcast to every `ALIVE` peer, including the detecting router itself, which is how each of them records it. On an mTLS mesh these broadcasts fail and the target stays `ALIVE` everywhere; see [Mesh mTLS](#mesh-mtls).
 4. **Sync stream**: After a successful probe of an `ALIVE` peer, the router whose name sorts first opens the pair's sync stream if none is open.
 
 ### Node Status States
@@ -242,7 +266,7 @@ smg launch --enable-mesh \
 | `ALIVE` | Reachable. Every router starts in this state |
 | `SUSPECTED` | A probe failed: neither the direct ping nor any indirect ping reached the router. Still probed. Router discovery also sets it for a known pod that is not Ready, unless that router is already `DOWN` |
 | `DOWN` | A probe failed again while `SUSPECTED`, or the router's pod was deleted or is terminating. Peers stop probing it |
-| `LEAVING` | The node announced a graceful leave. Peers stop probing it. The v1.12 gateway does not announce it during shutdown |
+| `LEAVING` | The node announced a graceful leave. Peers stop probing it. The gateway does not announce it during shutdown |
 | `INIT` | Defined in the protocol but not used |
 
 !!! warning "A `DOWN` router is not probed again"
@@ -258,7 +282,7 @@ smg launch --enable-mesh \
 | Redial backoff after a failed probe of the same peer | 1 second, doubling up to 60 seconds |
 | Sync stream idle timeout | 60 seconds |
 
-These values are fixed; v1.12 has no flags to tune them.
+These values are fixed; there are no flags to tune them.
 
 ---
 
@@ -327,7 +351,7 @@ Each router publishes the workers it registered itself, whether from `--worker-u
 - **Imports are health-checked locally.** A peer rebuilds the worker from its published spec and probes it itself. The owner's health flag sets the import's initial state and afterwards only nudges it: healthy promotes a pending or not-ready import to ready, and unhealthy demotes a ready one.
 - **Workers are matched by URL.** A router that registered a URL itself keeps its own worker and ignores peers' copies. Give a worker the same URL on every router, and never a loopback address: a peer that imports `http://127.0.0.1:8000` routes to its own host.
 - **Only the owner removes a worker.** Removing a worker on the router that registered it removes it everywhere. Deleting an imported worker through another router's API lasts at most until that router's next reconcile pass (every 30 seconds) imports it again.
-- **A departed router's workers stay.** If a router leaves for good, its peers keep its workers registered and keep health-checking them.
+- **A departed router's workers are removed.** Once peers mark a router `DOWN` or `LEAVING`, each removes the workers it imported from that router after a 20-second grace, enforced on the reconcile pass (every 30 seconds): a router seen gone on two consecutive passes loses its imports by the second. During the grace existing imports stay, but a router that joins after the mark never imports them. A departed router seen alive again has its workers imported again on their next event or pass. Workers a peer registered itself are its own, not imports, and stay. (On an mTLS mesh gossip never produces the `DOWN` mark; see [Mesh mTLS](#mesh-mtls).)
 - **API keys stay local.** The published spec leaves out the worker's `api_key`.
 
 !!! note "ZMQ workers stay on their host"
@@ -341,7 +365,7 @@ The `cache_aware` policy keeps an approximate prefix tree per model: a string tr
 2. **Apply**: A peer that already knows that prefix path adds the worker to it in its own tree.
 3. **Repair**: A peer that does not know the path, such as a router that just started, asks a random `ALIVE` peer for its whole tree for that model and tree type and replays it. The tree arrives in pages of up to about 2 MiB; a repair that makes no progress for 5 seconds is retried, preferably with another peer, up to 3 times. Unknown prefixes for the same model and tree type that arrive meanwhile are folded into the repair in flight.
 
-The default policy and per-model cache-aware policies take part, with no flag beyond `--enable-mesh`. In v1.11 the prefill, decode, and encode policies of disaggregated mode do not publish their inserts: the router creates them after the mesh attaches its sync adapter.
+The default policy, per-model cache-aware policies, and the prefill, decode, and encode policies of disaggregated mode all take part, with no flag beyond `--enable-mesh`.
 
 What consistency to expect:
 
@@ -356,7 +380,7 @@ Not synchronized: event-driven cache-aware routing (KV events), which each route
 | Key prefix | Channel | Delivery | Carries |
 |------------|---------|----------|---------|
 | `worker:` | CRDT | Last-writer-wins by Lamport timestamp, then replica. Resent until each peer acknowledges; relayed through peers | One key per worker, written only by the router that owns it |
-| `rl:` | CRDT | Epoch-max-wins | Rate-limit counter shards. Registered, but nothing writes to it in v1.12 |
+| `rl:` | CRDT | Epoch-max-wins | Rate-limit counter shards. Registered, but nothing writes to it |
 | `td:` | Stream, broadcast | Best effort, once per gossip round, to directly connected peers | Cache-tree deltas, one entry per model per round |
 | `tree:req:`, `tree:page:` | Stream, targeted | Retried after 5 seconds without progress, up to 3 times | Cache-tree repair requests and pages |
 
@@ -518,7 +542,7 @@ How Pods map to node status:
 ## Monitoring
 
 !!! note "No HTTP API for mesh state"
-    Earlier releases served mesh state under `/ha/*`. Those routes were removed, and v1.12 has no HTTP endpoint for mesh membership or sync state. Use the metrics below, the router logs, and each router's `GET /workers` list.
+    Earlier releases served mesh state under `/ha/*`. Those routes were removed; there is no HTTP endpoint for mesh membership or sync state. Use the metrics below, the router logs, and each router's `GET /workers` list.
 
 ### Mesh Metrics
 
@@ -583,7 +607,7 @@ Spread routers across zones so that a zone outage leaves routers that hold the s
 
 ### :material-lock: Protect the Mesh Port
 
-Expose the mesh port only to other routers. It carries plaintext, unauthenticated gRPC.
+Enable [mesh mTLS](#mesh-mtls) so only routers with a certificate from your CA can join, and expose the port only to other routers.
 
 </div>
 
@@ -615,6 +639,7 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 | No `Router node discovery enabled` log line | `--router-selector` without `--service-discovery` | Add `--service-discovery` |
 | A router Pod never joins | Pod not Running and Ready, labels do not match, or RBAC is missing | Check readiness, labels, and the Role |
 | ZMQ workers are missing on peers | `ipc://` workers are host-local | Expected: each router keeps its own ZMQ workers |
+| `Failed to broadcast to <peer>` warnings on an mTLS mesh | Status broadcasts dial in plaintext, which the TLS listener rejects | Known limitation: the `SUSPECTED`/`DOWN` mark is not recorded and the peer stays `ALIVE`; use router discovery, which marks pods from its watch. See [Mesh mTLS](#mesh-mtls) |
 
 ### Debug Logging
 

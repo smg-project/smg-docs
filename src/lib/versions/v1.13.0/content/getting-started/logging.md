@@ -77,7 +77,7 @@ RUST_LOG=info smg launch --worker-urls http://worker:8000
 Human-readable lines: UTC timestamp, level, the enclosing request span with its fields, target, source location, and message. On stdout the lines carry ANSI color codes; files written with `--log-dir` do not.
 
 ```
-2026-09-24 10:30:45  INFO http_request{method=POST uri=/v1/chat/completions version=HTTP/1.1 module="smg" request_id="chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE" status_code=200 latency=1523}: smg::response: model_gateway/src/middleware/logging.rs:138: finished processing request
+2026-09-24 10:30:45  INFO http_request{method=POST path=/v1/chat/completions version=HTTP/1.1 module="smg" request_id="chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE" status_code=200 latency=1523}: smg::response: model_gateway/src/middleware/logging.rs:227: finished processing request
 ```
 
 ### JSON Format
@@ -97,14 +97,14 @@ Output (pretty-printed here):
   "message": "finished processing request",
   "target": "smg::response",
   "filename": "model_gateway/src/middleware/logging.rs",
-  "line_number": 138,
+  "line_number": 227,
   "span": {
     "latency": 1523,
     "method": "POST",
     "module": "smg",
+    "path": "/v1/chat/completions",
     "request_id": "chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE",
     "status_code": 200,
-    "uri": "/v1/chat/completions",
     "version": "HTTP/1.1",
     "name": "http_request"
   },
@@ -113,9 +113,9 @@ Output (pretty-printed here):
       "latency": 1523,
       "method": "POST",
       "module": "smg",
+      "path": "/v1/chat/completions",
       "request_id": "chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE",
       "status_code": 200,
-      "uri": "/v1/chat/completions",
       "version": "HTTP/1.1",
       "name": "http_request"
     }
@@ -129,7 +129,7 @@ The event's own fields (`message` and any structured fields) sit at the top leve
 
 ## Request and Response Logs
 
-Every request that matches a route on the main listener is logged inside an `http_request` span that carries `method`, `uri`, `version`, and `request_id`, plus `status_code` and `latency` (microseconds) once the response is ready:
+Every request to the main listener — unknown paths included — is logged inside an `http_request` span that carries `method`, `path`, `version`, and `request_id`, plus `status_code` and `latency` (microseconds) once the response is ready. The span records the request's path, never its query string, so a credential mistakenly put in the URL stays out of the logs:
 
 | Target | Level | Message | When |
 |--------|-------|---------|------|
@@ -138,12 +138,15 @@ Every request that matches a route on the main listener is logged inside an `htt
 | `smg::response` | WARN | `request failed with client error` | A 4xx response |
 | `smg::response` | ERROR | `request failed with server error` | A 5xx response |
 | `smg::response` | ERROR | `response stream failed after the head was sent` | The response body failed after streaming began |
+| `smg::response` | INFO | `client closed the connection before the response` | The client dropped the connection before the response head; `status_code` is recorded as `499` |
+| `smg::response` | INFO | `client closed the connection before the response stream ended` | The client dropped the connection mid-stream |
+| `smg::response` | DEBUG | `request refused; reported by the refusing router` | A refusal the routing layer already logged with its own WARN line, so a retry loop does not flood the log |
 
-The logging layer writes one ERROR line per 5xx response; releases before v1.10.0 also logged a duplicate `tower_http` failure line for it (smg-project/smg#2124). A request to an unknown path gets a bare `404` and is not logged.
+The logging layer writes one ERROR line per 5xx response. A request to an unknown path gets a JSON-envelope `404` (a known path with the wrong method, a `405`) and is logged like any other request.
 
 ### Health Probe Logs
 
-Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, whatever the status; the response line reads `finished probe request` (smg-project/smg#2124). A `503` from `/readiness` while workers are still loading is an expected state, so polling probes no longer fill the log with ERROR lines. Probes served on the dedicated `--health-check-port` listener bypass the logging layer entirely.
+Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, whatever the status; the response line reads `finished probe request`. A `503` from `/readiness` while workers are still loading is an expected state, so polling probes no longer fill the log with ERROR lines. Probes served on the dedicated `--health-check-port` listener bypass the logging layer entirely.
 
 ### Other Structured Logs
 
@@ -157,7 +160,7 @@ Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, wh
 
 ## Routing Decision Logs
 
-At DEBUG, the routing policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker (smg-project/smg#2210). The lines are off at the default `info` level. Turn them on for the policy targets only:
+At DEBUG, the routing policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker. The lines are off at the default `info` level. Turn them on for the policy targets only:
 
 ```bash
 RUST_LOG=warn,smg=info,smg::policies=debug smg launch --worker-urls http://worker:8000 --policy cache_aware
@@ -165,7 +168,7 @@ RUST_LOG=warn,smg=info,smg::policies=debug smg launch --worker-urls http://worke
 
 | Message | Target | Fields |
 |---------|--------|--------|
-| `Cache-aware selection` | `smg::policies::cache_aware` | `index` (`tree` or `hash`), `branch`, `worker`, `model_id`; tree decisions add `matched_ratio` and `threshold`, hash decisions add `level` |
+| `Cache-aware selection` | `smg::policies::cache_aware` | `index` (`tree` or `hash`), `branch`, `worker`, `model_id`; tree decisions add `matched_ratio`, `threshold`, `matched_units`, `input_units`, and `credited_units`; hash decisions add `level` |
 | `Sticky routing decision` | `smg::policies::registry` | `source` (`rid` or `header`), `key`, `branch`, `worker`, `model_id` |
 | `Prefix-hash selection` | `smg::policies::prefix_hash` | `branch`, `level`, `worker`, `model_id` |
 
@@ -177,7 +180,7 @@ Branch values:
 - **Sticky sessions** (`--routing-key-override`): `occupied_hit`, `occupied_miss`, `vacant`, `cap_respill`, `no_healthy_workers`. `key` is the internal map key, which combines the model, the PD leg, and the routing key.
 - **Prefix hash**: `ring_hit`, `load_balance_walk`, `fallback_least_load`, `no_routing_key`, `no_healthy_workers`.
 
-When cache-aware routing uses KV events, it logs `Event-driven routing: overlap match` (`branch` is `event_hit` or `event_spill`) or `Event-driven routing: no overlap, expected-wait fallback`, each with `worker` and `model_id`.
+When cache-aware routing uses KV events, each decision logs `Event-driven routing` with `branch` (`event_hit`, `event_spill`, or `event_miss`), `overlap_blocks`, `request_blocks`, `policy`, `worker`, and `model_id`. A request diverted to warm up a thin worker instead logs `Cache miss routed to a warming worker` (branch `warmup_slice`) or `Cache hit diverted to a thin worker` (branch `warmup_divert`).
 
 See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for the matching decision counters.
 
@@ -185,7 +188,7 @@ See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for 
 
 ## Multimodal Timing Logs
 
-`--log-mm-timing` logs per-request multimodal timing at INFO (smg-project/smg#2625). Each line's message starts with `smg_mm_timing`, followed by the stage:
+`--log-mm-timing` logs per-request multimodal timing at INFO. Each line's message starts with `smg_mm_timing`, followed by the stage:
 
 | Message | Contents |
 |---------|----------|
@@ -198,7 +201,7 @@ See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for 
 smg launch --worker-urls grpc://worker:50051 --model-path Qwen/Qwen2.5-VL-7B-Instruct --log-mm-timing
 ```
 
-The older `SMG_LOG_MM_TIMING` environment variable (`1`, `true`, `yes`, or `on`) still turns the logs on when the flag is absent, but it is deprecated: SMG logs a warning, and support ends in the next minor release. v1.11.0 also stopped logging where each request's media is processed (smg-project/smg#2594); that is counted by `smg_mm_processing_total` instead. See [Multimodal](../concepts/architecture/multimodal.md) for the processing pipeline.
+The older `SMG_LOG_MM_TIMING` environment variable (`1`, `true`, `yes`, or `on`) still turns the logs on when the flag is absent, but it is deprecated: SMG logs a warning, and support ends in the next minor release. Where each request's media is processed is not logged; the `smg_mm_processing_total` metric counts it. See [Multimodal](../concepts/architecture/multimodal.md) for the processing pipeline.
 
 ---
 
@@ -221,7 +224,7 @@ smg launch \
 - **Daily rotation**: a new file starts at midnight UTC
 - **File naming**: `smg.YYYY-MM-DD`, with no extension
 - **No deletion**: old files are kept; see [Log Rotation](#log-rotation)
-- **Non-blocking I/O**: a background thread writes the files; if it falls more than 128,000 lines behind, new file lines are dropped rather than slowing requests
+- **Non-blocking I/O**: dedicated writer threads write the files and stdout; a writer that falls more than 128,000 lines behind has new lines dropped rather than slowing requests. Dropped lines are counted per sink in the `smg_log_dropped_lines` metric and reported with a WARN line every 30 seconds
 - **Directory creation**: SMG creates the directory if it does not exist
 
 ### Log Directory Requirements
@@ -229,8 +232,6 @@ smg launch \
 An existing `--log-dir` must be a directory SMG can write. A missing one is created at start-up, so it must sit under a directory SMG can write; a relative path resolves against the working directory.
 
 Any other path — an existing file, a directory SMG cannot write, a path under a file or under an unwritable directory — is refused at startup with a configuration error naming `log_dir`, the path, and the reason, before the gateway binds its port.
-
-Refusing to start is newer than v1.12.0. In v1.12.0 and earlier, a directory SMG cannot create is reported on stderr as `Failed to create log directory: <error>` and SMG runs with logging disabled entirely, stdout included; an existing directory SMG cannot write its log file to makes startup panic with `initializing rolling file appender failed`.
 
 ### Example Directory Structure
 
@@ -453,7 +454,7 @@ When OpenTelemetry is enabled, the gateway's request events are logged at a high
 | Yes | INFO | Exported to OTLP collector |
 | No | DEBUG | Not exported (local only) |
 
-These are the HTTP routers' `Sending request`, `Sending concurrent requests`, and `Received concurrent requests` events, which are attached to the request's trace. Other log lines are not sent to the collector; only the request spans and these events are exported. See [OpenTelemetry Tracing](monitoring.md#opentelemetry-tracing).
+These are the HTTP routers' `Sending request`, `Sending concurrent requests`, and `Received concurrent requests` events, which are attached to the request's trace. Other log lines are not sent to the collector; only the request spans and these events are exported. With tracing enabled, the `http_request` span also records `trace_id` — the caller's when the request came with a `traceparent` header, else the one minted for this request — and SMG echoes the trace context on the response in `traceparent` (plus `tracestate` when the caller sent one). See [OpenTelemetry Tracing](monitoring.md#opentelemetry-tracing).
 
 ```bash
 # Enable OTEL with logging
@@ -470,7 +471,7 @@ smg launch \
 
 ### Request ID Propagation
 
-Every request that matches a route gets an ID. SMG takes it from the first of these request headers that is present: `x-request-id`, `x-correlation-id`, `x-trace-id`, `request-id` (replace the list with `--request-id-headers`). Otherwise it generates one with an OpenAI-style prefix (`chatcmpl-`, `cmpl-`, `gnt-`, `resp-`, `msg_`, or `req-`) followed by 24 random letters and digits. The ID is returned in the `x-request-id` response header and recorded as `request_id` on the request's `http_request` span, so it appears on the lines logged while the request is handled, as long as SMG logs at `info` or more verbose.
+Every request to the main listener gets an ID. SMG takes it from the first of these request headers that is present: `x-request-id`, `x-correlation-id`, `x-trace-id`, `request-id` (replace the list with `--request-id-headers`), honoring the value only when it is 1 to 128 visible ASCII characters. Otherwise it generates one with an OpenAI-style prefix (`chatcmpl-`, `cmpl-`, `gnt-`, `resp-`, `msg_`, or `req-`) followed by 24 random letters and digits, and rewrites the request header so a worker reading or forwarding it sees the chosen ID as its only value. The ID is returned in the `x-request-id` response header and recorded as `request_id` on the request's `http_request` span, so it appears on the lines logged while the request is handled, as long as SMG logs at `info` or more verbose.
 
 ```bash
 # Send request with custom ID
@@ -561,7 +562,7 @@ ls -la /tmp/smg-logs/
     smg launch --log-level info ...
     ```
 
-    4. An unusable `--log-dir` does not silently disable logging: SMG refuses to start with a configuration error naming `log_dir`, so a gateway that is running still logs to stdout. v1.12.0 and earlier behaved differently; see [Log Directory Requirements](#log-directory-requirements).
+    4. An unusable `--log-dir` does not silently disable logging: SMG refuses to start with a configuration error naming `log_dir`, so a gateway that is running still logs to stdout (see [Log Directory Requirements](#log-directory-requirements))
 
 ??? question "Logs not in JSON format"
 

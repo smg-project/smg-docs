@@ -280,6 +280,21 @@ publication. The initial proposal must change; prior approvals cannot authorize
 it. Resume is manual, forces dry-run, and cannot be combined with diagnostic
 mode. It avoids regenerating accepted content, not the final validation gates.
 
+To publish a successful full audit without regenerating its documentation, set
+`release_publish_run` to that run ID. Keep `dry_run: true` to test the publication
+path; set it to `false` to open the release PR. This mode cannot be combined with
+resume or diagnostic inputs. The selected run must have completed all page
+reviews and final site/build checks successfully, originate from this repository's
+nightly workflow, and use an ancestor revision with unchanged review instructions
+and regression checks. Diagnostic and publication-only runs cannot supply approvals.
+
+Publication reconstructs the exact reviewed snapshot and checks every page scope,
+whole-snapshot hash, review verdict and current reader rule. It then repeats the
+version/link/type/build checks and release/base freshness checks. Changed inputs,
+missing approvals, or changed page bytes fail closed; no writer or model reviewer
+runs. This preserves a successful correction instead of starting a new generation.
+The original resume mode remains dry-run-only and still requires fresh reviews.
+
 Full release stages and selected diagnostic batches run at most eight jobs
 concurrently. They share the runner pool capped at ten; any excess jobs wait for
 a runner. This changes scheduling, not source coverage, model effort, review
@@ -348,6 +363,28 @@ continue; a newer release gets a separate audit. Release branches are never
 updated while referenced by an open PR. A retry after a closed PR or an interrupted
 publish reuses the release branch with an explicit force-with-lease against its
 observed head; concurrent updates fail safely. Older snapshots remain fixed.
+
+Completed release audits also feed explicit correction candidates into main
+discovery. The collector reads committed version `sync.json` records from the
+pinned docs main revision, verifies their source/doc ancestry, and reconstructs
+each changed page's pre-audit seed. Prepared or unmerged snapshots have no input.
+Only audit changes still different from main become candidates, with complete
+audit and main-versus-release diffs retained as evidence files.
+
+Each candidate has one subsystem owner. Discovery must record a source-backed
+`proposed`, `covered`, `not_applicable`, or `deferred` disposition for every assigned
+candidate. These are hypotheses, not transferred release approvals: writers and
+independent reviewers still verify current SMG main. Intentional version differences
+must be preserved. A page can yield several separate `release-audit-*` concerns,
+using current main as the verification baseline; the normal scope, placement,
+999-line limit, 100-PR daily cap and publication checks remain unchanged.
+
+Candidates are rebuilt from Git each night, so expired run artifacts cannot lose
+them. The retained production report prioritizes previously deferred/new candidates;
+old dispositions never authorize publication on new source. Candidate/topic identities
+remain deduplicated across advancing source baselines, including merged/declined
+PRs. Reports expose every disposition, including missing scans as deferred. The
+release snapshot itself is never changed by main catch-up.
 
 On nights without a new release requiring work, only main is audited. Discovery
 also proposes bounded `version-context-*` cleanup concerns so pre-versioning prose

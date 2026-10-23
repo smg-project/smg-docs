@@ -38,7 +38,7 @@ The `smg` command that `pip install smg` provides parses flags with its own Pyth
 
 - **Space-separated lists after one flag:** `--worker-urls`, `--selector`, `--prefill-selector`, `--decode-selector`, `--encode-selector`, `--router-selector`, `--routing-key-headers`, `--request-id-headers`, `--storage-context-headers`, `--cors-allowed-origins`, `--prometheus-duration-buckets`, `--mesh-peer-urls`.
 - **One value per flag (repeat the flag for more):** `--prefill`, `--decode`, `--encode`, `--model-alias`, `--tenant-api-key`, `--jwt-role-mapping`, `--control-plane-api-keys`. For example, `--jwt-role-mapping A=admin B=user` fails to parse; write `--jwt-role-mapping A=admin --jwt-role-mapping B=user`.
-- **Comma-separated:** `--cache-boundaries 2048,8192`.
+- **Comma-separated:** `--cache-boundaries 2048,8192`, `--mm-allowed-media-domains`.
 - **Parsed outside clap:** `--prefill` and `--encode` take an optional trailing bootstrap port (`--prefill URL [PORT]`), which clap cannot express, so the binary parses them itself before clap runs. They work on every entrypoint but do not appear in `smg launch --help`, and they need the space form: `--prefill=URL` is rejected.
 - **Hidden aliases:** `--model` for `--model-path` and `--runtime` for `--backend` parse but are not listed in `--help`. Visible aliases are noted next to each flag below.
 
@@ -86,10 +86,10 @@ Routing flags configure the default policy (`--policy`). In PD mode, `--prefill-
 | `round_robin` | Cycles through healthy workers. |
 | `passthrough` | Always the first healthy worker. It reads no load reports (so it never forces load polling under `--disable-load-monitoring`) and starts no KV-event subscription, and is meant for single-backend gateways; with several workers registered it logs one warning and still sends everything to the first. |
 | `cache_aware` | The worker holding the longest matching prompt prefix. Below `--cache-threshold`, or when the spill gate fires, it falls back to least-load expected-wait selection. See [Cache-Aware Routing](../concepts/routing/cache-aware.md). |
-| `power_of_two` | Samples two healthy workers and takes the one with the lower least-load expected wait. Needs at least two workers unless service discovery or IGW mode is on. |
+| `power_of_two` | Samples two healthy workers and takes the one with the lower load, compared by `--power-of-two-load-metric`. Needs at least two workers unless service discovery, `--dp-aware`, or IGW mode is on. |
 | `least_load` | The worker with the lowest expected wait: queued plus in-flight token work divided by throughput, plus a KV-pressure term. See [Least Load Policy Options](#least-load-policy-options). |
 | `prefix_hash` | Hashes the request's leading tokens onto a consistent-hash ring and walks away from overloaded workers. |
-| `consistent_hashing` | Consistent-hash ring keyed on the request's routing key or, without one, on its `Authorization`, `X-Forwarded-For`, or `Cookie` header. `X-SMG-Target-Worker` picks a worker by index; a request with none of these goes to a random worker. |
+| `consistent_hashing` | Consistent-hash ring keyed on the request's routing key or, without one, on its `X-Forwarded-For` header, then its `Cookie` header; `Authorization` is never an implicit key. `X-SMG-Target-Worker` picks a worker by index; a request with none of these goes to a random worker. |
 | `manual` | A sticky map from routing key to worker with idle eviction. First-seen keys are placed by `--assignment-mode`. |
 | `bucket` | Maps request length (tokens, or characters when untokenized) to per-worker length buckets whose boundaries adapt every 5 seconds; picks the least-loaded worker when the `--balance-*` imbalance check fires. |
 
@@ -100,12 +100,19 @@ Routing flags configure the default policy (`--policy`). In PD mode, `--prefill-
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--cache-threshold` | `0.3` | Minimum matched-prefix share (0.0 to 1.0) before a request pins to a worker already holding that prefix; below it the request is load-balanced. Alias: `--cache-match-threshold`. |
-| `--balance-abs-threshold` | `64` | Spill gate, absolute part: a matched worker is skipped for the least-loaded one when its load exceeds the healthy-fleet mean by this many requests and by `--balance-rel-threshold`. `bucket` reuses it for its own imbalance check. Alias: `--spill-abs-threshold`. |
+| `--balance-abs-threshold` | `64` | Spill gate, absolute part: a matched worker is skipped for the least-loaded one when its load exceeds the healthy-fleet mean by this many requests and by `--balance-rel-threshold`. The margin is capped at the in-flight count's natural swing at the pool's current mean (two standard deviations, never under four requests unless this value is lower), so a small pool can spill at all. `bucket` reuses it for its own imbalance check. Alias: `--spill-abs-threshold`. |
 | `--balance-rel-threshold` | `1.5` | Spill gate, relative part (a multiple of the healthy-fleet mean); fires only together with the absolute part. Must be at least `1.0`. `bucket` reuses it too. Alias: `--spill-rel-threshold`. |
 | `--balance-token-usage-threshold` | `1.0` | Abandon cache affinity for shortest-queue when the KV-usage spread (hottest minus coldest backend, 0.0 to 1.0) exceeds this. Catches long-context KV imbalance that request counts miss. The backend must report `token_usage`. `1.0` or more disables it; must be greater than 0. |
 | `--overload-token-usage-threshold` | `1.0` | Safety valve for a saturated engine: when the hottest backend's KV utilization exceeds this, de-rank it regardless of spread. It stays routable; see [Worker Overload Protection](#worker-overload-protection) for the hard cutoff. Best set high (for example `0.9`). `1.0` or more disables it; must be greater than 0. |
 | `--overlap-decay` | `0.0` | Anti-hotspot decay for event-driven selection: each candidate's overlap score is divided by `1 + overlap_decay × backlog`, where backlog is the worker's waiting-prefill blocks beyond the least-backlogged candidate's, per request block. Needs backend load reporting. `0.0` disables it. |
 | `--selection-temperature` | `0.0` | Softmax temperature over min-max normalized scores in event-driven selection, spreading picks across near-equal candidates. `0.0` is exact argmax. |
+| `--selection-policy` | `cache-aware-default` | Worker-selection policy run over the per-worker inputs cache-aware routing gathers (prefix overlap, in-flight requests, backend load reports). `cache-aware-default`, the affinity-group decision, is the only policy. |
+| `--selection-accounting-ttl-ms` | `0` (off) | Lifetime of optimistic dispatch bookings for `cache_aware`: predicted prefill and prefix placement are charged to the chosen worker until the engine reports them or the booking expires. Set it a little above the engine's KV-event lag. |
+| `--worker-warmup-secs` | `60` | Warm-up slice for cache-aware routing: for this many seconds after a worker becomes routable, until its index has grown by `--worker-warmup-blocks` blocks, a share of cache misses is routed to it so it builds a cache instead of idling. `0` disables the warm-up. |
+| `--worker-warmup-share` | `0.25` | Share of cache misses offered to warming workers (0.0 to 1.0). |
+| `--worker-warmup-blocks` | `1024` | A worker whose index has grown by this many blocks since it became thin counts as warm. |
+| `--worker-warmup-thin-ratio` | `0.5` | A worker whose index holds less than this share of the fleet's median (or nothing) is thin and receives the warm-up slice until it has grown by `--worker-warmup-blocks`, whatever emptied it (a resync after a publisher restart, an engine that came back empty). 0.0 to 1.0; `0` keeps the age rule alone. |
+| `--worker-warmup-divert-every` | `8` | One cache hit in this many is diverted to a thin worker although another worker holds its prefix (shallow overlaps first, one in flight per thin worker), so an emptied index refills even when every request has a holder. `0` disables diversion. |
 | `--eviction-interval` | `120` | Seconds between cache-tree eviction cycles (placement-map TTL sweeps with `--cache-index hash`). Also the sweep interval of the manual-policy and sticky-session maps. Must be greater than 0 for `cache_aware`. |
 | `--max-tree-size` | `67108864` | Size budget for each model's approximation tree, shared across all of that model's workers: characters for HTTP workers, tokens for gRPC workers. Eviction keeps every tree at or under it. |
 | `--block-size` | `16` | Match granularity for token routing: the token-tree page size, and the KV block size assumed in event-driven selection. Must be greater than 0. |
@@ -114,6 +121,7 @@ Routing flags configure the default policy (`--policy`). In PD mode, `--prefill-
 | `--cache-ttl-secs` | `180` | Seconds a hash-index placement stays routable. Set it close to the engines' cache retention. Must be at least `1`. |
 | `--kv-indexer-ttl-secs` | unset | TTL for event-driven KV indexer entries: entries neither stored nor read within the window are pruned, which bounds growth when a backend stops emitting removal events. Unset or `0` disables the TTL pass. |
 | `--kv-indexer-max-entries` | unset | Per-model capacity ceiling for the event-driven KV indexer; past it, the oldest-touched entries are pruned down to 90% of the ceiling. Unset or `0` disables the ceiling. |
+| `--kv-index` | `positional` | The event-driven KV index behind cache-aware routing: `positional` (one entry per block position) or `chain` (chains as runs with per-run worker coverage; `run` is its deprecated spelling). The `--kv-indexer-*` bounds apply to the positional index only; the chain index holds what the engines report and shrinks with their removals. |
 
 The event-driven options apply when workers publish KV cache events; see [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md).
 
@@ -128,6 +136,12 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 | `--least-load-mean-prefill-tokens` | `1024` | Prefill length assumed for the in-flight estimate when a request's token count is unknown at routing time. Must be greater than 0. |
 | `--least-load-max-waiting-requests` | `0` | Per-worker waiting-queue cap: skip workers whose reported waiting requests, plus dispatches since their last poll, have reached this count. When every candidate is at the cap, the policy selects no worker rather than deepening an engine backlog. Set it below the engine's max batch size. `0` disables the cap. |
 
+### Power of Two Policy Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--power-of-two-load-metric` | `expected_wait` | What `power_of_two` compares its candidates by: `expected_wait` (the least-load expected wait of two random workers), `requests` (the gateway's in-flight request counts of two random workers, ties broken by expected wait), or `least_requests` (the in-flight counts of every healthy worker, ties broken by expected wait). |
+
 ### Prefix Hash Policy Options
 
 | Option | Default | Description |
@@ -138,11 +152,11 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 
 ### Manual Policy and Sticky Sessions
 
-`--policy manual` pins each routing key to a worker. `--routing-key-override` applies the same sticky map on top of any other policy. `manual` and `consistent_hashing` already key on the routing key themselves, so the override adds no second map to them; they read its `rid`-derived key directly. Both share the options below, and both sweep their map every `--eviction-interval` seconds. See [Sticky Sessions](../concepts/routing/sticky-sessions.md).
+`--policy manual` pins each routing key to a worker. `--routing-key-override` applies the same sticky map on top of any other policy. `manual` and `consistent_hashing` already key on the routing key themselves, so the override adds no second map to them; they read the same keys with the same precedence, a valid routing-key header first and then the override's `rid`-derived fallback. Both share the options below, and both sweep their map every `--eviction-interval` seconds. See [Sticky Sessions](../concepts/routing/sticky-sessions.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--routing-key-override` | `false` | Sticky sessions on any policy: every request of a conversation goes to the same worker. The key comes from the request body's `rid` with per-turn and per-retry suffixes stripped (`conv_t2_r1` becomes `conv`), falling back to the routing-key headers when there is no `rid`. Keeps automatic body forwarding buffered so the body `rid` takes precedence. Alias: `--sticky-sessions`. |
+| `--routing-key-override` | `false` | Sticky sessions on any policy: every request of a conversation goes to the same worker. The key is the first routing-key header carrying a valid value, falling back to the request body's `rid` with per-turn and per-retry suffixes stripped (`conv_t2_r1` becomes `conv`). Keeps automatic body forwarding buffered so the body `rid` stays available as the fallback. Alias: `--sticky-sessions`. |
 | `--routing-key-headers` | `x-smg-routing-key` | Ordered header names checked for the routing key; the first header present with a valid value wins. Names are lowercased, and invalid names fail at parse time. Passing the flag replaces the default, so list `x-smg-routing-key` again to keep it. With the override on, header keys get the same suffix stripping as `rid` keys. |
 | `--max-idle-secs` | `14400` (4 hours) | Seconds an unused routing key stays pinned before it is evicted from the manual-policy or sticky-session map. Alias: `--sticky-key-idle-secs`. |
 | `--assignment-mode` | `random` for `--policy manual`, `delegate` for the sticky-session map | How a first-seen key picks its worker: `random`, `min_load` (fewest requests), `min_group` (fewest keys), or `delegate` (route through the underlying policy, then pin). With `--policy manual` there is no underlying policy, so `delegate` falls back to `min_load`. |
@@ -153,27 +167,29 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 |--------|---------|-------------|
 | `--dp-aware` | `false` | Discover each worker's data-parallel size at registration and register one routable worker per DP rank. |
 | `--dp-minimum-tokens-scheduler` | `false` | In the HTTP PD router, pick each prefill and decode DP rank by fewest tracked tokens instead of the worker's registered rank. |
-| `--enable-igw` | `false` | Inference Gateway (IGW) mode: build every router family and choose one per request from the requested model's workers (HTTP or gRPC, regular or disaggregated, external provider), so one gateway serves many models. `--service-discovery` turns it on automatically. |
+| `--enable-igw` | `false` | Inference Gateway (IGW) mode: build every router family and choose one per request from the requested model's workers (HTTP or gRPC, regular or disaggregated, external provider), so one gateway serves many models. Selecting a discovery provider (`--service-discovery` or `--discovery-provider`) turns it on automatically. |
 
 ---
 
 ## Worker Overload Protection
 
-Absolute per-worker ceilings, evaluated once per load report rather than per request. A worker at or above a ceiling leaves routing until its load report drops below it. When every candidate worker is overloaded, the request is shed immediately with `503` and error code `worker_overload_protection_shed` instead of queueing. The shed carries `Retry-After` set to `--load-monitor-interval` (at least 1 second), and the gateway does not retry it. See [Overload Protection](../concepts/reliability/overload-protection.md).
+Absolute per-worker ceilings, on by default and evaluated once per load report rather than per request. A worker at or above a ceiling leaves routing while another candidate is under them. When every candidate worker is over the ceilings, the request goes to the least-loaded of them, so a uniformly loaded fleet never turns the load signal into an outage. `--worker-overload-shed` opts into refusing such requests instead with `503` and error code `worker_overload_protection_shed`; a shed carries `Retry-After` set to `--load-monitor-interval`, and the gateway does not retry it. See [Overload Protection](../concepts/reliability/overload-protection.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--worker-overload-protection` | `false` | Turn protection on with the gateway defaults: `--worker-overload-token-usage 0.9` and no waiting-requests ceiling (a sensible queue ceiling depends on the workload). Explicit thresholds override the default, and either threshold set alone turns protection on without this flag. |
-| `--worker-overload-waiting-requests` | unset | Queued (waiting) requests, summed across DP ranks, at or above which a worker is overloaded. Must be at least `1`, because `0` would veto every worker. |
-| `--worker-overload-token-usage` | unset | Mean KV-cache token usage across DP ranks, in `(0.0, 1.0]`, at or above which a worker is overloaded. The backend must report `token_usage`. `0.0` is rejected because it would veto every worker. |
+| `--worker-overload-protection` | `true` | Protection with the thresholds below. The flag is kept so existing command lines still parse; `--disable-worker-overload-protection` turns protection off. |
+| `--disable-worker-overload-protection` | `false` | Switch protection off: no worker is left out of routing for its waiting queue or KV usage. Per-worker `overload` blocks on a worker spec still apply. |
+| `--worker-overload-waiting-requests` | `8` | Queued (waiting) requests, summed across DP ranks, at or above which a worker is overloaded. Must be at least `1`, because `0` would veto every worker. |
+| `--worker-overload-token-usage` | `0.8` | Mean KV-cache token usage across DP ranks, in `(0.0, 1.0]`, at or above which a worker is overloaded. The backend must report `token_usage`. `0.0` is rejected because it would veto every worker. |
+| `--worker-overload-shed` | `false` | Refuse a request with `503` (`worker_overload_protection_shed`) when every worker it could use is overloaded, instead of steering it to the least-loaded one. The same opt-in sheds a request whose chosen worker crossed a threshold between selection and dispatch. |
 
-An `overload` block on a worker spec overrides these values per signal, and turns protection on for that worker even when all three flags are unset. Protection needs load reports, so the load monitor keeps polling workers that have it on (see [Load Monitoring Configuration](#load-monitoring-configuration)).
+An `overload` block on a worker spec overrides these values per signal, and applies to that worker even under `--disable-worker-overload-protection`. Protection needs load reports, so the load monitor keeps polling workers that have it on (see [Load Monitoring Configuration](#load-monitoring-configuration)).
 
 How the overload settings differ from the other load thresholds:
 
 | Setting | Scope | At the threshold |
 |---------|-------|------------------|
-| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing. If every candidate is overloaded, the request gets an immediate `503` shed. |
+| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing while another candidate is under the ceilings. With every candidate over them, the request goes to the least-loaded one, or gets an immediate `503` shed under `--worker-overload-shed`. |
 | `--overload-token-usage-threshold` | `cache_aware` only | The hottest backend is de-ranked within cache-aware selection but stays routable. |
 | `--least-load-max-waiting-requests` | `least_load` only | The worker is skipped while at the cap. With every worker at the cap, the policy selects no worker. |
 
@@ -251,13 +267,13 @@ EPD mode only.
 
 ### Prefill Admission
 
-These three flags landed on `main` after the v1.11.0 release (smg-project/smg#1961), so v1.11.0 builds do not have them. They cap how many Prefill requests the gateway keeps in flight on each prefill worker, counting only this gateway process's own dispatches. Requests over the cap wait in one FIFO queue per gateway process, not per worker.
+These three flags cap how many Prefill requests the gateway keeps in flight on each prefill worker, counting only this gateway process's own dispatches. Requests over the cap wait in one FIFO queue per gateway process, not per worker.
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--prefill-max-inflight-requests-per-worker` | `-1` (off) | Maximum in-flight Prefill requests per prefill worker. Any value of 0 or less turns the gate off, and setting either queue flag then fails startup validation. A positive value requires PD or EPD mode and is rejected together with `--priority-scheduler-enabled`. |
 | `--prefill-queue-size` | unset (`100` with the gate on) | Requests that may wait for a Prefill slot. A request that finds the queue full, or no queue (`0`), gets `429` (`pd_prefill_queue_full`). |
-| `--prefill-queue-timeout-secs` | unset (`60` with the gate on) | Maximum time a request waits for a Prefill slot before it gets `429` (`pd_prefill_queue_timeout`). Must be greater than 0 when the queue is on; the check applies the defaults, so an explicit `0` passes startup validation only next to `--prefill-queue-size 0`. |
+| `--prefill-queue-timeout-secs` | unset (`60` with the gate on) | Maximum time a request waits for a Prefill slot before it gets `429` (`pd_prefill_queue_timeout`). In the gRPC router the wait is also held to `--queue-timeout-secs`, counted from admission. Must be greater than 0 when the queue is on; the check applies the defaults, so an explicit `0` passes startup validation only next to `--prefill-queue-size 0`. |
 
 ### Worker Startup Configuration
 
@@ -277,9 +293,12 @@ The load monitor polls every worker group for load reports. The reports feed the
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--load-monitor-interval` | `10` | Seconds between load polls of each worker group. This is the global poll interval for all of the consumers above, even though `--help` still describes it as "for PowerOfTwo routing". The overload shed advertises it as `Retry-After`. Must be greater than 0. The worker spec's `load_monitor_interval_secs` field is not applied in v1.11.0. |
+| `--load-monitor-interval` | `10` | Seconds between load polls of each worker group. This is the global poll interval for all of the consumers above, even though `--help` still describes it as "for PowerOfTwo routing". The overload shed advertises it as `Retry-After`. Must be greater than 0. A worker spec's `load_monitor_interval_secs` overrides it for that worker's groups: the smallest override in a group wins, floored to one second. |
+| `--worker-stall-secs` | `2` | Seconds without any contact from a worker (a load poll, a health probe, a KV event, a response) after which a transport failure excludes it from routing; the first successful contact re-admits it. |
+| `--worker-wedge-secs` | `3` | Seconds without a token or a completion from a worker with requests in flight whose waiting queue grows, or whose in-flight pile grows or is four deep, after which new requests stop being routed to it until it makes progress. The bound stretches to the time its in-flight prompts may still need in prefill, up to 120 seconds; the pile counts streaming gRPC generations only, so HTTP workers and non-streaming generations never form one. The same bound, read per request, is how long the prefill leg of a disaggregated dispatch may produce nothing, with its worker answering no other leg, before the request fails over to another prefill worker. `0` disables both. |
+| `--worker-stale-secs` | `15` | Seconds without any contact from a worker whose KV-event stream pushes load records, after which it leaves routing as unreachable until it is heard from again. Workers that never pushed a record (HTTP workers, older servicers) are not judged by it. Keep it above `--load-monitor-interval`. `0` disables the rule. |
 | `--disable-load-monitoring` | `false` | Poll a worker group only when something needs the data: a load-aware policy, `--dp-minimum-tokens-scheduler`, `--engine-metrics`, or overload protection on one of its workers. By default every group is polled from registration onward. |
-| `--engine-metrics` | `false` | Force load polling for the `smg_engine_*` Prometheus gauges even when nothing else needs it. Every successful poll is exported anyway, so this matters only together with `--disable-load-monitoring`. |
+| `--engine-metrics` | `false` | Force load polling for the `smg_engine_*` Prometheus gauges even when nothing else needs it. Every successful poll is exported anyway, so this matters only together with `--disable-load-monitoring`. A worker whose KV-event stream pushes its load feeds the gauges from those records and is not polled while they flow. |
 | `--pd-admission-wait-secs` | `30` | Seconds a prefill/decode dispatch waits for a free slot in the decode engine's running window (`--max-num-seqs` / `--max-running-requests`) before shedding with `503` `worker_overload_protection_shed`. Keep it well under the engine's bootstrap deadline (120 seconds on TokenSpeed) so a request that waits still dispatches with the deadline ahead of it. `0` sheds immediately. Engines that report no running window are never gated. |
 
 ---
@@ -292,14 +311,14 @@ These settings apply where the gateway fetches and preprocesses media itself: th
 
 Controls how the router ships preprocessed multimodal tensors (image/video encoder inputs and model-specific tensors) to gRPC workers. This does not affect accuracy: the inline and shared-memory paths produce byte-identical tensors. The TokenSpeed and vLLM gRPC paths can use shared memory; only TokenSpeed workers pull pixels over RDMA. ZMQ workers always receive tensors inline.
 
-Resolution precedence (highest first): CLI flag, `SMG_MM_*` environment variable, built-in default.
+Resolution precedence (highest first): worker spec field, CLI flag, `SMG_MM_*` environment variable, built-in default.
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--multimodal-tensor-transport` | `inline` | Transport for large tensors: `inline` (gRPC bytes); `shm` (use `/dev/shm` whenever the router can write it; the operator asserts co-location); `auto` (use `/dev/shm` only when the worker is verified to share it: the router compares the worker's advertised `/dev/shm` namespace token from `GetServerInfo` with its own and falls back to inline on a mismatch); or `rdma` (pull pixels over the NIXL RDMA lane, see [RDMA Pixel Lane](#rdma-pixel-lane)). `--help` lists only the first three values, but `rdma` is accepted too. Env: `SMG_MM_TENSOR_TRANSPORT` (legacy name `SMG_TOKENSPEED_MM_TENSOR_TRANSPORT`). |
 | `--multimodal-shm-min-bytes` | `65536` | Minimum tensor size in bytes before the SHM path is used; smaller tensors stay inline. Env: `SMG_MM_SHM_MIN_BYTES` (legacy name `SMG_TOKENSPEED_MM_SHM_MIN_BYTES`). |
 
-The worker spec has matching `multimodal_tensor_transport` and `multimodal_shm_min_bytes` fields, but v1.11.0 does not copy them onto registered workers, so per-worker values have no effect. The legacy `SMG_TOKENSPEED_MM_*` names still work but log a migration warning.
+A worker spec's `multimodal_tensor_transport` and `multimodal_shm_min_bytes` fields override these values per worker. The override is read from the worker the tensors are sent to: the encode worker in EPD mode, otherwise the single or prefill worker that does the encoding. The legacy `SMG_TOKENSPEED_MM_*` names still work but log a migration warning.
 
 On the worker side, the vLLM and TokenSpeed gRPC servicers read `TOKENSPEED_UNLINK_MM_SHM_AFTER_READ` (default on: unlink each `/dev/shm` segment after the worker reads it; `0`, `false`, or `no` keeps the segments), and the TokenSpeed servicer also reads `TOKENSPEED_LOG_MM_TIMING` (worker-side timing logs).
 
@@ -307,9 +326,11 @@ On the worker side, the vLLM and TokenSpeed gRPC servicers read `TOKENSPEED_UNLI
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--multimodal-max-inflight-bytes` | unset (unbounded) | Most bytes of preprocessed media the gateway holds in flight for engines at once. A request that fits waits briefly for room, then gets `429`; a request larger than the whole budget gets `413` immediately. A waiting request still holds its media, so size memory for about twice this value. `0` is refused rather than read as unset. No environment fallback. |
+| `--multimodal-max-inflight-bytes` | unset (unbounded) | Most bytes of preprocessed media the gateway holds in flight for engines at once. A request that fits waits briefly for room, then gets `429`; a request larger than the whole budget gets `413` immediately. A waiting request still holds its media, so size memory for about twice this value. The budget is counted in whole 1024-byte units, rounded down; a value under `1024` (`0` included) is a startup error rather than being read as unset. No environment fallback. |
 | `--mm-per-request-image-limit` | unset (each model spec's limit) | Per-request image-count limit applied to every model, replacing each model spec's built-in limit (for example, to match the engine's `--limit-mm-per-prompt`). Must be at least `1`. Takes precedence over `SMG_IMAGE_MAX_COUNT`. |
-| `--mm-processing` | `auto` | Where media for vLLM gRPC workers is fetched and preprocessed: `auto` (the worker when both the model spec and the worker allow it, otherwise the gateway), `router` (always the gateway), or `worker` (always the engine; models without worker-side expansion are rejected). Case-insensitive. Env: `SMG_MM_PROCESSING`; an unreadable value there stops startup. |
+| `--mm-allowed-media-domains` | unset (any host the address policy passes) | Comma-separated host names the gateway may fetch client-supplied media URLs from when it processes media itself, applied to every redirect hop; a redirect to any other host is refused. |
+| `--mm-allow-private-media-hosts` | `false` | Allow client-supplied media URLs that name or resolve to a loopback, link-local, or private address, for a deployment whose media origin is internal; by default such URLs are refused before anything is connected. Env: `SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS`, which is also how a worker's own media pipeline, which has no flags, is told. |
+| `--mm-processing` | `auto` | Where media for vLLM gRPC workers is fetched and preprocessed: `auto` (the worker when both the model spec and the worker allow it, otherwise the gateway), `router` (always the gateway), or `worker` (forward references to the engine; a request whose parts carry per-item hints — `fps` or `max_long_side_pixel` — is preprocessed by the gateway instead when its own pipeline can serve it and rejected when it cannot, and a request without hints is rejected when the model has no worker-side expansion). Case-insensitive. Env: `SMG_MM_PROCESSING`; an unreadable value there stops startup. |
 | `--mm-pixel-cache-mb` | `0` (off) | Budget in MiB for the cache of router-side preprocessed media. Env: `SMG_MM_PIXEL_CACHE_MB`; a non-numeric value logs a warning and leaves the cache off. |
 | `--log-mm-timing` | `false` | Log per-request multimodal timing at `INFO`. Env: `SMG_LOG_MM_TIMING` (`1`, `true`, `yes`, or `on`). |
 
@@ -358,11 +379,14 @@ Environment-only RDMA settings, read by the gateway. The TokenSpeed worker reads
 
 ## Service Discovery (Kubernetes)
 
-Watches Kubernetes pods and registers the matching ones as workers. Enabling service discovery automatically enables IGW mode. Discovery is not available with `--backend openai`, `anthropic`, or `gemini`. See [Service Discovery](../concepts/architecture/service-discovery.md).
+Watches Kubernetes pods, or a JSON manifest file, and registers the matching workers at runtime. Selecting a discovery provider by either spelling below automatically enables IGW mode. Discovery is not available with `--backend openai`, `anthropic`, or `gemini`. See [Service Discovery](../concepts/architecture/service-discovery.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--service-discovery` | `false` | Enable Kubernetes service discovery. |
+| `--service-discovery` | `false` | Enable Kubernetes service discovery (the legacy spelling of `--discovery-provider kubernetes`). |
+| `--discovery-provider` | unset | Worker discovery provider: `kubernetes` or `file`. Give this or `--service-discovery`, not both. The selector and annotation flags below select Kubernetes pods; other providers ignore them. |
+| `--discovery-file` | unset | JSON manifest listing the workers, for `--discovery-provider file`; required with that provider, rejected without it. The file may be created after startup. |
+| `--discovery-check-interval-secs` | `30` | Seconds between periodic rereads of the `--discovery-file` manifest, which is also reread as soon as it changes. |
 | `--selector` | none | Label selector for worker pods, as space-separated `key=value` pairs. Required in regular mode. |
 | `--service-discovery-namespace` | all namespaces | Namespace to watch. Unset watches every namespace, which needs cluster-wide permissions. |
 | `--service-discovery-port` | `80` | Worker port for discovered pods without a `smg.ai/worker-ports` annotation (pods running several servers list their ports there). |
@@ -386,7 +410,7 @@ Prefill bootstrap ports come from the fixed `sglang.ai/bootstrap-port` pod annot
 
 `--model-alias` accepts an extra client-facing model name for a served model (format `<alias>=<canonical>`, repeatable). It applies to every locally registered worker whose model ID equals the canonical side, including workers registered by Kubernetes service discovery. Matching is case-sensitive. Aliased requests are sent to the canonical model; backend responses are passed through unchanged. `/v1/models` lists canonical IDs only. An alias must differ from its canonical ID, and mapping one alias to two different canonical models fails at startup.
 
-Aliases do not participate in Kubernetes Pod selection or model discovery. A discovered worker's canonical model ID continues to come from the backend `served_model_name` (or from `--model-id-from`); aliases only add names that resolve to that canonical ID after registration.
+Aliases do not participate in Kubernetes Pod selection or model discovery. A discovered worker's canonical model ID continues to come from the backend `served_model_name` (or from `--model-id-from`); aliases only add names that resolve to that canonical ID after registration. A vendor-named alias (for example `kimi-*` or `minimax-*`) also gives the served model that vendor's contract profile under both names.
 
 Example:
 
@@ -421,8 +445,8 @@ See [Configure Logging](../getting-started/logging.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--prometheus-port` | `29000` | Port of the metrics server, which serves `/metrics`. Must be greater than 0: v1.11.0 rejects `0` at startup (`metrics.port` ... `Port must be > 0`), even though `--help` describes `0` as an OS-assigned ephemeral port. |
-| `--prometheus-host` | `0.0.0.0` | Bind address of the metrics server, as a bare IP address (IPv6 without brackets, for example `::`). An unparsable value logs an error and falls back to `0.0.0.0`. |
+| `--prometheus-port` | `29000` | Port of the metrics server, which serves `/metrics`. Must be greater than 0, and each listener (`--port`, `--health-check-port`, `--mesh-port`, and this one) needs a port of its own. |
+| `--prometheus-host` | the unspecified address of `--host`'s family: `::` for an IPv6 host, otherwise `0.0.0.0` | Bind address of the metrics server, in the same spellings as `--host` (`::` and `[::]` both bind IPv6). An unparsable value is a startup error. |
 | `--prometheus-duration-buckets` | see below | Space-separated histogram bucket boundaries, in seconds, for metrics whose names end in `duration_seconds`, `ttft_seconds`, or `tpot_seconds`. |
 
 Default buckets: `0.001 0.005 0.01 0.025 0.05 0.1 0.25 0.5 1 2.5 5 10 15 30 45 60 90 120 180 240 300 480 900 1200 1800 2700 3600 5400 7200`.
@@ -440,37 +464,35 @@ See the [Metrics Reference](metrics.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--request-timeout-secs` | `1800` (30 min) | Maximum time for request processing. Must be greater than 0. |
-| `--sse-keepalive-secs` | `15` | Send a keepalive after this many seconds of silence on an open SSE response. `0` disables it. Available from v1.13.0; see [Streaming Keepalives](#streaming-keepalives). |
+| `--request-timeout-secs` | `1800` (30 min) | Maximum time for request processing. Must be greater than 0. It also bounds the read of a buffered request body: a body still incomplete after this many seconds is answered `408` with error code `request_body_timeout`. |
+| `--sse-keepalive-secs` | `15` | Send a keepalive after this many seconds of silence on an open SSE response. `0` disables it. See [Streaming Keepalives](#streaming-keepalives). |
 | `--upstream-pool-idle-timeout-secs` | `3` | Idle timeout for pooled upstream connections. Keep it below the backend server's keep-alive timeout (vLLM and SGLang default to 5 seconds), or reused connections the server already closed fail non-idempotent sends. `0` keeps idle connections forever. |
 | `--shutdown-grace-period-secs` | `180` (3 min) | Time to wait for in-flight requests during shutdown. See [Graceful Shutdown](../concepts/reliability/graceful-shutdown.md). |
 | `--max-payload-size` | `536870912` (512 MiB) | Maximum request body size in bytes. Must be greater than 0. |
 | `--max-buffered-request-bytes` | `1048576` (1 MiB) | Most bytes the gateway holds for a request it buffers only to keep it retryable. The gateway decides per request: a request it must parse (a text-routing policy without a routing hint, a body-mutating worker, WASM request hooks, a missing `Content-Length`, PD or batch backends) always buffers, bounded by `--max-payload-size`. Any other request buffers up to this many bytes when retries are enabled; otherwise, or when larger, it streams to the worker verbatim, forfeiting gateway-level retries and leaving JSON validation to the worker. `0` never buffers for retries. See [Request Streaming](../concepts/performance/request-streaming.md). |
-| `--stream-body-stall-timeout-secs` | `300` | Abort a streamed request body with `408` (`request_body_stalled`) once the gateway has waited this long on the client. The clock pauses while the worker applies backpressure, so a slow worker read never trips it. Applies only to streamed request bodies. `0` disables it. |
+| `--stream-body-stall-timeout-secs` | `300` | Abort a request body read with `408` (`request_body_stalled`) once a single wait on the client has lasted this long. Despite the name, it bounds bodies the gateway buffers as well as bodies it streams to the worker: on the streamed path the clock pauses while the worker applies backpressure, and on the buffered path it runs only while the gateway is waiting on the client, so a slow worker or handler never trips it. `0` disables the stall watchdog, leaving `--request-timeout-secs` as the only bound on the body read. |
 | `--header-read-timeout-secs` | `30` | Close a connection that has not delivered a complete request head within this many seconds of being accepted, and a keep-alive connection whose next request head stalls for this long after its first byte. A server-wide bound applied per connection, not per request. `0` disables it. |
 | `--idle-connection-timeout-secs` | `90` | Close a keep-alive connection that has had no request in flight for this many seconds; an open streaming response counts as in flight. A server-wide bound applied per connection, not per request. Keep it above the idle timeout of any proxy or load balancer in front of the gateway, so that side closes an idle connection first; otherwise a request can be sent on a connection the gateway is closing and fail with a reset. `0` keeps idle connections open until the client closes them. |
-| `--request-id-headers` | `x-request-id`, `x-correlation-id`, `x-trace-id`, `request-id` | Space-separated headers checked for an incoming request ID. Passing the flag replaces the defaults. |
+| `--request-id-headers` | `x-request-id`, `x-correlation-id`, `x-trace-id`, `request-id` | Space-separated headers checked for an incoming request ID. The first header present is honored when its value is 1 to 128 visible-ASCII characters; otherwise a fresh ID is generated. Passing the flag replaces the defaults. |
 | `--storage-context-headers` | none | Space-separated `header=context_key` entries that map request headers into the storage-hook request context. See [Storage Context Headers](#storage-context-headers). |
 | `--trust-tenant-header` | `false` | Take the tenant identity from an upstream-set header (see `--tenant-header-name`). The tenant identity keys tenant rate limits and the priority scheduler. An identity from an API key still wins; with neither, the tenant is the client IP. |
 | `--tenant-header-name` | `x-smg-tenant-id` | Header read when `--trust-tenant-header` is on. Must be a valid header name. |
-| `--cors-allowed-origins` | none (any origin) | Space-separated allowed origins. When empty, any origin, method, and header is allowed. |
-
-`--stream-request-bodies-over`, which existed briefly in pre-release builds, was removed before v1.10.0; v1.11.0 rejects it as an unknown argument. The per-request decision described under `--max-buffered-request-bytes` replaces it.
+| `--cors-allowed-origins` | none (no cross-origin allowance) | Space-separated exact origins a browser may call the gateway from, or `*` alone for any origin, method and header. Without the flag no CORS headers are sent: a browser's preflight gets no `access-control-allow-*` headers and the browser refuses the cross-origin call; other clients are unaffected. Earlier releases allowed any origin when the flag was absent; set `*` to keep that. |
 
 **Examples**:
 ```bash
 --cors-allowed-origins http://localhost:3000 https://example.com
+--cors-allowed-origins '*'   # any origin (the earlier default)
 --request-id-headers x-request-id x-trace-id x-correlation-id
 ```
 
 ### Streaming Keepalives
 
-!!! note "New in v1.13.0"
-    SMG can keep an open streaming response active while the engine is silent, such as during a long prefill. This setting is unavailable in v1.12.0.
-
-After **15 seconds** without response data, SMG sends an SSE keepalive. The
-interval starts when the response headers are sent and restarts when data flows.
-Keepalives are inserted only between complete SSE frames.
+SMG keeps an open streaming response active while the engine is silent, such as
+during a long prefill. After `--sse-keepalive-secs` (default 15 seconds) without
+response data, SMG sends an SSE keepalive. The interval starts when the response
+headers are sent and restarts when data flows. Keepalives are inserted only
+between complete SSE frames.
 
 | Endpoint | Keepalive format |
 |----------|------------------|
@@ -513,10 +535,11 @@ Gateway-wide admission control for the inference routes. For behavior and sizing
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--max-concurrent-requests` | `-1` (unlimited) | Maximum standing concurrent requests. Each admission permit is held for the full response, including streaming bodies. `-1` (any value of 0 or less) disables the limit. |
+| `--max-concurrent-requests` | `-1` (host-derived) | Maximum standing concurrent requests. Each admission permit is held for the full response, including streaming bodies. `-1` (any negative value) derives the bound from the host — 1024 per available core, at least 4096 — far above a healthy gateway's in-flight count, so an overloaded gateway sheds instead of queueing without bound. `0` disables admission control entirely. |
 | `--queue-size` | `100` | Requests that may wait for a permit when the limit is reached. A request that finds the queue full, or no queue (`0`), gets `429` (`admission_queue_full`). |
-| `--queue-timeout-secs` | `60` | Maximum time a request waits in the queue before it gets `503` (`admission_queue_timeout`). Must be greater than 0 when `--queue-size` is greater than 0. |
-| `--rate-limit-tokens-per-second` | unset | Refill rate of the admission token bucket, whose capacity is `--max-concurrent-requests`. It has no effect while that limit is off. Unset or `0` means no refill: `--max-concurrent-requests` bounds standing concurrency alone. A positive value also refills the bucket over time, on top of the permits that finished requests return, so more than `--max-concurrent-requests` requests can be in flight. With `--priority-scheduler-enabled`, a positive value instead caps admissions at this many requests per second, in bursts of up to `--max-concurrent-requests`; excess requests get `429` (`scheduler_queue_full`). Must be 0 or more. |
+| `--queue-timeout-secs` | `60` | Maximum time a request waits in the queue before it gets `503` (`admission_queue_timeout`). Must be greater than 0 when `--queue-size` is greater than 0. In the gRPC router the same bound also caps how long a request may sit ahead of worker selection, counted from its admission (or its acceptance when no admission layer is on), the PD prefill admission wait included; the HTTP relay and the HTTP PD router are not bounded by it. |
+| `--rate-limit-tokens-per-second` | unset | Sustained admission rate in requests per second, in bursts of up to the concurrency cap. Admission then spends rate budget that only the refill replaces: a completed request frees its concurrency slot, not rate budget, so the in-flight count still never exceeds `--max-concurrent-requests`. Unset or `0` means no rate limit: `--max-concurrent-requests` bounds standing concurrency alone. With `--priority-scheduler-enabled`, the scheduler owns concurrency and a positive value survives as the per-second admission check; excess requests get `429` (`scheduler_queue_full`). |
+| `--max-background-responses` | `1024` | Most Responses API requests with `background: true` in flight at once; one beyond answers `429`. `0` switches background mode off: such requests run in the foreground. |
 
 ---
 
@@ -526,10 +549,10 @@ Priority-aware admission, disabled by default. The YAML format, request header, 
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--priority-scheduler-enabled` | `false` | Use the priority-aware admission scheduler instead of the concurrency-limit middleware. If the scheduler cannot start, the gateway logs an error and keeps the legacy path. |
-| `--priority-scheduler-default-max-class` | `default` | Maximum priority class for tenants not listed in the YAML: `system`, `interactive`, `default`, or `bulk`. Case-insensitive; an unknown value falls back to `default`. |
-| `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class tuning and per-tenant policy). Unset uses the built-in defaults. |
-| `--priority-scheduler-tenant-metric-top-n` | `32` | Intended cap on per-tenant scheduler metric label cardinality (top N plus `other`). Stored but not yet applied in v1.11.0. |
+| `--priority-scheduler-enabled` | `false` | Use the priority-aware admission scheduler instead of the concurrency-limit middleware. A scheduler that cannot start against the fleet's initial capacity (its reservations exceed it) is logged at ERROR and the gateway falls back to the legacy path rather than aborting. |
+| `--priority-scheduler-default-max-class` | `default` | Maximum priority class for tenants not listed in the YAML: `system`, `interactive`, `default`, or `bulk`. With the scheduler enabled, an unknown value is a startup error. |
+| `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class tuning and per-tenant policy). With the scheduler enabled, a file that cannot be read, parsed (an unknown key included), or validated is a startup error. Unset uses the built-in defaults. |
+| `--priority-scheduler-tenant-metric-top-n` | `32` | Intended cap on per-tenant scheduler metric label cardinality (top N plus `other`). Stored but not yet applied. |
 
 ---
 
@@ -576,7 +599,7 @@ Per-worker circuit breakers. See [Circuit Breakers](../concepts/reliability/circ
 | `--cb-failure-threshold` | `10` | Consecutive failures that open a worker's circuit; a success resets the count. Must be at least `1`. |
 | `--cb-success-threshold` | `3` | Consecutive successes in the half-open state that close the circuit. Must be at least `1`. |
 | `--cb-timeout-duration-secs` | `60` | Seconds a circuit stays open. The move to half-open happens lazily, on the first check after this time has passed. Must be greater than 0. |
-| `--cb-window-duration-secs` | `120` | Currently unused: it is validated (must be greater than 0), but the v1.11.0 breaker counts consecutive failures and never reads this window. |
+| `--cb-window-duration-secs` | `120` | Unused: it is validated (must be greater than 0), but the breaker counts consecutive failures and never reads this window. |
 | `--disable-circuit-breaker` | `false` | Disable the circuit breaker by raising the failure threshold to its maximum, so the circuit never opens. Outcomes are still recorded. |
 
 **Circuit Breaker States**:
@@ -613,6 +636,7 @@ Active health probes of each worker. See [Health Checks](../concepts/reliability
 | `--disable-tokenizer-autoload` | `false` | Disable automatic tokenizer loading at startup and during worker registration. Useful when tokenizers are loaded on demand through the API. |
 | `--tokenizer-cache-enable-l0` | `false` | Enable the L0 (whole-string exact match) tokenizer cache. |
 | `--tokenizer-cache-l0-max-entries` | `10000` | Maximum entries in the L0 cache. Must be greater than 0 when L0 is on. |
+| `--tokenizer-cache-l0-max-memory` | `268435456` (256 MiB) | Maximum memory for the L0 cache in bytes, counting texts, token IDs, and per-entry overhead. |
 | `--tokenizer-cache-enable-l1` | `false` | Enable the L1 (prefix matching) tokenizer cache. |
 | `--tokenizer-cache-l1-max-memory` | `52428800` (50 MiB) | Maximum memory for the L1 cache, in bytes. Must be greater than 0 when L1 is on. |
 
@@ -622,14 +646,17 @@ Downloads from the Hugging Face Hub use `HF_TOKEN` when it is set. See [Tokenize
 
 ## Parser Configuration
 
-Both flags take a registered parser name; an unknown name fails startup. For each request, a parser named in the model's card wins, then these flags, then auto-detection from the model ID. See [Tokenization and Parsing APIs](../getting-started/tokenization-and-parsing.md).
+`--reasoning-parser` and `--tool-call-parser` take a registered parser name; an unknown name fails startup. For each request, a parser named in the model's card wins, then these flags, then auto-detection from the model ID. See [Tokenization and Parsing APIs](../getting-started/tokenization-and-parsing.md).
 
 | Option | Default | Values |
 |--------|---------|--------|
-| `--reasoning-parser` | unset (auto-detect) | `base`, `passthrough`, `deepseek_r1`, `deepseek_v31`, `deepseek_v4`, `deepseek_v41`, `qwen3`, `qwen3_thinking`, `kimi`, `kimi_k25`, `kimi_thinking`, `kimi_k3`, `glm45`, `step3`, `minimax`, `minimax_m3`, `cohere_cmd`, `nano_v3`, `inkling` |
-| `--tool-call-parser` | unset (auto-detect) | `passthrough`, `json`, `mistral`, `qwen`, `qwen_xml`, `qwen_coder`, `nemotron`, `pythonic`, `llama`, `deepseek`, `deepseek31`, `deepseek32`, `deepseek_v4`, `deepseek_v41`, `glm45_moe`, `glm47_moe`, `step3`, `sarashina`, `kimik2`, `kimi_k3`, `inkling`, `minimax_m2`, `minimax_m3`, `cohere` |
+| `--reasoning-parser` | unset (auto-detect) | `base`, `passthrough`, `deepseek_r1`, `deepseek_v31`, `deepseek_v4`, `deepseek_v41`, `gemma4`, `qwen3`, `qwen3_thinking`, `kimi`, `kimi_k25`, `kimi_thinking`, `kimi_k3`, `glm45`, `hy_v4`, `step3`, `minimax`, `minimax_m3`, `cohere_cmd`, `nano_v3`, `inkling` |
+| `--tool-call-parser` | unset (auto-detect) | `passthrough`, `json`, `gemma4`, `mistral`, `qwen`, `qwen_xml`, `qwen_coder`, `nemotron`, `pythonic`, `llama`, `deepseek`, `deepseek31`, `deepseek32`, `deepseek_v4`, `deepseek_v41`, `glm45_moe`, `glm47_moe`, `hy_v4`, `step3`, `sarashina`, `kimik2`, `kimi_k3`, `inkling`, `minimax_m2`, `minimax_m3`, `cohere` |
+| `--parser` | `legacy` | Which parser engine reads a chat completion's reasoning and tool calls: `legacy` (the per-model parsers above) or `symphony`. A request's `X-SMG-Parser` header overrides the flag for that request. |
 
 Names use underscores: `--reasoning-parser deepseek-r1` fails; use `deepseek_r1`.
+
+Under `--parser symphony`, the parser names set for a model decide how it is read (its worker labels, else the two flags above): a Symphony table's name reads every model with that table, `hf` reads each model with the table its tokenizer's `response_template` compiles into, and a legacy parser's name keeps the legacy parsers. With no name, Symphony's registry covers the models it knows.
 
 ---
 
@@ -643,7 +670,7 @@ Names use underscores: `--reasoning-parser deepseek-r1` fails; use `deepseek_r1`
 | Default | unset |
 | Description | Path to the MCP (Model Context Protocol) server configuration file (YAML), loaded at startup. `--help` lists it under Parsers. |
 
-Only the file's `servers` list is applied. A server entry's own `proxy:` block sets that server's outbound proxy; otherwise MCP connections use the standard `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` variables (upper- or lowercase). v1.11.0 ignores the top-level `proxy:` block and never reads `MCP_HTTP_PROXY`, `MCP_HTTPS_PROXY`, or `MCP_NO_PROXY`. See [Model Context Protocol (MCP)](../concepts/extensibility/mcp.md).
+A server entry's own `proxy:` block sets that server's outbound proxy. Servers without one — an explicit `proxy: null` is read as unset — use the file's top-level `proxy:` block; when the file sets none, the global proxy comes from the `MCP_HTTP_PROXY`, `MCP_HTTPS_PROXY`, and `MCP_NO_PROXY` environment variables, each falling back to its unprefixed form (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`). See [Model Context Protocol (MCP)](../concepts/extensibility/mcp.md).
 
 ---
 
@@ -651,8 +678,11 @@ Only the file's `servers` list is applied. A server entry's own `proxy:` block s
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--backend` | unset (auto-detected) | `sglang`, `vllm`, `trtllm`, `tokenspeed`, `openai`, `anthropic`, or `gemini`. `openai`, `anthropic`, and `gemini` switch to the external-provider router, where `--worker-urls` are provider endpoints (see [External Providers](../getting-started/external-providers.md)). For `ipc://` (ZMQ) workers, `vllm` and `tokenspeed` declare the engine's wire protocol, which cannot be auto-detected. For HTTP and gRPC workers the runtime is detected automatically, so the engine values change nothing but the startup banner. Hidden alias: `--runtime`. |
+| `--backend` | unset (auto-detected) | `sglang`, `vllm`, `trtllm`, `tokenspeed`, `openai`, `anthropic`, or `gemini`. `openai`, `anthropic`, and `gemini` switch to the external-provider router, where `--worker-urls` are provider endpoints (see [External Providers](../getting-started/external-providers.md)). For `ipc://` (ZMQ) workers, `sglang`, `vllm`, and `tokenspeed` declare the engine's wire protocol, which cannot be auto-detected. For HTTP and gRPC workers the runtime is detected automatically, so the engine values change nothing but the startup banner. Hidden alias: `--runtime`. |
 | `--history-backend` | `memory` | Storage for conversations and Responses API history: `memory`, `none`, `oracle`, `postgres`, or `redis`. See [Storage Configuration](#storage-configuration) and [Chat History](../concepts/data/chat-history.md). |
+| `--history-memory-max-responses` | `10000` | Most stored responses the `memory` history backend keeps; the oldest go first, on every write (a stored response takes about 12 KB). |
+| `--history-memory-max-items` | `100000` | Most conversation items the `memory` backend keeps; the oldest go first and leave every conversation that listed them (an item takes about 1.5 KB). |
+| `--history-memory-retention-secs` | `86400` (1 day) | How long the `memory` backend keeps a record, checked on every write; `0` keeps a record until a count bound drops it. A conversation is kept that long after its last use, and a background response still running is not dropped by a count bound. |
 | `--enable-wasm` | `false` | Enable WebAssembly support: the WASM request middleware and module management through the `/wasm` admin routes. See [WASM Plugins](../concepts/extensibility/wasm-plugins.md). |
 | `--storage-hook-wasm-path` | unset | Path to a WASM component implementing storage hooks. When set, every storage backend is wrapped with hook-based interceptors. Independent of `--enable-wasm`. |
 | `--schema-config` | unset | Path to a YAML schema config file for storage table/column remapping. It also carries the schema `owner`, `version`, and `auto_migrate` settings (see [Schema Migrations](#schema-migrations)). |
@@ -685,16 +715,18 @@ The connection uses `--oracle-dsn` when it is set; otherwise `--oracle-wallet-pa
 |--------|---------|-------------|
 | `--postgres-db-url` | unset | Connection URL (`postgres://` or `postgresql://`, with a host and a database name). Required with `--history-backend postgres`. |
 | `--postgres-pool-max-size` | `16` | Maximum connection pool size. Must be greater than 0. |
+| `--postgres-op-timeout-secs` | `5` | Bound in seconds on each call to the PostgreSQL store (pool wait, connect, and the statement); a call past it is answered `503` (`storage_unavailable`). Must be greater than 0. |
 
 ### Redis Database
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--redis-url` | unset | Connection URL (`redis://`, with a host). Required with `--history-backend redis`. A `rediss://` URL passes validation, but v1.11.0 is built without Redis TLS support, so startup fails. |
+| `--redis-url` | unset | Connection URL (`redis://`, with a host). Required with `--history-backend redis`. A `rediss://` URL passes validation, but the gateway is built without Redis TLS support, so startup fails. |
 | `--redis-pool-max-size` | `16` | Maximum connection pool size. Must be greater than 0. |
-| `--redis-retention-days` | `30` | Data retention in days. `-1` (any negative value) keeps data persistently. |
+| `--redis-retention-days` | `30` | Data retention in days: at least `1`, or exactly `-1` to keep data persistently. Any other value of `0` or less fails startup; `0` would expire every record as it is written. |
+| `--redis-op-timeout-secs` | `5` | Bound in seconds on each call to the Redis store (pool wait, connect, and the command; it replaces the client library's 500 ms and 1 s defaults); a call past it is answered `503` (`storage_unavailable`). Must be greater than 0. |
 
-The Rust CLI declares no environment variables for PostgreSQL or Redis. `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `REDIS_URL`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS` are read only by the [Python launcher](#python-launcher-differences).
+The Rust CLI declares no environment variables for PostgreSQL or Redis. `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `POSTGRES_OP_TIMEOUT_SECS`, `REDIS_URL`, `REDIS_POOL_MAX`, `REDIS_RETENTION_DAYS`, and `REDIS_OP_TIMEOUT_SECS` are read only by the [Python launcher](#python-launcher-differences).
 
 ### Schema Migrations
 
@@ -739,8 +771,8 @@ Authentication for the admin routes: worker management, cache and tokenizer oper
 
 | Option | Environment | Default | Description |
 |--------|-------------|---------|-------------|
-| `--control-plane-api-keys` | `CONTROL_PLANE_API_KEYS` | none | An API key as `id:name:role:key`, where role is `admin` or `user`. One key per flag; repeat the flag for more. A malformed entry is skipped with a warning. |
-| `--jwt-issuer` | `JWT_ISSUER` | unset | OIDC issuer URL. JWT auth needs both the issuer and the audience; with only one, it stays off and a warning is printed. |
+| `--control-plane-api-keys` | `CONTROL_PLANE_API_KEYS` | none | An API key as `id:name:role:key`, where role is `admin` (every control plane route) or `user` (the read-only GET/HEAD routes). One key per flag; repeat the flag for more. A malformed entry (wrong field count, or a role other than `admin` or `user`) fails startup rather than starting the control plane open. |
+| `--jwt-issuer` | `JWT_ISSUER` | unset | OIDC issuer URL. JWT auth needs both the issuer and the audience; giving only one of them fails startup. |
 | `--jwt-audience` | `JWT_AUDIENCE` | unset | Expected audience claim. |
 | `--jwt-jwks-uri` | `JWT_JWKS_URI` | discovered from the issuer | Explicit JWKS URI. |
 | `--jwt-role-claim` | - | `roles` | JWT claim that carries the role. |
@@ -767,7 +799,7 @@ Authentication for the admin routes: worker management, cache and tokenizer oper
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--api-key` | unset | Shared gateway API key. When set, the inference routes require `Authorization: Bearer <key>` (or a `--tenant-api-key` key) and return `401` otherwise; public routes such as `/health` and `/v1/models` stay open. The admin routes accept it when no control plane authentication is configured. It is also attached to every startup and discovered worker as that worker's API key, and the gateway sends it to the worker (as `Authorization: Bearer <key>` for local workers) when the client request carries no `Authorization` header of its own. |
-| `--tenant-api-key` | none | Per-tenant key as `tenant_id:key`, one per flag. Layers on top of `--api-key`; each key resolves to its own tenant identity (`auth:<tenant_id>`), which tenant rate limits and the priority scheduler use. Tenant keys never unlock the admin routes: with tenant keys but no `--api-key` and no control plane authentication, the admin routes return `401`. An entry without `:` fails startup, as do empty values and a key value used twice (including one equal to `--api-key`). |
+| `--tenant-api-key` | none | Per-tenant key as `tenant_id:key`, one per flag. Layers on top of `--api-key`; each key resolves to its own tenant identity (`auth:<tenant_id>`), which tenant rate limits and the priority scheduler use. Stored responses and conversations are scoped to the tenant that created them: another tenant's ID answers `404`, and records stored without a tenant identity stay readable by every caller. Tenant keys never unlock the admin routes: with tenant keys but no `--api-key` and no control plane authentication, the admin routes return `401`. An entry without `:` fails startup, as do empty values and a key value used twice (including one equal to `--api-key`). |
 
 **Example**:
 ```bash
@@ -792,6 +824,9 @@ High-availability mesh networking for multi-router coordination. See [High Avail
 | `--mesh-advertise-host` | the `--mesh-host` value | Routable address advertised to other mesh peers. Required when `--mesh-host` is an unspecified bind address such as `0.0.0.0`. |
 | `--mesh-port` | `39527` | Port for the mesh server. `0` is rejected because peers dial the advertised port. |
 | `--mesh-peer-urls` | none | Peer address to join at startup, as `IP:port`. Only the first entry is used as the initial peer, and it must be an IP address and port: a hostname fails startup. Later entries are ignored without being checked. |
+| `--mesh-tls-ca-cert` | unset | CA certificate (PEM) the mesh peers' certificates chain to. The three `--mesh-tls-*` flags go together (any one requires the other two): the mesh listener then serves TLS and requires peer certificates, and every dial presents this node's certificate. Each file must be readable at startup. |
+| `--mesh-tls-cert` | unset | This mesh node's certificate (PEM), with the node's IP as a SAN. |
+| `--mesh-tls-key` | unset | This mesh node's private key (PKCS#8 PEM). |
 
 Router pods can also discover each other through `--router-selector` (see [Service Discovery (Kubernetes)](#service-discovery-kubernetes)).
 
@@ -813,8 +848,16 @@ Used by the WebRTC realtime route (`POST /v1/realtime/calls`).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--webrtc-bind-addr` | `0.0.0.0` (auto-detect via routing table) | Bind address for WebRTC UDP sockets (the client-facing ICE candidate IP). Set to `127.0.0.1` for local development on the same machine. |
+| `--webrtc-bind-addr` | the unspecified address of `--host`'s family (`::`, dual-stack on Linux, for an IPv6 host; otherwise `0.0.0.0`), with the candidate IP auto-detected via the routing table | Bind address for WebRTC UDP sockets (the client-facing ICE candidate IP). Set to `127.0.0.1` (or `::1`) for local development on the same machine. |
 | `--webrtc-stun-server` | `stun.l.google.com:19302` | STUN server (`host:port`) used to gather the upstream socket's server-reflexive candidate. Set to your own STUN server for enterprise deployments that restrict outbound traffic to external STUN servers. `none` disables STUN. |
+
+---
+
+## Profiling
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--jemalloc-prof-dir` | unset | Directory where `POST /heap_profile` (an admin route) writes a jemalloc heap profile of the gateway process. Needs a build with the `jemalloc-profiling` feature, started with `_RJEM_MALLOC_CONF=prof:true,prof_active:true`; unset, the route answers `404`. |
 
 ---
 
@@ -849,15 +892,15 @@ the cgroup-quota-derived default and any `TOKIO_WORKER_THREADS` value).
 
 ## Python Launcher Differences
 
-`pip install smg` installs a Python `smg` command, not the Rust binary. Its `smg launch`, and `python -m smg.launch_router`, parse flags with `bindings/python/src/smg/router_args.py` and then start the gateway through the Python bindings. The gateway image's entrypoint is `python3 -m smg.launch_router` and the engine images' entrypoint is this Python `smg`, so `docker run` arguments go through this parser too. Most flags match the Rust CLI. The differences in v1.11.0:
+`pip install smg` installs a Python `smg` command, not the Rust binary. Its `smg launch`, and `python -m smg.launch_router`, parse flags with `bindings/python/src/smg/router_args.py` and then start the gateway through the Python bindings. The gateway image's entrypoint is `python3 -m smg.launch_router` and the engine images' entrypoint is this Python `smg`, so `docker run` arguments go through this parser too. Most flags match the Rust CLI. The differences:
 
 - **Entry points:** the Python `smg` needs a subcommand (`launch` or `serve`); there is no `start` alias and no subcommand-less form. Under `smg serve`, most router flags take a `--router-` prefix (for example `--router-policy`), and `--router-disable-arg-fallback` stops them from falling back to same-named backend flags.
 - **Python-only flags:** `--client-cert-path`, `--client-key-path`, and `--ca-cert-paths` (mTLS toward workers); `--bucket-adjust-interval-secs` (default `5`; the Rust CLI fixes 5 seconds); `--control-plane-audit-enabled` (audit logging is off unless set, while the Rust CLI enables it and offers `--disable-audit-logging`); and `--no-remove-unhealthy-workers` / `--no-worker-auto-recovery` in place of `=false`.
 - **Renamed flags:** `--eviction-interval-secs` (default `60`) instead of `--eviction-interval` (default `120`); `--oracle-connect-descriptor` instead of `--oracle-dsn`; `--oracle-username` instead of `--oracle-user`; `--postgres-pool-max` instead of `--postgres-pool-max-size`; `--redis-pool-max` instead of `--redis-pool-max-size`. When both a TNS alias and a DSN are given, Python uses the alias, while the Rust CLI uses the DSN.
 - **Different values:** `--policy` and `--decode-policy` do not accept `bucket` (`--prefill-policy` does), and `--prefill-policy` and `--decode-policy` accept `passthrough`. `--backend` accepts only `sglang`, `vllm`, `tokenspeed`, `openai`, and `anthropic`, and defaults to `sglang`, which behaves like leaving the Rust flag unset. `--reasoning-parser` and `--tool-call-parser` are checked against the registered names at parse time.
-- **Environment variables:** Python reads `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `REDIS_URL`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS` as defaults for its storage flags; the Rust CLI does not. Both read the Oracle `ATP_*` variables. `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_JWKS_URI`, and `CONTROL_PLANE_API_KEYS` are Rust-only.
+- **Environment variables:** Python reads `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `POSTGRES_OP_TIMEOUT_SECS`, `REDIS_URL`, `REDIS_POOL_MAX`, `REDIS_RETENTION_DAYS`, and `REDIS_OP_TIMEOUT_SECS` as defaults for its storage flags; the Rust CLI does not. Both read the Oracle `ATP_*` variables. `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_JWKS_URI`, and `CONTROL_PLANE_API_KEYS` are Rust-only.
 - **Multiple values:** `--control-plane-api-keys` and `--jwt-role-mapping` accept several values after one flag in Python; the Rust CLI takes one value per flag.
-- **Not available in Python:** `--disable-audit-logging`, `--drain-settle-secs`, `--engine-metrics`, `--jwt-role-claim`, `--kv-indexer-ttl-secs`, `--kv-indexer-max-entries`, `--pd-pairing-mode`, the four `--priority-scheduler-*` flags, `--runtime-worker-threads`, the hidden `--runtime` alias of `--backend`, `--tenant-api-key`, `--trust-tenant-header`, `--tenant-header-name`, the two `--tenant-rate-limit-*` flags, `--webrtc-bind-addr`, and `--webrtc-stun-server`.
+- **Not available in Python:** `--disable-audit-logging`, `--drain-settle-secs`, `--engine-metrics`, `--jwt-role-claim`, `--kv-indexer-ttl-secs`, `--kv-indexer-max-entries`, `--pd-pairing-mode`, `--runtime-worker-threads`, the hidden `--runtime` alias of `--backend`, `--webrtc-bind-addr`, and `--webrtc-stun-server`.
 
 ---
 
@@ -901,12 +944,12 @@ smg launch \
   --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 \
   --policy least_load \
   --least-load-max-waiting-requests 32 \
-  --worker-overload-protection \
   --worker-overload-waiting-requests 64 \
+  --worker-overload-shed \
   --load-monitor-interval 5
 ```
 
-`least_load` skips a worker once its reported queue, plus requests dispatched since its last load report, reaches 32. Overload protection removes a worker from routing at 90% KV-cache usage (the `--worker-overload-protection` default) or at 64 queued requests. When all three workers are over a ceiling, requests get an immediate `503` with `Retry-After: 5`.
+`least_load` skips a worker once its reported queue, plus requests dispatched since its last load report, reaches 32. Overload protection, on by default, removes a worker from routing at 80% KV-cache usage (the `--worker-overload-token-usage` default) or at 64 queued requests while another worker is under those ceilings. With `--worker-overload-shed`, requests get an immediate `503` with `Retry-After: 5` when all three workers are over a ceiling; without it, they go to the least-loaded worker instead.
 
 ### Sticky Sessions on Cache-Aware Routing
 
@@ -1050,7 +1093,7 @@ These variables back a flag; the flag wins when both are set.
 | `HF_TOKEN` | Hugging Face token for tokenizer and model config downloads. |
 | `HF_HOME`, `HF_ENDPOINT` | Hugging Face cache directory and Hub endpoint, read by the `hf-hub` client that downloads tokenizers and model configs. |
 | `DB_AUTO_MIGRATE` | `true` or `1` turns on automatic schema migrations for the Oracle and PostgreSQL backends when the schema config does not set `auto_migrate`. See [Schema Migrations](#schema-migrations). |
-| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | Standard proxy variables (upper- or lowercase), used by outbound MCP connections whose server entry sets no `proxy:`. `MCP_HTTP_PROXY`, `MCP_HTTPS_PROXY`, and `MCP_NO_PROXY` are not read in v1.11.0. See [MCP Configuration](#mcp-configuration). |
+| `MCP_HTTP_PROXY`, `MCP_HTTPS_PROXY`, `MCP_NO_PROXY`, `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | Global proxy for outbound MCP connections when neither the server entry nor the MCP file's top-level `proxy:` block sets one; each `MCP_*` variable falls back to its unprefixed form. See [MCP Configuration](#mcp-configuration). |
 | `OPENAI_ADMIN_KEY`, `XAI_ADMIN_KEY`, `ANTHROPIC_ADMIN_KEY`, `GEMINI_ADMIN_KEY` | Key used to list an external provider's models when a provider worker is registered. Takes precedence over `--api-key`. |
 
 ### Multimodal Variables
@@ -1061,6 +1104,7 @@ Described in [Multimodal Configuration](#multimodal-configuration).
 |---------------------|---------|
 | `SMG_MM_TENSOR_TRANSPORT`, `SMG_MM_SHM_MIN_BYTES` | Fallbacks for `--multimodal-tensor-transport` and `--multimodal-shm-min-bytes` (legacy names `SMG_TOKENSPEED_MM_TENSOR_TRANSPORT`, `SMG_TOKENSPEED_MM_SHM_MIN_BYTES`) |
 | `SMG_MM_PROCESSING`, `SMG_MM_PIXEL_CACHE_MB`, `SMG_MM_PIXEL_RDMA`, `SMG_RDMA_LISTEN_IP`, `SMG_RDMA_SLOT_TTL_S`, `SMG_LOG_MM_TIMING` | Deprecated fallbacks for `--mm-processing`, `--mm-pixel-cache-mb`, `--mm-pixel-rdma`, `--rdma-listen-ip`, `--rdma-slot-ttl-s`, and `--log-mm-timing` |
+| `SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS` | Fallback for `--mm-allow-private-media-hosts`; also read by the worker's own media pipeline, which has no flags |
 | `SMG_RDMA_LISTEN_PORT`, `SMG_RDMA_POOL_SLOTS`, `SMG_RDMA_SLOT_BYTES`, `SMG_RDMA_LANDING_WAIT_S`, `SMG_RDMA_READ_TIMEOUT_S` | RDMA pixel lane port, arena size, and timeouts |
 | `SMG_IMAGE_MAX_INPUT_BYTES`, `SMG_VIDEO_MAX_INPUT_BYTES`, `SMG_AUDIO_MAX_INPUT_BYTES`, `SMG_VIDEO_MAX_DECODED_BYTES`, `SMG_AUDIO_MAX_DECODED_BYTES` | Media size caps |
 | `SMG_VIDEO_PROCESS_TIMEOUT_SECS`, `SMG_AUDIO_PROCESS_TIMEOUT_SECS`, `SMG_VIDEO_DECODE_BACKEND`, `SMG_AUDIO_DECODE_BACKEND` | Media decoding |
@@ -1075,6 +1119,8 @@ Read only by the Python launcher (see [Python Launcher Differences](#python-laun
 |---------------------|---------------|
 | `POSTGRES_DB_URL` | `--postgres-db-url` |
 | `POSTGRES_POOL_MAX` | `--postgres-pool-max` |
+| `POSTGRES_OP_TIMEOUT_SECS` | `--postgres-op-timeout-secs` |
 | `REDIS_URL` | `--redis-url` |
 | `REDIS_POOL_MAX` | `--redis-pool-max` |
 | `REDIS_RETENTION_DAYS` | `--redis-retention-days` |
+| `REDIS_OP_TIMEOUT_SECS` | `--redis-op-timeout-secs` |

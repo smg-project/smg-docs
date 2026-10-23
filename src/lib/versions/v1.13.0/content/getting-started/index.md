@@ -28,7 +28,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     - `smg launch` starts the gateway alone, for workers you run yourself
     - `smg serve` starts engine workers and then the gateway; the engine (vLLM, SGLang, TensorRT-LLM, or TokenSpeed) must be installed in the same environment
 
-    `smg launch` parses its flags in Python (`smg.launch_router`, which is also the gateway Docker image's entrypoint) and runs the Rust gateway in-process. This launcher accepts most of the Rust binary's flags but not all of them: `--priority-scheduler-*`, `--tenant-*`, `--drain-settle-secs`, and `--runtime-worker-threads`, among others, exist only in the binary from `cargo install` or a source build.
+    `smg launch` parses its flags in Python (`smg.launch_router`, which is also the gateway Docker image's entrypoint) and runs the Rust gateway in-process. This launcher accepts most of the Rust binary's flags but not all of them: for example, `--drain-settle-secs` and `--runtime-worker-threads` exist only in the binary from `cargo install` or a source build.
 
     Nightly Linux x86_64 wheels are attached to dated prereleases in [smg-project/artifacts](https://github.com/smg-project/artifacts/releases). Install one with `pip install <wheel URL>`.
 
@@ -71,18 +71,18 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     docker pull ghcr.io/smg-project/smg:<version>-<engine>-<engine_version>
     ```
 
-    As of v1.12.0, each release builds these engine images from the listed upstream base images:
+    Each release builds these engine images from the listed upstream base images:
 
     | Engine | Tag suffix | Base image | Nightly tag |
     |--------|-----------|------------|-------------|
     | vLLM | `vllm-v0.31.0`, `vllm-v0.27.1`, `vllm-v0.26.0` | `vllm/vllm-openai` | `nightly-vllm` |
     | SGLang | `sglang-v0.5.21` | `lmsysorg/sglang` | `nightly-sglang` |
     | TensorRT-LLM | `trtllm-1.3.0rc24`, `trtllm-1.3.0rc23`, `trtllm-1.3.0rc22` | `nvcr.io/nvidia/tensorrt-llm/release` | `nightly-trtllm` |
-    | TokenSpeed | `tokenspeed-tml` (releases up to 1.11.0) | `lightseekorg/tokenspeed:tml` | `nightly-tokenspeed` |
+    | TokenSpeed | `tokenspeed-<x.y.z.postYYYYMMDD>` | dated TokenSpeed nightly build | `nightly-tokenspeed` |
 
-    For example, v1.12.0 published `ghcr.io/smg-project/smg:1.12.0-vllm-v0.31.0` and `ghcr.io/smg-project/smg:1.12.0-sglang-v0.5.21`, both built from SMG 1.12.0. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
+    For example, v1.13.0 published `ghcr.io/smg-project/smg:1.13.0-vllm-v0.31.0` and `ghcr.io/smg-project/smg:1.13.0-sglang-v0.5.21`, both built from SMG 1.13.0. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
 
-    The `tokenspeed-tml` release images belong to 1.11.0 and earlier, and they do not contain that release's SMG: they were built from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG.
+    The TokenSpeed image is built from the latest dated TokenSpeed nightly at build time, and its tag suffix carries that nightly's version. The older `tokenspeed-tml` release images belong to 1.11.0 and earlier, and they do not contain that release's SMG: they were built from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG.
 
 === "From Source"
 
@@ -168,8 +168,8 @@ To connect vLLM to its engine core directly instead of through gRPC, add `--conn
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--backend` | `sglang` | Inference backend: `sglang`, `vllm`, `trtllm`, or `tokenspeed`. The `SMG_DEFAULT_BACKEND` environment variable changes the default |
-| `--connection-mode` | `grpc` | Worker connection mode: `grpc`, `http`, or `zmq`. TensorRT-LLM supports only `grpc` and TokenSpeed only `zmq`; `zmq` also works with `vllm` and, newer than v1.11.0, `sglang` |
-| `--servicer-impl` | `python` | Implementation of the vLLM gRPC servicer: `python` or `rust`. `rust` requires `--backend vllm --connection-mode grpc` and is newer than v1.11.0; see [Rust vLLM Servicer](grpc-workers.md#rust-vllm-servicer) |
+| `--connection-mode` | `grpc` | Worker connection mode: `grpc`, `http`, or `zmq`. TensorRT-LLM supports only `grpc` and TokenSpeed only `zmq`; `zmq` also works with `vllm` and `sglang` |
+| `--servicer-impl` | `python` | Implementation of the vLLM gRPC servicer: `python` or `rust`. `rust` requires `--backend vllm --connection-mode grpc`; see [Rust vLLM Servicer](grpc-workers.md#rust-vllm-servicer) |
 | `--host` | `127.0.0.1` | Router host |
 | `--port` | `8080` | Router port (`30000` with `--backend sglang`; see below) |
 | `--data-parallel-size`, `--dp-size` | `1` | Number of worker replicas, each on its own GPU slice |
@@ -280,7 +280,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
 
 === "vLLM"
 
-    gRPC mode needs the SMG servicer: `pip install "vllm[grpc]"` adds `smg-grpc-servicer[vllm]`.
+    gRPC mode needs the SMG servicer: `pip install "smg-grpc-servicer[vllm]"`.
 
     ```bash
     # gRPC worker (grpc://<host>:50051)
@@ -297,11 +297,11 @@ Use these when workers are not started via `smg serve`. Each command starts one 
       --port 8000
     ```
 
-    Setting `SMG_VLLM_SERVICER_IMPL=rust` in the gRPC worker's environment serves the same contract from the Rust servicer instead of the default Python one (newer than v1.11.0); see [Rust vLLM Servicer](grpc-workers.md#rust-vllm-servicer).
+    Setting `SMG_VLLM_SERVICER_IMPL=rust` in the gRPC worker's environment serves the same contract from the Rust servicer instead of the default Python one; see [Rust vLLM Servicer](grpc-workers.md#rust-vllm-servicer).
 
 === "SGLang"
 
-    SGLang depends on `smg-grpc-servicer`, so gRPC mode works after `pip install sglang`.
+    SGLang depends on `smg-grpc-servicer`, so gRPC mode works after `pip install sglang`; SMG's servicer supports SGLang 0.5.21 or later.
 
     ```bash
     # gRPC worker (grpc://<host>:50051)
@@ -309,7 +309,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --smg-grpc-mode
+      --grpc-mode
 
     # HTTP worker (http://<host>:8000)
     python -m sglang.launch_server \
@@ -318,9 +318,9 @@ Use these when workers are not started via `smg serve`. Each command starts one 
       --port 8000
     ```
 
-    `--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, which is now a deprecated alias. In this mode SGLang also opens an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`) on `--port + 1` (set `--smg-http-sidecar-port` to move it), so leave a gap between the ports of workers on the same host.
+    In gRPC mode SGLang also starts an HTTP sidecar that serves its metrics and profiling endpoints.
 
-    Setting `SMG_SGLANG_SERVICER_IMPL=rust` in the gRPC worker's environment serves the same contract from the Rust servicer instead of the default Python one (newer than v1.11.0, needs the `smg` wheel; the HTTP sidecar stays off on that path); see [Rust SGLang Servicer](grpc-workers.md#rust-sglang-servicer).
+    Setting `SMG_SGLANG_SERVICER_IMPL=rust` in the gRPC worker's environment serves the same contract from the Rust servicer instead of the default Python one (needs the `smg` wheel; the HTTP sidecar stays off on that path); see [Rust SGLang Servicer](grpc-workers.md#rust-sglang-servicer).
 
 === "TensorRT-LLM"
 
@@ -352,7 +352,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
 
     TokenSpeed's default grammar backend is `none`, which makes it reject requests that need constrained decoding, such as `tool_choice` set to `required` or a named function, or a JSON `response_format`. Add `--enable-output-logprobs` if clients request logprobs; without it they come back empty.
 
-    Setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the gRPC worker's environment serves the same contract from the Rust servicer instead of the default Python one (newer than v1.11.0, needs the `smg` wheel); see [Rust TokenSpeed Servicer](grpc-workers.md#rust-tokenspeed-servicer).
+    Setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the gRPC worker's environment serves the same contract from the Rust servicer instead of the default Python one (needs the `smg` wheel); see [Rust TokenSpeed Servicer](grpc-workers.md#rust-tokenspeed-servicer).
 
 === "MLX"
 
@@ -380,7 +380,7 @@ For prefill-decode disaggregation, start separate prefill and decode workers, ea
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --smg-grpc-mode \
+      --grpc-mode \
       --disaggregation-mode prefill \
       --disaggregation-bootstrap-port 8998
 
@@ -388,12 +388,10 @@ For prefill-decode disaggregation, start separate prefill and decode workers, ea
     python -m sglang.launch_server \
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
-      --port 50061 \
-      --smg-grpc-mode \
+      --port 50052 \
+      --grpc-mode \
       --disaggregation-mode decode
     ```
-
-    `--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, which is now a deprecated alias. In this mode SGLang also opens an HTTP sidecar on `--port + 1`, so the decode worker uses `50061` rather than `50052`.
 
     Start SMG with the prefill worker's bootstrap port after its URL:
 
@@ -401,7 +399,7 @@ For prefill-decode disaggregation, start separate prefill and decode workers, ea
     smg launch \
       --pd-disaggregation \
       --prefill grpc://localhost:50051 8998 \
-      --decode grpc://localhost:50061 \
+      --decode grpc://localhost:50052 \
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 30000
@@ -586,7 +584,7 @@ curl http://localhost:30000/health
 
 ### All-in-one with engine images
 
-Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. The examples use the v1.12.0 images; the Docker tab under [Install](#install) lists the engine tags each release builds.
+Engine images use `smg` as their entrypoint, so pass `serve` to start the worker and the gateway in one container. Set `--host 0.0.0.0`: `smg serve` binds the gateway to `127.0.0.1` by default, which a published port cannot reach. The Docker tab under [Install](#install) lists the engine tags each release builds.
 
 === "SGLang"
 
@@ -595,7 +593,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:1.12.0-sglang-v0.5.21 \
+      ghcr.io/smg-project/smg:1.13.0-sglang-v0.5.21 \
       serve \
       --backend sglang \
       --model-path /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -610,7 +608,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:1.12.0-vllm-v0.31.0 \
+      ghcr.io/smg-project/smg:1.13.0-vllm-v0.31.0 \
       serve \
       --backend vllm \
       --model /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -639,7 +637,7 @@ The chart is published to GHCR as an OCI artifact, versioned with SMG releases (
 
 ```bash
 helm install smg oci://ghcr.io/smg-project/charts/smg \
-  --version 1.12.0 \
+  --version 1.13.0 \
   --namespace inference --create-namespace \
   -f values.yaml
 ```
@@ -691,9 +689,6 @@ A few chart behaviors to know:
 - `global.image.tag` overrides the gateway version, which defaults to the chart's `appVersion`.
 - Engine images for `workers[]` resolve to `ghcr.io/<repository>:<tag>`, and the repository defaults to `global.image.repository` (`lightseekorg/smg`). GHCR has no engine release images under that name after 1.9.0, so set `image.repository: smg-project/smg` next to each worker's `image.tag`. The chart's worker examples still pin 1.3.3 images.
 
-!!! warning "History backends in chart 1.11.0"
-    With `history.backend` set to `postgres` or `redis`, or to `oracle` with `history.oracle.dsn`, chart 1.11.0 passes a flag the gateway image rejects (`--postgres-pool-max-size`, `--redis-pool-max-size`, or `--oracle-dsn`), and the router exits at startup. Leave `history.backend` at `memory` and pass the history flags through `router.extraArgs` instead, for example `--history-backend postgres --postgres-db-url <url>`.
-
 Verify:
 
 ```bash
@@ -702,7 +697,7 @@ kubectl -n inference port-forward svc/smg-router 30000:80 &
 curl http://localhost:30000/workers
 ```
 
-The [chart README](https://github.com/smg-project/smg/blob/main/deploy/helm/smg/README.md), [`values.yaml`](https://github.com/smg-project/smg/blob/main/deploy/helm/smg/values.yaml), and [examples](https://github.com/smg-project/smg/tree/main/deploy/helm/smg/examples) cover engine workers, multiple models, mesh HA, monitoring, and ingress.
+`helm show readme oci://ghcr.io/smg-project/charts/smg --version 1.13.0` prints the chart README, and `helm show values` the commented default `values.yaml`. The [chart examples](https://github.com/smg-project/smg/tree/v1.13.0/deploy/helm/smg/examples) cover engine workers, multiple models, mesh HA, monitoring, and ingress.
 
 ### Without Helm
 

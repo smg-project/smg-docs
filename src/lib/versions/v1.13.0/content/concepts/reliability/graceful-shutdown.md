@@ -293,7 +293,7 @@ Graceful shutdown drains the gateway itself. Removing a worker from a running ga
 | **Effect** | `/readiness` reports `503`; the listener stops accepting after the settle window | The worker moves to `Draining` and receives no new requests |
 | **Wait** | Until in-flight requests finish, up to `--shutdown-grace-period-secs` | A fixed `--drain-settle-secs` (default `5`, per worker `health.drain_settle_secs`), then the worker is removed |
 
-The worker settle window is a fixed delay: SMG does not wait for the worker's in-flight request count to reach zero. Only workers that were `Ready` are drained; `Pending`, `NotReady`, and `Failed` workers are not, and a removal that finds no `Ready` worker skips the wait. Set `--drain-settle-secs 0` to skip draining. The flag belongs to the `smg` binary; the Python launcher does not accept it yet.
+The worker settle window is a fixed delay: SMG does not wait for the worker's in-flight request count to reach zero. Only workers that were `Ready` are drained; `Pending`, `NotReady`, and `Failed` workers are not, and a removal that finds no `Ready` worker skips the wait. Set `--drain-settle-secs 0` to skip draining. The flag belongs to the `smg` binary; the Python launcher does not accept it.
 
 Worker removal also does not extend the engine process's lifetime. If Kubernetes terminates the engine before a stream finishes, the client still sees a stream failure. Put the termination delay on each **engine container**: use a `preStop` hook that allows discovery to remove it from routing and active requests to finish, or a tested engine shutdown mode that drains generations. The gateway's own shutdown grace does not supply this worker-side delay.
 

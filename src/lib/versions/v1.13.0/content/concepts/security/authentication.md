@@ -24,7 +24,7 @@ Support for JWT/OIDC, API keys, and worker authentication to fit your deployment
 
 ### :material-shield-account: Role-Based Access
 
-Control plane APIs require the admin role. Data plane APIs use API keys, not roles.
+Control plane writes require the admin role; the user role is read-only. Data plane APIs use API keys, not roles.
 
 </div>
 
@@ -62,7 +62,7 @@ Track all control plane operations for security monitoring and compliance.
 - **Control plane JWT/OIDC**: Use for enterprise deployments with existing identity providers (Keycloak, Auth0, Azure AD, Okta). Provides centralized user management and SSO for control plane operations.
 - **Control plane API keys**: Use for service-to-service automation against admin endpoints (CI/CD pipelines, tooling). Simpler to set up but requires manual key management.
 - **Data plane API key**: Use when you want a single shared secret that clients present on data plane routes (chat, completions, responses, and so on), and that workers started with the same key accept.
-- **Data plane tenant keys**: Use when each team or application needs its own data plane key, so that [tenant rate limits](../reliability/tenant-rate-limiting.md) and priority scheduling can tell callers apart. Each `--tenant-api-key tenant_id:key` resolves to the tenant `auth:<tenant_id>`. Tenant keys never unlock control plane routes, and the flag belongs to the Rust `smg` binary (the Python launcher does not accept it).
+- **Data plane tenant keys**: Use when each team or application needs its own data plane key, so that [tenant rate limits](../reliability/tenant-rate-limiting.md) and priority scheduling can tell callers apart. Each `--tenant-api-key tenant_id:key` resolves to the tenant `auth:<tenant_id>`. Tenant keys never unlock control plane routes.
 
 JWTs and control plane API keys are checked only on control plane routes. Data plane routes accept only `--api-key` and `--tenant-api-key` credentials, and are open when neither is set.
 
@@ -95,6 +95,8 @@ smg \
   --jwt-audience "smg-gateway"
 ```
 
+The two flags are required together: SMG refuses to start with only one of them, or with a malformed `--jwt-role-mapping` entry.
+
 ### JWKS Discovery
 
 By default, SMG discovers the JWKS (JSON Web Key Set) endpoint automatically via OIDC discovery (`/.well-known/openid-configuration`). You can override this with an explicit JWKS URI:
@@ -107,12 +109,9 @@ smg \
   --jwt-jwks-uri "https://auth.example.com/.well-known/jwks.json"
 ```
 
-Without `--jwt-jwks-uri`, SMG fetches the discovery document at startup. It fetches the key set on first use, caches it for an hour, and fetches it again when a token names a key it doesn't have. The discovery URL and the JWKS URI must use HTTPS (plain HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`), must not point at a private, loopback, link-local, or other internal IP address literal, and must not use a host name ending in `.internal` or `.local`. SMG does not follow redirects on these requests. Tokens must carry a `kid` header that names a key in the set.
+Without `--jwt-jwks-uri`, SMG fetches the discovery document at startup. It fetches the key set on first use, caches it for an hour, and fetches it again when a token names a key it doesn't have, at most once a minute. The discovery URL and the JWKS URI must use HTTPS (plain HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`), must not point at a private, loopback, link-local, or other internal IP address literal, and must not use a host name ending in `.internal` or `.local`. SMG does not follow redirects on these requests. Tokens must carry a `kid` header that names a key in the set.
 
-If SMG cannot set up JWT validation at startup (for example, OIDC discovery fails or a URL is rejected), control plane authentication stays required: SMG logs `Failed to initialize JWT authentication: <error>` and runs with JWT validation unavailable. Keys from `--control-plane-api-keys` keep working, while JWTs, the shared `--api-key`, and any other token get `401` on control plane routes. SMG does not retry JWT initialization while running; restart the gateway after correcting the configuration or restoring the identity provider. This is the behavior of current main, not yet of any release.
-
-!!! warning "Released versions disable control plane authentication after a failed JWT setup"
-    In released versions, the same failure logs `Failed to initialize control plane auth` and starts the gateway without control plane authentication, including any `--control-plane-api-keys`: the admin routes fall back to the `--api-key` check, and are open when no gateway key is configured at all. On these versions, treat valid JWT settings and a reachable identity provider as startup requirements for a protected control plane.
+If SMG cannot set up JWT validation at startup (for example, OIDC discovery fails or a URL is rejected), control plane authentication stays required: SMG logs `Failed to initialize JWT authentication: <error>` and runs with JWT validation unavailable. Keys from `--control-plane-api-keys` keep working, while JWTs, the shared `--api-key`, and any other token get `401` on control plane routes. SMG does not retry JWT initialization while running; restart the gateway after correcting the configuration or restoring the identity provider.
 
 ### Role Mapping
 
@@ -132,7 +131,7 @@ smg \
 | Gateway Role | Permissions |
 |--------------|-------------|
 | `admin` | Full access to all control plane APIs (workers, WASM modules, tokenizers) |
-| `user` | No control plane access: control plane routes answer `403` |
+| `user` | Read-only control plane access: GET and HEAD requests; any other method answers `403` |
 
 ### Supported Claims
 
@@ -305,6 +304,8 @@ smg \
 | `role` | Gateway role (`admin` or `user`) |
 | `key` | The secret API key value |
 
+SMG refuses to start on a malformed entry, including a role other than `admin` or `user`.
+
 ### Multiple API Keys
 
 ```bash
@@ -314,7 +315,7 @@ smg \
   --control-plane-api-keys "user1:Read Only Service:user:sk-readonly-key-67890"
 ```
 
-A `user` key authenticates, but every control plane route answers it with `403` (see [Role-Based Access Control](#role-based-access-control)).
+A `user` key can make GET and HEAD requests; any other control plane request answers it with `403` (see [Role-Based Access Control](#role-based-access-control)).
 
 ### Environment Variable Configuration
 
@@ -419,7 +420,7 @@ Full access to all control plane APIs:
 
 ### User Role
 
-No control plane access. Every control plane route answers a `user` credential with `403 Admin role required for control plane access`.
+Read-only control plane access: GET and HEAD requests, such as listing workers or WASM modules. Any other method answers a `user` credential with `403 Admin role required for this control plane operation`.
 
 Roles don't apply to data plane routes (chat completions, completions, embeddings, and the rest): those accept only `--api-key` and `--tenant-api-key` credentials, never JWTs or control plane API keys. `/v1/models` is public.
 
@@ -466,7 +467,7 @@ Each audit event is an `INFO` log record with target `smg::audit` and message `c
 | `role` | Role of the principal (`admin`, `user`) |
 | `method` | HTTP method (GET, POST, DELETE, etc.) |
 | `path` | Request path |
-| `resource` | Not filled in v1.11.0 |
+| `resource` | Not filled |
 | `outcome` | Result (`success`, `denied`) |
 | `request_id` | Correlation ID for request tracing |
 | `details` | Why the request was denied or failed authentication |

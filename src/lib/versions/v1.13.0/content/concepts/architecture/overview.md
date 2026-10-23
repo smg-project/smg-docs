@@ -86,7 +86,7 @@ The gateway layer handles cross-cutting concerns before requests reach the route
 
 | Component | Function |
 |-----------|----------|
-| **Admission Control** | Off by default. `--max-concurrent-requests` caps concurrent requests gateway-wide, with a bounded FIFO queue; the priority scheduler admits by priority class instead |
+| **Admission Control** | On by default: `--max-concurrent-requests` caps concurrent requests gateway-wide, with a bounded FIFO queue. The default (`-1`) derives the cap from the host — 1024 per available core, at least 4096 — and `0` disables it (see [Rate Limiting](../reliability/rate-limiting.md)); the priority scheduler admits by priority class instead |
 | **Authentication** | Bearer API keys (`--api-key`, `--tenant-api-key`) on inference routes; control-plane API keys or JWT/OIDC with the admin role on control-plane routes |
 | **Tenant Resolution** | Identifies the tenant from its API key, a trusted header (`--trust-tenant-header`), or the client IP |
 | **WASM Plugins** | Custom request transformation logic |
@@ -165,7 +165,7 @@ Work that the engine's frontend or gRPC servicer does on the gRPC path moves int
 
 - vLLM (headless EngineCore)
 - TokenSpeed (headless scheduler)
-- SGLang (headless scheduler, dialing in through SMG's SGLang plugin; newer than v1.11.0)
+- SGLang (headless scheduler, dialing in through SMG's SGLang plugin)
 
 ZMQ workers can't serve as prefill or decode workers and have no KV-event stream. See [ZMQ Direct Workers](../../getting-started/zmq-workers.md) for setup and limits.
 
@@ -260,7 +260,7 @@ The default `cache_aware` policy balances KV cache reuse against load:
 
 1. Match the request's prefix (text or token IDs) against a per-model tree of the prefixes routed to each worker, or against the engines' own KV-cache events when gRPC workers publish them
 2. If a worker holds enough of the prefix (above `--cache-threshold` in tree mode), the workers holding it are the candidates; otherwise every available worker is
-3. Skip a holder whose in-flight requests exceed the mean across available workers by more than `--balance-abs-threshold` and are also above `--balance-rel-threshold` × that mean; if every holder is skipped, the other available workers that pass the same check become the candidates
+3. Skip a holder over the spill gate: in-flight requests above `--balance-rel-threshold` × the mean across available workers and also an adaptive absolute margin above that mean — `--balance-abs-threshold` caps that margin rather than setting it (see [Spill Gate](../routing/cache-aware.md#spill-gate)); if every holder is skipped, the other available workers under the gate become the candidates (or all of them, when every worker is over it)
 4. Route to the candidate with the lowest expected wait (the `least_load` score), breaking exact ties at random
 
 See [Cache-Aware Routing](../routing/cache-aware.md) for KV-event mode, the hash index, and KV-pressure tuning.

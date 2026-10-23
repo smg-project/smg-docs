@@ -4,13 +4,7 @@ title: Rate Limiting
 
 # Rate Limiting
 
-Rate limiting in SMG is gateway admission control. The gateway caps how many requests it runs at once, keeps a bounded number of extra requests waiting in a first-in, first-out queue, and turns the rest away with a status code and a `Retry-After` header that tell clients to back off. It is off by default; setting `--max-concurrent-requests` above `0` turns it on.
-
-!!! warning "Behavior changed in v1.10"
-    - A permit is held for the full response lifetime, including streaming bodies.
-    - An unset (or `0`) `--rate-limit-tokens-per-second` now means no refill. Before v1.10 the bucket refilled at `--max-concurrent-requests` tokens per second; set the rate explicitly to keep that behavior.
-    - A queue timeout returns **503** `admission_queue_timeout` instead of 408, and every shed carries `Retry-After: 2` and a JSON error body. Update dashboards and alerts that match on 408.
-    - `--queue-size` is a hard bound, and waiting requests are admitted in arrival order.
+Rate limiting in SMG is gateway admission control. The gateway caps how many requests it runs at once, keeps a bounded number of extra requests waiting in a first-in, first-out queue, and turns the rest away with a status code and a `Retry-After` header that tell clients to back off. It is on by default: without `--max-concurrent-requests` the cap is derived from the host (1024 per available core, at least 4096), so an overloaded gateway sheds instead of queueing without bound. Set the flag to size the cap for your fleet; `0` turns admission control off.
 
 ---
 
@@ -22,7 +16,7 @@ Rate limiting in SMG is gateway admission control. The gateway caps how many req
 
 ### :material-gauge: Standing-Concurrency Cap
 
-At most `--max-concurrent-requests` requests hold a permit at once, from admission until the last byte of the response.
+At most `--max-concurrent-requests` requests (host-derived when unset) hold a permit at once, from admission until the last byte of the response.
 
 </div>
 
@@ -60,7 +54,7 @@ Without a cap, the gateway forwards every request it receives straight to the wo
 
 With a cap, the amount of work in the fleet stays bounded. Excess requests wait briefly in the gateway's queue, or are turned away with a clear signal to retry later.
 
-Admission control is gateway-wide: it limits how many requests run at once across all workers, before any worker is chosen. [Overload protection](overload-protection.md) works per worker: it stops routing to a worker whose own load signal (queued requests or KV-cache usage) crosses a threshold, and sheds a request with 503 when every candidate worker is over its threshold.
+Admission control is gateway-wide: it limits how many requests run at once across all workers, before any worker is chosen. [Overload protection](overload-protection.md) works per worker: it stops routing to a worker whose own load signal (queued requests or KV-cache usage) crosses a threshold while another worker is under them. When every candidate worker is over its threshold, the request goes to the least-loaded routable worker by default; with `--worker-overload-shed`, it is shed with a 503 instead.
 
 ---
 
@@ -95,31 +89,30 @@ Because a stream keeps its permit for as long as it streams, `--max-concurrent-r
 - **Timeout from queue entry.** `--queue-timeout-secs` counts from the moment the request starts waiting. A request that times out is shed with 503.
 - **No queue.** `--queue-size 0` disables queueing: a request that finds no free permit is shed with 429 at once.
 
-The FIFO handoff applies in both refill modes. A positive `--rate-limit-tokens-per-second` changes where tokens come from and what the cap bounds, as described next.
+On the gRPC router, `--queue-timeout-secs` also bounds how long an admitted request may sit inside the gateway ahead of worker selection, counted from its admission grant (or its acceptance when admission control is off). A request held past the bound — the prefill admission wait of a PD or EPD request included — is refused with **503** `selection_queue_timeout` before any worker is chosen. The HTTP relay and the HTTP PD router are not bounded this way.
+
+The FIFO handoff applies in both refill modes. A positive `--rate-limit-tokens-per-second` changes where admission budget comes from, as described next.
 
 ### Token Bucket and Refill
 
-Permits come from a token bucket whose capacity is `--max-concurrent-requests`. Admission takes a token, and releasing the permit puts it back. `--rate-limit-tokens-per-second` decides whether the bucket also refills over time:
+Permits come from a token bucket whose capacity is the concurrency cap. Admission spends a token; `--rate-limit-tokens-per-second` decides where tokens come back from:
 
 | Behavior | Unset or `0` (default) | Positive rate `N` |
 |----------|------------------------|-------------------|
-| Tokens come back when | A response finishes | A response finishes, plus `N` tokens per second, up to capacity |
-| `--max-concurrent-requests` bounds | Requests in flight | Burst size only: with long-lived responses, requests in flight can grow past the cap by up to `N` per second |
-| Queue order | Strict FIFO | Strict FIFO: refilled tokens also go to the oldest waiter |
+| Tokens come back when | A response finishes | Only from the refill: `N` per second, up to the cap. A finished response frees its concurrency slot but returns no budget |
+| `--max-concurrent-requests` bounds | Requests in flight | Requests in flight, still; `N` additionally bounds the sustained admission rate, with bursts up to the cap |
+| Queue order | Strict FIFO | Strict FIFO: a queued request is admitted once a slot is free and the refill covers it |
 | Longest queue wait | `--queue-timeout-secs` | `--queue-timeout-secs` |
 
-!!! note "Changed in v1.12.0"
-    As of v1.12.0, refilled tokens go to the oldest waiter like returned ones, so the queue order and wait bound above apply in both modes. In v1.11.0 and earlier, a positive rate bypasses the FIFO queue: waiters poll for tokens, a new arrival can take a refilled token ahead of them, and a queued request is shed with 503 after at most `1/N` seconds (or `--queue-timeout-secs`, if shorter).
-
-With the default, the bucket's free tokens always equal `--max-concurrent-requests` minus the requests in flight. Leave the rate unset unless you want burst-rate behavior.
+With the default, the bucket's free tokens always equal the cap minus the requests in flight. Leave the rate unset unless you also want to bound the admission rate.
 
 ### With the Priority Scheduler
 
 When `--priority-scheduler-enabled` is set and the scheduler starts, it replaces this limiter on the same routes:
 
-- The scheduler's slots and per-class queues handle concurrency and queueing. `--queue-size` and `--queue-timeout-secs` are not used.
+- The scheduler's slots and per-class queues handle concurrency and queueing, each class with its own queue bound and timeout; `--queue-size` is not used. On the gRPC router, `--queue-timeout-secs` still bounds how long an admitted request may sit ahead of worker selection, counted from the scheduler's admission.
 - `--max-concurrent-requests` no longer caps concurrency. The scheduler only uses it as a fallback capacity while no healthy worker is registered.
-- A positive `--rate-limit-tokens-per-second` (with `--max-concurrent-requests` above `0`) becomes a plain request-rate check in front of the scheduler. Tokens refill at that rate and are not returned when responses finish; a request that finds the bucket empty is shed with 429 `scheduler_queue_full` and `Retry-After: 2`.
+- A positive `--rate-limit-tokens-per-second` (unless `--max-concurrent-requests` is `0`) becomes a plain request-rate check in front of the scheduler. Tokens refill at that rate and are not returned when responses finish; a request that finds the bucket empty is shed with 429 `scheduler_queue_full` and `Retry-After: 2`.
 
 If the scheduler fails to start, the gateway logs an error and falls back to the limiter described on this page. See [Priority Scheduling](priority-scheduling.md).
 
@@ -139,10 +132,10 @@ smg launch \
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--max-concurrent-requests` | `-1` (disabled) | Maximum requests holding a permit at once. A permit lasts for the full response, streaming included. Any value `<= 0` turns admission control off. |
+| `--max-concurrent-requests` | `-1` (host-derived) | Maximum requests holding a permit at once. A permit lasts for the full response, streaming included. `-1` derives the cap from the host: 1024 per available core, at least 4096. `0` turns admission control off. |
 | `--queue-size` | `100` | Maximum requests waiting for a permit. `0` disables the queue. |
-| `--queue-timeout-secs` | `60` | Longest time a request waits in the queue before it is shed with 503. Must be `> 0` when `--queue-size` is above `0`. |
-| `--rate-limit-tokens-per-second` | unset (no refill) | Tokens added to the bucket per second. Unset or `0` means no refill, so `--max-concurrent-requests` alone bounds requests in flight. Must be `>= 0`. |
+| `--queue-timeout-secs` | `60` | Longest time a request waits in the queue before it is shed with 503, and on the gRPC router the longest an admitted request may sit ahead of worker selection. Must be `> 0` when `--queue-size` is above `0`. |
+| `--rate-limit-tokens-per-second` | unset (no rate limit) | Sustained admission rate in requests per second, bursting up to the concurrency cap. A finished response frees its slot but returns no budget. Unset or `0` means no rate limit, so the cap alone bounds requests in flight. Must be `>= 0`. |
 
 The limits apply per gateway process. With several gateway replicas in front of the same workers, the fleet-wide cap is the per-replica value times the number of replicas.
 
@@ -163,7 +156,7 @@ Every admission shed uses the gateway's standard error format: a JSON body, an `
 ```json
 {
   "error": {
-    "type": "Service Unavailable",
+    "type": "server_error",
     "code": "admission_queue_timeout",
     "message": "timed out waiting for an admission slot",
     "param": null
@@ -171,14 +164,18 @@ Every admission shed uses the gateway's standard error format: a JSON body, an `
 }
 ```
 
+The `type` field follows the status code: `rate_limit_error` for a 429, `server_error` for a 503.
+
 Other layers also answer 429 or 503. The error code tells them apart:
 
 | Error code | Status | Source |
 |------------|--------|--------|
+| `selection_queue_timeout` | 503 | The gRPC router refused a request that sat inside the gateway longer than `--queue-timeout-secs` ahead of worker selection; carries `Retry-After: 2` |
+| `pd_prefill_queue_full`, `pd_prefill_queue_timeout` | 429 | The [PD disaggregation](../routing/pd-disaggregation.md) prefill admission queue is full, or the request waited out its prefill admission timeout; no `Retry-After` |
 | `scheduler_queue_full`, `scheduler_queue_timeout`, `scheduler_preempted` | 429, 503 | The [priority scheduler](../../reference/priority-scheduler.md#response-codes), when enabled |
-| `worker_overload_protection_shed` | 503 | [Overload protection](overload-protection.md) shed the request, for example because every candidate worker is overloaded; see that page for its `Retry-After` |
+| `worker_overload_protection_shed` | 503 | [Overload protection](overload-protection.md): with `--worker-overload-shed`, every candidate worker (or the chosen worker at dispatch) was overloaded; in PD mode, regardless of the flag, the decode worker could not admit the request within the admission wait. Its `Retry-After` is the load-poll interval |
 | `tenant_rate_limit_exceeded` | 429 | [Tenant rate limiting](tenant-rate-limiting.md) |
-| `no_available_workers` | 503 | No worker for the model can take the request, for example because each one is unhealthy or has an open [circuit breaker](circuit-breakers.md) |
+| `no_available_workers` | 503 | No worker for the model can take the request, for example because each one is unhealthy or has an open [circuit breaker](circuit-breakers.md); carries `Retry-After: 1` |
 
 ---
 
@@ -190,10 +187,10 @@ Other layers also answer 429 or 503. The error code tells them apart:
 |--------|------|--------|-------------|
 | `smg_admission_inflight` | Gauge | none | Requests holding a permit. A stream counts until its body finishes. |
 | `smg_admission_queue_depth` | Gauge | none | Requests waiting in the admission queue. Never exceeds `--queue-size`. |
-| `smg_admission_queue_rejected_total` | Counter | `reason`: `full`, `timeout` | Queue-full (429) and queue-timeout (503) sheds. |
+| `smg_admission_queue_rejected_total` | Counter | `reason`: `full`, `timeout`, `selection_timeout` | Queue-full (429) and queue-timeout (503) sheds, plus the gRPC router's pre-selection refusals (503 `selection_queue_timeout`). |
 | `smg_http_rate_limit_total` | Counter | `result`: `allowed`, `rejected` | Every admission decision. `rejected` also counts the 429s returned when queueing is disabled, which have no `smg_admission_queue_rejected_total` sample. |
 
-These metrics are per gateway process; sum them across replicas. With the priority scheduler enabled, the `smg_admission_*` metrics are not recorded (the scheduler exports its own `smg_scheduler_*` metrics), and `smg_http_rate_limit_total{result="rejected"}` counts only its request-rate check.
+These metrics are per gateway process; sum them across replicas. With the priority scheduler enabled, this limiter is replaced: the gauges and the `full`/`timeout` rejections are not recorded (the scheduler exports its own `smg_scheduler_*` metrics), and `smg_http_rate_limit_total{result="rejected"}` counts only its request-rate check.
 
 Admission sheds also appear in `smg_http_responses_total` under their `error_code` label, and `smg_http_inflight_request_age_count` shows how long in-flight requests, streams included, have been running.
 
@@ -272,7 +269,7 @@ Set `--queue-timeout-secs` below your clients' own request timeout, so a waiting
 
 ### Token Refill Rate
 
-Leave `--rate-limit-tokens-per-second` unset. Set it only to reproduce the pre-v1.10 burst-rate behavior (for example, to the same value as `--max-concurrent-requests`), and keep in mind that it lets requests in flight exceed the cap.
+Leave `--rate-limit-tokens-per-second` unset unless you also want to bound how fast requests are admitted. A positive rate caps sustained admissions per second, bursting up to the concurrency cap; finished responses return no budget, so the gateway's long-run throughput is at most the refill rate even when workers have headroom.
 
 ---
 
@@ -302,25 +299,25 @@ Leave `--rate-limit-tokens-per-second` unset. Set it only to reproduce the pre-v
       --queue-timeout-secs 60
     ```
 
-=== "Burst Rate (pre-v1.10)"
+=== "Request-Rate Limit"
 
-    Refill 100 tokens per second on top of finished responses, as an unset rate did before v1.10. Requests in flight can exceed 100:
+    At most 100 requests in flight, admitted at a sustained 50 per second (bursting up to 100):
 
     ```bash
     smg launch \
       --worker-urls http://w1:8000 http://w2:8000 \
       --max-concurrent-requests 100 \
-      --rate-limit-tokens-per-second 100
+      --rate-limit-tokens-per-second 50
     ```
 
 === "Disabled"
 
-    The default. Requests are forwarded without an admission cap:
+    Requests are forwarded without an admission cap:
 
     ```bash
     smg launch \
       --worker-urls http://w1:8000 http://w2:8000 \
-      --max-concurrent-requests=-1
+      --max-concurrent-requests 0
     ```
 
 ---

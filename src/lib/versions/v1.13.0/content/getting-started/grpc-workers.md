@@ -6,7 +6,7 @@ title: gRPC Workers
 
 When workers connect via gRPC instead of HTTP, SMG becomes a full OpenAI-compatible server: it handles tokenization, chat templates, reasoning extraction, and tool calling at the gateway level. Workers run raw inference only.
 
-For vLLM or TokenSpeed engines on the same host as the gateway, the [ZMQ direct backend](zmq-workers.md) is an alternative: it runs the same gateway pipeline over local IPC sockets.
+For vLLM, TokenSpeed, or SGLang engines on the same host as the gateway, the [ZMQ direct backend](zmq-workers.md) is an alternative: it runs the same gateway pipeline over local IPC sockets.
 
 <div class="prerequisites" markdown>
 
@@ -59,12 +59,12 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --smg-grpc-mode
+      --grpc-mode
     ```
 
-    `--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, now a deprecated alias. In this mode SGLang also opens an HTTP sidecar on `--port + 1` (move it with `--smg-http-sidecar-port`).
+    The `smg-grpc-servicer[sglang]` extra requires SGLang 0.5.21 or later.
 
-    This starts the default Python servicer. Setting `SMG_SGLANG_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
+    This starts the default Python servicer. Adding `--servicer-impl rust` — or setting `SMG_SGLANG_SERVICER_IMPL=rust` in the worker's environment — serves the same contract from Rust instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
 
 === "TensorRT-LLM"
 
@@ -93,7 +93,7 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     TokenSpeed's grammar backend defaults to none, so without `--grammar-backend xgrammar` it doesn't enforce forced tool calls or `response_format`. Add `--enable-output-logprobs` if clients request `logprobs`; TokenSpeed leaves output logprobs off by default.
 
-    This starts the default Python servicer. Setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
+    This starts the default Python servicer. Adding `--servicer-impl rust` — or setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment — serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
 
 === "MLX"
 
@@ -151,23 +151,37 @@ For the selection to take effect, the worker's environment needs:
 
 Misconfiguration fails loudly instead of silently serving Python: `smg serve --servicer-impl rust` refuses to start when `smg-grpc-servicer` is not importable or the installed vLLM's launcher would not be switched, and when `SMG_VLLM_SERVICER_IMPL=rust` reaches a worker where the switch never ran (a launcher file executed directly as `__main__`, or one that didn't import the package's servicer before defining `serve_grpc`), the Python servicer itself refuses to start.
 
+`SubscribeKvEvents` relays vLLM's ZMQ KV-event publisher, which Rust mode turns on by itself when the launcher is given no `--kv-events-config`: the publisher runs with vLLM's default endpoint and topic, and the worker logs the decision at startup. An explicit `--kv-events-config` is kept as given, off included, and `SMG_VLLM_SERVICER_KV_EVENTS=0` in the worker's environment leaves the publisher off without one (`SubscribeKvEvents` then answers UNIMPLEMENTED).
+
 ### Rust SGLang Servicer
 
 SGLang gRPC workers have the same choice: a Rust implementation serving the same gRPC contract as the default Python servicer.
 
 Like the vLLM switch, the selection requires SMG v1.12.0 or newer wheels and engine images.
 
-One environment variable selects it on the unchanged entrypoint — every SGLang server flag stays the same:
+Select the implementation with `--servicer-impl` on `python -m sglang.launch_server` — a flag the `smg-grpc-servicer` package adds to SGLang's parser as an `sglang.srt.plugins` plugin — or with the `SMG_SGLANG_SERVICER_IMPL` environment variable:
 
 ```bash
+python -m sglang.launch_server \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 50051 \
+  --grpc-mode \
+  --servicer-impl rust
+
+# The environment variable selects it on the same entrypoint:
 SMG_SGLANG_SERVICER_IMPL=rust python -m sglang.launch_server \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051 \
-  --smg-grpc-mode
+  --grpc-mode
 ```
 
-`SMG_SGLANG_SERVICER_IMPL` defaults to `python`, and a value other than `python` or `rust` fails startup. `smg serve`'s `--servicer-impl` stays scoped to vLLM: it rejects `rust` for every other backend. Exporting the variable before `smg serve --backend sglang --connection-mode grpc` reaches its workers too, since worker environments inherit the shell's, and no `smg serve` flag clears an inherited value the way `--servicer-impl python` does for vLLM.
+When both are set, the flag wins: `--servicer-impl python` overrides an exported `rust`. The decision a flag makes is written back to `SMG_SGLANG_SERVICER_IMPL`, so the processes the worker spawns inherit the same choice. The selection defaults to `python`, and a value other than `python` or `rust` fails startup. At startup the worker logs which implementation it chose and whether the flag, the environment or the default decided it.
+
+`python -m sglang.launch_server --help` lists the flag. SGLang's `sglang serve` wrapper prints its help before plugins load, so the flag is missing from that listing but still accepted. A `SGLANG_PLUGINS` setting that leaves out the `smg-servicer` plugin only removes the flag; the environment variable works regardless.
+
+`smg serve`'s `--servicer-impl` stays scoped to vLLM: it rejects `rust` for every other backend. Exporting the environment variable before `smg serve --backend sglang --connection-mode grpc` reaches its workers too, since worker environments inherit the shell's, and no `smg serve` flag clears an inherited value the way `--servicer-impl python` does for vLLM.
 
 In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servicer.SglangGrpcServer`, which needs the `smg` wheel installed alongside `smg-grpc-servicer[sglang]`) before any Python gRPC machinery exists: the Rust server speaks the gRPC contract on the worker's host and port, the scheduler runs headless in a spawned child over a same-host msgpack ZMQ connection, and Python keeps only the process lifecycle. As with vLLM, that ZMQ hop is inside the worker — the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md), and the gateway cannot tell the two implementations apart.
 
@@ -175,9 +189,9 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 
 - PD and EPD disaggregation stay with the Python servicer: a worker with a `disaggregation_mode` set, or with `language_only` or `encoder_only`, refuses to start on the Rust path.
 - Multimodal inputs and hidden states are refused per request, and LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
-- SGLang's HTTP sidecar (profiling, `/metrics`) is not started, so nothing listens on `--port + 1`.
+- SGLang's HTTP sidecar (profiling, `/metrics`) is not started.
 
-`Embed`, `FlushCache` and profiling answer as on the Python servicer, and `SubscribeKvEvents` relays the ZMQ publisher SGLang was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
+`Embed`, `FlushCache` and profiling answer as on the Python servicer. `SubscribeKvEvents` relays SGLang's ZMQ KV-event publisher, which Rust mode turns on by itself when the launcher is given no `--kv-events-config`: an explicit configuration is kept as given, off included, and `SMG_SGLANG_SERVICER_KV_EVENTS=0` in the worker's environment leaves the publisher off without one (`SubscribeKvEvents` then answers UNIMPLEMENTED).
 
 ### Rust TokenSpeed Servicer
 
@@ -185,16 +199,23 @@ TokenSpeed gRPC workers have the same choice: a Rust implementation serving the 
 
 Like the vLLM and SGLang switches, the selection requires SMG v1.12.0 or newer wheels and engine images.
 
-One environment variable selects it on the unchanged entrypoint — every flag is still TokenSpeed's `ServerArgs`:
+Select the implementation with `--servicer-impl` on the same entrypoint — the launcher's own flag, listed ahead of TokenSpeed's `ServerArgs` flags in `--help` — or with the `SMG_TOKENSPEED_SERVICER_IMPL` environment variable:
 
 ```bash
+python -m smg_grpc_servicer.tokenspeed \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 50051 \
+  --servicer-impl rust
+
+# The environment variable selects it on the same entrypoint:
 SMG_TOKENSPEED_SERVICER_IMPL=rust python -m smg_grpc_servicer.tokenspeed \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051
 ```
 
-`SMG_TOKENSPEED_SERVICER_IMPL` defaults to `python`, and a value other than `python` or `rust` fails startup. This launcher is also the process `ts serve` spawns for its gRPC worker. `smg serve` offers no path here: its `--servicer-impl` stays scoped to vLLM, and it drives TokenSpeed workers over `--connection-mode zmq` only — start the worker directly and connect it with `smg launch`.
+When both are set, the flag wins: `--servicer-impl python` overrides an exported `rust`, and the decision a flag makes is written back to `SMG_TOKENSPEED_SERVICER_IMPL`, so the scheduler processes the worker spawns inherit the same choice. The selection defaults to `python`, a value other than `python` or `rust` fails startup, and at startup the launcher logs which implementation it chose and whether the flag, the environment or the default decided it. This launcher is also the process `ts serve` spawns for its gRPC worker. `smg serve` offers no path here: its `--servicer-impl` stays scoped to vLLM, and it drives TokenSpeed workers over `--connection-mode zmq` only — start the worker directly and connect it with `smg launch`.
 
 In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servicer.TokenSpeedGrpcServer`, which needs the `smg` wheel installed alongside `smg-grpc-servicer`) before any TokenSpeed engine or Python gRPC machinery exists: the Rust server speaks the gRPC contract on the worker's host and port, the scheduler(s) run headless in a spawned child — TokenSpeed's own headless launch, what `ts serve --headless` runs — over a same-host msgpack ZMQ connection, and Python keeps only the process lifecycle. As with vLLM and SGLang, that ZMQ hop is inside the worker: the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md), and the gateway cannot tell the two implementations apart.
 
@@ -205,9 +226,9 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 - PD and EPD disaggregation stay with the Python servicer.
 - The [RL control plane](rl-control-plane.md) extras stay with the Python servicer: the `rl.*` capability advertisement, the live `weight_version` on generate responses, and `is_paused`.
 
-Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer. `SubscribeKvEvents` relays the ZMQ KV-event publisher TokenSpeed was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
+Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer. `SubscribeKvEvents` relays TokenSpeed's ZMQ KV-event publisher, which Rust mode turns on by itself when the launcher is given no `--kv-events-config`: an explicit configuration is kept as given, off included, and `SMG_TOKENSPEED_SERVICER_KV_EVENTS=0` in the worker's environment leaves the publisher off without one (`SubscribeKvEvents` then answers UNIMPLEMENTED).
 
-Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake. Model load and kernel JIT compilation count against that bound, so raise it when a first start on a cold cache needs longer; a scheduler process that died is noticed on the supervisor's poll rather than waiting out the bound.
+Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, and `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal. `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for a sign of life from the scheduler during startup: the launcher reports the scheduler process alive each time it polls it, so a slow but living start — model load, kernel JIT compilation on a cold cache — completes, while a scheduler that died fails fast. `SMG_TOKENSPEED_SERVICER_STARTUP_CEILING_SECS` (default `14400`) is the most a start may take however alive the scheduler is; `0` lifts the ceiling.
 
 ---
 
@@ -303,6 +324,7 @@ Send `"separate_reasoning": false` to keep the reasoning in `content`.
 | `deepseek_v41` | DeepSeek-V4.1 |
 | `qwen3` | Qwen3 and later hybrid-thinking Qwen models |
 | `qwen3_thinking` | Qwen3 `-Thinking` checkpoints |
+| `gemma4` | Gemma 4 |
 | `glm45` | GLM-4.5, GLM-4.7, GLM-5.x |
 | `kimi` | Kimi-K2 (Instruct) |
 | `kimi_thinking` | Kimi-K2-Thinking |
@@ -310,6 +332,7 @@ Send `"separate_reasoning": false` to keep the reasoning in `content`.
 | `kimi_k3` | Kimi-K3 |
 | `minimax` | MiniMax-M2 |
 | `minimax_m3` | MiniMax-M3 |
+| `hy_v4` | Hy4 |
 | `nano_v3` | Nemotron Nano, Nemotron Super, Nemotron-3 family |
 | `cohere_cmd` | Command-R, Command-A |
 | `step3` | Step-3 |
@@ -336,7 +359,8 @@ To have the gateway execute MCP tools on `/v1/responses`, add `--mcp-config-path
 
 | Parser | Models |
 |--------|--------|
-| `json` | GPT, Claude, Gemini, Gemma, and other Llama and GLM models that emit plain JSON |
+| `json` | GPT, Claude, Gemini, Gemma other than Gemma 4, and other Llama and GLM models that emit plain JSON |
+| `gemma4` | Gemma 4 |
 | `llama` | Llama 3.2 |
 | `pythonic` | Llama 4 |
 | `mistral` | Mistral, Mixtral |
@@ -353,6 +377,7 @@ To have the gateway execute MCP tools on `/v1/responses`, add `--mcp-config-path
 | `kimi_k3` | Kimi-K3 |
 | `minimax_m2` | MiniMax-M2 |
 | `minimax_m3` | MiniMax-M3 |
+| `hy_v4` | Hy4 |
 | `cohere` | Command-R, Command-A |
 | `step3` | Step-3 |
 | `sarashina` | Sarashina |
@@ -414,7 +439,9 @@ export TIKTOKEN_ENCODINGS_BASE=/opt/tiktoken   # contains o200k_base.tiktoken
 | 404 `model_not_found` | No registered worker serves the requested model name | Check `GET /v1/models` and send a served model name or alias |
 | 503 `no_available_workers` | Every worker for the model is unhealthy or has an open circuit breaker | Check worker health and logs |
 | A `grpcs://` worker never registers; the log repeats `grpc health check failed ... gRPC connection failed: transport error` | The gateway's gRPC channel has no TLS | Use `grpc://`, and a service mesh when the hop must be encrypted ([Gateway to gRPC Workers](tls.md#gateway-to-grpc-workers)) |
-| 500 `tokenizer_not_found` | The model's tokenizer didn't load | Check the gateway logs; pass `--model-path` or set a `tokenizer_path` label |
+| 503 `tokenizer_not_ready` | The model's tokenizer is still loading (the gateway loads it after the worker registers) | Retry; the response carries `Retry-After: 1`, and `/readiness` reports the same state |
+| 503 `tokenizer_load_failed` | The model's tokenizer won't load on its own — no `tokenizer_path` or `model_path` to load from, the load failed, or the tokenizer was removed; the message names the reason, and the gateway log has the details | Pass `--model-path` or set a `tokenizer_path` label and re-register the worker, or register a tokenizer with `POST /v1/tokenizers`; retrying the request changes nothing until a tokenizer registers |
+| 500 `tokenizer_not_found` | The model has no tokenizer and `--disable-tokenizer-autoload` is set, so the gateway won't load one itself | Register a tokenizer with `POST /v1/tokenizers` |
 | Tool calls or reasoning left in `content` | No parser matched the model name | Set `--tool-call-parser` / `--reasoning-parser` or a per-model label |
 
 ---
@@ -422,8 +449,8 @@ export TIKTOKEN_ENCODINGS_BASE=/opt/tiktoken   # contains o200k_base.tiktoken
 ## Next Steps
 
 - [gRPC Pipeline Concepts](../concepts/architecture/grpc-pipeline.md) — Pipeline architecture, parser selection, and all supported parsers
-- [ZMQ Workers](zmq-workers.md) — Same-host vLLM and TokenSpeed engines over the ZMQ direct backend
+- [ZMQ Workers](zmq-workers.md) — Same-host vLLM, TokenSpeed, and SGLang engines over the ZMQ direct backend
 - [Multimodal Pipeline](../concepts/architecture/multimodal.md) — Image and video processing on the router or the worker
 - [Tokenizer Caching](../concepts/performance/tokenizer-caching.md) — Two-level cache for reduced CPU overhead
 - [MCP in Responses API](mcp.md) — Configure Model Context Protocol servers for `/v1/responses`
-- [PD Disaggregation](pd-disaggregation.md) — Separate prefill and decode with gRPC workers
+- [PD Disaggregation](pd-disaggregation.md) — Separate prefill and decode onto specialized workers

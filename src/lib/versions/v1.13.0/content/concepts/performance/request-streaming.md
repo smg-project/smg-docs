@@ -80,17 +80,14 @@ For an eligible request, the first matching rule wins:
 | 8 | Router retries are enabled and the body is larger | Stream | `retry_forfeited` |
 | 9 | Router retries are disabled | Stream, at any size | `pure_forward` |
 
-Rules 1–6 always buffer, at any size up to `--max-payload-size`. In the first five, something must read the body: the sticky-session key comes from the body's `rid`, the policy routes on the prompt, the model name is inside the body, the request must be edited for the worker, or a plugin inspects it.
+Rules 1–6 always buffer, at any size up to `--max-payload-size`. In the first five, something must read the body: the sticky-session key falls back to the body's `rid` when no routing-key header carries a valid value, the policy routes on the prompt, the model name is inside the body, the request must be edited for the worker, or a plugin inspects it.
 
-Rules 7–9 apply when the only reason to buffer is to keep the request retryable. Router retries count as enabled when `--retry-max-retries` is greater than `1` and `--disable-retries` is not set. (Per-worker retry fields in a worker spec have no effect in v1.11.0; see [Per-Worker Overrides](../reliability/retries.md#per-worker-overrides).)
+Rules 7–9 apply when the only reason to buffer is to keep the request retryable. Router retries count as enabled when `--retry-max-retries` is greater than `1` and `--disable-retries` is not set, or when any per-model retry override allows more than one attempt — the model name sits inside the unread body, so one retryable model keeps every eligible request buffered. (A per-model override comes from the retry fields in a worker spec's `resilience` block; see [Per-Worker Overrides](../reliability/retries.md#per-worker-overrides).)
 
 Once a request is headed for the streamed path, the router selects a worker from the headers alone. If no worker can be selected that way, or the fleet changed in the meantime (a body-rewriting worker or a second model registered), the request falls back to the buffered path, counted as `no_available_worker`, `worker_mutates_body`, or `model_ambiguous`.
 
 !!! note "The default policy buffers"
     `cache_aware`, the default `--policy`, routes on the prompt, so with default settings every request buffers unless it carries a valid `x-smg-routing-tokens` hint. With the hint, `cache_aware` routes on the hinted token IDs and the body can stream. See [Sticky Sessions](../routing/sticky-sessions.md) for the routing hint headers.
-
-!!! warning "Behavior change in v1.10.0"
-    Before v1.10.0 the HTTP router buffered every request body. Since v1.10.0, eligible requests larger than `--max-buffered-request-bytes` (1 MiB by default) stream to the worker and get a single attempt; raise the limit to keep larger requests retryable. The `--stream-request-bodies-over` flag from pre-release builds was removed before v1.10.0 shipped, and SMG refuses to start if it is passed.
 
 ### What Changes for a Streamed Request
 
@@ -101,7 +98,7 @@ Once a request is headed for the streamed path, the router selects a worker from
 | Router retries | Yes, up to `--retry-max-retries` attempts | No: one attempt |
 | Worker selection input | Prompt text or token IDs, body `rid`, headers | Headers only, including an `x-smg-routing-tokens` or routing-key hint |
 | Size limit | `--max-payload-size` | `--max-payload-size`, counted while streaming |
-| Stall protection | — | `--stream-body-stall-timeout-secs` |
+| Stall protection | `--stream-body-stall-timeout-secs`, while the body is read | `--stream-body-stall-timeout-secs`, while the body is forwarded |
 
 A policy that hashes the prompt has nothing to hash on the streamed path: `prefix_hash` uses a routing-key or tokens hint when the request carries one, and otherwise falls back to the least-loaded worker.
 
@@ -109,15 +106,16 @@ Because the router never reads the body, it does not see `"stream": true`. It re
 
 ### Stalled and Aborted Uploads
 
-A streamed body moves at the client's pace, so a client that stops sending mid-upload would otherwise hold a worker connection open. `--stream-body-stall-timeout-secs` (default `300`, `0` disables) aborts the dispatch with **408** `request_body_stalled` once a single wait for the client's next bytes lasts that long.
+A request body moves at the client's pace, so a client that stops sending mid-upload would otherwise hold its connection — and on the streamed path a worker connection — open indefinitely. `--stream-body-stall-timeout-secs` (default `300`, `0` disables) guards both paths despite its name: once a single wait for the client's next bytes lasts that long, a buffered read on any inference route and a streamed dispatch alike end with **408** `request_body_stalled`.
 
-The clock runs only while SMG is waiting on the client. While the worker applies backpressure, for example by reading the body slowly during a busy prefill, SMG is not asking the client for bytes and the clock pauses, so a slow worker never trips it. The watchdog disarms once the whole body has been forwarded, and `--request-timeout-secs` still bounds the whole exchange.
+The clock runs only while SMG is waiting on the client. A fully parsed body, a request waiting at admission, or a slow handler never trips it, and on the streamed path it pauses while the worker applies backpressure, for example by reading the body slowly during a busy prefill, so a slow worker never trips it either. The watchdog disarms once the whole body has been read or forwarded. `--request-timeout-secs` still bounds the whole exchange, and a buffered body that is still incomplete when it runs out — a trickle whose individual waits each stay under the stall timeout — ends with **408** `request_body_timeout`.
 
 | Status | `X-SMG-Error-Code` | Cause |
 |--------|--------------------|-------|
-| `408` | `request_body_stalled` | The client sent nothing for `--stream-body-stall-timeout-secs` while the worker was ready for more |
-| `413` | `request_body_too_large` | The streamed body grew past `--max-payload-size` mid-upload; the upstream send is aborted |
-| `400` | `request_body_aborted` | The client's upload failed (disconnect or reset) before the body was fully forwarded |
+| `408` | `request_body_stalled` | The client sent nothing for `--stream-body-stall-timeout-secs`, on the buffered or the streamed path |
+| `408` | `request_body_timeout` | A buffered body was still incomplete at `--request-timeout-secs` |
+| `413` | `request_body_too_large` | The body grew past `--max-payload-size` mid-upload; a streamed upstream send is aborted |
+| `400` | `request_body_aborted` | The client's upload failed (disconnect or reset) before a streamed body was fully forwarded |
 
 These aborts are caused by the client, so none of them is recorded against the worker's [circuit breaker](../reliability/circuit-breakers.md).
 
@@ -136,7 +134,7 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 
 ## Memory Bounds
 
-**Request bodies.** A body larger than `--max-payload-size` (default `536870912`, 512 MiB) is rejected with `413`, whether it is buffered or streamed. A request whose `Content-Length` header already exceeds the limit is refused before routing, with a plain-text `413` and no `X-SMG-Error-Code` header.
+**Request bodies.** A body larger than `--max-payload-size` (default `536870912`, 512 MiB) is rejected with `413`, whether it is buffered or streamed. A request whose `Content-Length` header already exceeds the limit is refused before routing. In every case the error code is `request_body_too_large`, carried in the JSON error envelope and the `X-SMG-Error-Code` header; the `/v1/messages` routes keep the header but answer with the Messages API's error shape.
 
 **Early release.** When router retries are disabled for a request's model, the HTTP routers free the parsed request and its routing inputs (prompt text, token IDs) as soon as the upstream body is serialized, before the send. A serialized body of 1 MiB or more is then handed to the connection as a one-shot stream, still with a `Content-Length` header, so it is freed when the upload finishes rather than when the worker's response headers arrive, which for a non-streaming generation is when generation ends. With retries enabled, the request stays in memory until the router has its final response, so it can be replayed. The gRPC pipeline always frees the parsed request once it has built the worker request, and keeps only that built request for retries. `smg_router_request_buffers_released_early_bytes_total` counts the bytes freed early.
 
@@ -160,12 +158,12 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 
 ### Delta Re-Slicing for MiniMax Models
 
-Engines can emit streamed chat completions one token per SSE event, or tool-call arguments in one piece. MiniMax's provider contract instead bounds the size of every streamed delta: almost none may be shorter than 5 or longer than 200 characters. Since v1.11.0, SMG re-slices the deltas of chat completion streams for MiniMax models to target that contract, so clients of those models receive multi-character text slices rather than the worker's per-token events. Concatenating the delta fields yields exactly the worker's text; only the event boundaries change.
+Engines can emit streamed chat completions one token per SSE event, or tool-call arguments in one piece. MiniMax's provider contract instead bounds the size of every streamed delta: almost none may be shorter than 5 or longer than 200 characters. SMG re-slices the deltas of chat completion streams for MiniMax models to target that contract, so clients of those models receive multi-character text slices rather than the worker's per-token events. Concatenating the delta fields yields exactly the worker's text; only the event boundaries change.
 
 The regular HTTP relay re-slices a response when all of the following hold; every other stream is relayed as the worker sent it:
 
 - The route is `/v1/chat/completions` and the parsed request asked for a streaming response. A [streamed request body](#how-the-router-decides) is never parsed, so its response always relays verbatim.
-- The model name the client sent selects the MiniMax provider profile: a `/`-separated segment starts with `minimax` or `abab` (case-insensitive), with no earlier segment selecting another supported provider profile. The check runs before alias resolution, so an alias with a different name that resolves to a MiniMax model is not re-sliced.
+- The model name the client sent selects the MiniMax provider profile: a `/`-separated segment starts with `minimax` or `abab` (case-insensitive), with no earlier segment selecting another supported provider profile. A name configured with `--model-alias` selects its served model's profile, recorded at startup: an alias that resolves to a MiniMax model is re-sliced whatever the alias is called, and a MiniMax-named alias of a model whose own name selects no provider gives the served model the MiniMax contract under every one of its names.
 - The worker answered with `Content-Type: text/event-stream`, or omitted Content-Type on a successful streaming response (the relay then supplies `text/event-stream`).
 
 The gRPC router encodes chat completion SSE frames itself and re-slices its outbound stream for MiniMax models the same way. This re-slicing is not applied by the HTTP PD relay or other response paths.
@@ -241,8 +239,8 @@ curl -X POST http://localhost:30000/workers \
 |------|---------|-------------|
 | `--max-payload-size` | `536870912` (512 MiB) | Largest accepted request body; in regular HTTP mode, also caps buffered worker responses |
 | `--max-buffered-request-bytes` | `1048576` (1 MiB) | Largest eligible body buffered only to keep it retryable; `0` never buffers for retries |
-| `--stream-body-stall-timeout-secs` | `300` | Abort a streamed body after a single client wait this long (`408`); `0` disables |
-| `--request-timeout-secs` | `1800` | Total time for one upstream request, including a streamed response |
+| `--stream-body-stall-timeout-secs` | `300` | End a request body read, buffered or streamed, after a single client wait this long (`408` `request_body_stalled`); `0` disables |
+| `--request-timeout-secs` | `1800` | Total time for one upstream request, including a streamed response; a buffered body still incomplete by then gets `408` `request_body_timeout` |
 | `--upstream-pool-idle-timeout-secs` | `3` | Idle timeout for pooled upstream connections; `0` keeps them forever |
 | `--upstream-http2` | off | Negotiate HTTP/2 per worker at registration |
 

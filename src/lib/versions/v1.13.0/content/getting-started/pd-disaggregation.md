@@ -74,7 +74,7 @@ SMG sends the request to the prefill and decode workers at the same time. The tw
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --smg-grpc-mode \
+      --grpc-mode \
       --disaggregation-mode prefill \
       --disaggregation-bootstrap-port 8998
 
@@ -83,13 +83,13 @@ SMG sends the request to the prefill and decode workers at the same time. The tw
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50061 \
-      --smg-grpc-mode \
+      --grpc-mode \
       --disaggregation-mode decode
     ```
 
 Both workers must use the same KV transfer backend (`--disaggregation-transfer-backend`, for example `mooncake` or `nixl`).
 
-`--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, which is now a deprecated alias. In this mode SGLang also opens an HTTP sidecar (metrics and profiling) on `--port + 1` (move it with `--smg-http-sidecar-port`), so leave a gap between the ports of workers on the same host.
+`--grpc-mode` hands the server to the `smg-grpc-servicer` package, which serves SMG's gRPC contract; install `smg-grpc-servicer[sglang]` alongside SGLang (the extra requires SGLang 0.5.21 or newer). See [gRPC Workers](grpc-workers.md).
 
 ### Start SMG
 
@@ -408,8 +408,6 @@ curl http://localhost:30000/v1/chat/completions \
 ```
 
 PD mode serves Chat Completions, Completions, the Anthropic Messages API, and the Responses API on both transports. `/v1/messages/count_tokens` works on both as well: over HTTP it goes to a single prefill worker, and over gRPC SMG answers it from the model's tokenizer without contacting a worker.
-
-Gateway-side token counting on gRPC PD is newer than v1.12.0: v1.12.0 and earlier answer `/v1/messages/count_tokens` on gRPC PD with `501 Not Implemented`.
 
 ---
 

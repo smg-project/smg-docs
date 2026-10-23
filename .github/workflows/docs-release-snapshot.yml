@@ -18,6 +18,9 @@ on:
       diagnostic-stage:
         type: string
         default: write
+      promotion-run-id:
+        type: string
+        default: ''
       resume-run-id:
         type: string
         default: ''
@@ -44,7 +47,7 @@ jobs:
     outputs:
       matrix: ${{ steps.diagnostic.outputs.matrix || steps.prepare.outputs.matrix }}
       checkpoint_sha: ${{ steps.diagnostic.outputs.checkpoint_sha }}
-      base: ${{ steps.resume.outputs.base || steps.prepare.outputs.base }}
+      base: ${{ steps.promotion.outputs.base || steps.resume.outputs.base || steps.prepare.outputs.base }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -127,6 +130,26 @@ jobs:
           DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
           DRY_RUN: ${{ inputs.dry-run }}
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare-resume
+      - name: Download successful full audit for publication
+        if: inputs.promotion-run-id != ''
+        env:
+          PROMOTION_RUN_ID: ${{ inputs.promotion-run-id }}
+        run: |
+          gh run download "$PROMOTION_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name release-context --dir "$RUNNER_TEMP/release-promotion-context"
+          gh run download "$PROMOTION_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'release-bundle-*' --pattern 'release-repaired-bundle-*' \
+            --pattern 'release-followup-bundle-*' --pattern 'release-review-*' \
+            --pattern 'release-repair-review-*' --pattern 'release-final-review-*' \
+            --dir "$RUNNER_TEMP/release-promotion-artifacts"
+      - name: Verify successful provenance and every exact-snapshot approval
+        if: inputs.promotion-run-id != ''
+        id: promotion
+        env:
+          PROMOTION_RUN_ID: ${{ inputs.promotion-run-id }}
+          RESUME_RUN_ID: ${{ inputs.resume-run-id }}
+          DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare-promotion
       - uses: actions/upload-artifact@v4
         with:
           name: release-context
@@ -136,7 +159,7 @@ jobs:
 
   write:
     needs: prepare
-    if: inputs.resume-run-id == ''
+    if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
     runs-on: smg-org-runner-cpu
     timeout-minutes: 90
     strategy:
@@ -207,7 +230,7 @@ jobs:
 
   review:
     needs: [prepare, write]
-    if: inputs.resume-run-id == ''
+    if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
     runs-on: smg-org-runner-cpu
     timeout-minutes: 90
     strategy:
@@ -236,7 +259,7 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
@@ -288,7 +311,7 @@ jobs:
 
   assess:
     if: >-
-      always() && !cancelled() && inputs.diagnostic-run-id == '' &&
+      always() && !cancelled() && inputs.diagnostic-run-id == '' && inputs.promotion-run-id == '' &&
       needs.prepare.result == 'success' &&
       (inputs.resume-run-id != '' || needs.review.result == 'success')
     needs: [prepare, review]
@@ -319,13 +342,13 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-review-*
@@ -376,13 +399,13 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-review-*
@@ -458,7 +481,7 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
@@ -532,7 +555,7 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
@@ -586,7 +609,7 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
@@ -665,7 +688,7 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
@@ -715,12 +738,12 @@ jobs:
     needs: [prepare, assess, repair, review-repair, assess-followup, repair-followup, final-review]
     if: >-
       always() && inputs.diagnostic-run-id == '' &&
-      needs.prepare.result == 'success' && needs.assess.result == 'success' &&
+      needs.prepare.result == 'success' && (inputs.promotion-run-id != '' || (needs.assess.result == 'success' &&
       (needs.assess.outputs.needed == 'false' ||
       (needs.repair.result == 'success' && needs.review-repair.result == 'success' &&
       needs.assess-followup.result == 'success' &&
       (needs.assess-followup.outputs.needed == 'false' ||
-      (needs.repair-followup.result == 'success' && needs.final-review.result == 'success'))))
+      (needs.repair-followup.result == 'success' && needs.final-review.result == 'success'))))))
     runs-on: smg-org-runner-cpu
     timeout-minutes: 30
     permissions:
@@ -747,7 +770,7 @@ jobs:
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
-      - if: inputs.resume-run-id == ''
+      - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
         uses: actions/download-artifact@v4
         with:
           pattern: release-bundle-*
@@ -765,7 +788,8 @@ jobs:
           pattern: release-followup-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - if: inputs.promotion-run-id == ''
+        uses: actions/download-artifact@v4
         with:
           pattern: ${{ needs.assess-followup.outputs.needed == 'true' && 'release-final-review-*' || needs.assess.outputs.needed == 'true' && 'release-repair-review-*' || 'release-review-*' }}
           merge-multiple: true

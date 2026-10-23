@@ -337,5 +337,71 @@
 		"pages": ["contributing/index.md", "contributing/development.md"],
 		"source_paths": ["rust-toolchain.toml", "CONTRIBUTING.md"],
 		"check": "The released checkout contains rust-toolchain.toml pinning Rust 1.98.0 with clippy/rustfmt. Align Quick Start and Development: let rustup honor that checked-in pin instead of instructing a persistent rustup override set 1.98.0, which can shadow later pin changes. Nightly rustfmt remains a separate explicit nightly toolchain. Keep actionable prerequisite versions without claiming the repository lacks its toolchain file."
+	},
+	{
+		"id": "minimax-thinking-effort",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/architecture/grpc-pipeline.md", "reference/api/openai.md"],
+		"source_paths": [
+			"crates/protocols/src/profile/mod.rs",
+			"model_gateway/src/routers/grpc/utils/parsers.rs"
+		],
+		"check": "Trace ProviderProfile::Minimax through resolve_user_thinking. MiniMax does not turn thinking off for reasoning_effort none/minimal, and an explicit effort outranks thinking.type disabled. Do not describe DeepSeek-V4 as the only exception to a universal none/minimal disables-thinking rule. Reconcile the pipeline summary with the OpenAI API contract without dropping other model-specific renderer rules."
+	},
+	{
+		"id": "symphony-responses-routing",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/architecture/grpc-pipeline.md", "reference/api/responses.md"],
+		"source_paths": [
+			"model_gateway/src/routers/grpc/pipeline.rs",
+			"model_gateway/src/routers/grpc/regular/responses/non_streaming.rs",
+			"model_gateway/src/routers/grpc/regular/stages/chat/preparation.rs",
+			"model_gateway/src/routers/grpc/regular/stages/chat/request_building.rs"
+		],
+		"check": "Trace execute_without_mcp and MCP model turns through execute_chat_for_responses and the shared chat preparation/building stages. Eligible Responses requests can use Symphony when configured; do not claim that every endpoint except Chat Completions and Messages always uses legacy parsers. Verify each streaming/Harmony path separately before extending that statement."
+	},
+	{
+		"id": "vllm-zmq-single-modality",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": ["concepts/architecture/multimodal.md", "getting-started/zmq-workers.md"],
+		"source_paths": ["model_gateway/src/routers/grpc/backend_client.rs"],
+		"check": "Verify zmq_vllm_mm: an extra multimodal proto batch is rejected because vLLM ZMQ accepts one modality per request. Mixed image/video requests require the gRPC backend. Keep the Video summary, Direct ZMQ Backends paragraph and ZMQ capability table consistent; do not generalize vLLM gRPC mixed-modality support to direct ZMQ."
+	},
+	{
+		"id": "consistent-hashing-implicit-headers",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/routing/load-balancing.md",
+			"concepts/routing/sticky-sessions.md",
+			"reference/configuration.md",
+			"getting-started/load-balancing.md"
+		],
+		"source_paths": ["model_gateway/src/policies/consistent_hashing.rs"],
+		"check": "Verify implicit_key in the active policy selection: X-Forwarded-For, then Cookie may supply an implicit routing key; Authorization is excluded. Reconcile the configuration policy-summary row as well as detailed routing-header descriptions. Preserve explicit target-worker/routing-key priorities and do not present credentials as session affinity."
+	},
+	{
+		"id": "power-of-two-startup-topology",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"concepts/routing/pd-disaggregation.md",
+			"concepts/routing/load-balancing.md",
+			"reference/configuration.md"
+		],
+		"source_paths": ["model_gateway/src/config/validation.rs"],
+		"check": "Trace the startup worker-count validator including its IGW early return and !has_service_discovery && !config.dp_aware guard. The power_of_two two-worker checks for regular and PD prefill/decode pools are skipped with service discovery, --dp-aware or --enable-igw. Include all exceptions in any summary that states this startup requirement, especially the PD Per-Phase Policies table."
+	},
+	{
+		"id": "zmq-supported-engine-summary",
+		"source_sha": "91b3e0c440f9ab7971aa3ba48b049d951bd963de",
+		"pages": [
+			"getting-started/grpc-workers.md",
+			"getting-started/zmq-workers.md",
+			"concepts/architecture/overview.md"
+		],
+		"source_paths": [
+			"bindings/python/src/smg/serve.py",
+			"model_gateway/src/workflow/steps/local/create_worker.rs"
+		],
+		"check": "Verify the supported direct ZMQ backend enumeration: vLLM, TokenSpeed and SGLang. Keep introductory and Next Steps summaries consistent with the detailed ZMQ capability table; do not describe support as vLLM/TokenSpeed only. Distinguish ZMQ exclusion from PD/EPD from a blanket claim that PD never supports HTTP workers."
 	}
 ]

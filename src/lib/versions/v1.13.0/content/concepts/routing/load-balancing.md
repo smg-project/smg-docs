@@ -90,15 +90,15 @@ Complexity is the selection cost per request over `n` available workers; `power_
 Load-aware policies read one or both of two signals:
 
 - **In-flight requests.** The gateway counts the requests it has sent to each worker that have not finished yet; a streamed response counts until its body ends. The count is kept for every request under every policy, on the HTTP, gRPC and PD paths alike, and is exported as `smg_worker_requests_active`. Each gateway replica counts only its own traffic. `prefix_hash` and the `cache_aware` spill gate compare these counts, `least_load` and `power_of_two` fall back to them for workers without a load report, and [`--power-of-two-load-metric`](#comparison-metric) can make them `power_of_two`'s primary comparison.
-- **Load reports.** The gateway polls each worker's load every `--load-monitor-interval` seconds (default `10`). HTTP workers are asked for `/v1/loads` whatever the engine, falling back to the engine's Prometheus `/metrics` (SGLang, vLLM) when that route does not answer; gRPC and ZMQ workers report over their engine connection (`GetLoads`). A report carries the worker's waiting requests and KV-cache usage, plus queued tokens and generation throughput where the engine exposes them. `least_load`, `power_of_two` and `cache_aware` read these reports. See [Load Monitoring](../../reference/configuration.md#load-monitoring-configuration) for the polling options.
+- **Load reports.** The gateway polls each worker's load every `--load-monitor-interval` seconds (default `10`). HTTP workers are asked for `/v1/loads` whatever the engine, falling back to the engine's Prometheus `/metrics` (SGLang, vLLM) when that route does not answer; gRPC and ZMQ workers report over their engine connection (`GetLoads`). An engine that pushes load records on its KV-event stream is read from the stream instead, and the poll takes over while the records pause. A report carries the worker's waiting requests and KV-cache usage, plus queued tokens and generation throughput where the engine exposes them. `least_load`, `power_of_two` and `cache_aware` read these reports. See [Load Monitoring](../../reference/configuration.md#load-monitoring-configuration) for the polling options.
 
-In `least_load`, `power_of_two` and `cache_aware`, scores that tie exactly are broken uniformly at random, so equally idle workers share traffic instead of the first worker taking every tie.
+In `least_load`, `power_of_two` and `cache_aware`, scores that tie are broken uniformly at random, so equally idle workers share traffic instead of the first worker taking every tie.
 
 ---
 
 ## Cache-Aware
 
-The **recommended policy** for production LLM inference, and the default. It keeps a per-model prefix tree of the requests it has routed to each worker (for gRPC workers that publish KV-cache events, the engines' reported cache contents instead) and sends each request to a worker that already holds its prefix. When no worker holds enough of it (`--cache-threshold` in tree mode), or every holder is far busier than the fleet mean (beyond both `--balance-abs-threshold` and `--balance-rel-threshold`), it picks by the same expected-wait score as [`least_load`](#least-load).
+The **recommended policy** for production LLM inference, and the default. It keeps a per-model prefix tree of the requests it has routed to each worker (for gRPC workers that publish KV-cache events, the engines' reported cache contents instead) and sends each request to a worker that already holds its prefix. When no worker holds enough of it (`--cache-threshold` in tree mode), or every holder is far busier than the fleet mean (beyond both `--balance-rel-threshold` and an absolute margin sized to the pool's load, at most `--balance-abs-threshold`), it picks by the same expected-wait score as [`least_load`](#least-load).
 
 ```bash
 smg --policy cache_aware --worker-urls http://w1:8000 http://w2:8000
@@ -234,8 +234,6 @@ Both in-flight metrics compare the gateway's own per-worker request counts (see 
 
 `least_requests` gives up the policy's O(1) selection: it samples no pair and scans every available worker's count. Whatever the metric, a single available worker is selected directly.
 
-`--power-of-two-load-metric` is newer than v1.12.0. In v1.12.0 and earlier the comparison is always the expected wait.
-
 **Use when:** Large or heterogeneous fleets where cache locality doesn't matter and each pick should read only two workers' load.
 
 ---
@@ -278,18 +276,19 @@ smg launch \
 ### Expected-Wait Score
 
 ```text
-score = (queued_tokens + in_flight_tokens) / throughput
+score = (queued_tokens + running_tokens + in_flight_tokens) / throughput
         + kv_pressure_weight * k / (1 - k)
 ```
 
 | Term | Meaning |
 |------|---------|
 | `queued_tokens` | Uncached tokens waiting in the worker's queue, from its load report (summed across DP ranks). An engine that reports a queue depth but no token count, such as one scraped from Prometheus `/metrics`, is estimated at waiting requests × `--least-load-mean-prefill-tokens` |
-| `in_flight_tokens` | Work this gateway has sent the worker since its last load report: each request's token count when its token IDs are known (gRPC workers, pre-tokenized requests), otherwise `--least-load-mean-prefill-tokens`. Every new report resets it |
+| `running_tokens` | The report's running requests, each estimated at `--least-load-mean-prefill-tokens`; reports carry no remaining-work token count |
+| `in_flight_tokens` | Work this gateway has sent the worker since its last load report: each request's token count when its token IDs are known (gRPC workers, pre-tokenized requests), otherwise `--least-load-mean-prefill-tokens`. A report releases the credit for the dispatches it already reflects |
 | `throughput` | The worker's reported generation throughput in tokens/s, or `--least-load-default-throughput` when it reports none. Dividing by it turns token work into seconds, so faster workers take proportionally more |
 | `k` | KV-cache usage from 0 to 1 (mean across DP ranks). `k / (1 - k)` stays small until the cache is nearly full, then climbs steeply |
 
-Both terms are in seconds, so they add directly. Ties are broken uniformly at random.
+Both terms are in seconds, so they add directly. The gateway's own in-flight count floors the estimate: requests it still holds on the worker beyond what the report and the credit cover are priced at the mean, so a stale report can never make a worker look emptier than the gateway's outstanding requests on it. Ties are broken uniformly at random.
 
 Missing signals degrade gracefully:
 
@@ -298,7 +297,7 @@ Missing signals degrade gracefully:
 
 ### Waiting-Queue Cap
 
-`--least-load-max-waiting-requests N` skips a worker once its reported waiting requests, plus the requests this gateway has sent it since that report, reach `N`. Workers without a load report stay eligible. When every worker is at the cap, `least_load` selects nothing and the request fails with `503` (`no_available_workers`) instead of deepening a backlog; router retries, when enabled, try again after backoff. Set `N` below the engine's max batch size. The default `0` turns the cap off.
+`--least-load-max-waiting-requests N` skips a worker once its reported waiting requests, plus the gateway's own requests on it that the report does not yet reflect, reach `N`. Workers without a load report stay eligible. When every worker is at the cap, `least_load` selects nothing and the request fails with `503` (`no_available_workers`) instead of deepening a backlog. The gateway does not retry that `503` internally—the condition clears with the next load reports, not within a backoff window—and the response carries `Retry-After: 1` to pace client retries. Set `N` below the engine's max batch size. The default `0` turns the cap off.
 
 For a per-worker ceiling that applies under every policy, see [Overload Protection](../reliability/overload-protection.md).
 
@@ -356,7 +355,9 @@ smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
 | `X-SMG-Target-Worker` | Route to a worker by 0-based index into the model's currently available workers, so indices shift when a worker becomes unavailable. An index past the end of that list, or a value that is not a number, fails the request with `503` instead of falling back |
 | `X-SMG-Routing-Key` | Hash this key onto the ring for session affinity. Names listed in `--routing-key-headers` are read first. Values must be non-empty UTF-8 of at most 128 bytes |
 
-**Priority order:** `X-SMG-Target-Worker` → body `rid` (with `--routing-key-override`) → routing-key header → implicit keys (`Authorization`, `X-Forwarded-For`, `Cookie`) → random fallback
+**Priority order:** `X-SMG-Target-Worker` → routing-key header → body `rid` (with `--routing-key-override`) → implicit keys (`X-Forwarded-For`, `Cookie`) → random fallback
+
+`Authorization` is not an implicit key: every client sharing an API key would hash to one worker.
 
 See [Sticky Sessions and Routing Keys](sticky-sessions.md) for how routing keys are derived and validated.
 
@@ -674,14 +675,14 @@ A label that names the same policy as `--policy` gets a per-model instance built
 
 ### PD and EPD Legs
 
-In PD mode, `--prefill-policy` and `--decode-policy` set each leg's policy and default to `--policy`. Both accept `least_load`. `--decode-policy bucket` is rejected at startup, and the Rust binary also rejects `passthrough` on either leg. Outside IGW mode, a leg given `power_of_two` through `--prefill-policy` or `--decode-policy` needs at least two workers on that leg, or startup fails. In EPD mode, `--encode-policy` accepts `random`, `round_robin` or `consistent_hashing` and defaults to `consistent_hashing`. See [PD Disaggregation](pd-disaggregation.md).
+In PD mode, `--prefill-policy` and `--decode-policy` set each leg's policy and default to `--policy`. Both accept `least_load`. `--decode-policy bucket` is rejected at startup, and the Rust binary also rejects `passthrough` on either leg. Outside IGW mode, a leg given `power_of_two` through `--prefill-policy` or `--decode-policy` needs at least two workers on that leg, or startup fails; the check is skipped when workers come from service discovery, or when `--dp-aware` registers one worker per DP rank. In EPD mode, `--encode-policy` accepts `random`, `round_robin` or `consistent_hashing` and defaults to `consistent_hashing`. See [PD Disaggregation](pd-disaggregation.md).
 
 ---
 
 ## Observability
 
 - `smg_worker_selection_total` counts every policy selection by `worker_type`, `connection_mode`, `model` and `policy`.
-- `smg_cache_aware_policy_branch_total`, `smg_prefix_hash_policy_branch_total`, `smg_consistent_hashing_policy_branch_total` and `smg_manual_policy_branch_total` count which branch each decision took (label `branch`), for example a `prefix_hash` request moved off its ring worker (`load_balance_walk`). The cache-aware counter covers tree-mode decisions only.
+- `smg_cache_aware_policy_branch_total`, `smg_prefix_hash_policy_branch_total`, `smg_consistent_hashing_policy_branch_total` and `smg_manual_policy_branch_total` count which branch each decision took (label `branch`), for example a `prefix_hash` request moved off its ring worker (`load_balance_walk`). The cache-aware counter covers tree and KV-event decisions; hash-mode dispatches and KV-pressure fallbacks are not counted.
 - `smg_worker_requests_active` is the per-worker in-flight count that load-aware policies compare.
 - At `--log-level debug`, `cache_aware`, `prefix_hash`, `least_load`, `power_of_two` and sticky-session selections log each routing decision with the chosen worker. See [Logging](../../getting-started/logging.md).
 

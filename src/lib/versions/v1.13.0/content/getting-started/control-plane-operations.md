@@ -4,7 +4,7 @@ title: Control Plane Operations
 
 # Control Plane Operations
 
-This guide covers day-2 admin workflows backed by control-plane endpoints in `model_gateway/src/server.rs`: workers, tokenizers, WASM modules, parser utilities, and cache/load operations.
+This guide covers day-2 admin workflows backed by control-plane endpoints: workers, tokenizers, WASM modules, parser utilities, and cache/load operations.
 
 <div class="prerequisites" markdown>
 
@@ -26,7 +26,7 @@ Use the same header for all control-plane calls:
 -H "Authorization: Bearer ${ADMIN_TOKEN}"
 ```
 
-Control-plane middleware requires admin role for these operations. Without control-plane auth configured, use the shared `--api-key` as `ADMIN_TOKEN`; see [Without Control Plane Auth](control-plane-auth.md#without-control-plane-auth).
+Control-plane middleware requires the `admin` role for every mutating call (`POST`, `PUT`, `PATCH`, `DELETE`); `GET` requests are also served for a valid credential with the `user` role. Without control-plane auth configured, use the shared `--api-key` as `ADMIN_TOKEN`; see [Without Control Plane Auth](control-plane-auth.md#without-control-plane-auth).
 
 ---
 

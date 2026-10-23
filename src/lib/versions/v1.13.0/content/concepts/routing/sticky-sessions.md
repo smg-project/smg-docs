@@ -4,7 +4,7 @@ title: Sticky Sessions and Routing Keys
 
 # Sticky Sessions and Routing Keys
 
-A multi-turn conversation runs fastest when each turn lands on the worker that served the turn before it, because that worker still holds the conversation's prefix in its KV cache. Sticky sessions give SMG that property: each request carries a **routing key**, taken from the request body's `rid` or from a header, and SMG pins the key to one worker for as long as the key stays in use.
+A multi-turn conversation runs fastest when each turn lands on the worker that served the turn before it, because that worker still holds the conversation's prefix in its KV cache. Sticky sessions give SMG that property: each request carries a **routing key**, taken from a routing-key header or from the request body's `rid`, and SMG pins the key to one worker for as long as the key stays in use.
 
 SMG provides stickiness in two forms:
 
@@ -27,9 +27,9 @@ The key comes from the body `rid` with turn and retry suffixes stripped, so `con
 
 <div class="card" markdown>
 
-### :material-tag-outline: Header Fallback
+### :material-tag-outline: Routing-Key Headers
 
-Without a `rid`, SMG reads the first valid value from an ordered list of headers, `x-smg-routing-key` by default.
+SMG reads the first valid value from an ordered list of headers, `x-smg-routing-key` by default; the body `rid` fills in when no header matches.
 
 </div>
 
@@ -59,11 +59,11 @@ Idle pins expire, a key's requests beyond two in flight are placed again instead
 
 For each request, SMG uses the first of these that yields a key:
 
-1. **Body `rid`** (override enabled only): the `rid` with its lineage suffixes stripped.
-2. **Routing-key headers**: the first header named in `--routing-key-headers` that carries a valid value.
+1. **Routing-key headers**: the first header named in `--routing-key-headers` that carries a valid value.
+2. **Body `rid`** (override enabled only): the `rid` with its lineage suffixes stripped.
 3. **No key**: the configured policy places the request, and nothing is pinned.
 
-A body `rid` wins even when a routing-key header is also present, so a proxy that stamps a unique header value on every request cannot split a conversation. This holds on every policy, including `manual` and `consistent_hashing`.
+A valid routing-key header wins even when the body carries a `rid`, so a client that keeps one header value per conversation can give every turn and retry a fresh `rid` without splitting the pin. This holds on every policy, including `manual` and `consistent_hashing`.
 
 !!! note "Request IDs are not routing keys"
     `X-Request-ID` and the other request-ID headers identify a request in logs, traces, and backend request IDs, but never route it. Only the body `rid` field and the configured routing-key headers feed sticky routing.
@@ -82,7 +82,7 @@ SMG removes one trailing retry suffix, then one trailing turn suffix:
 - The retry suffix is removed first, so it has to come last: `conv_t2_r1` becomes `conv`, while `conv_r1_t2` becomes `conv_r1`.
 - Each suffix is removed at most once.
 - If nothing would be left, the whole `rid` is the key.
-- If the resulting key is longer than 128 bytes, SMG ignores the `rid` and falls back to the headers.
+- If the resulting key is longer than 128 bytes, SMG ignores the `rid`, and the request routes by its routing-key header, if any, or as an unkeyed request.
 
 | `rid` | Routing key |
 |-------|-------------|
@@ -115,8 +115,8 @@ smg launch --worker-urls http://w1:8000 http://w2:8000 \
   --routing-key-headers x-routing-key x-smg-routing-key
 ```
 
-!!! warning "`manual` and `consistent_hashing` read headers their own way"
-    These two policies handle routing keys themselves, even with the override enabled. `manual` reads only `X-SMG-Routing-Key`, requires a non-empty ASCII value but applies no 128-byte cap, and ignores `--routing-key-headers`. `consistent_hashing` tries the `--routing-key-headers` list, then `X-SMG-Routing-Key`. Neither strips lineage suffixes from header values. A body `rid` is still stripped and still wins on both.
+!!! warning "`manual` and `consistent_hashing` read keys their own way"
+    These two policies handle routing keys themselves, even with the override enabled. Both read the first valid value from the `--routing-key-headers` list, with `X-SMG-Routing-Key` as a fallback when that name is not in the list, and apply the same validity rules; neither strips lineage suffixes from header values. A body `rid` is still stripped, and a valid header key still wins over it, on both. Without any key, `consistent_hashing` hashes the request's `x-forwarded-for` or `cookie` value when one is present, so browser sessions keep affinity without an explicit key.
 
 ---
 
@@ -160,7 +160,7 @@ The next turn sends `"rid": "chat-7f3a_t2"`, and a retry of that turn sends `"ri
 |--------|-------------------|--------------------------|
 | First worker for a new key | `--assignment-mode` (default `random`) | The configured policy (`delegate`, the default) |
 | Requests without a key | Placed by `--assignment-mode`, not pinned | Placed by the configured policy, unchanged |
-| Key sources | `X-SMG-Routing-Key`; the body `rid` first only when the override is also enabled | Body `rid`, then `--routing-key-headers` |
+| Key sources | `--routing-key-headers` (or `X-SMG-Routing-Key`), then the body `rid` when the override is also enabled | `--routing-key-headers`, then the body `rid` |
 | Lineage stripping of header keys | No | Yes |
 | Pins scoped by model | No (by PD leg only) | Yes (by model and PD leg) |
 | Per-key in-flight threshold | No | Yes |
@@ -175,8 +175,8 @@ Choose the override to keep another policy, usually `cache_aware`, in charge of 
 |-------------------|---------------------------------------------------|----------------------------------------|
 | `cache_aware`, `round_robin`, `random`, `power_of_two`, `least_load`, `bucket`, `passthrough` | Pinned in the override's sticky map; under `delegate`, the policy chooses a new key's first worker | Ignored |
 | `prefix_hash` | Pinned in the override's sticky map; under `delegate`, the policy chooses a new key's first worker | Hashed onto the ring in place of the prompt's token IDs or text, which `prefix_hash` otherwise hashes |
-| `manual` | Pinned in the manual policy's own map, with the body `rid` taking precedence | Pinned from `X-SMG-Routing-Key` |
-| `consistent_hashing` | Hashed onto the ring, with the body `rid` taking precedence; `X-SMG-Target-Worker` still wins | Hashed onto the ring |
+| `manual` | Pinned in the manual policy's own map, with a valid header key taking precedence over the body `rid` | Pinned from the routing-key headers |
+| `consistent_hashing` | Hashed onto the ring, with a valid header key taking precedence over the body `rid`; `X-SMG-Target-Worker` still wins | Hashed onto the ring |
 
 Requests without a key go to the configured policy unchanged. Under `delegate` assignment, the override's default, the first request of a conversation is placed exactly as it would be without the override (by prefix match under `cache_aware`, for example), and later turns follow it. Pinning keeps the worker's cached prefix reachable on every turn; it does not make the engine keep that cache any longer.
 
@@ -248,8 +248,6 @@ Inference responses from HTTP workers carry `x-smg-routed-worker-id`: the URL of
 
 Responses served by gRPC and ZMQ workers carry the header too, on streaming and non-streaming requests alike, with the same decode-worker rule. The value keeps the worker's registered scheme: `grpc://` for a gRPC worker, `ipc://` for a ZMQ worker. From these workers, only successful responses carry the header; error responses and Responses API responses do not.
 
-In v1.11.0 and earlier, responses from gRPC and ZMQ workers never carry it.
-
 ```bash
 curl -s -D - -o /dev/null http://localhost:30000/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -267,7 +265,7 @@ curl -s -D - -o /dev/null http://localhost:30000/v1/chat/completions \
 | `smg_manual_policy_cache_entries` | Gauge | — | Entries in the sticky map, updated on each sticky decision |
 | `smg_routing_key_source_total` | Counter | `source` | Where the key came from for each keyed request the override routes: `rid` or `header` |
 | `smg_worker_routing_keys_active` | Gauge | `worker` | Distinct routing keys with requests in flight on each worker; the value `min_group` balances |
-| `smg_consistent_hashing_policy_branch_total` | Counter | `branch` | `consistent_hashing` outcomes: `target_worker_hit`, `target_worker_miss`, `routing_key_hit`, `random_fallback`, `no_healthy_workers` |
+| `smg_consistent_hashing_policy_branch_total` | Counter | `branch` | `consistent_hashing` outcomes: `target_worker_hit`, `target_worker_miss`, `routing_key_hit`, `implicit_key_hit` (no explicit key; placed by hashing `x-forwarded-for` or `cookie`), `random_fallback` (neither an explicit nor an implicit key), `no_healthy_workers` |
 | `smg_router_request_body_path_total` | Counter | `path`, `reason` | `reason="routing_key_override"` counts bodies buffered because the override is enabled |
 
 The `manual` policy and the override both report through the `smg_manual_policy_*` metrics. The full list is in the [Metrics Reference](../../reference/metrics.md).
@@ -285,8 +283,9 @@ At `--log-level debug`, every decision the override makes logs one `Sticky routi
 
     - **The override is off.** Without `--routing-key-override`, SMG ignores the body `rid`, and every policy except `manual`, `consistent_hashing`, and `prefix_hash` ignores routing-key headers.
     - **The `rid` does not match the suffix grammar.** `conv-t2`, `conv_turn2`, and `conv_T2` are each a key of their own. A high `vacant` rate in `smg_manual_policy_branch_total` under steady traffic points here.
-    - **The key is invalid.** A key longer than 128 bytes, or an empty or non-UTF-8 header value, is ignored. `manual` instead ignores an `X-SMG-Routing-Key` value that is empty or not ASCII.
-    - **The header name is not configured.** The override reads only the names in `--routing-key-headers`; `manual` reads only `X-SMG-Routing-Key`.
+    - **The key is invalid.** A key longer than 128 bytes, or an empty or non-UTF-8 header value, is ignored on every policy.
+    - **The header name is not configured.** SMG reads only the names in `--routing-key-headers`; `manual` and `consistent_hashing` also accept `X-SMG-Routing-Key`.
+    - **A proxy stamps a routing-key header.** A valid header value outranks the body `rid`, so an upstream that writes a different value on each request splits every conversation into single-request keys.
     - **The pinned worker became unavailable.** Look for `occupied_miss`, then check worker health, circuit breakers, and overload vetoes.
     - **A key has more than two requests in flight.** The extra requests are placed again; look for `cap_respill`.
     - **The pin expired.** A key idle for longer than `--max-idle-secs` starts over.

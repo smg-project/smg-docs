@@ -1126,6 +1126,164 @@ class RepairTests(unittest.TestCase):
                              [{'path': 'page.md', 'line': 1, 'rule': 'code-change-reference'}])
 
 
+class PromotionTests(unittest.TestCase):
+    """Successful full reviews may publish exactly their original content."""
+    setUp = RepairTests.setUp
+    cleanup = RepairTests.cleanup
+    git = RepairTests.git
+    context = RepairTests.context
+    checkpoint = RepairTests.checkpoint
+    resume_checkpoint = RepairTests.resume_checkpoint
+    proposal = RepairTests.proposal
+    records = RepairTests.records
+
+    def jobs(self, ctx, stage='review-repair'):
+        return ([{'name': 'release-snapshot / ' + name, 'conclusion': 'success'}
+                 for name in ('publish', 'complete')]
+                + [{'name': f'release-snapshot / {stage} ({r["batch"]}, {r["max_turns"]})',
+                    'conclusion': 'success'} for r in ctx['matrix']['include']])
+
+    def accepted_checkpoint(self):
+        ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint(rejected=())
+        return ctx, checkpoint, destination, artifacts, values
+
+    def promote(self, ctx, destination, checkpoint, artifacts, prefix='release-final-review'):
+        return s.import_promotion(ctx, destination, checkpoint, artifacts, prefix,
+                                  {'run_id': '123', 'head_sha': self.base, 'run_attempt': 1})
+
+    def test_successful_snapshot_preserves_all_bytes_and_approvals(self):
+        ctx, checkpoint, destination, artifacts, values = self.accepted_checkpoint()
+        self.promote(ctx, destination, checkpoint, artifacts)
+        self.assertEqual(s.proposal_hash(ctx, destination), s.snapshot_hash(values))
+        self.assertEqual(s.rejected_batches(ctx, destination), [])
+        self.assertFalse((destination / 'resume.json').exists())
+        for i, value in enumerate(values):
+            self.assertEqual(s.read_json(destination / f'bundle-{i}.json'), value)
+            self.assertEqual(s.read_json(destination / f'review-{i}.json'),
+                s.read_json(artifacts / f'release-final-review-{i}' / f'review-{i}.json'))
+        s.finalize(ctx, destination)
+        self.assertEqual(Path(self.paths[0]).read_text(), values[0]['files'][self.paths[0]])
+
+    def test_build_cannot_change_working_or_staged_reviewed_pages(self):
+        ctx, checkpoint, destination, artifacts, values = self.accepted_checkpoint()
+        self.promote(ctx, destination, checkpoint, artifacts)
+        s.finalize(ctx, destination)
+        s.verify_promoted_pages(ctx, destination)
+        p = Path(self.paths[0])
+        original = p.read_text()
+        p.write_text(original + 'Unreviewed build mutation.\n')
+        with self.assertRaisesRegex(ValueError, 'Reviewed page bytes changed'):
+            s.verify_promoted_pages(ctx, destination)
+        self.git('add', str(p))
+        p.write_text(original)
+        with self.assertRaisesRegex(ValueError, 'Reviewed page bytes changed'):
+            s.verify_promoted_pages(ctx, destination)
+
+    def test_partial_repaired_checkpoint_uses_unchanged_resumed_baseline(self):
+        ctx, checkpoint, destination, artifacts, values = self.accepted_checkpoint()
+        s.write_json(checkpoint / 'resume.json', {'input_sha': 'old rejected proposal'})
+        for i, value in enumerate(values):
+            (artifacts / f'release-followup-bundle-{i}' / f'bundle-{i}.json').unlink()
+            (artifacts / f'release-bundle-{i}' / f'bundle-{i}.json').unlink()
+            s.write_json(checkpoint / f'bundle-{i}.json', value)
+            record = s.read_json(artifacts / f'release-final-review-{i}' / f'review-{i}.json')
+            s.write_json(artifacts / f'release-repair-review-{i}' / f'review-{i}.json', record)
+        s.write_json(artifacts / 'release-repaired-bundle-1/bundle-1.json', values[1])
+        self.promote(ctx, destination, checkpoint, artifacts, 'release-repair-review')
+        self.assertEqual(s.proposal_hash(ctx, destination), s.snapshot_hash(values))
+
+    def test_missing_stale_negative_and_diagnostic_approvals_never_import(self):
+        ctx, checkpoint, destination, artifacts, _ = self.accepted_checkpoint()
+        path = artifacts / 'release-final-review-1/review-1.json'
+        original = s.read_json(path)
+        variants = [dict(original, diagnostic=True), dict(original, diagnostic=None),
+                    dict(original, bundle_sha='0' * 64), dict(original, snapshot_sha='0' * 64),
+                    dict(original, verdict={**original['verdict'], 'accurate': False}),
+                    dict(original, verdict={**original['verdict'], 'reviewed_pages': []})]
+        for invalid in variants:
+            s.write_json(path, invalid)
+            with self.assertRaises(ValueError):
+                self.promote(ctx, destination, checkpoint, artifacts)
+            self.assertEqual(list(destination.iterdir()), [])
+        path.unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.promote(ctx, destination, checkpoint, artifacts)
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_new_regression_requirements_cannot_reuse_incomplete_approvals(self):
+        ctx, checkpoint, destination, artifacts, _ = self.accepted_checkpoint()
+        with patch.object(s, 'regression_checks', return_value=[{'id': 'new-contract'}]):
+            with self.assertRaisesRegex(ValueError, 'every source-pinned'):
+                self.promote(ctx, destination, checkpoint, artifacts)
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_diagnostics_and_chained_publications_cannot_supply_approvals(self):
+        ctx, checkpoint, destination, artifacts, _ = self.accepted_checkpoint()
+        for name in ('diagnostic.json', 'promotion.json'):
+            s.write_json(checkpoint / name, {})
+            with self.assertRaisesRegex(ValueError, 'original full audit'):
+                self.promote(ctx, destination, checkpoint, artifacts)
+            (checkpoint / name).unlink()
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_changed_page_after_import_cannot_finalize_even_with_replaced_approvals(self):
+        ctx, checkpoint, destination, artifacts, values = self.accepted_checkpoint()
+        self.promote(ctx, destination, checkpoint, artifacts)
+        values[0]['files'][self.paths[0]] += 'A new unreviewed claim.\n'
+        s.write_json(destination / 'bundle-0.json', values[0])
+        self.records(ctx, destination, values)
+        with self.assertRaisesRegex(ValueError, 'Promoted snapshot changed'):
+            s.finalize(ctx, destination)
+
+    def test_completed_stage_requires_all_reviews_and_final_validation(self):
+        ctx, _, _ = self.proposal(rejected=())
+        for stage, prefix in s.REVIEW_STAGES:
+            self.assertEqual(s.promotion_stage(ctx, self.jobs(ctx, stage)), prefix)
+        good = self.jobs(ctx)
+        for invalid in [good[:-1], good[1:], good + [good[-1]],
+                        [{**j, 'conclusion': 'skipped'} for j in good],
+                        good + [{'name': 'release-snapshot / final-review (0, 180)',
+                                 'conclusion': 'failure'}]]:
+            with self.assertRaises(ValueError):
+                s.promotion_stage(ctx, invalid)
+
+    def test_successful_provenance_policy_and_ancestry_are_required(self):
+        ctx, _, _ = self.proposal(rejected=())
+        run = {'head_repository': {'full_name': 'smg-project/smg-docs'},
+               'path': '.github/workflows/nightly-doc-sync.yml', 'event': 'workflow_dispatch',
+               'status': 'completed', 'conclusion': 'success', 'head_sha': self.base, 'run_attempt': 1}
+        env = {'PROMOTION_RUN_ID': '123', 'DIAGNOSTIC_RUN_ID': '', 'RESUME_RUN_ID': '',
+               'GITHUB_REPOSITORY': 'smg-project/smg-docs', 'GITHUB_SHA': self.base}
+        with patch.dict(os.environ, env), patch.object(s.releases, 'api', return_value=run) as api, \
+                patch.object(docs, 'git', return_value='blob') as git, \
+                patch.object(docs, 'run', return_value=json.dumps([{'jobs': self.jobs(ctx)}])), \
+                patch.object(s, 'import_promotion', return_value=ctx) as imported, patch.object(s, 'outputs'):
+            for invalid in [dict(run, conclusion='failure'), dict(run, status='in_progress'),
+                            dict(run, head_repository={'full_name': 'other/fork'}),
+                            dict(run, event='pull_request'), dict(run, path='other.yml'),
+                            dict(run, head_sha='../bad'), dict(run, run_attempt=0)]:
+                api.return_value = invalid
+                with self.assertRaisesRegex(ValueError, 'successful full nightly'):
+                    s.prepare_promotion(ctx, Path('/tmp/release-docs'))
+            imported.assert_not_called()
+            api.return_value = run
+            for override in [{'PROMOTION_RUN_ID': '../123'}, {'RESUME_RUN_ID': '123'},
+                             {'DIAGNOSTIC_RUN_ID': '123'}]:
+                with patch.dict(os.environ, override), self.assertRaisesRegex(ValueError, 'one successful run ID'):
+                    s.prepare_promotion(ctx, Path('/tmp/release-docs'))
+            git.side_effect = ['', 'old policy blob', 'new policy blob']
+            with self.assertRaisesRegex(ValueError, 'policy changed'):
+                s.prepare_promotion(ctx, Path('/tmp/release-docs'))
+            git.side_effect = subprocess.CalledProcessError(1, 'git merge-base')
+            with self.assertRaises(subprocess.CalledProcessError):
+                s.prepare_promotion(ctx, Path('/tmp/release-docs'))
+            imported.assert_not_called()
+            git.side_effect = None
+            s.prepare_promotion(ctx, Path('/tmp/release-docs'))
+            imported.assert_called_once()
+            git.assert_any_call('merge-base', '--is-ancestor', self.base, self.base)
+
+
 class RefreshBaseTests(unittest.TestCase):
     git = SnapshotGitTests.git
     cleanup = SnapshotGitTests.cleanup

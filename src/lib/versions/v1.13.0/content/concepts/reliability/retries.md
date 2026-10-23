@@ -65,8 +65,14 @@ Without retries, every transient failure becomes a client-visible error. With re
 
 1. SMG dispatches the attempt and checks the response status as soon as the worker answers, before any of the body reaches the client.
 2. If the status is retryable, the response is not marked terminal, and attempts remain, SMG waits for the backoff delay.
-3. The next attempt runs worker selection again. Workers that are unhealthy, have an open circuit breaker, or are vetoed by overload protection are skipped. The policy can still pick the same worker if it remains eligible, for example under `cache_aware` or `consistent_hashing` affinity.
+3. The next attempt runs worker selection again. Workers that are unhealthy, have an open circuit breaker, or are vetoed by overload protection are skipped. So are the workers the request already failed on, as long as another available worker is left.
 4. When a response is not retried, or no attempts remain, SMG returns it to the client.
+
+Skipping the workers a request failed on applies even under deterministic affinity: when `cache_aware` has the prompt's prefix cached on the failed worker, or a `consistent_hashing` routing key maps to it, the retry moves to another worker instead of going straight back. When every available worker has already been tried, including when the pool has a single worker, the retry selects among all of them again.
+
+There are two exceptions. A request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) is retried on the worker it targets. PD mode does not skip tried workers: each attempt selects its prefill/decode pair from all available workers, so a retry can pick the same pair again.
+
+A `500` the worker answered itself (not a transport failure or a status the gateway synthesized) is its definitive answer to the request: the retry moves to another available worker and never replays on the one that answered, and when no other worker can take the attempt, the answer goes back to the client as it is. In PD mode this closes the retry window on the failed leg's worker alone; its partner stays selectable.
 
 `--retry-max-retries` counts **attempts, including the first**: the default `5` allows the initial attempt plus up to four retries, and `1` disables retries.
 
@@ -74,13 +80,13 @@ A worker that has returned a success status and started streaming its response i
 
 HTTP-router responses relayed from a worker carry an `x-smg-routed-worker-id` header with the URL of the worker that produced them (the decode worker in PD mode), so a client can see where the final attempt landed.
 
-Responses served by gRPC and ZMQ workers carry the same header when the final attempt succeeds, naming that attempt's worker by its registered `grpc://` or `ipc://` URL (the decode worker in PD mode). Their error responses, and Responses API responses, do not carry it. The [Routed Worker Header](../routing/sticky-sessions.md#routed-worker-header) section covers the header in detail, including version availability.
+Responses served by gRPC and ZMQ workers carry the same header when the final attempt succeeds, naming that attempt's worker by its registered `grpc://` or `ipc://` URL (the decode worker in PD mode). Their error responses, and Responses API responses, do not carry it. The [Routed Worker Header](../routing/sticky-sessions.md#routed-worker-header) section covers the header in detail.
 
 ### Where Retries Apply
 
 | Traffic | Router retries |
 |---------|----------------|
-| HTTP workers: JSON requests with a buffered body (regular and PD mode) | Yes. Each attempt selects a new worker, or a new prefill/decode pair |
+| HTTP workers: JSON requests with a buffered body (regular and PD mode) | Yes. Each retry selects a worker again, or a prefill/decode pair in PD mode |
 | HTTP workers: JSON requests with a streamed body | No. One attempt; see [Retries and Request Bodies](#retries-and-request-bodies) |
 | HTTP workers: audio transcriptions | No |
 | gRPC and ZMQ workers: Chat Completions, Completions, `/generate`, Messages | Yes. The request is prepared once (tokenization, tenant rate limiting); each retry selects workers again and re-sends the prepared request |
@@ -130,7 +136,7 @@ SMG retries responses with these status codes. The list is global: per-worker `r
 | `503` | Service Unavailable | Service temporarily down |
 | `504` | Gateway Timeout | Upstream timeout |
 
-SMG's own errors use these codes too. In regular HTTP mode, a failed connection to the worker and an upstream timeout are both a `500`, and in PD mode a transport failure on either leg is a `502`; on the HTTP and gRPC routers, "no available workers" (every candidate unhealthy or circuit-open) is a `503`.
+SMG's own errors use these codes too. In regular HTTP mode, a failed connection to the worker is a `500` and an upstream timeout a `504`, and in PD mode a transport failure on either leg is a `502`.
 
 Requests with other status codes (e.g., 400 Bad Request, 401 Unauthorized) are **not retried** because they would likely fail again.
 
@@ -138,9 +144,10 @@ Requests with other status codes (e.g., 400 Bad Request, 401 Unauthorized) are *
 
 Some responses carry a retryable status but go straight back to the client, because another attempt cannot succeed within a backoff window:
 
+- **"No available workers"**: `503` with error code `no_available_workers` and `Retry-After: 1`, when every candidate worker is unhealthy or has an open circuit breaker. The verdict clears at the health interval or the breaker timeout, never inside a backoff window, so the gateway returns it at once and the client retries on its own schedule.
 - **Worker overload sheds**: `503` with error code `worker_overload_protection_shed` and a `Retry-After` header. The overload veto only changes when worker loads are polled again. See [Overload Protection](overload-protection.md).
 - **Tenant rate-limit denials** (gRPC router): `429` with `tenant_rate_limit_exceeded`. A tenant's budget is reserved once per request, before dispatch, so a denial is returned with its `Retry-After`, and retry attempts never reserve again. See [Tenant Rate Limiting](tenant-rate-limiting.md).
-- **Admission rejections**: `429` `admission_queue_full` and `503` `admission_queue_timeout` come from the admission layer in front of the router and never reach the retry loop. See [Rate Limiting](rate-limiting.md).
+- **Admission rejections**: `429` `admission_queue_full` and `503` `admission_queue_timeout` come from the admission layer in front of the router and never reach the retry loop, and the gRPC router's `503` `selection_queue_timeout` is terminal the same way. See [Rate Limiting](rate-limiting.md).
 - A few other gateway errors that another attempt cannot fix are marked terminal the same way.
 
 ---
@@ -170,7 +177,7 @@ smg launch \
 
 ### Per-Worker Overrides
 
-The worker spec's `resilience` block accepts retry fields (`max_retries`, `initial_backoff_ms`, `max_backoff_ms`, `backoff_multiplier`, `jitter_factor`, and `disable_retry`), but in v1.11.0 they have no effect. Worker registration leaves them out of the spec it stores on the worker, and a per-model retry policy is only created from retry fields in that stored spec, so none is created and every request uses the router flags above. Use `--retry-*` and `--disable-retries` instead.
+The worker spec's `resilience` block accepts retry fields (`max_retries`, `initial_backoff_ms`, `max_backoff_ms`, `backoff_multiplier`, `jitter_factor`, and `disable_retry`). When a registering worker sets any of them, they become the retry policy for every request to that worker's model, merged over the `--retry-*` flags: unset fields keep the flag values, `max_retries` counts attempts like the flag, and `disable_retry: true` disables retries for the model. The override applies per model rather than per worker — when several workers for the same model set different values, the last registration wins — and it is dropped when the model's last worker is removed.
 
 The same block's circuit-breaker settings do apply, including two status-code lists that affect the circuit breaker, not retries: `retryable_status_codes` (statuses counted as circuit-breaker failures) and `capacity_status_codes` (statuses treated as capacity pushback). Narrowing either list never makes a status non-retryable. See [Interaction with Circuit Breakers](#interaction-with-circuit-breakers).
 
@@ -271,8 +278,8 @@ Separately from these retries, the HTTP router resends a request once, immediate
 Retries and circuit breakers meet in worker selection:
 
 - **Open circuits are skipped.** Every attempt, including the first, chooses only among workers whose circuit is closed or half-open, so a retry never goes to a worker whose circuit has opened in the meantime. A half-open circuit does not throttle traffic: its worker is as selectable as one with a closed circuit.
-- **"No available workers."** If every candidate is unhealthy or circuit-open, the attempt fails with `503` `no_available_workers`. The HTTP router (regular and PD) retries it like any other retryable failure: it backs off and selects again, and a circuit may have moved to half-open by then. The gRPC pipeline selects workers for the first attempt before its retry loop, so there the `503` is returned at once unless it happens on a retry.
-- **A failed request charges a worker once.** Every attempt's success is recorded, but however many of a request's attempts fail on the same worker, that worker's breaker takes one failure: `--cb-failure-threshold` counts failed requests, not attempts. This covers HTTP workers in regular mode and gRPC and ZMQ workers; for HTTP workers in PD mode, for external providers, and on every path in v1.12.0 and earlier, each failed attempt counts separately.
+- **"No available workers."** If every candidate is unhealthy or circuit-open, the request fails with `503` `no_available_workers` and `Retry-After: 1`. The gateway does not retry it internally: a circuit only moves to half-open at the breaker timeout (or when the worker's health returns), never inside a backoff window, so the client is told to retry instead. See [Never Retried](#never-retried).
+- **A failed request charges a worker once.** Every attempt's success is recorded, but however many of a request's attempts fail on the same worker, that worker's breaker takes one failure: `--cb-failure-threshold` counts failed requests, not attempts. This covers HTTP workers in regular mode and gRPC and ZMQ workers; for HTTP workers in PD mode and for external providers, each failed attempt counts separately.
 - **Capacity pushback is retried but not counted.** A `429` (by default) is retried, but records neither a failure nor a success on the breaker, so a busy worker's circuit does not open under load. Per worker, `resilience.capacity_status_codes` replaces that list, for example to treat `503` as pushback. Whether a capacity status is retried still follows the global [retryable list](#retryable-status-codes).
 - **Client-caused aborts are not counted.** Aborted streamed uploads (`408`, `413`, `400`) say nothing about the worker.
 
@@ -288,7 +295,7 @@ See [Circuit Breakers](circuit-breakers.md) for thresholds and state transitions
 |--------|------|--------|-------------|
 | `smg_worker_retries_total` | Counter | `worker_type`, `endpoint` | Retries performed, one per backoff. PD mode counts each retry under both `prefill` and `decode` |
 | `smg_worker_retries_exhausted_total` | Counter | `worker_type`, `endpoint` | Requests whose last attempt still returned a retryable status; also counted when retries are disabled |
-| `smg_worker_retry_backoff_seconds` | Summary | `attempt` | Backoff delay before each retry; `attempt` is the retry number, `1` for the first retry. Exported as `quantile` series over a rolling one-minute window, plus `_sum` and `_count` |
+| `smg_worker_retry_backoff_seconds` | Histogram | `attempt` | Backoff delay before each retry; `attempt` is the retry number, `1` for the first retry. Exported as `_bucket`, `_sum` and `_count` series, with buckets from 10 ms to 60 s |
 | `smg_router_upstream_send_retries_total` | Counter | `router_type` | Immediate resends after a pre-response transport failure |
 
 `worker_type` is `regular`, `prefill`, or `decode` for local workers and `external` for the OpenAI provider router.
@@ -320,9 +327,9 @@ sum(rate(smg_worker_retries_exhausted_total[5m]))
 sum(rate(smg_worker_retry_backoff_seconds_sum[5m]))
   / sum(rate(smg_worker_retry_backoff_seconds_count[5m]))
 
-# 99th percentile backoff per retry number, over the last minute
-# (a summary: SMG exports precomputed quantiles, not _bucket series)
-max by (attempt) (smg_worker_retry_backoff_seconds{quantile="0.99"})
+# 99th percentile backoff per retry number
+histogram_quantile(0.99,
+  sum by (attempt, le) (rate(smg_worker_retry_backoff_seconds_bucket[5m])))
 ```
 
 </div>
@@ -335,7 +342,7 @@ max by (attempt) (smg_worker_retry_backoff_seconds{quantile="0.99"})
 |--------|-------|------------------|
 | Retry rate rising | `sum(rate(smg_worker_retries_total[5m]))` | Workers are returning retryable errors; check worker health and circuit breaker state |
 | Exhausted retries | `sum(rate(smg_worker_retries_exhausted_total[5m]))` | Failures are reaching clients despite retries |
-| Long backoffs | `max(smg_worker_retry_backoff_seconds{quantile="0.99"})` | Requests spend noticeable time waiting between attempts |
+| Long backoffs | `histogram_quantile(0.99, sum by (le) (rate(smg_worker_retry_backoff_seconds_bucket[5m])))` | Requests spend noticeable time waiting between attempts |
 | Retries forfeited | `sum(rate(smg_router_request_body_path_total{reason="retry_forfeited"}[5m]))` | Large bodies are streaming with a single attempt |
 | Pre-response resends | `sum(rate(smg_router_upstream_send_retries_total[5m]))` | Pooled connections are going stale; check `--upstream-pool-idle-timeout-secs` |
 

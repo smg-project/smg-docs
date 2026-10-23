@@ -4,7 +4,7 @@ title: Service Discovery
 
 # Service Discovery
 
-SMG discovers workers from Kubernetes pods and keeps its worker registry in step with the cluster. Pods that match a label selector and are Ready become workers; workers whose pods are deleted, stop matching, or turn unready are drained and removed.
+SMG discovers workers from Kubernetes pods and keeps its worker registry in step with the cluster. Pods that match a label selector and are Ready become workers; workers whose pods are deleted, stop matching, or turn unready are drained and removed. Outside Kubernetes, the same reconciler can read workers from a JSON manifest instead; see [File-Based Discovery](#file-based-discovery).
 
 ---
 
@@ -82,11 +82,11 @@ SMG routes to pod IPs directly, so it honors the pod's aggregate `Ready` conditi
 
 ### Ownership
 
-Every worker that discovery registers carries two labels, `smg.ai/pod-name` and `smg.ai/pod-uid`. The reconciler only adds and removes workers that carry `smg.ai/pod-uid` and were registered by this gateway, so:
+Every worker that discovery registers is stamped with labels under the reserved `smg.ai/discovery-` prefix: the provider that owns it (`smg.ai/discovery-provider`), the instance it was registered for (`smg.ai/discovery-id` — in Kubernetes, the pod UID plus port), and a fingerprint of the configuration it was registered with (`smg.ai/discovery-spec-hash`). Workers from Kubernetes also carry `smg.ai/pod-name` and `smg.ai/pod-uid`, naming their pod. The reconciler only adds and removes workers that carry its own provider label and were registered by this gateway, so:
 
 - Workers added with `--worker-urls` or through the [worker API](../../reference/api/admin.md) are never touched by discovery.
 - Workers synchronized from mesh peers are left to the gateway that owns them.
-- When a pod is replaced by one with a new UID at the same address (for example, a restart that keeps its IP), the old worker is removed and the new one registered.
+- When a pod is replaced by one with a new UID at the same address (for example, a recreated pod that keeps its IP), the old worker is removed and the new one registered. A container restart inside the pod keeps the UID, so its worker stays registered; reconnecting to the engine is the health checker's job.
 
 ---
 
@@ -114,7 +114,7 @@ smg \
 | `--model-alias` | - | Extra client-facing model name, `alias=canonical`, repeatable; applies to discovered workers too ([details](../../reference/configuration.md#service-discovery-kubernetes)) |
 
 !!! note "IGW mode"
-    `--service-discovery` turns on IGW mode (`--enable-igw`) automatically, in the `smg` binary and in the Python launcher (`smg launch` from pip, and the container image). PD and EPD deployments keep their disaggregated routing mode under IGW.
+    Selecting a discovery provider — `--service-discovery`, or `--discovery-provider` for [file-based discovery](#file-based-discovery) — turns on IGW mode (`--enable-igw`) automatically, in the `smg` binary and in the Python launcher (`smg launch` from pip, and the container image). PD and EPD deployments keep their disaggregated routing mode under IGW.
 
 ### Fleet Scale
 
@@ -225,12 +225,14 @@ PD mode needs at least one of `--prefill-selector` and `--decode-selector`. EPD 
 | Annotation | Pods | Value |
 |------------|------|-------|
 | `sglang.ai/bootstrap-port` | Prefill, encode | The worker's bootstrap port: SGLang and TokenSpeed `--disaggregation-bootstrap-port`, or vLLM Mooncake `VLLM_MOONCAKE_BOOTSTRAP_PORT`. A single value applies to every worker port of the pod; a comma-separated list needs one port per worker port, or it is ignored |
-| `smg.ai/kv-connector` | vLLM prefill and decode | `NixlConnector` or `MooncakeConnector`, shared by every worker in the pod. Any other value is kept but handled as passthrough, with a warning |
+| `smg.ai/kv-connector` | vLLM prefill and decode | The engine's KV connector, shared by every worker in the pod: `NixlConnector`, `MooncakeConnector`, or a KV-store connector (`MooncakeStoreConnector`, `SharedStorageConnector`, or a name starting with `FlexKV` or `HF3FS`). A name SMG has no handling for is kept and treated as passthrough, with a warning. `MoRIIOConnector` is not passthrough; see below |
 | `smg.ai/kv-engine-id` | vLLM Mooncake prefill | The engine's `kv_transfer_config.engine_id`. One id for a single-port pod, or a comma-separated list of distinct ids in the order of `smg.ai/worker-ports`. A list of the wrong length, or with an empty or duplicate id, is ignored with a warning |
 
 SGLang and TokenSpeed pods need only their role labels and, on prefill (and encode) pods, the bootstrap-port annotation. vLLM workers served over HTTP need `smg.ai/kv-connector` for a KV handoff, because the vLLM HTTP server does not report its connector. vLLM gRPC workers report their connector and engine id themselves, and the annotations override what they report. To pin a [pairing protocol](../routing/pd-disaggregation.md#explicit-pairing-protocol), set `SMG_PAIRING_PROTOCOL` in the engine container of gRPC workers; there is no annotation for it.
 
-SMG reads the annotations when it registers a pod. After changing them, replace the pod so that SMG registers it again under its new UID.
+Do not register MoRI-IO workers through discovery. A pod annotated with `MoRIIOConnector` is dispatched over [MoRI-IO](../routing/pd-disaggregation.md#mori-io-http) — the discovery log's passthrough warning notwithstanding — and that path reads `moriio_mode` and the other MoRI-IO settings from worker labels, which pod annotations cannot set, so every request to such a pair fails with 503 `moriio_pair_misconfigured`. Register MoRI-IO legs through the [worker API](../../reference/api/admin.md) with the required labels instead; discovery leaves workers registered there alone.
+
+SMG reads these annotations on every reconcile pass. Editing one on a live pod updates its registered workers in place on a later pass, without removing or draining them; the pod does not need to be replaced.
 
 ### Worker Labels
 
@@ -443,9 +445,9 @@ spec:
 
 1. **Pod becomes Ready**: The pod matches the selector, is `Running`, and its `Ready` condition is `True`.
 2. **Reconcile pass**: SMG finds no registered worker for the pod's address and submits an `AddWorker` job.
-3. **Startup probing**: After `--worker-startup-delay`, registration detects whether the worker speaks HTTP or gRPC, retrying every `--worker-startup-check-interval` seconds until `--worker-startup-timeout-secs`.
+3. **Startup probing**: After `--worker-startup-delay`, registration health-probes the address over HTTP (`GET /health`) and gRPC and keeps the protocol that answers. A probe must succeed before the worker is created, so a still-down engine waits here rather than being registered `Ready` and demoted; probes retry every `--worker-startup-check-interval` seconds until `--worker-startup-timeout-secs`.
 4. **Capability query**: SMG reads the engine's metadata, for example SGLang's `/model_info` endpoint (falling back to the deprecated `/get_model_info` if the new path returns 404).
-5. **Registration**: The worker joins the registry with its `smg.ai/pod-name` and `smg.ai/pod-uid` labels, becomes `Ready`, and background health checks start immediately.
+5. **Registration**: The worker joins the registry with its [ownership labels](#ownership), becomes `Ready`, and background health checks start immediately.
 
 ### Removal Flow
 
@@ -490,9 +492,43 @@ With `--service-discovery`, worker auto-recovery (`--remove-unhealthy-workers`, 
 
 ---
 
+## File-Based Discovery
+
+Outside Kubernetes, `--discovery-provider file` drives the same reconciler from a JSON manifest on disk. Pass either `--discovery-provider` or `--service-discovery`, not both; `--discovery-provider kubernetes` is equivalent to `--service-discovery`.
+
+```bash
+smg \
+  --discovery-provider file \
+  --discovery-file /etc/smg/workers.json
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--discovery-file` | — | The manifest (required). It may be created after startup |
+| `--discovery-check-interval-secs` | `30` | Seconds between periodic rereads; the manifest is also reread as soon as it changes |
+
+```json
+{
+  "version": 1,
+  "workers": [
+    { "id": "decode-a", "url": "10.0.0.23:8000", "worker_type": "decode" },
+    { "id": "prefill-a", "url": "10.0.0.22:8000", "worker_type": "prefill",
+      "bootstrap_port": 8998, "kv_connector": "MooncakeConnector" }
+  ]
+}
+```
+
+Each record names a worker `url` and may set `id`, `worker_type` (`regular`, `prefill`, `decode`, or `encode`), `bootstrap_port` (encode and prefill workers only), `model_id`, `kv_connector`, `kv_role`, and `kv_engine_id`. In regular routing, `worker_type` may be omitted and only regular workers are accepted; in PD and EPD mode every record must name a role the mode uses. File discovery works with regular, PD, and EPD routing only.
+
+The manifest is strict and applied whole: an unknown field, an unsupported `version`, a duplicate `id`, or two records naming one endpoint rejects the file. A rejected or unreadable read leaves the last good manifest in effect — a half-written file never removes a worker — so write a temporary file in the same directory and rename it over the manifest. `{"version": 1, "workers": []}` is a valid, intentionally empty fleet.
+
+`id` defaults to the URL and plays the role the pod UID plays in Kubernetes: editing a record's settings in place updates its worker in place, while a new `id` at a reused address marks a new instance, whose old worker is removed and re-registered. Registration probing, [ownership](#ownership) (`smg.ai/discovery-provider: file`), and the [removal flow](#removal-flow) work as they do for discovered pods.
+
+---
+
 ## Mesh Router Discovery
 
-`--router-selector` finds peer SMG gateway pods for an HA mesh. It runs as its own task, independent of worker discovery, but it is configured through the service discovery flags: it starts only when `--service-discovery` is set and the mesh is enabled (`--enable-mesh`). Router pods can publish their mesh port in the `sglang.ai/mesh-port` annotation; pods without it are assumed to use this gateway's `--mesh-port`. See [High Availability](high-availability.md).
+`--router-selector` finds peer SMG gateway pods for an HA mesh. It runs as its own task, independent of worker discovery, but it is configured through the service discovery flags: it starts only when Kubernetes worker discovery is on (`--service-discovery`) and the mesh is enabled (`--enable-mesh`); [file-based discovery](#file-based-discovery) does not run it. Router pods can publish their mesh port in the `sglang.ai/mesh-port` annotation; pods without it are assumed to use this gateway's `--mesh-port`. See [High Availability](high-availability.md).
 
 ---
 
@@ -502,12 +538,13 @@ With `--service-discovery`, worker auto-recovery (`--remove-unhealthy-workers`, 
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `smg_discovery_workers_discovered` | Gauge | `source` | Desired workers (Ready pods × ports) seen by the latest reconcile pass |
+| `smg_discovery_workers_discovered` | Gauge | `source` | Desired workers seen by the latest reconcile pass (Ready pods × ports in Kubernetes; manifest records under file discovery) |
 | `smg_discovery_registrations_total` | Counter | `source`, `result` | `AddWorker` jobs submitted by discovery; `result` is `success` when the job was queued and `failed` when the queue refused it |
 | `smg_discovery_deregistrations_total` | Counter | `source`, `reason` | `RemoveWorker` jobs submitted by discovery; `reason` is `reconciled` |
 | `smg_discovery_sync_duration_seconds` | Histogram | `source` | Duration of reconcile passes that submitted jobs |
+| `smg_discovery_snapshot_errors_total` | Counter | `source`, `reason` | Manifest reads rejected by [file-based discovery](#file-based-discovery); `reason` is `unreadable` or `invalid`, and the last good manifest stays in effect. The Kubernetes provider does not emit it |
 
-`source` is `kubernetes`. The counters record job submissions; whether a registration then succeeded shows up in `GET /workers` and in the worker [health metrics](../reliability/health-checks.md#monitoring).
+`source` names the provider: `kubernetes`, or `file` under [file-based discovery](#file-based-discovery). The counters record job submissions; whether a registration then succeeded shows up in `GET /workers` and in the worker [health metrics](../reliability/health-checks.md#monitoring).
 
 !!! note "Changed in v1.10.0"
     The deregistration reason `pod_deleted` and the registration result `duplicate` are gone; every deregistration reports `reason="reconciled"`. `smg_discovery_workers_discovered` counts workers (pods × ports) instead of pods. Update dashboards that filter on the old values.
@@ -526,15 +563,15 @@ INFO Starting K8s service discovery | selector: 'app=sglang-worker'
 INFO Starting K8s worker watcher | selector: 'app=sglang-worker'
 INFO K8s worker store synced, reconciling on change and every 60s
 INFO Reconciling workers: 2 to add, 0 to remove (2 desired)
-INFO Registering worker 10.0.0.5:8000 (Regular) for pod sglang-worker-0
-INFO Registering worker 10.0.0.6:8000 (Regular) for pod sglang-worker-1
+INFO Registering worker 10.0.0.5:8000 (Regular) as <pod-uid>:8000
+INFO Registering worker 10.0.0.6:8000 (Regular) as <pod-uid>:8000
 ```
 
 When a pod is deleted or turns unready:
 
 ```text
 INFO Reconciling workers: 0 to add, 1 to remove (1 desired)
-INFO Removing worker 10.0.0.6:8000 (1 registration(s), pod <pod-uid>): pod unready, gone, terminating, or replaced
+INFO Removing worker 10.0.0.6:8000 (1 registration(s), <pod-uid>:8000): no longer published, a different instance now holds the address, or it is a stale registration beside the current one
 INFO Draining 1 worker(s) for 5s before removal
 ```
 

@@ -9,7 +9,11 @@ Repair only context.item.doc_paths for the original concern. Reconcile all
 same-concern claims on allowed pages; remove redundant SMG version caveats.
 If the fix needs another path or code change, leave the tree unchanged and explain
 why. Preserve correct content. The total PR must remain under 1,000 changed lines.
-For `version-context-*` cleanup, the source commit is a verification baseline.
+For `version-context-*` and `release-audit-*` corrections, the source commit is a verification baseline.
 Do not modify evidence, reports, workflows or metadata; do not delete pages.
 Do not commit, push, comment, resolve threads, approve or merge. Target 60 turns
 within 120 total using Read/Glob/Grep/Edit/Write only.
+
+For release-audit corrections, discovery evidence only suggests a gap. Verify
+each claim against the pinned main implementation; preserve intentional differences
+from releases and newer main behavior. Never copy an entire release page.

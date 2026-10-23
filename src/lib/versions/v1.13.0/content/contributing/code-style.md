@@ -49,7 +49,7 @@ use crate::worker::Worker;
 All code must pass clippy with warnings denied:
 
 ```bash
-cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 Because of `-D warnings`, a lint set to `warn` in `[workspace.lints]` fails CI just like one set to `deny`. These are the rules that shape everyday code:
@@ -62,7 +62,7 @@ Because of `-D warnings`, a lint set to `warn` in `[workspace.lints]` fails CI j
 | `clippy::dbg_macro`, `todo`, `unimplemented`, `unreachable` | deny | No debug or placeholder macros |
 | `clippy::print_stdout`, `clippy::print_stderr` | warn | Log with `tracing`, not `println!` or `eprintln!` |
 | `clippy::allow_attributes` | warn | Silence a lint with `#[expect(...)]`, not `#[allow(...)]` |
-| `clippy::disallowed_methods` | warn | `tokio::spawn` (confirm the gateway may shut down without waiting for the task), `std::process::exit` (skips the normal shutdown logic), and `Uuid::new_v4` (use the time-sortable `Uuid::now_v7`) |
+| `clippy::disallowed_methods` | warn | `tokio::spawn` (confirm the gateway may shut down without waiting for the task), `std::process::exit` (skips the normal shutdown logic), `Uuid::new_v4` (use the time-sortable `Uuid::now_v7`), and constructing `reqwest` clients directly, including `reqwest::get` (build HTTP clients through the owning crate's client factory, such as the gateway's `http_client` module; the factory installs the process TLS crypto provider first, without which the client panics at build time) |
 | `clippy::absolute_paths` | warn | Import paths of four or more segments with `use` (`absolute-paths-max-segments = 3`) |
 | `clippy::uninlined_format_args` | warn | Write `format!("{name}")`, not `format!("{}", name)` |
 | `unused_qualifications` | warn | No redundant path prefixes |
@@ -379,7 +379,7 @@ assert!(success_count == num_requests);
 
 ## Performance
 
-[REVIEW.md](https://github.com/smg-project/smg/blob/main/REVIEW.md) asks reviewers to watch for `clone()` in gRPC streaming hot paths (per-token response processing) and for worker-registry mutations without proper locking (`DashMap` rather than a bare `HashMap`). The examples below are illustrative.
+The repository's `REVIEW.md` asks reviewers to watch for `clone()` in gRPC streaming hot paths (per-token response processing) and for worker-registry mutations without proper locking (`DashMap` rather than a bare `HashMap`). The examples below are illustrative.
 
 ### Avoid Unnecessary Allocations
 
@@ -473,7 +473,7 @@ Python code (the e2e tests, the bindings, the gRPC servicers, and scripts) follo
 - The target is Python 3.12 (`target-version = "py312"`). `grpc_servicer/` still supports Python 3.10, so rule `UP017` is ignored there to keep 3.11+ syntax such as `datetime.UTC` out.
 - The formatter wraps lines at 100 columns. The line-length lint (`E501`) only flags lines over 120 characters, which leaves room for comments, docstrings, and help strings the formatter cannot wrap.
 - The lint rules are `E`, `F`, `I` (import sorting), `W`, and `UP` (pyupgrade).
-- Type checking uses mypy with `mypy.ini`.
+- The e2e tests and the Python bindings are type-checked with mypy, configured by `mypy.ini`.
 
 ---
 

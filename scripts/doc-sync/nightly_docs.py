@@ -198,6 +198,12 @@ def same_concern(item, pr):
         return False
     marker = f'{MARKER}{item["key"]} -->'
     digest = hashlib.sha256(item['key'].encode()).hexdigest()[:16]
+    # Release-audit concerns use main as a verification baseline. Advancing main
+    # must not reopen the same candidate/topic after it was merged or declined.
+    if item['concern'].startswith('release-audit-') and re.search(
+            re.escape(MARKER) + r'[0-9a-f]{40}:' + re.escape(item['area']) + ':'
+            + re.escape(item['concern']) + r' -->', pr['body']):
+        return True
     return marker in pr['body'] or any(re.fullmatch(re.escape(prefix + digest) + r'(?:-retry-\d+)?', pr['branch'])
                                       for prefix in BRANCH_PREFIXES)
 

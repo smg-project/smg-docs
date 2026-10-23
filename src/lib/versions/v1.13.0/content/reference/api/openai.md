@@ -44,8 +44,8 @@ smg launch --worker-urls http://worker:8000 \
   --tenant-api-key team-blue:blue-secret
 ```
 
-!!! note "Rust binary only"
-    `--tenant-api-key` is a flag of the Rust `smg` binary (`cargo install smg` or a source build). The Python launcher behind `pip install smg` and the container images does not accept it.
+!!! note
+    Both the Rust `smg` binary (`cargo install smg` or a source build) and the Python launcher behind `pip install smg` accept `--tenant-api-key`.
 
 Callers authenticate the same way as with `--api-key` — a `Bearer` token in the
 `Authorization` header — just using their own tenant's key instead of the shared one:
@@ -62,7 +62,8 @@ curl http://localhost:30000/v1/chat/completions \
 
 This request is attributed to `team-red`, distinct from a request authenticated with
 `blue-secret`. A missing key, or one that doesn't match any configured `--api-key` or
-`--tenant-api-key` value, is rejected with `401 Unauthorized` and an empty body. Tenant
+`--tenant-api-key` value, is rejected with `401 Unauthorized`, an OpenAI-style error
+body whose `code` is `invalid_api_key`, and a `WWW-Authenticate` challenge. Tenant
 keys authenticate serving endpoints only — `/v1/chat/completions`, `/v1/completions`,
 `/v1/embeddings`, etc. They do not grant access to admin/management routes (`/workers`,
 `/flush_cache`, and similar). When control-plane authentication is enabled, those
@@ -128,7 +129,7 @@ SMG also accepts these SGLang-style extensions on Chat Completions:
 | `skip_special_tokens` | boolean | Drop special tokens when detokenizing (default `true`) |
 | `continue_final_message` | boolean | Continue the trailing assistant message instead of starting a new one |
 | `separate_reasoning`, `stream_reasoning` | boolean | Return reasoning in `reasoning_content` and stream it (both default `true`) |
-| `chat_template_kwargs` | object | Extra chat-template variables. On gRPC workers an explicit entry wins over the `reasoning_effort`, `tool_choice`, and `response_format` values SMG passes to the template |
+| `chat_template_kwargs` | object | Extra chat-template variables. On gRPC workers an explicit entry wins over the `tool_choice` and `response_format` values SMG passes to the template; a `reasoning_effort` entry applies only when the request sets no effort (`thinking.effort`, else `reasoning_effort`), which is otherwise written over it |
 | `lora_path` | string | LoRA adapter to apply |
 | `sampling_seed` | integer | Seed for deterministic sampling |
 | `return_hidden_states` | boolean | Return the model's hidden states |
@@ -193,12 +194,16 @@ effort as its `reasoning_effort` variable, and SMG decides whether the model sta
 reasoning mode from the first of these that applies:
 
 1. an explicit thinking toggle in `chat_template_kwargs`;
-2. for templates with their own effort levels, the effort (`chat_template_kwargs.reasoning_effort`, else the effective effort): `none` and `minimal` turn thinking off, a native level turns it on;
+2. for templates with their own effort levels, the effort the template renders (the effective effort, else `chat_template_kwargs.reasoning_effort`): `none` and `minimal` turn thinking off, a native level turns it on;
 3. `thinking.type` (`enabled` on, `disabled` off);
 4. the effective effort, where `none` and `minimal` turn thinking off.
 
 If none applies, the template default stands. The template and the reasoning parser use
-the same decision. On gpt-oss (Harmony) models SMG reads `reasoning_effort` and clamps it to
+the same decision. MiniMax reads the last two steps differently: an explicit effort asks
+for thinking at that depth, so it outranks `thinking.type: disabled`, and no effort
+value (not even `none` or `minimal`) turns thinking off.
+
+On gpt-oss (Harmony) models SMG reads `reasoning_effort` and clamps it to
 the three levels Harmony knows: `none` and `minimal` become `low`, `xhigh` and `max`
 become `high`, and an unknown value becomes `medium`. HTTP workers receive both fields as
 sent unless a [provider profile](#provider-profiles) rewrites them, and provider profiles
@@ -307,25 +312,30 @@ data: [DONE]
 An error before the first chunk is an ordinary JSON error response with its own status;
 when a worker rejects a streaming request, SMG keeps the worker's content type
 (`application/json`, not `text/event-stream`) so SSE clients still see the error body.
-If generation fails after a gRPC stream has started, SMG sends
-`data: {"error": {"message": "...", "type": "internal_error"}}` followed by `data: [DONE]`.
+If a gRPC stream fails after it has started, SMG sends
+`data: {"error": {"message": "...", "type": "..."}}` followed by `data: [DONE]`. The
+`type` is `stream_error` when the worker failed the stream: its connection broke, its
+server cut the stream, it answered a server error or a timeout after the first chunk,
+or the engine reported the request as failed. A status that is the request's own fault
+(the engine rejecting it after its first chunk, capacity pushback) keeps the type the
+same error would carry in an error body (`invalid_request_error`, `rate_limit_error`,
+...). `internal_error` means SMG's own processing failed.
 
-Starting with v1.13.0, a quiet open SSE response can contain `: ping` comments
-between events. SMG sends them after 15 seconds of silence by default, including
-while waiting for the first token. SSE clients should ignore comment lines.
-Configure or disable them with
+A quiet open SSE response can contain `: ping` comments between events. SMG sends
+them after 15 seconds of silence by default, including while waiting for the first
+token. SSE clients should ignore comment lines. Configure or disable them with
 [`--sse-keepalive-secs`](../configuration.md#streaming-keepalives).
 
 #### Stream Usage
 
 | `stream_options` field | Default | Effect |
 |------------------------|---------|--------|
-| `include_usage` | `false` (Kimi: `true`) | Send the whole request's usage in a final chunk with an empty `choices` array |
+| `include_usage` | `false` (Kimi, MiniMax: `true`) | Send the whole request's usage in a final chunk with an empty `choices` array |
 | `continuous_usage_stats` | `false` | gRPC workers, except for gpt-oss (Harmony) models: with `include_usage: true`, every chunk also carries a running `usage` snapshot (the prompt plus the tokens generated so far) |
 
 On HTTP workers `stream_options`, including keys SMG does not model, is forwarded to the
-engine, which produces the usage chunks. The Kimi profile turns `include_usage` on for
-streaming requests that leave it unset, on every backend; an explicit `false` is kept.
+engine, which produces the usage chunks. The Kimi and MiniMax profiles turn `include_usage`
+on for streaming requests that leave it unset, on every backend; an explicit `false` is kept.
 
 The DeepSeek V4 profile uses DeepSeek's stream format on gRPC workers instead: aggregate
 usage rides on the final finish chunk whether or not `include_usage` is set, and no
@@ -415,8 +425,6 @@ carries a probability distribution.
 ```
 POST /v1/decisions
 ```
-
-Decisions is available since v1.12.0.
 
 Requests are always treated as non-streaming: there is no `stream` field, and SMG returns
 a single JSON body.
@@ -562,7 +570,7 @@ this answers `400`.
 
 | Status | `code` | Returned when |
 |--------|--------|---------------|
-| 400 | `400` or `json_parse_error` | A length or image limit fails, or the body does not match the schema (a non-`user` role, an unknown question `type`, a numeric choice `value`, ...) |
+| 400 | Validation codes | The request fails validation, in the validation envelope (see [Error Format](#error-format)): a length limit fails with `invalid_value`, more than 128 images with `too_many_images`, a non-inline image with `invalid_image_url`, and a body that does not match the schema (a non-`user` role, an unknown question `type`, a numeric choice `value`, ...) with the schema code naming the reason |
 | 400 | `unsupported_decisions_request` | An SGLang worker was selected and the request needs something SGLang Decisions does not support (see [Decision Workers](#decision-workers)) |
 | 404 | `model_not_found` | No worker serves the model |
 | 501 | `decisions_not_supported` | No regular HTTP worker and no regular SGLang gRPC worker serves the model |
@@ -609,14 +617,19 @@ The list covers the models served by self-hosted workers, each once under its ca
 ID. Names configured with `--model-alias` are accepted in requests but are not listed.
 `created` is always `0`. `owned_by` is `self_hosted` for locally hosted workers, or the
 provider name (for example `openai`, `anthropic`, `xai`, `gemini`) for upstream providers.
-When no self-hosted worker serves any model, the endpoint returns `503` with the
-plain-text body `No models available`.
+When no self-hosted worker serves any model, the endpoint returns `503` in the standard
+[error envelope](#error-format) with the code `no_models_available`.
 
 The endpoint needs no key. If the caller does send a bearer token (or an `x-api-key`
 header) that is not one of the gateway's own keys, SMG treats it as the caller's own
 provider key: it asks the registered external providers' `/v1/models` with that token and
 returns the first non-empty list, falling back to the self-hosted list. A gateway key
 (`--api-key` or `--tenant-api-key`) is never forwarded to a provider.
+
+`GET /v1/models/{id}` returns the card of one self-hosted model, also without a key. A
+name configured with `--model-alias` resolves to its canonical card; an unknown id gets
+the usual `404` `model_not_found`. The single-model lookup never asks external
+providers.
 
 ---
 
@@ -720,9 +733,13 @@ asyncio.run(main())
 
 ## Provider Profiles
 
-Some model families come with a vendor contract that differs from the OpenAI baseline.
-SMG picks a provider profile from the request's `model` and applies that profile's
-defaults and validation to Chat Completions requests before routing, on every backend.
+Some model families come with a vendor contract of their own. SMG picks a provider
+profile from the request's `model` and applies that profile's defaults and validation
+to Chat Completions requests before routing, on every backend. OpenAI's own model
+names get the public OpenAI API's content rules; an unrecognized name gets no vendor
+contract, and shapes the public API would refuse (an unprompted `json_object` format,
+a strict schema without `additionalProperties: false`, a loose tool history, both
+token limits together) pass through to the engine.
 
 ### Profile Selection
 
@@ -736,10 +753,16 @@ Kimi.
 | MiniMax | `minimax*`, `abab*` |
 | z.ai (GLM) | `glm*`, `zai*`, `z-ai*`; the GLM-5.3 rules apply to `glm-5.3*`, `glm5.3*`, `glm_5.3*`, `glm-5-3*`, `glm5-3*` |
 | DeepSeek V4 | A segment equal to `deepseek-flash`, `deepseek-v4-flash`, `deepseek-v4-pro`, or `deepseek-v4.1-flash` |
-| OpenAI baseline | Everything else, including older DeepSeek models and `THUDM/chatglm3-6b` |
+| OpenAI | OpenAI's own hosted model ids: an `openai` segment, a segment starting with `gpt-` (but not the open-weight `gpt-oss*`), `chatgpt-`, `codex-`, `computer-use-preview`, `text-embedding-`, or `omni-moderation`, or the `o1`/`o3`/`o4` reasoning series (`o`, the series digit, then the end of the segment or a dash) |
+| Default | Everything else, including older DeepSeek models and `THUDM/chatglm3-6b`; no vendor rules beyond rejecting `root` messages |
 
-Selection reads the model name as sent, before `--model-alias` resolution: an alias that
-doesn't match a marker itself gets the OpenAI baseline. Message-level extension fields
+A name configured with `--model-alias` selects its served model's profile, recorded at
+start-up, so the alias and the canonical name are judged alike. A vendor-named alias
+(Kimi, MiniMax, z.ai, DeepSeek) of a model whose own name selects no vendor gives the
+served model that vendor's contract under every one of its names; when two aliases of
+one served model name different vendors, the first wins. An OpenAI-looking alias such
+as `gpt-4o=local-model` binds nothing: a request naming it is judged as the self-hosted
+model it reaches, not under the public API's rules. Message-level extension fields
 that belong to another profile (such as Kimi's message `tools` sent to a non-Kimi model)
 are dropped before dispatch, with one warning logged per request.
 
@@ -750,26 +773,28 @@ the HTTP router streams to the worker unparsed skips them (see
 
 ### Validation Rules
 
-A violation is rejected with `400`. The response has `error.type` set to
-`invalid_request_error` and `error.code` set to `400` (as for every validation failure),
-and `error.message` carries the rule's message:
+A violation is rejected with `400` in the validation envelope (see
+[Error Format](#error-format)): `error.type` is `invalid_request_error`, `error.code`
+is the rule code in the last column, and `error.message` carries the rule's message:
 
 ```json
 {
   "error": {
     "message": "__all__: invalid thinking.type: only enabled or disabled is allowed for this model",
     "type": "invalid_request_error",
-    "code": 400
+    "param": null,
+    "code": "thinking_type_not_supported"
   }
 }
 ```
 
-The rule code in the last column names the rule in SMG's source and tests; only
-`context_length_exceeded` is returned as `error.code`.
-
 | Profile | Rejected | Rule code |
 |---------|----------|-----------|
 | All except MiniMax | A `root` message | `invalid_role` |
+| OpenAI | `max_tokens` together with `max_completion_tokens` | `invalid_parameter_combination` |
+| OpenAI, DeepSeek V4 | A `tool` message with no assistant `tool_calls` turn right before it, a `tool_call_id` that turn did not issue, or a `tool_calls` turn not followed by a `tool` message for each call | `tool_message_without_tool_calls`, `tool_call_id_not_found`, `tool_calls_without_tool_messages` |
+| OpenAI | `response_format: json_object` with no form of the word "json" in the messages | `json_object_requires_json_in_messages` |
+| OpenAI | A strict schema (`json_schema` with `strict: true`, or a tool's `function.strict`) containing an object without `"additionalProperties": false` | `invalid_json_schema`, `invalid_function_parameters` |
 | Kimi | `tools` on a `user` or `assistant` message | `tools_role_restricted` |
 | Kimi | `tools` on a `system` or `developer` message that is not a list of tools | `tools_malformed` |
 | Kimi | A non-empty message `tools` list together with non-empty content on that message | `tools_content_conflict` |
@@ -802,7 +827,7 @@ shadows.
 |---------|----------|
 | Kimi | Streaming requests get `stream_options.include_usage: true` unless set. Tools declared on `system` and `developer` messages join the request's `tools` for `tool_choice`, the tool-choice constraint, and tool-call parsing; a `system` message that only declares tools may omit `content` |
 | Kimi K3 | Omitted fields get the contract values: `temperature` 1.0, `top_p` 0.95, `presence_penalty` 0, `frequency_penalty` 0, `n` 1 |
-| MiniMax | `root` messages move, in order, to the front as `system` messages. On gRPC workers, responses are scanned for tool calls even when the request declares no tools |
+| MiniMax | Streaming requests get `stream_options.include_usage: true` unless set. `root` messages are hoisted above everything else and merged into one leading `root` message — texts joined by blank lines in their original order, a parts list keeping its parts, under the first one's `name` — with the `root` role kept, which the chat template renders in its system slot. On gRPC workers, responses are scanned for tool calls even when the request declares no tools |
 | z.ai | `thinking.clear_thinking` becomes the `clear_thinking` chat-template variable unless `chat_template_kwargs` sets it. `tool_stream` is accepted and dropped (SMG streams tool-call deltas anyway). GLM-5.x, GLM-4.7, and GLM-4.6 get `temperature` 1.0 and `top_p` 0.95 when omitted |
 | DeepSeek V4 | Efforts `minimal` → `low` and `medium` → `high`; `xhigh` → `high` on V4 (V4.1 keeps `xhigh`). Thinking is on unless turned off (`thinking.type: disabled`, effort `none`, or a template override), and the result is written to `chat_template_kwargs.thinking` when that is unset. Streams use DeepSeek's usage format (see [Stream Usage](#stream-usage)) |
 
@@ -818,7 +843,7 @@ response header:
 ```json
 {
   "error": {
-    "type": "Bad Request",
+    "type": "invalid_request_error",
     "code": "context_length_exceeded",
     "message": "This model's maximum context length is 2048 tokens. However, your request has 2310 input tokens. Please reduce the length of the input.",
     "param": null
@@ -826,16 +851,25 @@ response header:
 }
 ```
 
-`type` is the HTTP status's reason phrase (`Bad Request`, `Not Found`,
-`Too Many Requests`, `Service Unavailable`, ...). Request parsing and validation failures
-use a different shape and carry no `X-SMG-Error-Code` header:
+`type` classifies the status the way the public API does: `rate_limit_error` on `429`,
+`permission_error` on `403`, `server_error` on every `5xx`, and `invalid_request_error`
+on every other `4xx` (`404` and `408` included).
 
-| Failure | Body |
-|---------|------|
-| Body is not valid JSON, does not match the request schema, or lacks `Content-Type: application/json` | `{"error": {"message": "...", "type": "invalid_request_error", "code": "json_parse_error"}}` |
-| A field range, a cross-field rule, or a [provider-profile](#provider-profiles) rule fails | `{"error": {"message": "...", "type": "invalid_request_error", "code": 400}}` |
+Request parsing and validation failures use the same fields — this is the validation
+envelope — but carry no `X-SMG-Error-Code` header. Their `type` is
+`invalid_request_error`, `param` names the offending field when one is known (`null`
+otherwise), and `code` is a string naming the reason:
 
-A `401` from API-key authentication has an empty body. Errors from HTTP workers are
+| Failure | `code` |
+|---------|--------|
+| The body is not valid JSON | `invalid_json` |
+| The `Content-Type: application/json` header is missing | `json_parse_error` |
+| The body does not match the request schema | The schema code: `missing_required_parameter`, `unknown_parameter`, `invalid_type`, `invalid_value`, or `integer_below_min_value` |
+| A field range or length rule fails | The bound crossed: `integer_above_max_value`, `decimal_below_min_value`, `string_above_max_length`, `empty_array`, ... |
+| A cross-field or [provider-profile](#provider-profiles) rule fails | The rule's code: `stream_options_requires_stream`, `tool_choice_requires_tools`, `thinking_type_not_supported`, ... |
+
+A `401` from API-key authentication carries the same shape with the code
+`invalid_api_key`, plus a `WWW-Authenticate` challenge. Errors from HTTP workers are
 relayed with the worker's status and body. SMG never forwards a worker's
 `X-SMG-Error-Code` header, so that header always means SMG itself produced the error.
 
@@ -843,22 +877,25 @@ relayed with the worker's status and body. SMG never forwards a worker's
 
 | Status | `code` | Returned when |
 |--------|--------|---------------|
-| 400 | `400` | Request validation failed: a field range, a cross-field rule (`stream_options` without `stream`, `top_logprobs` without `logprobs`, a `tool_choice` naming a missing tool, ...), a non-object `json_schema`, or a [provider-profile](#provider-profiles) rule |
-| 400 | `json_parse_error` | The body could not be parsed into the request type |
+| 400 | Validation codes | Request validation failed: a field range, a cross-field rule (`stream_options` without `stream`, `top_logprobs` without `logprobs`, a `tool_choice` naming a missing tool, ...), a non-object `json_schema`, or a [provider-profile](#provider-profiles) rule. `code` names the violated rule (see [Error Format](#error-format)) |
+| 400 | `invalid_json`, `json_parse_error` | The body is not valid JSON (`invalid_json`), or lacks `Content-Type: application/json` (`json_parse_error`). A well-formed body of the wrong shape gets a schema code instead (see [Error Format](#error-format)) |
+| 400 | `request_body_aborted` | HTTP router: a streamed request body failed before it was fully forwarded to the worker |
 | 400 | `context_length_exceeded` | gRPC: the longest prompt is longer than the context window the selected worker advertises (the tighter leg governs in PD, and each prompt of a batched completion counts on its own). Workers that advertise no window are not checked |
 | 400 | `unsupported_content_part` | gRPC: a content part SMG cannot render |
 | 400 | `audio_output_not_supported`, `unsupported_output_modality` | gRPC: `return_audio: true` or a non-`text` entry in `modalities`; gRPC workers produce text only |
 | 400 | `multimodal_not_supported` | gRPC: the selected engine does not accept one of the request's input modalities |
 | Engine-mapped | `start_generation_failed`, `prefill_worker_failed_to_start`, `decode_worker_failed_to_start` | gRPC: the engine did not start generation. The status follows the engine's gRPC status, for example invalid argument → `400` (not retried and not counted against the circuit breaker), resource exhausted → `429`, unavailable → `503`, deadline exceeded → `504`, internal → `500` |
-| 401 | — | Missing or unknown API key (empty body) |
+| 401 | `invalid_api_key` | Missing or unknown API key; the response carries a `WWW-Authenticate` challenge |
 | 404 | `model_not_found` | No worker serves the model |
-| 408 | `request_body_stalled` | HTTP router: a streamed request body stalled for `--stream-body-stall-timeout-secs` |
-| 413 | `request_body_too_large` | HTTP router: a streamed request body exceeded `--max-payload-size` |
-| 429 | `admission_queue_full`, `scheduler_queue_full`, `tenant_rate_limit_exceeded` | Admission control or rate limiting; see [Rate Limiting](#rate-limiting) |
+| 408 | `request_body_stalled` | No request body bytes arrived from the client for `--stream-body-stall-timeout-secs` (default 300, 0 disables), whether SMG was buffering the body or streaming it to an HTTP worker; on the streamed relay the clock pauses while the worker applies backpressure |
+| 408 | `request_body_timeout` | A request body SMG buffers was still incomplete at `--request-timeout-secs` |
+| 413 | `request_body_too_large` | The request body exceeds `--max-payload-size`, however it arrives: a declared `Content-Length` over the limit (refused before routing), a buffered or chunked body that crosses it while being read, or a streamed body that grows past it mid-upload |
+| 413 | `multimodal_payload_too_large` | gRPC: the request's preprocessed media is larger than the whole `--multimodal-max-inflight-bytes` budget |
+| 429 | `admission_queue_full`, `scheduler_queue_full`, `tenant_rate_limit_exceeded`, `pd_prefill_queue_full`, `pd_prefill_queue_timeout`, `multimodal_inflight_budget` | Admission control or rate limiting; see [Rate Limiting](#rate-limiting) |
 | 500 | `internal_error` and stage-specific codes | A failure inside SMG; the code names the failing step |
 | 502 | `upstream_response_too_large` | A worker's non-streaming response exceeded `--max-payload-size` |
 | 503 | `no_available_workers` | Workers serve the model, but every one is unhealthy or has an open circuit breaker, or the routing policy selects none of them (HTTP and gRPC paths) |
-| 503 | `worker_overload_protection_shed`, `admission_queue_timeout`, `scheduler_queue_timeout`, `scheduler_preempted` | Overload and admission sheds; see [Rate Limiting](#rate-limiting) |
+| 503 | `worker_overload_protection_shed`, `admission_queue_timeout`, `selection_queue_timeout`, `scheduler_queue_timeout`, `scheduler_preempted` | Overload and admission sheds; see [Rate Limiting](#rate-limiting) |
 
 On gRPC workers, an engine finish reason of `error` (outside the OpenAI set) becomes an
 error response or stream error; clients never receive `"finish_reason": "error"`.
@@ -967,9 +1004,9 @@ With a valid `X-SMG-Routing-Tokens` hint, the text-routing policies (`cache_awar
 |--------|------------------|---------------|
 | `x-request-id` | On API responses: the request ID SMG used, whether received or generated | [Logging](../../getting-started/logging.md) |
 | `x-smg-routed-worker-id` | On inference responses from HTTP, gRPC, and ZMQ workers: the registered URL of the worker that served the request, with an `@<rank>` suffix for data-parallel workers. For a prefill/decode pair it names the decode worker. From gRPC and ZMQ workers, only successful responses carry it, and Responses API responses do not | [Sticky Sessions and Routing Keys](../../concepts/routing/sticky-sessions.md#routed-worker-header) |
-| `X-SMG-Error-Code` | On errors the gateway generates in its standard error envelope, with the same value as `error.code`; request-validation `400` errors do not carry it. SMG drops this header from worker responses, so it always marks a gateway decision | — |
+| `X-SMG-Error-Code` | On errors the gateway generates in its standard error envelope, with the same value as `error.code`; request-validation errors and the API-key `401` do not carry it. SMG drops this header from worker responses, so it always marks a gateway decision | — |
 | `X-SMG-Preempted` | `true` on the `503` returned to a request preempted by the priority scheduler | [Priority Scheduler](../priority-scheduler.md) |
-| `Retry-After` | On `429` and `503` responses that ask the client to back off: concurrency limits, worker overload, the priority scheduler, and tenant rate limits | [Rate Limiting](../../concepts/reliability/rate-limiting.md) |
+| `Retry-After` | On `429` and `503` responses that ask the client to back off: concurrency limits, the selection queue timeout, worker overload, an all-unavailable worker pool (`no_available_workers`), the priority scheduler, and tenant rate limits | [Rate Limiting](../../concepts/reliability/rate-limiting.md) |
 
 ---
 
@@ -984,10 +1021,14 @@ limiting, or overload protection gets `429` or `503` with the standard
 |--------|--------|---------------|-------|
 | `admission_queue_full` | 429 | `2` | `--max-concurrent-requests` is reached and the admission queue is full or disabled |
 | `admission_queue_timeout` | 503 | `2` | The request waited in the admission queue longer than `--queue-timeout-secs` |
+| `selection_queue_timeout` | 503 | `2` | gRPC router: the request had already waited longer than `--queue-timeout-secs` inside the gateway (counted from its admission, or its acceptance without an admission queue) when it reached worker selection; the prefill admission wait of a PD or EPD request is held to the same budget |
+| `pd_prefill_queue_full` | 429 | — | PD: the prefill admission queue is full |
+| `pd_prefill_queue_timeout` | 429 | — | PD: the request waited out `--prefill-queue-timeout-secs` for prefill admission |
 | `scheduler_queue_full` | 429 | `2` | Priority scheduler: the request's class queue is full |
 | `scheduler_queue_timeout` | 503 | `2` | Priority scheduler: the request waited longer than its class's queue timeout |
 | `scheduler_preempted` | 503 | `1` | Priority scheduler: preempted by higher-priority traffic before its first token; also sets `X-SMG-Preempted: true` |
 | `tenant_rate_limit_exceeded` | 429 | Seconds until the tenant's budget can admit the request; omitted when it never can | Tenant rate limiting |
+| `multimodal_inflight_budget` | 429 | `2` | gRPC: the gateway is already holding its `--multimodal-max-inflight-bytes` budget of preprocessed media; a request whose media is larger than the whole budget gets `413` `multimodal_payload_too_large` instead |
 | `worker_overload_protection_shed` | 503 | `--load-monitor-interval` (default `10`) | Every eligible worker is over its overload threshold (or the selected one crossed it just before dispatch), or a PD decode worker could not admit the request within `--pd-admission-wait-secs` |
 
 Wait at least `Retry-After` seconds before retrying. For configuration, see

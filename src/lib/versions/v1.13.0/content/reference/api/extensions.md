@@ -14,13 +14,13 @@ SMG endpoint auth is route-group based:
 
 | Route group | Auth behavior |
 |---|---|
-| Public routes | No auth: `/health`, `/liveness`, `/readiness`, `/health_generate`, `/engine_metrics`, `/loads`, `/v1/models`, `/get_model_info`, and `/get_server_info` |
+| Public routes | No auth: `/health`, `/liveness`, `/readiness`, `/health_generate`, `/engine_metrics`, `/loads`, `/v1/models`, `/v1/models/{id}`, `/get_model_info`, and `/get_server_info` |
 | Protected routes | `Authorization: Bearer <key>` with the shared `--api-key` or a per-tenant `--tenant-api-key` key; open when neither is set (`/v1/tokenize`, `/generate`, `/v1/chat/completions`, and the other inference routes) |
-| Control-plane routes | With [control-plane auth](../../getting-started/control-plane-auth.md) configured (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`), a control-plane API key or JWT with the admin role. Otherwise only the shared `--api-key` is accepted: per-tenant keys are rejected, a gateway with tenant keys but no `--api-key` answers every control-plane request with `401`, and a gateway with no keys at all leaves these routes open |
+| Control-plane routes | With [control-plane auth](../../getting-started/control-plane-auth.md) configured (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`), a control-plane API key or JWT — the `admin` role for every method, the read-only `user` role for `GET` and `HEAD`. Otherwise only the shared `--api-key` is accepted: per-tenant keys are rejected, a gateway with tenant keys but no `--api-key` answers every control-plane request with `401`, and a gateway with no keys at all leaves these routes open |
 
 With control-plane auth configured, a missing or invalid credential gets `401` and a valid credential whose role does not allow the operation gets `403`. The shared `--api-key` is not accepted on control-plane routes in that mode.
 
-If JWT validation fails to initialize at startup (for example, when OIDC discovery fails), the control-plane rules stay in force: keys from `--control-plane-api-keys` keep working, and JWTs and every other token get `401` until the gateway is restarted with a working JWT setup. This holds on current main; in released versions the same failure instead disables control-plane auth, and SMG logs an error and applies the `--api-key` rules above.
+If JWT validation fails to initialize at startup (for example, when OIDC discovery fails), the control-plane rules stay in force: keys from `--control-plane-api-keys` keep working, and JWTs and every other token get `401` until the gateway is restarted with a working JWT setup. JWT initialization is not retried.
 
 ---
 
@@ -37,6 +37,7 @@ These endpoints are registered without any auth middleware:
 | `GET` | `/engine_metrics` | The engines' own Prometheus metrics in one exposition; see [Engine Metrics Passthrough](../metrics.md#engine-metrics-passthrough) |
 | `GET` | `/loads` | Fleet engine load from the gateway's cached load snapshot (optional `?model=` filter); see [Get Loads](admin.md#get-loads) |
 | `GET` | `/v1/models` | List models |
+| `GET` | `/v1/models/{id}` | One model's metadata; `404` for an unknown id. Like the list, it answers in the Anthropic shape when the request carries the `anthropic-version` header, the OpenAI shape otherwise |
 | `GET` | `/get_model_info` | Model metadata, forwarded to an HTTP worker; gRPC and ZMQ deployments answer `501` |
 | `GET` | `/get_server_info` | Server metadata, forwarded to an HTTP worker; gRPC and ZMQ deployments answer `501` |
 
@@ -64,8 +65,6 @@ These run behind protected-route auth middleware:
 `/v1/systemone` relays a non-streaming System One request to a regular HTTP worker's own `/v1/systemone`. Request fields SMG does not know are forwarded unchanged, and the worker's response — status, headers, and body, backend errors included — is returned as is.
 
 Before relaying, SMG checks that `model` names a served model (unknown models answer `404`), that `state` is text or structured JSON, and that `questions` maps at least one name to a question, with at least one criterion on each `score` question; a body that fails these checks answers `400`.
-
-`/v1/systemone` is available since v1.12.0.
 
 These pages cover the other inference endpoints, which use the same auth:
 
@@ -116,8 +115,11 @@ The WASM routes need `--enable-wasm`; without it they answer `500`.
 |---|---|---|
 | `POST` | `/start_profile` | Start the engine profiler on every worker, or only on the worker whose URL equals `url` in the optional JSON body |
 | `POST` | `/stop_profile` | Stop the profiler, with the same optional `url` |
+| `POST` | `/heap_profile` | Write a heap profile of the gateway process itself into the directory `--jemalloc-prof-dir` names and answer the file's path |
 
 `/start_profile` also accepts the engine's profiler options (`output_dir`, `start_step`, `num_steps`, `activities`, `with_stack`, `record_shapes`, `profile_by_stage`). SMG sends them as the JSON body of an HTTP worker's own `/start_profile`, or through the `StartProfile` RPC to SGLang and TokenSpeed gRPC workers. gRPC vLLM, TensorRT-LLM, and MLX workers and ZMQ workers do not support profiling and are reported as failed. Both routes answer `200` when every targeted worker succeeds, `206` with `successful` and `failed` lists when any fails, and `404` when no worker matches.
+
+`/heap_profile` needs a gateway built with the `jemalloc-profiling` feature and run with jemalloc profiling active; any other build answers `501` (`heap_profile_not_built`). Without `--jemalloc-prof-dir` it answers `404`, and with sampling off, `409`.
 
 ### Cache and Load Utilities
 
@@ -133,7 +135,7 @@ The WASM routes need `--enable-wasm`; without it they answer `500`.
 
 ## HA / Mesh Management Endpoints
 
-SMG has no HTTP endpoints for mesh management. The `/ha/*` routes of earlier releases were removed in v1.5.0 (smg-project/smg#1476), so a request to one gets `404`. Mesh routers talk to each other over gRPC on `--mesh-port`. To inspect a mesh, use the mesh metrics, the router logs, and each router's `GET /workers`; see [High Availability](../../concepts/architecture/high-availability.md#monitoring).
+SMG has no HTTP endpoints for mesh management; a request to one of the `/ha/*` routes of old releases gets `404`. Mesh routers talk to each other over gRPC on `--mesh-port`. To inspect a mesh, use the mesh metrics, the router logs, and each router's `GET /workers`; see [High Availability](../../concepts/architecture/high-availability.md#monitoring).
 
 ---
 
@@ -145,7 +147,7 @@ Mounted only when SMG starts with `--enable-rl`; without it, every `/v1/rl/*` pa
 |---|---|---|
 | `GET` | `/v1/rl/workers` | List workers with engine, parallelism, health, weight version, and capabilities |
 | `GET` | `/v1/rl/workers/{id}` | One worker (`404 worker_not_found` for an unknown ID) |
-| `GET`, `POST` | `/v1/rl/workers/{id}/engine/{path}` | Forward one engine-native request to one HTTP worker; the response status mirrors the engine's |
+| `GET`, `POST` | `/v1/rl/workers/{id}/engine/{path}` | Forward one engine-native request to one worker's control endpoint (an HTTP worker itself; a gRPC or ZMQ worker's `rl.control_url`); the response status mirrors the engine's |
 | `GET`, `POST` | `/v1/rl/engine/{path}?selector=...` | Send the same request to every worker matching a label selector; `200` when every target succeeds, `207` with per-worker `failed[]` otherwise |
 
 See [RL Control Plane](../../getting-started/rl-control-plane.md) for request and response shapes, selectors, errors, timeouts, metrics, and the `smg.rl` Python client.

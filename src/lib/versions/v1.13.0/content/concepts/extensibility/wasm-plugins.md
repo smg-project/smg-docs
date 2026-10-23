@@ -52,7 +52,7 @@ Compiled components are cached per runtime thread, so only a component's first r
 
 WASM plugins execute in SMG's **middleware layer**, intercepting requests before they reach workers and responses before they return to clients.
 
-The middleware runs on the inference routes: `/v1/chat/completions`, `/v1/completions`, `/generate`, `/v1/responses` and `/v1/conversations` (with their sub-paths), `/v1/messages` and `/v1/messages/count_tokens`, `/v1/embeddings`, `/v1/rerank` and `/rerank`, `/v1/classify`, `/v1/interactions`, `/v1/tokenize`, `/v1/detokenize`, and the Realtime REST endpoints. It does not run on `/v1/audio/transcriptions`, the Realtime WebSocket and WebRTC routes, or the public, admin, and worker-management routes.
+The middleware runs on the inference routes: `/v1/chat/completions`, `/v1/completions`, `/generate`, `/v1/responses` and `/v1/conversations` (with their sub-paths), `/v1/messages` and `/v1/messages/count_tokens`, `/v1/embeddings`, `/v1/rerank` and `/rerank`, `/v1/classify`, `/v1/interactions`, `/v1/decisions`, `/v1/systemone`, `/v1/tokenize`, `/v1/detokenize`, and the Realtime REST endpoints. It does not run on `/v1/audio/transcriptions`, the Realtime WebSocket and WebRTC routes, or the public, admin, and worker-management routes.
 
 ### Plugin Chain Execution
 
@@ -62,7 +62,7 @@ SMG runs every plugin attached at a point, in no defined order: don't rely on de
 2. **Reject(status)**: Stop processing and return an error response immediately
 3. **Modify(changes)**: Apply transformations and continue
 
-If any plugin returns `Reject`, subsequent plugins are skipped and the error response is returned to the client: on a request, the status with an empty body; on a response, the status with the response body so far. A plugin that fails or runs past its time limit is skipped, and processing continues with the next one.
+If any plugin returns `Reject`, subsequent plugins are skipped and the error response is returned to the client: on a request, the status with an empty body; on a response, the status with the response body so far. On `/v1/messages` and its sub-paths, an error status from `Reject` leaves in the [Messages error envelope](../../reference/api/messages.md#errors), like every error on those routes. A plugin that fails or runs past its time limit is skipped, and processing continues with the next one.
 
 !!! warning "Authentication plugins fail open on errors"
     An `OnRequest` authentication plugin must not be the only authentication control: if it fails or times out, an unauthenticated request can continue to a worker. Configure independent [gateway authentication](../security/authentication.md), such as `--api-key`, so access remains protected when the plugin is skipped. Returning `Reject` for invalid credentials does not protect against plugin failures or timeouts.
@@ -202,7 +202,7 @@ smg --enable-wasm --worker-urls http://worker:8000
 | `module_cache_size` | 10 | Compiled components cached per runtime thread |
 | `max_body_size` | 10 MB | Largest request or response body a plugin can receive |
 
-These values are fixed in v1.12.0; no flag changes them. Plugins run on a pool of runtime threads, one per CPU core up to 4.
+These values are fixed; no flag changes them. Plugins run on a pool of runtime threads, one per CPU core up to 4.
 
 With an **OnRequest** plugin attached, SMG reads the whole request body before running it, and answers `400` when the body exceeds `max_body_size`. With an **OnResponse** plugin attached, it reads each non-streaming response body the same way, and answers `500` when the body is too large.
 

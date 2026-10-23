@@ -51,7 +51,7 @@ servers:
 
 - Use `protocol: streamable` for remote servers. The legacy `sse` transport has been removed, and a server configured with it fails to connect.
 - SMG parses `mcp.yaml` as plain YAML and does not expand `${VAR}` placeholders inside server `token` values. Substitute credentials externally before the gateway loads the file: render the YAML through `envsubst` from a shell wrapper, use a templating tool (Helm, Kustomize, Jinja), or inject the final config via a secret mount. See [Keeping Credentials Out of Config Files](../concepts/extensibility/mcp.md#keeping-credentials-out-of-config-files).
-- The gateway applies only the `servers` list. It accepts the `pool`, `policy`, `inventory`, and `warmup` sections and a top-level `proxy` section, but does not apply them, so settings such as `pool.call_timeout` and approval policies in this file have no effect; see [Accepted but Not Applied](../concepts/extensibility/mcp.md#accepted-but-not-applied).
+- Beyond `servers`, the gateway applies the `pool` section (`max_connections`, and `call_timeout` for the per-call bound), a top-level `proxy` section (a server's own `proxy` overrides it), and the `policy` section, which sets the default allow/deny decision, per-server trust levels, and per-tool rules. The `inventory` and `warmup` sections are accepted but not applied. See [MCP Concepts](../concepts/extensibility/mcp.md) for the full configuration reference.
 
 ---
 
@@ -160,7 +160,7 @@ curl http://localhost:30000/v1/responses \
 - `allowed_tools` lists the tools to expose, by the server's tool name or its configured alias. The object form `{"tool_names": [...]}` also works. A filter that sets `read_only` exposes no tools, because SMG can't evaluate it yet.
 - `max_tool_calls` caps the MCP calls SMG executes for the request. SMG never runs more than 10. See [Tool Loop Limits](../concepts/extensibility/mcp.md#tool-loop-limits) for what happens at the cap.
 
-A tool call that fails does not fail the request: the model gets the error as the tool result, and on gRPC workers the call shows up as an `mcp_call` item with `status: "failed"` and a structured `error`. Each call has a 120-second timeout. See [Call Timeouts and Failures](../concepts/extensibility/mcp.md#call-timeouts-and-failures).
+A tool call that fails does not fail the request: the model gets the error as the tool result, and on gRPC workers the call shows up as an `mcp_call` item with `status: "failed"` and a structured `error`. Each call has a 120-second timeout by default (`pool.call_timeout` in `mcp.yaml`; `0` disables the bound). See [Call Timeouts and Failures](../concepts/extensibility/mcp.md#call-timeouts-and-failures).
 
 ---
 
@@ -168,7 +168,7 @@ A tool call that fails does not fail the request: the model gets the error as th
 
 SMG checks every MCP call before running it:
 
-- By default it decides by policy, without asking the client. The gateway currently runs the built-in default policy, which allows every tool. The `policy` section of `mcp.yaml` is not applied.
+- By default it decides by policy, without asking the client. The built-in default policy allows every tool; the `policy` section of `mcp.yaml` can change the default decision, set per-server trust levels, and deny individual tools.
 - `require_approval: "always"` on an `mcp` tool pauses before a matching call only in non-streaming requests to an OpenAI-compatible provider. The response ends with an `mcp_approval_request` item instead of running the call, and SMG does not currently resume from an `mcp_approval_response`.
 - On gRPC workers, in streaming requests, and in the Messages API, every call is decided by policy.
 
@@ -191,7 +191,7 @@ curl http://localhost:30000/health
 curl http://localhost:29000/metrics | grep smg_mcp
 ```
 
-`smg_mcp_tool_calls_total` counts calls by `tool_name` and `result`, and `smg_mcp_tool_duration_seconds` records how long each call took.
+`smg_mcp_tool_calls_total` counts calls by `model`, `tool_name`, and `result`, and `smg_mcp_tool_duration_seconds` records how long each call took, by `model` and `tool_name`.
 
 ---
 

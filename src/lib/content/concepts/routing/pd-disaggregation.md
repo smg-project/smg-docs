@@ -281,11 +281,11 @@ The startup worker lists may be empty: add legs at runtime with `POST /workers` 
 === "SGLang (gRPC)"
 
     ```bash
-    # Workers run with --smg-grpc-mode (SGLang 0.5.16+; --grpc-mode before)
+    # Workers run with --grpc-mode
     smg launch \
       --pd-disaggregation \
       --prefill grpc://prefill-0:50051 8998 \
-      --decode grpc://decode-0:50061 \
+      --decode grpc://decode-0:50052 \
       --model-path meta-llama/Llama-3.1-8B-Instruct
     ```
 

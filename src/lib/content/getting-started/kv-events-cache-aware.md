@@ -59,7 +59,7 @@ engine scheduler (SGLang, vLLM or TokenSpeed)
 
 ## Step 1 — Launch the SGLang worker
 
-Install the SGLang extra of the servicer, then launch the SGLang server with both `--smg-grpc-mode` and `--kv-events-config`:
+Install the SGLang extra of the servicer, then launch the SGLang server with both `--grpc-mode` and `--kv-events-config`:
 
 ```bash
 pip install "smg-grpc-servicer[sglang]"
@@ -68,7 +68,7 @@ python -m sglang.launch_server \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051 \
-  --smg-grpc-mode \
+  --grpc-mode \
   --page-size 16 \
   --kv-events-config '{"publisher":"zmq","endpoint":"tcp://*:5557","replay_endpoint":"tcp://*:5558","topic":"kv-events"}'
 ```
@@ -77,7 +77,7 @@ What each flag does:
 
 | Flag | Why |
 |---|---|
-| `--smg-grpc-mode` | Serves SMG's gRPC `SglangScheduler` service from `smg-grpc-servicer` instead of SGLang's HTTP server. Required for SMG to talk to this worker over gRPC. `--grpc-mode` is a deprecated alias. SGLang also opens an HTTP sidecar on `--port` + 1 (`--smg-http-sidecar-port` moves it). |
+| `--grpc-mode` | Serves SMG's gRPC `SglangScheduler` service from `smg-grpc-servicer` (needs SGLang 0.5.21 or later) instead of SGLang's HTTP server. Required for SMG to talk to this worker over gRPC. |
 | `--page-size 16` | The KV cache page size, in tokens. Use the same value for SMG's `--block-size` (see [Block size alignment](#block-size-alignment)). |
 | `--kv-events-config` | A JSON object parsed by SGLang's `KVEventsConfig.from_cli`. `"publisher":"zmq"` turns publishing on (the default `"null"` publishes nothing), and `replay_endpoint` lets the servicer fill gaps in the stream from SGLang's replay buffer. |
 
@@ -167,7 +167,7 @@ smg launch \
   --port 30000
 ```
 
-`worker-2` is a second worker launched the same way, on another host. On a single host, give each worker its own `--port` and its own event ports, and leave room for each SGLang worker's sidecar on `--port` + 1.
+`worker-2` is a second worker launched the same way, on another host. On a single host, give each worker its own `--port` and its own event ports.
 
 The flags that matter for event-driven routing:
 

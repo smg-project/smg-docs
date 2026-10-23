@@ -59,10 +59,10 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --smg-grpc-mode
+      --grpc-mode
     ```
 
-    `--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, now a deprecated alias. In this mode SGLang also opens an HTTP sidecar on `--port + 1` (move it with `--smg-http-sidecar-port`).
+    `--grpc-mode` serves the worker through `smg-grpc-servicer`, which needs SGLang 0.5.21 or later. In this mode SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`).
 
     This starts the default Python servicer. Adding `--servicer-impl rust` — or setting `SMG_SGLANG_SERVICER_IMPL=rust` in the worker's environment — serves the same contract from Rust instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
 
@@ -164,7 +164,7 @@ python -m sglang.launch_server \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051 \
-  --smg-grpc-mode \
+  --grpc-mode \
   --servicer-impl rust
 
 # The environment variable selects it on the same entrypoint:
@@ -172,7 +172,7 @@ SMG_SGLANG_SERVICER_IMPL=rust python -m sglang.launch_server \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051 \
-  --smg-grpc-mode
+  --grpc-mode
 ```
 
 When both are set, the flag wins: `--servicer-impl python` overrides an exported `rust`. The decision a flag makes is written back to `SMG_SGLANG_SERVICER_IMPL`, so the processes the worker spawns inherit the same choice. The selection defaults to `python`, and a value other than `python` or `rust` fails startup. At startup the worker logs which implementation it chose and whether the flag, the environment or the default decided it.
@@ -187,7 +187,7 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 
 - PD and EPD disaggregation stay with the Python servicer: a worker with a `disaggregation_mode` set, or with `language_only` or `encoder_only`, refuses to start on the Rust path.
 - Multimodal inputs and hidden states are refused per request, and LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
-- SGLang's HTTP sidecar (profiling, `/metrics`) is not started, so nothing listens on `--port + 1`.
+- SGLang's HTTP sidecar (profiling, `/metrics`) is not started.
 
 `Embed`, `FlushCache` and profiling answer as on the Python servicer, and `SubscribeKvEvents` relays the ZMQ publisher SGLang was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
 

@@ -74,7 +74,7 @@ SMG sends the request to the prefill and decode workers at the same time. The tw
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --smg-grpc-mode \
+      --grpc-mode \
       --disaggregation-mode prefill \
       --disaggregation-bootstrap-port 8998
 
@@ -82,14 +82,14 @@ SMG sends the request to the prefill and decode workers at the same time. The tw
     python -m sglang.launch_server \
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
-      --port 50061 \
-      --smg-grpc-mode \
+      --port 50052 \
+      --grpc-mode \
       --disaggregation-mode decode
     ```
 
 Both workers must use the same KV transfer backend (`--disaggregation-transfer-backend`, for example `mooncake` or `nixl`).
 
-`--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, which is now a deprecated alias. In this mode SGLang also opens an HTTP sidecar (metrics and profiling) on `--port + 1` (move it with `--smg-http-sidecar-port`), so leave a gap between the ports of workers on the same host.
+`--grpc-mode` serves each worker through `smg-grpc-servicer`, which needs SGLang 0.5.21 or later; see [gRPC Workers](grpc-workers.md).
 
 ### Start SMG
 

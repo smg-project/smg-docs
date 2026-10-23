@@ -301,7 +301,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
 
 === "SGLang"
 
-    SGLang depends on `smg-grpc-servicer`, so gRPC mode works after `pip install sglang`.
+    SGLang depends on `smg-grpc-servicer`, so gRPC mode works after `pip install sglang`. The servicer supports SGLang 0.5.21 and later.
 
     ```bash
     # gRPC worker (grpc://<host>:50051)
@@ -309,7 +309,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --smg-grpc-mode
+      --grpc-mode
 
     # HTTP worker (http://<host>:8000)
     python -m sglang.launch_server \
@@ -318,7 +318,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
       --port 8000
     ```
 
-    `--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, which is now a deprecated alias. In this mode SGLang also opens an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`) on `--port + 1` (set `--smg-http-sidecar-port` to move it), so leave a gap between the ports of workers on the same host.
+    In gRPC mode SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`).
 
     Setting `SMG_SGLANG_SERVICER_IMPL=rust` in the gRPC worker's environment serves the same contract from the Rust servicer instead of the default Python one (newer than v1.11.0, needs the `smg` wheel; the HTTP sidecar stays off on that path); see [Rust SGLang Servicer](grpc-workers.md#rust-sglang-servicer).
 
@@ -380,7 +380,7 @@ For prefill-decode disaggregation, start separate prefill and decode workers, ea
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 50051 \
-      --smg-grpc-mode \
+      --grpc-mode \
       --disaggregation-mode prefill \
       --disaggregation-bootstrap-port 8998
 
@@ -388,12 +388,10 @@ For prefill-decode disaggregation, start separate prefill and decode workers, ea
     python -m sglang.launch_server \
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
-      --port 50061 \
-      --smg-grpc-mode \
+      --port 50052 \
+      --grpc-mode \
       --disaggregation-mode decode
     ```
-
-    `--smg-grpc-mode` needs SGLang 0.5.16 or later; older releases use `--grpc-mode`, which is now a deprecated alias. In this mode SGLang also opens an HTTP sidecar on `--port + 1`, so the decode worker uses `50061` rather than `50052`.
 
     Start SMG with the prefill worker's bootstrap port after its URL:
 
@@ -401,7 +399,7 @@ For prefill-decode disaggregation, start separate prefill and decode workers, ea
     smg launch \
       --pd-disaggregation \
       --prefill grpc://localhost:50051 8998 \
-      --decode grpc://localhost:50061 \
+      --decode grpc://localhost:50052 \
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --host 0.0.0.0 \
       --port 30000

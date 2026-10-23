@@ -120,7 +120,7 @@ The gateway is the `smg` package in `model_gateway/`. It builds two binaries fro
 
 ### Cargo.lock and `--locked`
 
-`Cargo.lock` is committed (smg-project/smg#2248), so every build resolves the same dependency graph. Pass `--locked` to `cargo build`, `cargo test`, `cargo clippy`, and `cargo run`: cargo then fails instead of silently re-resolving dependencies.
+`Cargo.lock` is committed, so every build resolves the same dependency graph. Pass `--locked` to `cargo build`, `cargo test`, `cargo clippy`, and `cargo run`: cargo then fails instead of silently re-resolving dependencies.
 
 ```text
 error: cannot update the lock file .../Cargo.lock because --locked was passed to prevent this

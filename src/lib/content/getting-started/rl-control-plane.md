@@ -42,7 +42,7 @@ Control calls stay out of the inference path. They skip routing policies, retrie
 
 ## Enable the Control Plane
 
-The control plane is compiled into every SMG build but is off by default. Without `--enable-rl`, SMG mounts nothing under `/v1/rl` and emits no `smg_rl_*` metrics: every `/v1/rl/*` request gets the gateway's unknown-URL answer, `404` with a JSON error envelope whose `error.code` is `unknown_url`.
+The control plane is compiled into every SMG build but is off by default. Without `--enable-rl`, SMG mounts nothing under `/v1/rl` and emits no `smg_rl_*` metrics; every `/v1/rl/*` request gets the gateway's unknown-URL answer: `404` with a JSON error envelope whose `error.code` is `unknown_url`.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -565,7 +565,7 @@ RUST_LOG=warn,smg_rl=info smg launch \
 
     The control plane is not mounted. Start SMG with `--enable-rl` (`--router-enable-rl` with `smg serve`). Without it, nothing exists under `/v1/rl`, so the gateway answers each request like any other unknown URL: `404` with its JSON error envelope, carrying `unknown_url` in `error.code` and the `X-SMG-Error-Code` header, and an `error.message` naming the method and path.
 
-    With the Python client, this shows up as `RlError` with status 404 and the envelope as its `payload`. Check `err.payload["error"]["code"]` rather than `err.code`, which is a flat code only for the control plane's own error bodies.
+    With the Python client, this shows up as `RlError` with status 404 and the envelope as its `payload`. Check `err.payload["error"]["code"]` rather than `err.code`; `err.code` is a flat code only for the control plane's own error bodies.
 
     The control plane's own `404` looks different: with `--enable-rl` on, an unknown worker ID answers in the flat [error format](#errors), `{"error": "worker_not_found", "message": "...", "id": "..."}`.
 

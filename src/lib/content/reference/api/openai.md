@@ -663,11 +663,12 @@ curl http://localhost:30000/v1/models/meta-llama/Llama-3.1-8B-Instruct
 ```
 
 With an `anthropic-version` header, the response is the Anthropic model object (`type`,
-`id`, `display_name`, `created_at`) instead. An unknown ID gets the same `404`
-`model_not_found` as every other route, in the OpenAI [error envelope](#error-format) —
-or, under `anthropic-version`, in the Messages envelope (top-level `type: "error"`,
-`error.type` `not_found_error`, and a `request_id`), as `/v1/messages` refuses the same
-model.
+`id`, `display_name`, `created_at`) instead.
+
+An unknown ID gets the same `404` `model_not_found` as every other route, in the OpenAI
+[error envelope](#error-format) — or, under `anthropic-version`, in the Messages envelope
+(top-level `type: "error"`, `error.type` `not_found_error`, and a `request_id`), the same
+refusal `/v1/messages` gives that model.
 
 ---
 

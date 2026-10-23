@@ -37,7 +37,7 @@ These endpoints are registered without any auth middleware:
 | `GET` | `/engine_metrics` | The engines' own Prometheus metrics in one exposition; see [Engine Metrics Passthrough](../metrics.md#engine-metrics-passthrough) |
 | `GET` | `/loads` | Fleet engine load from the gateway's cached load snapshot (optional `?model=` filter); see [Get Loads](admin.md#get-loads) |
 | `GET` | `/v1/models` | List models; see [List Models](openai.md#list-models) |
-| `GET` | `/v1/models/{model}` | One model's card; the `{model}` segment takes the rest of the path, so IDs with slashes work raw or percent-encoded. See [Retrieve Model](openai.md#retrieve-model) |
+| `GET` | `/v1/models/{model}` | One model's card; `{model}` takes the rest of the path, so IDs with slashes work raw or percent-encoded; see [Retrieve Model](openai.md#retrieve-model) |
 | `GET` | `/get_model_info` | Model metadata, forwarded to an HTTP worker; gRPC and ZMQ deployments answer `501` |
 | `GET` | `/get_server_info` | Server metadata, forwarded to an HTTP worker; gRPC and ZMQ deployments answer `501` |
 

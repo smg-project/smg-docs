@@ -93,7 +93,8 @@ Static servers are declared under `servers` in the [configuration file](#configu
 - **Registration.** SMG registers each server in the background after the gateway starts, with up to 100 connection attempts. The log shows `Successfully connected and registered MCP server: <name>` once a server is ready. The gateway keeps serving while registration runs, and also when it fails; see `required` in the [server fields](#servers-fields).
 - **Referencing.** A Responses request uses a static server by setting `server_label` to the server's `name` and leaving out `server_url`. Built-in tool routing only uses static servers.
 - **Tool discovery.** SMG lists the server's tools when it connects and lists them again when the server sends a `tools/list_changed` (or resource or prompt list-changed) notification. There is no periodic refresh.
-- **Restarts.** When a Streamable HTTP server restarts and reports the old session as expired (HTTP 404), the client opens a new session on the next call. SMG does not currently restart a stdio server whose process exits; restart SMG instead.
+- **Restarts.** When a Streamable HTTP server restarts and reports the old session as expired (HTTP 404), the client opens a new session on the next call.
+- **Reconnection.** A dropped connection is rebuilt on use, not in the background: when a call fails because the connection to the server dropped — including a stdio server whose process has exited — SMG reconnects the server while handling that call, with up to 5 attempts and exponential backoff (waits of 0.5, 1, 2, then 4 seconds between attempts). For a stdio server this starts a new `command` process, and the server's tools are listed again on the new connection. The interrupted call itself still fails (see [Interrupted Calls](#interrupted-calls)); later calls use the new connection. If all 5 attempts fail, SMG removes the server and later calls fail with `Server not found: <name>` until the gateway restarts.
 - **Server logs.** Log messages that a static server sends are written to SMG's log at the matching level.
 
 ### Dynamic Servers
@@ -160,6 +161,8 @@ Tool call outcome unknown: server 'orders' disconnected while executing 'place_o
 ```
 
 Only a call to a tool that declares the MCP `idempotentHint` or `readOnlyHint` annotation is eligible to be re-issued on a new connection. SMG does not currently use these annotations from a server's tool list for this check, so every interrupted call fails this way.
+
+While handling the interrupted call, SMG also [reconnects a dropped static server](#static-servers), restarting a stdio server's process, so later calls run on the new connection. Dynamic (pooled) connections are not reconnected this way.
 
 ### Ambiguous Pooled Connections
 
@@ -420,9 +423,9 @@ Set `internal: true` on a static server when its tools support the model behind 
 | `424` with code `connect_mcp_server_failed` | No MCP server in a Responses request could be connected (gRPC workers) | Check `server_url` (`http://` or `https://`, without `/sse`) and `authorization`. |
 | `502` with code `mcp_connection_failed` | No server in a Messages request's `mcp_servers` could be connected | Check each `url` and `authorization_token`. |
 | `mcp_call` fails with `Tool call timed out after 120s` | The server took longer than the per-call timeout | Make the tool faster or split the work. The timeout can't currently be changed. |
-| `mcp_call` fails with `Tool call outcome unknown` | The connection dropped during the call | Check the server. Retry only if the tool is safe to run twice. |
+| `mcp_call` fails with `Tool call outcome unknown` | The connection dropped during the call; SMG reconnects a static server for later calls but never re-issues the interrupted one | Check the server. Retry only if the tool is safe to run twice. |
 | `mcp_call` fails with `Server access denied: ambiguous MCP connection` | The same `server_url` was used with different credentials | Send a single credential to each URL. |
-| Every call to a stdio server fails after its process exits | SMG does not currently restart a stdio server's process | Restart SMG. |
+| Calls to a static server fail with `Server not found` after a disconnect | All 5 reconnection attempts failed (for stdio, the relaunched `command` kept failing), so SMG removed the server | Fix what keeps the server from coming up, then restart SMG to register it again. |
 | Request fails with `Unsupported input item type` | On gRPC workers, the request `input` contains `mcp_call`, `mcp_list_tools`, `mcp_approval_request`, or `mcp_approval_response` items | Remove those items from `input`. |
 | A `pool`, `policy`, or top-level `proxy` setting has no effect | Only `servers` is applied | See [Accepted but Not Applied](#accepted-but-not-applied). |
 

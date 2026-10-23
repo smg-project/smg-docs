@@ -70,7 +70,7 @@ Without retries, every transient failure becomes a client-visible error. With re
 
 Skipping the workers a request failed on applies even under deterministic affinity: when `cache_aware` has the prompt's prefix cached on the failed worker, or a `consistent_hashing` routing key maps to it, the retry moves to another worker instead of going straight back. When every available worker has already been tried, including when the pool has a single worker, the retry selects among all of them again — except a worker that answered the request with its own `500`, which is never selected for that request again (see [When a Worker Answers 500](#when-a-worker-answers-500)).
 
-There are two exceptions. A request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) is retried on the worker it targets. PD mode does not skip tried workers: each attempt selects its prefill/decode pair from all available workers, so a retry can pick the same pair again. A worker's own `500` overrides both exceptions; only HTTP PD mode retries a `500` like any other status (below).
+There are two exceptions. A request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) is retried on the worker it targets. PD mode does not skip tried workers: each attempt selects its prefill/decode pair from all available workers, so a retry can pick the same pair again. A worker's own `500` overrides both exceptions; only HTTP PD mode retries a `500` like any other status (see [When a Worker Answers 500](#when-a-worker-answers-500)).
 
 `--retry-max-retries` counts **attempts, including the first**: the default `5` allows the initial attempt plus up to four retries, and `1` disables retries.
 
@@ -142,7 +142,9 @@ SMG retries responses with these status codes. The list is global: per-worker `r
 | `503` | Service Unavailable | Service temporarily down |
 | `504` | Gateway Timeout | Upstream timeout |
 
-SMG's own errors use these codes too. In regular HTTP mode, a failed connection to the worker is a `500`, and a connect timeout, or a worker connection the OS gives up on, is a `504`; in PD mode a transport failure on either leg, those timeouts included, is a `502`; on the HTTP and gRPC routers, "no available workers" (every candidate unhealthy or circuit-open) is a `503`. The request's own timeout — `--request-timeout-secs`, or the worker's `timeout_secs`, running out — is a `504` in both modes, returned without a retry (see [Never Retried](#never-retried)). A `500` the gateway synthesizes is not the worker's own answer and stays replayable on that worker; see [When a Worker Answers 500](#when-a-worker-answers-500).
+SMG's own errors use these codes too. In regular HTTP mode, a failed connection to the worker is a `500`, and a connect timeout, or a worker connection the OS gives up on, is a `504`; in PD mode a transport failure on either leg, those timeouts included, is a `502`; on the HTTP and gRPC routers, "no available workers" (every candidate unhealthy or circuit-open) is a `503`. The request's own timeout — `--request-timeout-secs`, or the worker's `timeout_secs`, running out — is a `504` in both modes, returned without a retry (see [Never Retried](#never-retried)).
+
+A `500` the gateway synthesizes is not the worker's own answer and stays replayable on that worker; see [When a Worker Answers 500](#when-a-worker-answers-500).
 
 Requests with other status codes (e.g., 400 Bad Request, 401 Unauthorized) are **not retried** because they would likely fail again.
 

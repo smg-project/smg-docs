@@ -813,7 +813,7 @@ Query model and server information. These are public routes and need no authenti
 GET /v1/models
 ```
 
-Returns the models that the registered self-hosted workers serve, read from the gateway's worker registry rather than from the workers. A caller that sends its own provider key gets the external providers' model list instead, fetched with that key. See [List Models](openai.md#list-models) for the details.
+Returns the models that the registered self-hosted workers serve, read from the gateway's worker registry rather than from the workers. A caller that sends its own provider key gets the external providers' model list instead, fetched with that key; a gateway key (`--api-key` or `--tenant-api-key`) is never forwarded to a provider. A request carrying an `anthropic-version` header gets the list, and its errors, in the Anthropic Messages shape. See [List Models](openai.md#list-models) for the details.
 
 **Response:** `200 OK`
 ```json
@@ -830,7 +830,17 @@ Returns the models that the registered self-hosted workers serve, read from the 
 }
 ```
 
-`created` is always `0`. With no self-hosted model to list, the route answers `503` with the plain-text body `No models available`.
+`created` is always `0`. With no self-hosted model to list, the route answers `503` in the gateway's [error envelope](#error-responses) with the code `no_models_available`.
+
+---
+
+### Retrieve Model
+
+```
+GET /v1/models/{model}
+```
+
+Returns one model's card from the self-hosted inventory, in the same shape as a [List Models](#list-models) entry (the Anthropic model object under an `anthropic-version` header). `{model}` takes the whole rest of the path, so an ID with a slash in it works raw or percent-encoded, and a name configured with `--model-alias` resolves to its canonical model. An unknown ID answers `404` `model_not_found` in the caller's error envelope. See [Retrieve Model](openai.md#retrieve-model) for the details.
 
 ---
 

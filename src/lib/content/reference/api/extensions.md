@@ -14,7 +14,7 @@ SMG endpoint auth is route-group based:
 
 | Route group | Auth behavior |
 |---|---|
-| Public routes | No auth: `/health`, `/liveness`, `/readiness`, `/health_generate`, `/engine_metrics`, `/loads`, `/v1/models`, `/get_model_info`, and `/get_server_info` |
+| Public routes | No auth: `/health`, `/liveness`, `/readiness`, `/health_generate`, `/engine_metrics`, `/loads`, `/v1/models`, `/v1/models/{model}`, `/get_model_info`, and `/get_server_info` |
 | Protected routes | `Authorization: Bearer <key>` with the shared `--api-key` or a per-tenant `--tenant-api-key` key; open when neither is set (`/v1/tokenize`, `/generate`, `/v1/chat/completions`, and the other inference routes) |
 | Control-plane routes | With [control-plane auth](../../getting-started/control-plane-auth.md) configured (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`), a control-plane API key or JWT with the admin role. Otherwise only the shared `--api-key` is accepted: per-tenant keys are rejected, a gateway with tenant keys but no `--api-key` answers every control-plane request with `401`, and a gateway with no keys at all leaves these routes open |
 
@@ -36,7 +36,8 @@ These endpoints are registered without any auth middleware:
 | `GET` | `/health_generate` | Generation health check, forwarded to HTTP workers; gRPC and ZMQ deployments answer `501` |
 | `GET` | `/engine_metrics` | The engines' own Prometheus metrics in one exposition; see [Engine Metrics Passthrough](../metrics.md#engine-metrics-passthrough) |
 | `GET` | `/loads` | Fleet engine load from the gateway's cached load snapshot (optional `?model=` filter); see [Get Loads](admin.md#get-loads) |
-| `GET` | `/v1/models` | List models |
+| `GET` | `/v1/models` | List models; see [List Models](openai.md#list-models) |
+| `GET` | `/v1/models/{model}` | One model's card; the `{model}` segment takes the rest of the path, so IDs with slashes work raw or percent-encoded. See [Retrieve Model](openai.md#retrieve-model) |
 | `GET` | `/get_model_info` | Model metadata, forwarded to an HTTP worker; gRPC and ZMQ deployments answer `501` |
 | `GET` | `/get_server_info` | Server metadata, forwarded to an HTTP worker; gRPC and ZMQ deployments answer `501` |
 

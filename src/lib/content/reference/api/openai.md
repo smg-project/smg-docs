@@ -71,7 +71,8 @@ accept the shared `--api-key` if configured. With neither control-plane auth nor
 those routes are open; with only `--tenant-api-key` configured, every admin request
 is rejected with `401`.
 
-`GET /v1/models` is a public route and answers without a key (see [List Models](#list-models)).
+The model routes — `GET /v1/models` and `GET /v1/models/{model}` — are public and answer
+without a key (see [List Models](#list-models) and [Retrieve Model](#retrieve-model)).
 
 ---
 
@@ -609,14 +610,63 @@ The list covers the models served by self-hosted workers, each once under its ca
 ID. Names configured with `--model-alias` are accepted in requests but are not listed.
 `created` is always `0`. `owned_by` is `self_hosted` for locally hosted workers, or the
 provider name (for example `openai`, `anthropic`, `xai`, `gemini`) for upstream providers.
-When no self-hosted worker serves any model, the endpoint returns `503` with the
-plain-text body `No models available`.
+When no self-hosted worker serves any model, the endpoint returns `503` in the gateway's
+JSON [error envelope](#error-format) with the code `no_models_available`.
 
 The endpoint needs no key. If the caller does send a bearer token (or an `x-api-key`
 header) that is not one of the gateway's own keys, SMG treats it as the caller's own
 provider key: it asks the registered external providers' `/v1/models` with that token and
 returns the first non-empty list, falling back to the self-hosted list. A gateway key
 (`--api-key` or `--tenant-api-key`) is never forwarded to a provider.
+
+A request carrying an `anthropic-version` header gets the same inventory in the Anthropic
+Messages shape instead: a single page with `has_more` (always `false`), `first_id`, and
+`last_id`, whose `data` entries carry `type`, `id`, `display_name` (the model ID when no
+display name is known), and `created_at` (`1970-01-01T00:00:00Z`, the counterpart of
+`created: 0`). Errors then come in the Messages envelope (top-level `type: "error"` and a
+`request_id`). The same header selects the shape on [Retrieve Model](#retrieve-model).
+
+---
+
+### Retrieve Model
+
+Fetch one model's card.
+
+```
+GET /v1/models/{model}
+```
+
+Like [List Models](#list-models), this is a public route and answers without a key.
+`{model}` takes the whole rest of the path, so an ID with a slash in it works raw or
+percent-encoded: `/v1/models/meta-llama/Llama-3.1-8B-Instruct` and
+`/v1/models/meta-llama%2FLlama-3.1-8B-Instruct` name the same model. A name configured
+with `--model-alias` resolves to its canonical model, and the response carries the
+canonical ID. The route answers from the self-hosted inventory only; it never asks an
+external provider.
+
+#### Example Request
+
+```bash
+curl http://localhost:30000/v1/models/meta-llama/Llama-3.1-8B-Instruct
+```
+
+#### Response
+
+```json
+{
+  "id": "meta-llama/Llama-3.1-8B-Instruct",
+  "object": "model",
+  "created": 0,
+  "owned_by": "self_hosted"
+}
+```
+
+With an `anthropic-version` header, the response is the Anthropic model object (`type`,
+`id`, `display_name`, `created_at`) instead. An unknown ID gets the same `404`
+`model_not_found` as every other route, in the OpenAI [error envelope](#error-format) —
+or, under `anthropic-version`, in the Messages envelope (top-level `type: "error"`,
+`error.type` `not_found_error`, and a `request_id`), as `/v1/messages` refuses the same
+model.
 
 ---
 
@@ -878,6 +928,7 @@ itself produced the error.
 | 500 | `internal_error` and stage-specific codes | A failure inside SMG; the code names the failing step |
 | 502 | `upstream_response_too_large` | A worker's non-streaming response exceeded `--max-payload-size` |
 | 503 | `no_available_workers` | Workers serve the model, but every one is unhealthy or has an open circuit breaker, or the routing policy selects none of them (HTTP and gRPC paths) |
+| 503 | `no_models_available` | `GET /v1/models`: no self-hosted worker serves any model (see [List Models](#list-models)) |
 | 503 | `worker_overload_protection_shed`, `admission_queue_timeout`, `scheduler_queue_timeout`, `scheduler_preempted` | Overload and admission sheds; see [Rate Limiting](#rate-limiting) |
 
 On gRPC workers, an engine finish reason of `error` (outside the OpenAI set) becomes an

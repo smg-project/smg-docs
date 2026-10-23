@@ -132,8 +132,8 @@ The other paths also budget MCP calls, but enforce the limit differently:
 
 | Path | Limit | When the limit is reached |
 |------|-------|---------------------------|
-| gRPC workers, gpt-oss (Harmony) models | `max_tool_calls` MCP calls (at most 10), and at most 10 model turns | The batch that would exceed the budget is not executed. Non-streaming responses end with `status: "failed"` and `error.code` `max_tool_calls_exceeded`. More than 10 turns end the request with an error. |
-| OpenAI-compatible provider | `max_tool_calls` MCP calls (at most 10) | Non-streaming responses complete with `incomplete_details.reason` `max_tool_calls`, and calls that did not run appear as failed `mcp_call` items. Streaming responses end with an `error` event. |
+| gRPC workers, gpt-oss (Harmony) models | `max_tool_calls` MCP calls (at most 10), and at most 10 model turns | The batch that would exceed the budget is not executed. The response ends with `status: "failed"` and `error.code` `max_tool_calls_exceeded`; a stream ends with a `response.failed` event carrying the same error. More than 10 turns end the request with an error. |
+| OpenAI-compatible provider | `max_tool_calls` MCP calls (at most 10) | The response completes with `incomplete_details.reason` `max_tool_calls`, and calls that did not run appear as failed `mcp_call` items. A stream ends normally with `response.completed` carrying the same response record. |
 | Messages API (Anthropic provider) | At most 10 rounds of tool calls | Non-streaming requests fail with `502` and code `mcp_max_iterations`. Streaming responses end with an `error` event. |
 
 On the OpenAI-compatible provider and in the Messages API, SMG runs every tool call in the loop through MCP, so a call to one of the client's own function tools comes back to the model as a failed tool call. Mix client function tools with MCP tools only on gRPC workers.

@@ -368,8 +368,8 @@ complete call was parsed before the stop. Streaming and non-streaming responses 
 same rules.
 
 gpt-oss (Harmony) models check the limit before a batch runs and do not execute a batch
-that would exceed it; a non-streaming response then ends `failed` with
-`max_tool_calls_exceeded`.
+that would exceed it; the response then ends `failed` with `max_tool_calls_exceeded`, and
+a stream ends with a `response.failed` terminal event carrying the same error.
 
 ### Background Mode
 
@@ -527,7 +527,7 @@ For a failed generation, `error` keeps the upstream error's `code` (or `type`) a
 `max_tool_calls_exceeded` the internal cap.
 
 gpt-oss (Harmony) models report `completed` even when `max_output_tokens` cuts the output
-short; only the tool-call limit fails their non-streaming response (see
+short; only the tool-call limit fails their response, streamed or not (see
 [Tool Call Limits](#tool-call-limits)).
 
 ### Usage
@@ -617,8 +617,9 @@ stream with no terminal event:
 
 Before the terminal event, SMG closes every item that is still open, exactly once, even
 when generation fails. Partial output stays in the terminal response with its unfinished
-status. gpt-oss (Harmony) streams always end with `response.completed`, or with an `error`
-event when their pipeline fails.
+status. gpt-oss (Harmony) streams end with `response.completed`, with `response.failed`
+when the tool-call limit is reached (see [Tool Call Limits](#tool-call-limits)), or with
+an `error` event when their pipeline fails.
 
 **MCP-specific streaming events:**
 

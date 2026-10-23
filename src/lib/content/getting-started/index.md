@@ -78,11 +78,11 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     | vLLM | `vllm-v0.31.0`, `vllm-v0.27.1`, `vllm-v0.26.0` | `vllm/vllm-openai` | `nightly-vllm` |
     | SGLang | `sglang-v0.5.21` | `lmsysorg/sglang` | `nightly-sglang` |
     | TensorRT-LLM | `trtllm-1.3.0rc24`, `trtllm-1.3.0rc23`, `trtllm-1.3.0rc22` | `nvcr.io/nvidia/tensorrt-llm/release` | `nightly-trtllm` |
-    | TokenSpeed | `tokenspeed-tml` (releases up to 1.11.0) | `lightseekorg/tokenspeed:tml` | `nightly-tokenspeed` |
+    | TokenSpeed | `tokenspeed-<x.y.z.postYYYYMMDD>` | dated TokenSpeed nightly build | `nightly-tokenspeed` |
 
     For example, v1.13.0 published `ghcr.io/smg-project/smg:1.13.0-vllm-v0.31.0` and `ghcr.io/smg-project/smg:1.13.0-sglang-v0.5.21`, both built from SMG 1.13.0. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
 
-    The `tokenspeed-tml` release images belong to 1.11.0 and earlier, and they do not contain that release's SMG: they were built from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG.
+    The TokenSpeed image is built from the latest dated TokenSpeed nightly at build time, and its tag suffix carries that nightly's version. The older `tokenspeed-tml` release images belong to 1.11.0 and earlier, and they do not contain that release's SMG: they were built from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG.
 
 === "From Source"
 

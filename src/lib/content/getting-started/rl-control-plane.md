@@ -42,7 +42,7 @@ Control calls stay out of the inference path. They skip routing policies, retrie
 
 ## Enable the Control Plane
 
-The control plane is compiled into every SMG build but is off by default. Without `--enable-rl`, SMG mounts nothing under `/v1/rl` and emits no `smg_rl_*` metrics; every `/v1/rl/*` request gets the gateway's unknown-URL answer: `404` with a JSON error envelope whose `error.code` is `unknown_url`.
+The control plane is compiled into every SMG build but is off by default. Without `--enable-rl`, SMG mounts nothing under `/v1/rl` and emits no `smg_rl_*` metrics. Every `/v1/rl/*` request gets the gateway's unknown-URL answer: `404` with a JSON error envelope whose `error.code` is `unknown_url`.
 
 | Flag | Default | Description |
 |---|---|---|

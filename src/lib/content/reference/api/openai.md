@@ -684,8 +684,9 @@ language.
 SMG proxies the OpenAI Realtime API to a realtime-capable worker. Both the OpenAI router
 (to an upstream provider) and the HTTP router (to a **local** worker labeled
 [`realtime: "true"`](../../getting-started/multiple-workers.md#realtime-capable-workers))
-support it. SMG relays frames verbatim, so the worker must speak the OpenAI Realtime
-protocol — for local workers, for example vLLM serving an ASR model with the realtime task.
+support it. The worker must speak the OpenAI Realtime protocol — for local workers, for
+example vLLM serving an ASR model with the realtime task. SMG relays frames as the worker
+sent them; error frames are the one exception (see [Upstream Errors](#upstream-errors)).
 
 | Endpoint | Transport | Purpose |
 |----------|-----------|---------|
@@ -698,6 +699,23 @@ protocol — for local workers, for example vLLM serving an ASR model with the r
 `GET /v1/realtime` requires the `model` query parameter and answers `400` without it.
 `POST /v1/realtime/calls` takes the model from the `model` query parameter for an
 `application/sdp` body, or from the session JSON in a `multipart/form-data` body.
+
+#### Upstream Errors
+
+A refusal loses the provider-side account identifiers before it reaches the caller:
+phrases naming an organization (`org-…`) or a project (`proj_…`) in a JSON error's
+`error.message` are removed, as on every provider relay (see
+[Provider Error Responses](../../getting-started/external-providers.md#provider-error-responses)).
+This applies on both routers, so error frames from local realtime workers are rewritten
+too.
+
+- A non-success answer to a realtime REST call or to the `/v1/realtime/calls` SDP
+  exchange is returned under the upstream's status and content type with its body
+  sanitized this way.
+- On a WebSocket session, `error` events and
+  `conversation.item.input_audio_transcription.failed` events are the only frames SMG
+  rewrites, with the same rule; every other frame is relayed as it came, never
+  re-serialized.
 
 #### WebSocket example
 
@@ -836,8 +854,11 @@ use a different shape and carry no `X-SMG-Error-Code` header:
 | A field range, a cross-field rule, or a [provider-profile](#provider-profiles) rule fails | `{"error": {"message": "...", "type": "invalid_request_error", "code": 400}}` |
 
 A `401` from API-key authentication has an empty body. Errors from HTTP workers are
-relayed with the worker's status and body. SMG never forwards a worker's
-`X-SMG-Error-Code` header, so that header always means SMG itself produced the error.
+relayed with the worker's status and body. An external provider's error is relayed under
+its status too, minus the account identifiers in its message (see
+[Provider Error Responses](../../getting-started/external-providers.md#provider-error-responses)).
+SMG never forwards a worker's `X-SMG-Error-Code` header, so that header always means SMG
+itself produced the error.
 
 ### Error Codes
 

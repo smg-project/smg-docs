@@ -607,10 +607,11 @@ curl http://localhost:30000/v1/models
 ```
 
 The list covers the models served by self-hosted workers, each once under its canonical
-ID. Names configured with `--model-alias` are accepted in requests but are not listed.
-`created` is always `0` and `owned_by` is `self_hosted`. When no self-hosted worker
-serves any model, the endpoint returns `503` in the gateway's JSON
-[error envelope](#error-format) with the code `no_models_available`.
+ID. Aliases (`--model-alias` names and model-card `aliases` entries) are accepted in
+requests but are not listed. `created` is always `0` and `owned_by` is `self_hosted`.
+
+When no self-hosted worker serves any model, the endpoint returns `503` in the gateway's
+JSON [error envelope](#error-format) with the code `no_models_available`.
 
 The endpoint needs no key. If the caller does send a bearer token (or an `x-api-key`
 header) that is not one of the gateway's own keys, SMG treats it as the caller's own
@@ -638,12 +639,14 @@ GET /v1/models/{model}
 ```
 
 Like [List Models](#list-models), this is a public route and answers without a key.
+
 `{model}` takes the whole rest of the path, so an ID with a slash in it works raw or
 percent-encoded: `/v1/models/meta-llama/Llama-3.1-8B-Instruct` and
-`/v1/models/meta-llama%2FLlama-3.1-8B-Instruct` name the same model. A name configured
-with `--model-alias` resolves to its canonical model, and the response carries the
-canonical ID. The route answers from the self-hosted inventory only; it never asks an
-external provider.
+`/v1/models/meta-llama%2FLlama-3.1-8B-Instruct` name the same model. An alias — a name
+configured with `--model-alias`, or an `aliases` entry on a worker's model card (see the
+[Worker Spec](admin.md#worker-spec)) — resolves to its canonical model, and the response
+carries the canonical ID. The route answers from the self-hosted inventory only; it never
+asks an external provider.
 
 #### Example Request
 

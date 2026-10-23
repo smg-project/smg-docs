@@ -112,7 +112,7 @@ Every request resolves one tool-call parser and one reasoning parser for its mod
 2. **Gateway flag**: `--tool-call-parser` / `--reasoning-parser`, which applies to every model.
 3. **Automatic detection** from the model name.
 
-These per-model parsers are the gateway's default readers (`--parser legacy`). Started with `--parser symphony`, the gateway reads Chat Completions and Messages API responses with [Symphony tables](#symphony-parsing) instead; the same names then pick the table per model, with Symphony's checkpoint registry between the per-model overrides and the flags, as that section describes.
+These per-model parsers are the gateway's default readers (`--parser legacy`). Started with `--parser symphony`, the gateway reads Chat Completions, Messages API and Responses API responses with [Symphony tables](#symphony-parsing) instead; the same names then pick the table per model, with Symphony's checkpoint registry between the per-model overrides and the flags, as that section describes.
 
 The gateway checks the flag values when it starts. Under the default `--parser legacy`, a `--tool-call-parser` or `--reasoning-parser` value naming none of that flag's legacy parsers stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`. When the rejected name is one `--parser symphony` reads with — a [table's own name](#table-names), `muse` or `hf` — the error says so, ending `which --parser symphony reads with`. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
 
@@ -347,7 +347,7 @@ All 24 registered tool-call parsers. For auto-detection, the longest matching pa
 
 ## Symphony Parsing
 
-`--parser symphony` opts the gateway into reading a model's output with a **Symphony table**: one description of the model's output format that yields the reasoning, content and tool calls together, in place of the separate [reasoning](#reasoning-parsers) and [tool-call](#tool-call-parsers) parsers above. The default, `--parser legacy`, keeps those parsers. Symphony applies to Chat Completions and the Messages API on this pipeline; every other endpoint keeps the legacy parsers. The response shape does not change: the streaming deltas and message fields clients see are the same as under the legacy parsers.
+`--parser symphony` opts the gateway into reading a model's output with a **Symphony table**: one description of the model's output format that yields the reasoning, content and tool calls together, in place of the separate [reasoning](#reasoning-parsers) and [tool-call](#tool-call-parsers) parsers above. The default, `--parser legacy`, keeps those parsers. Symphony applies to Chat Completions, the Messages API and the Responses API on this pipeline; every other endpoint keeps the legacy parsers. On `/v1/responses` it reads every model turn, the turns of an [MCP tool loop](../extensibility/mcp.md) included. The response shape does not change: the streaming deltas and message fields clients see are the same as under the legacy parsers.
 
 ### Which Table Reads a Model
 
@@ -399,7 +399,7 @@ The name `hf` (the same name vLLM uses, and the same for both flags) reads each 
 
 A request's `X-SMG-Parser` header, `legacy` or `symphony`, overrides the `--parser` flag for that one request, in either direction. Any other value is refused: 400 with code `invalid_parser_header`.
 
-The response's `x-smg-parser` header names the parser that actually read it. It reports `legacy` when Symphony was chosen but no table took the request — the model's names select the legacy parsers, the registry does not know the checkpoint and the flags name no table, or a forced call fell back to a JSON-schema constraint (below) — so a client comparing the two modes can tell which one read each answer.
+The response's `x-smg-parser` header names the parser that actually read it. It reports `legacy` when Symphony was chosen but no table took the request — the model's names select the legacy parsers, the registry does not know the checkpoint and the flags name no table, or a forced call fell back to a JSON-schema constraint (below) — so a client comparing the two modes can tell which one read each answer. Chat Completions and Messages responses carry the header; a `/v1/responses` response does not, though the request header still switches the parser for its turns.
 
 ### What the Table Reads
 
@@ -492,7 +492,7 @@ See [gRPC Workers](../../getting-started/grpc-workers.md) for the launch command
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--parser` | `legacy` | Which parser reads a Chat Completions or Messages response: `legacy` (the per-model parsers on this page) or `symphony` ([Symphony tables](#symphony-parsing)). A request's `X-SMG-Parser` header overrides it for that request |
+| `--parser` | `legacy` | Which parser reads a Chat Completions, Messages or Responses API response: `legacy` (the per-model parsers on this page) or `symphony` ([Symphony tables](#symphony-parsing)). A request's `X-SMG-Parser` header overrides it for that request |
 | `--reasoning-parser` | Auto | Reasoning parser for every model without a per-model override. Under `--parser symphony`, may name a Symphony table or `hf`, and reads only the models [Symphony's registry](#which-table-reads-a-model) does not know |
 | `--tool-call-parser` | Auto | Tool-call parser for every model without a per-model override. Also opts the parser into structural-tag constraints. Under `--parser symphony`, may name a Symphony table or `hf`, and reads only the models [Symphony's registry](#which-table-reads-a-model) does not know |
 | `--chat-template` | None | Jinja chat template file. Without it, SMG looks in the model directory. The DeepSeek and Kimi-K3 native renderers ignore it |

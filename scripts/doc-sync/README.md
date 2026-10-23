@@ -44,6 +44,12 @@ Writer/publisher matrices carry only numeric item indices. Proposal text and
 source evidence travel in the run's discovery-report artifact, checked against
 both pinned snapshots, so GitHub secret masking cannot suppress the job matrix.
 
+PR descriptions distinguish the reviewed SMG snapshot from the source change.
+For release-audit and version-context corrections, the concern's commit is only
+a verification baseline; related introducing PRs/commits belong in the evidence.
+Queued corrections keep their original identity while the description links the
+current run's reviewed snapshot.
+
 Every job in this workflow uses the CPU runner set. Separate PR CI jobs on
 `ubuntu-latest` run mocked Python tests, lint, type checks, and builds without
 model calls.

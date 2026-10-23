@@ -29,6 +29,28 @@ def pr(item, state="open", **changes):
 
 
 class PlanningTests(unittest.TestCase):
+    def test_queued_correction_attributes_reviewed_snapshot_not_old_identity(self):
+        for concern in ("release-audit-example-forced-calls", "version-context-parser-notes"):
+            with self.subTest(concern=concern):
+                item = docs.validate_item(proposal(concern=concern,
+                    source_target={"version": "main", "sha": "b" * 40}))
+                original = dict(item)
+                text = docs.source_attribution(item)
+                self.assertIn("Verified against SMG main at", text)
+                self.assertIn("/tree/" + "b" * 40, text)
+                self.assertNotIn("Source change:", text)
+                self.assertNotIn("a" * 40, text)
+                self.assertEqual(item, original)
+
+    def test_legacy_correction_does_not_claim_an_introducing_change(self):
+        item = proposal(concern="version-context-parser-notes")
+        text = docs.source_attribution(item)
+        self.assertIn("Verification baseline:", text)
+        self.assertIn("/tree/" + item["source_sha"], text)
+        self.assertNotIn("Source change:", text)
+        item["source_release"] = {"tag": "v1.13.0", "sha": "c" * 40}
+        self.assertIn("Verified against SMG v1.13.0 at", docs.source_attribution(item))
+
     def context(self, prs=None):
         return {"code_history": ["a" * 40 + " 2020-01-01 old code change"],
                 "existing_prs": prs or []}
@@ -503,6 +525,7 @@ class GitGuardTests(unittest.TestCase):
     def test_publish_makes_one_signed_off_docs_commit_and_one_pr(self):
         self.origin()
         self.path.write_text("Updated documentation.\n")
+        self.item["source_target"] = {"version": "main", "sha": "b" * 40}
         calls = []
         with patch.object(docs, "existing_prs", return_value=[]), \
                 patch.object(docs, "run", side_effect=self.publisher_commands(calls)):
@@ -519,12 +542,34 @@ class GitGuardTests(unittest.TestCase):
         self.assertNotIn("XinyueZhang369", calls[0][1])
         self.assertNotIn("zoeyzhang369@gmail.com", calls[0][1])
         self.assertIn("https://github.com/smg-project/smg/commit/", calls[0][1])
+        self.assertIn("Source change: https://github.com/smg-project/smg/commit/" + self.item["source_sha"], calls[0][1])
+        self.assertIn("/tree/" + "b" * 40, calls[0][1])
         self.assertNotIn("--draft", calls[0][0])
         self.assertEqual(calls[0][0][calls[0][0].index("--title") + 1],
                          "docs: " + self.item["title"][7:])
         self.assertTrue(self.git("log", "-1", "--format=%s").startswith("docs: "))
         self.assertIn(self.item["key"], calls[0][1])
         self.assertIn(self.item["source_sha"], calls[0][1])
+
+    def test_publish_audit_preserves_identity_and_related_change_evidence(self):
+        self.origin()
+        self.path.write_text("Updated documentation.\n")
+        evidence = "Related SMG changes: https://github.com/smg-project/smg/pull/3497"
+        item = docs.validate_item({**self.item,
+            "concern": "release-audit-example-forced-calls", "evidence": evidence,
+            "source_target": {"version": "main", "sha": "b" * 40}})
+        calls = []
+        with patch.object(docs, "existing_prs", return_value=[]), \
+                patch.object(docs, "run", side_effect=self.publisher_commands(calls)):
+            docs.publish(item, "test/repo", self.base, "main")
+        self.assertEqual(len(calls), 1)
+        body = calls[0][1]
+        self.assertIn(docs.MARKER + item["key"] + " -->", body)
+        self.assertIn("Verified against SMG main at", body)
+        self.assertIn("/tree/" + "b" * 40, body)
+        self.assertNotIn("Source change:", body)
+        self.assertNotIn("/commit/" + item["source_sha"], body)
+        self.assertIn(evidence, body)
 
     def test_retry_recovers_matching_branch_without_rewriting_it(self):
         self.origin()

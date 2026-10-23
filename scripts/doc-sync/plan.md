@@ -13,6 +13,13 @@ Select source_commit using the supplied numeric IDs, never invent a SHA. Record
 IDs actually inspected in inspected_commits. Target 80 investigative turns,
 reserving the rest of 200 for the structured result. Do not chase a PR quota.
 
+In evidence, separate the verification snapshot from the changes that introduced
+the behavior. When those changes are known from inspected source history, begin
+with `Related SMG changes:` and link their actual PRs or commits using full GitHub
+URLs. Do not infer an introducing change from an audit or editorial baseline.
+If there is no single introducing change, say so and cite the current source
+paths and tests instead. Keep the existing concern identity when reusing work.
+
 Also audit redundant SMG version narration on pages in your subsystem. Propose
 one page/topic cleanup concern at a time, with a concern slug starting
 version-context-, using the newest supplied source_commit as the verification

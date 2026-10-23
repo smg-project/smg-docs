@@ -459,6 +459,25 @@ def review_passes(raw):
         raise ValueError("Documentation review rejected the change: " + str(verdict.get("reason")))
 
 
+def source_attribution(item):
+    """Distinguish the reviewed snapshot from a behavior's introducing change."""
+    source = item.get("source_target") or item.get("source_release")
+    lines = []
+    if source:
+        version = source.get("version") or source["tag"]
+        sha = source["sha"]
+        lines.append(f"Verified against SMG {version} at "
+                     f"[{sha[:8]}](https://github.com/{SOURCE_REPO}/tree/{sha}).")
+    sha = item["source_sha"]
+    if not item["concern"].startswith(("release-audit-", "version-context-")):
+        lines.append(f"Source change: https://github.com/{SOURCE_REPO}/commit/{sha}")
+    elif not source:
+        # Legacy proposals may have only their original verification baseline.
+        lines.append(f"Verification baseline: "
+                     f"[{sha[:8]}](https://github.com/{SOURCE_REPO}/tree/{sha}).")
+    return "\n\n".join(lines)
+
+
 def publish(item, repo, base, base_branch):
     # Refresh against live PRs immediately before publishing to cover human PRs
     # opened while the model/build ran and retries after partial publication.
@@ -500,7 +519,7 @@ def publish(item, repo, base, base_branch):
 
 ## Why we need it
 
-Source change: https://github.com/{SOURCE_REPO}/commit/{item["source_sha"]}
+{source_attribution(item)}
 
 Documentation targets SMG main; the site version selector supplies version context.
 

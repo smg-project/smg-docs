@@ -47,7 +47,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup toolchain install nightly --profile minimal --component rustfmt
 ```
 
-The checked-in `rust-toolchain.toml` pins Rust 1.98.0 with the `clippy` and `rustfmt` components: rustup installs and selects that toolchain on your first `cargo` command in the checkout, so there is no stable toolchain to install by hand. Newer stable toolchains can report clippy lints that 1.98.0 does not, and a directory override (`rustup override set`) takes precedence over the pin — if your clippy results differ from CI's, remove it with `rustup override unset`.
+The checked-in `rust-toolchain.toml` pins Rust 1.98.0 with the `clippy` and `rustfmt` components: rustup installs and selects that toolchain on your first `cargo` command in the checkout, so there is no stable toolchain to install by hand. Newer stable toolchains can report clippy lints that 1.98.0 does not. A directory override (`rustup override set`) takes precedence over the pin; if your clippy results differ from CI's, remove it with `rustup override unset`.
 
 ### 3. Install System Packages
 
@@ -124,7 +124,7 @@ The gateway is the `smg` package in `model_gateway/`. It builds two binaries fro
 error: cannot update the lock file .../Cargo.lock because --locked was passed to prevent this
 ```
 
-This error means a `Cargo.toml` changed without a matching `Cargo.lock` update. When you add or bump a dependency on purpose, run cargo once without `--locked` (or run `cargo update -p <crate>`) and commit the updated `Cargo.lock` in the same PR. The `make` targets call cargo without `--locked`.
+This error means a `Cargo.toml` changed without a matching `Cargo.lock` update. When you add or bump a dependency on purpose, run cargo once without `--locked` (or run `cargo update -p <crate>`) and commit the updated `Cargo.lock` in the same PR. The `make` targets, CI's clippy and `cargo test` runs, and the `clippy` pre-commit hook all call cargo without `--locked`; the flag is fail-fast protection for your own builds.
 
 ### Cargo Features
 
@@ -281,8 +281,6 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --all-targets --all-features --fix --allow-dirty
 ```
 
-Neither CI nor the pre-commit hook passes `--locked` to clippy; adding it locally is harmless and makes a stale `Cargo.lock` fail fast instead of being silently re-resolved (see [Cargo.lock and `--locked`](#cargolock-and---locked)).
-
 CI also lints two reduced builds, so code that only one provider router uses cannot hide behind the default feature set:
 
 ```bash
@@ -343,7 +341,7 @@ git push --force-with-lease
 Unit tests sit next to the code in `#[cfg(test)] mod tests` blocks. Integration tests live in `model_gateway/tests/`: each top-level `.rs` file there is a separate test binary, and `api_tests.rs`, `reliability_tests.rs`, `routing_tests.rs`, and `security_tests.rs` each pull in the matching subdirectory plus the shared helpers in `tests/common/`.
 
 ```bash
-# Everything (what `make test` and CI run; neither passes `--locked`)
+# Everything (what `make test` and CI run)
 cargo test
 
 # The gateway's unit tests only

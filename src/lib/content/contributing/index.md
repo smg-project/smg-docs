@@ -112,8 +112,6 @@ Every PR must pass these checks locally before you request review. "Probably pas
 
 Check 2 uses `--all-features`, which turns on the `opencv-video` feature and needs system OpenCV. Install it once with `make opencv-deps`, or see [Linting and Formatting](development.md#linting-and-formatting) for a lint that skips it.
 
-CI runs clippy and `cargo test` without `--locked`; adding the flag locally is fine and makes a stale `Cargo.lock` fail fast (see [Cargo.lock and `--locked`](development.md#cargolock-and---locked)).
-
 ---
 
 ## Commits

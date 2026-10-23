@@ -6,7 +6,7 @@ title: Tenant Rate Limiting Reference
 
 Precise contract for per-tenant token/request rate limiting: every configuration knob, the YAML policy schema, and the exact response shape. For how it works conceptually — the reserve/settle model, retry handling, `n>1` accounting — see [Tenant Rate Limiting](../concepts/reliability/tenant-rate-limiting.md).
 
-Tenant rate limiting is **disabled by default** and, when enabled, only enforced on the **gRPC router's** Chat, Generate, Completion, Messages, and Decisions endpoints (Harmony-mode chat included). The gRPC router serves both gRPC- and [ZMQ-connected](../getting-started/zmq-workers.md) workers (`--connection-mode zmq`, `ipc://` worker URLs); for Chat, Generate, Completion, and Messages, enforcement does not depend on the worker transport. Tenant rate limiting does not apply to the Responses endpoint, embeddings, classify, audio transcriptions, or the HTTP/external-provider routers.
+Tenant rate limiting is **disabled by default** and, when enabled, only enforced on the **gRPC router's** Chat, Generate, Completion, Messages, Decisions, Embeddings, Classify, and Audio Transcriptions endpoints (Harmony-mode chat included). The gRPC router serves both gRPC- and [ZMQ-connected](../getting-started/zmq-workers.md) workers (`--connection-mode zmq`, `ipc://` worker URLs); for Chat, Generate, Completion, and Messages, enforcement does not depend on the worker transport. Tenant rate limiting does not apply to the Responses endpoint or the HTTP/external-provider routers.
 
 Decisions is the one endpoint where the worker transport matters: the gRPC router serves it only on gRPC-connected SGLang workers, and a Decisions request for a model with no such worker is rejected with **501** (`X-SMG-Error-Code: decisions_not_supported`) before any reservation is made.
 
@@ -136,7 +136,7 @@ Each affected scope (tenant-global, and the matching model rule if any) is a con
 - **Capacity** = the configured `tokens_per_minute` / `requests_per_minute` value itself. The bucket starts full.
 - **Refill rate** = capacity ÷ 60, applied continuously (not in discrete per-minute resets).
 - **Reserve** debits the estimated input-token count from the token counter and a flat `1` from the request counter, only if *both* counters can currently afford it. A request is denied if *either* can't.
-- **Settle** applies a signed delta — `(real input tokens + real completion tokens) − estimated tokens` — to the token counter only. A response that used more than estimated can push the counter temporarily negative (debt); the request counter is never trued up, since it was always exactly `1`.
+- **Settle** applies a signed delta — `(real input tokens + real completion tokens) − estimated tokens` — to the token counter only (an embeddings or classify response has no completion, so its real total is the backend's reported prompt count). A response that used more than estimated can push the counter temporarily negative (debt); the request counter is never trued up, since it was always exactly `1`.
 
 ---
 

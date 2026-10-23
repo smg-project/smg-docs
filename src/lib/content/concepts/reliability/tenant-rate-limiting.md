@@ -90,7 +90,9 @@ A denied reservation returns **429** with the gateway's standard JSON error enve
 
 ## Current scope
 
-Tenant rate limiting is wired into SMG's **gRPC router**, covering the Chat, Generate, Completion, Messages, and Decisions endpoints (Harmony-mode chat is covered too — it shares the same entry point as regular chat). The gRPC router serves [ZMQ-connected workers](../../getting-started/zmq-workers.md) too — `--connection-mode zmq` builds the same router and pipeline — and the reservation happens before a worker is even selected, so for Chat, Generate, Completion, and Messages, enforcement is identical whichever transport the workers use. Tenant rate limiting is **not yet wired into**: the Responses endpoint, embeddings, classify, audio transcriptions, or any of the HTTP-passthrough / external-provider routers.
+Tenant rate limiting is wired into SMG's **gRPC router**, covering the Chat, Generate, Completion, Messages, Decisions, Embeddings, Classify, and Audio Transcriptions endpoints (Harmony-mode chat is covered too — it shares the same entry point as regular chat). The gRPC router serves [ZMQ-connected workers](../../getting-started/zmq-workers.md) too — `--connection-mode zmq` builds the same router and pipeline — and the reservation happens before a worker is even selected, so for Chat, Generate, Completion, and Messages, enforcement is identical whichever transport the workers use. Tenant rate limiting is **not wired into** the Responses endpoint or any of the HTTP-passthrough / external-provider routers.
+
+Settlement follows what each endpoint's backend actually reports: an embeddings or classify response carries only a prompt token count — there is no completion to charge — so those requests settle against the backend's reported prompt tokens alone. A transcription settles against the backend's reported prompt and completion counts, like a chat response, even though the transcript returned to the client carries no usage object.
 
 Decisions is the one endpoint where the worker transport matters: the gRPC router serves it only on gRPC-connected SGLang workers, so a Decisions request for a model served entirely by ZMQ-connected workers is rejected as unsupported before any budget is reserved.
 
@@ -98,7 +100,7 @@ The `--tenant-rate-limit-*` flags belong to the Rust `smg` binary. The Python la
 
 Enforcement is also **per gateway instance**: a tenant's true limit across several independent SMG instances is roughly the configured value multiplied by the instance count. A distributed backend for exact cluster-wide enforcement is a possible future extension behind the same interface, not something this version provides.
 
-There are no dedicated Prometheus metrics for tenant rate-limit decisions yet. Denials show up only as `429` responses, which the generic `smg_http_responses_total` counter records with `error_code="tenant_rate_limit_exceeded"`; admissions and settlement deltas aren't observable.
+There are no dedicated Prometheus metrics for tenant rate-limit decisions. Denials show up only as `429` responses, which the generic `smg_http_responses_total` counter records with `error_code="tenant_rate_limit_exceeded"`; admissions and settlement deltas aren't observable.
 
 ---
 

@@ -49,7 +49,7 @@ use crate::worker::Worker;
 All code must pass clippy with warnings denied:
 
 ```bash
-cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 Because of `-D warnings`, a lint set to `warn` in `[workspace.lints]` fails CI just like one set to `deny`. These are the rules that shape everyday code:

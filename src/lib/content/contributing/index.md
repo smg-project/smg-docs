@@ -61,9 +61,11 @@ cd smg
 ### 2. Install the Toolchain
 
 ```bash
-# Rust 1.98.0 (the version CI uses) for this checkout, plus nightly rustfmt
-rustup toolchain install 1.98.0
-rustup override set 1.98.0
+# Install rustup; rust-toolchain.toml pins Rust 1.98.0 (the version CI uses),
+# which rustup installs on your first cargo command in the checkout
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Nightly, used only for rustfmt
 rustup toolchain install nightly --profile minimal --component rustfmt
 
 # Git hooks: formatting, lint, DCO sign-off, and commit-message checks
@@ -80,8 +82,9 @@ You also need `protoc` and a C toolchain with OpenSSL headers; see [Prerequisite
 # Branch names must be <type>/<description> or <username>/<description>
 git checkout -b feat/my-change
 
-cargo build --locked
-cargo test --locked
+# The first cargo command installs the pinned Rust 1.98.0 toolchain
+cargo build
+cargo test
 ```
 
 ### 4. Commit and Open a Pull Request
@@ -102,12 +105,14 @@ Every PR must pass these checks locally before you request review. "Probably pas
 | # | Command | Expectation |
 |---|---------|-------------|
 | 1 | `cargo +nightly fmt --all` | No output (silent success) |
-| 2 | `cargo clippy --locked --all-targets --all-features -- -D warnings` | Zero warnings, zero errors |
-| 3 | `cargo test --locked` | `test result: ok` with 0 failures |
+| 2 | `cargo clippy --all-targets --all-features -- -D warnings` | Zero warnings, zero errors |
+| 3 | `cargo test` | `test result: ok` with 0 failures |
 | 4 | `make python-dev` (only if `config/types.rs`, `protocols/`, or `bindings/` changed) | Builds successfully |
 | 5 | Commit format | Conventional commit, DCO sign-off present, no AI attribution |
 
 Check 2 uses `--all-features`, which turns on the `opencv-video` feature and needs system OpenCV. Install it once with `make opencv-deps`, or see [Linting and Formatting](development.md#linting-and-formatting) for a lint that skips it.
+
+CI runs clippy and `cargo test` without `--locked`; adding the flag locally is fine and makes a stale `Cargo.lock` fail fast (see [Cargo.lock and `--locked`](development.md#cargolock-and---locked)).
 
 ---
 

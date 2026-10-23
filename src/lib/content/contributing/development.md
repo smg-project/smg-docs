@@ -12,7 +12,7 @@ This guide covers setting up a development environment, building and testing SMG
 
 | Tool | Version | Used for |
 |------|---------|----------|
-| Rust | 1.98.0 | Building the workspace. CI pins this version in `scripts/ci_install_rust.sh`; the repository has no `rust-toolchain.toml` |
+| Rust | 1.98.0 | Building the workspace. Pinned by the checked-in `rust-toolchain.toml`; the CI runners install the same version through `scripts/ci_install_rust.sh` |
 | Rust nightly with `rustfmt` | nightly | Formatting only: `rustfmt.toml` uses unstable options |
 | `protoc` | — | Compiling the gRPC (`crates/grpc_client`) and mesh (`crates/mesh`) protobuf definitions at build time |
 | C toolchain, `pkg-config`, OpenSSL headers | — | Native dependencies |
@@ -43,15 +43,11 @@ To contribute, clone your fork instead (see [Quick Start](index.md#quick-start))
 # Install rustup
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# The toolchain CI uses, pinned for this checkout
-rustup toolchain install 1.98.0
-rustup override set 1.98.0
-
 # Nightly, used only for rustfmt
 rustup toolchain install nightly --profile minimal --component rustfmt
 ```
 
-Newer stable toolchains can report clippy lints that 1.98.0 does not: moving CI to 1.98 needed code changes to pass `-D warnings` (smg-project/smg#2272). Use 1.98.0 when you reproduce CI's lint results.
+The checked-in `rust-toolchain.toml` pins Rust 1.98.0 with the `clippy` and `rustfmt` components: rustup installs and selects that toolchain on your first `cargo` command in the checkout, so there is no stable toolchain to install by hand. Newer stable toolchains can report clippy lints that 1.98.0 does not, and a directory override (`rustup override set`) takes precedence over the pin — if your clippy results differ from CI's, remove it with `rustup override unset`.
 
 ### 3. Install System Packages
 
@@ -279,21 +275,23 @@ cargo +nightly fmt --all
 cargo +nightly fmt --all -- --check
 
 # Lint the way CI and the pre-commit hook do
-cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 
 # Apply clippy's machine-applicable fixes, then re-run the lint above
-cargo clippy --locked --all-targets --all-features --fix --allow-dirty
+cargo clippy --all-targets --all-features --fix --allow-dirty
 ```
+
+Neither CI nor the pre-commit hook passes `--locked` to clippy; adding it locally is harmless and makes a stale `Cargo.lock` fail fast instead of being silently re-resolved (see [Cargo.lock and `--locked`](#cargolock-and---locked)).
 
 CI also lints two reduced builds, so code that only one provider router uses cannot hide behind the default feature set:
 
 ```bash
 # Self-hosted-only build (no provider routers)
-cargo clippy --locked -p smg -p smg-external-router --no-default-features \
+cargo clippy -p smg -p smg-external-router --no-default-features \
   --features smg/grpc-client,smg/jemalloc-stats --all-targets -- -D warnings
 
 # Anthropic-only build
-cargo clippy --locked -p smg -p smg-external-router --no-default-features \
+cargo clippy -p smg -p smg-external-router --no-default-features \
   --features smg/grpc-client,smg/jemalloc-stats,smg/provider-anthropic --all-targets -- -D warnings
 ```
 
@@ -303,7 +301,7 @@ Clippy runs with `-D warnings`, so every workspace lint set to `warn` fails CI t
     `--all-features` turns on `opencv-video`, which links system OpenCV, and `mm-rdma`, whose NIXL bindings are generated with bindgen; both need libclang at build time. `make opencv-deps` runs `scripts/install_opencv.sh`, which installs `opencv` and `pkg-config` with Homebrew on macOS (libclang comes with the Xcode Command Line Tools), or `clang`, `libclang-dev`, `cmake`, `ninja-build`, `pkg-config`, and `libopencv-dev` with apt on Debian/Ubuntu. To lint without them, drop `--all-features`:
 
     ```bash
-    cargo clippy --locked --workspace --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
     ```
 
 ### Python
@@ -345,8 +343,8 @@ git push --force-with-lease
 Unit tests sit next to the code in `#[cfg(test)] mod tests` blocks. Integration tests live in `model_gateway/tests/`: each top-level `.rs` file there is a separate test binary, and `api_tests.rs`, `reliability_tests.rs`, `routing_tests.rs`, and `security_tests.rs` each pull in the matching subdirectory plus the shared helpers in `tests/common/`.
 
 ```bash
-# Everything (what `make test` and CI run)
-cargo test --locked
+# Everything (what `make test` and CI run; neither passes `--locked`)
+cargo test
 
 # The gateway's unit tests only
 cargo test --locked -p smg --lib
@@ -702,7 +700,7 @@ The `--all-features` build (used by `make check`, `make pre-commit`, the `clippy
 make opencv-deps
 
 # ...or skip the feature for a quick lint
-cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 ### `cannot update the lock file ... because --locked was passed`
@@ -715,7 +713,7 @@ The integration tests bind fixed local ports. Make sure no other test run (from 
 
 ### Clippy Passes Locally but Fails in CI
 
-- CI uses Rust 1.98.0, and other toolchains can report different lints.
+- CI uses Rust 1.98.0, the version `rust-toolchain.toml` pins for the checkout. A `rustup override` or a `+<toolchain>` argument bypasses the pin and can report different lints.
 - CI lints with `--all-features` and also lints the self-hosted-only and Anthropic-only builds.
 - `-D warnings` turns every `warn`-level workspace lint into an error.
 

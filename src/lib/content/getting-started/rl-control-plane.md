@@ -42,7 +42,7 @@ Control calls stay out of the inference path. They skip routing policies, retrie
 
 ## Enable the Control Plane
 
-The control plane is compiled into every SMG build but is off by default. Without `--enable-rl`, SMG mounts nothing under `/v1/rl`: every `/v1/rl/*` request returns `404` with an empty body, and no `smg_rl_*` metrics are emitted.
+The control plane is compiled into every SMG build but is off by default. Without `--enable-rl`, SMG mounts nothing under `/v1/rl` and emits no `smg_rl_*` metrics: every `/v1/rl/*` request gets the gateway's unknown-URL answer, `404` with a JSON error envelope whose `error.code` is `unknown_url`.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -408,7 +408,7 @@ A failure on the SMG side returns JSON `{"error": "<code>", "message": "<text>"}
 | `502` | `upstream_unreachable` | Per-worker call | SMG could not connect to the engine or read its response | `worker_id`, `url` |
 | `504` | `upstream_timeout` | Per-worker call | Connecting timed out, or the engine sent no response within `--rl-control-timeout-secs` | `worker_id`, `url` |
 
-In a fan-out, a failed target never changes the status beyond `207`; it is reported in `failed[]`. Auth failures (`401`, `403`) and the `404` for a disabled control plane come from the gateway and do not use this format.
+In a fan-out, a failed target never changes the status beyond `207`; it is reported in `failed[]`. Auth failures (`401`, `403`) and the `404 unknown_url` for a disabled control plane come from the gateway and do not use this format.
 
 ---
 
@@ -561,11 +561,13 @@ RUST_LOG=warn,smg_rl=info smg launch \
 
 ## Troubleshooting
 
-??? question "Every /v1/rl/* request returns 404 with an empty body"
+??? question "Every /v1/rl/* request returns 404 unknown_url"
 
-    The control plane is not mounted. Start SMG with `--enable-rl` (`--router-enable-rl` with `smg serve`). With the Python client, this shows up as `RlError` with code `http_error` and status 404.
+    The control plane is not mounted. Start SMG with `--enable-rl` (`--router-enable-rl` with `smg serve`). Without it, nothing exists under `/v1/rl`, so the gateway answers each request like any other unknown URL: `404` with its JSON error envelope, carrying `unknown_url` in `error.code` and the `X-SMG-Error-Code` header, and an `error.message` naming the method and path.
 
-    An unknown worker ID also returns `404`, but with a JSON body: `{"error": "worker_not_found", ...}`.
+    With the Python client, this shows up as `RlError` with status 404 and the envelope as its `payload`. Check `err.payload["error"]["code"]` rather than `err.code`, which is a flat code only for the control plane's own error bodies.
+
+    The control plane's own `404` looks different: with `--enable-rl` on, an unknown worker ID answers in the flat [error format](#errors), `{"error": "worker_not_found", "message": "...", "id": "..."}`.
 
 ??? question "401 or 403 from /v1/rl/*"
 

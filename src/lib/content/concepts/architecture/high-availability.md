@@ -18,7 +18,7 @@ The mesh does not steer client traffic. Put the routers behind a load balancer o
 
 ### :material-shield-check: Fault Tolerance
 
-When a router fails, the others keep serving with the workers and cache-aware routing state it already shared. Your load balancer sends its clients to them.
+When a router fails, your load balancer sends its clients to the others, which keep the cache-aware routing state the failed router shared. Workers only that router registered are removed shortly after it is marked `DOWN`, so register each worker on more than one router ([Worker Registry Sync](#worker-registry-sync)).
 
 </div>
 
@@ -139,6 +139,8 @@ smg launch --enable-mesh --mesh-advertise-host 10.0.0.2 --mesh-port 39527 \
 ```
 
 Router 2 has no workers of its own; it imports router 1's workers through the mesh.
+
+Imported workers last only while the router that registered them stays in the cluster — if router 1 goes down for good, router 2 removes them after a short grace (see [Worker Registry Sync](#worker-registry-sync)). To keep workers served through a router failure, register them on every router, as under [Basic Configuration](#basic-configuration).
 
 ### Command Line Options
 
@@ -349,7 +351,7 @@ Each router publishes the workers it registered itself, whether from `--worker-u
 - **Imports are health-checked locally.** A peer rebuilds the worker from its published spec and probes it itself. The owner's health flag sets the import's initial state and afterwards only nudges it: healthy promotes a pending or not-ready import to ready, and unhealthy demotes a ready one.
 - **Workers are matched by URL.** A router that registered a URL itself keeps its own worker and ignores peers' copies. Give a worker the same URL on every router, and never a loopback address: a peer that imports `http://127.0.0.1:8000` routes to its own host.
 - **Only the owner removes a worker.** Removing a worker on the router that registered it removes it everywhere. Deleting an imported worker through another router's API lasts at most until that router's next reconcile pass (every 30 seconds) imports it again.
-- **A departed router's workers stay.** If a router leaves for good, its peers keep its workers registered and keep health-checking them.
+- **A departed router's workers are removed.** From the moment the cluster state shows a router `DOWN` or `LEAVING`, peers import nothing new from it, so a router that joins afterwards never picks up its workers. Once it has been gone for 20 seconds, peers also remove the workers they already imported from it, at the next reconcile pass (every 30 seconds). A shorter blip removes nothing, and a router that returns has its workers imported again. Workers a peer registered itself — the same URL given to several routers — are its own and stay.
 - **API keys stay local.** The published spec leaves out the worker's `api_key`.
 
 !!! note "ZMQ workers stay on their host"
@@ -597,7 +599,7 @@ Any router count works. There is no leader or quorum, so odd counts are not requ
 
 ### :material-earth: Availability Zones
 
-Spread routers across zones so that a zone outage leaves routers that hold the shared workers and cache state.
+Spread routers across zones so that a zone outage leaves routers holding the shared cache state, and register each worker on routers in more than one zone to keep it served.
 
 </div>
 

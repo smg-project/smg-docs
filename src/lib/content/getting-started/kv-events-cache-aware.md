@@ -249,7 +249,7 @@ With the default Python servicer — SGLang, vLLM and TokenSpeed alike — a gap
 
 The default Python servicer keeps nothing between subscriptions: a resume cursor is answered with `OUT_OF_RANGE`, and a new subscription carries live events only. After any stream break between SMG and the servicer, SMG therefore drops the worker's index entries and rebuilds them from live events. The rebuilt index is not a snapshot of the engine's cache: affinity to that worker returns as it caches new prefixes.
 
-Workers running a [Rust servicer](grpc-workers.md) keep more. Its relay follows the engine's publisher for the servicer's whole lifetime: a reconnecting gateway is served the batches after its cursor from history, and a new subscription is answered with either the engine's complete event history or an in-band snapshot of the engine's live blocks, which SMG applies in place of whatever it held for that worker. Cache affinity then survives gateway restarts and long disconnects without waiting for new stores.
+Workers running a [Rust servicer](grpc-workers.md) keep more. Its relay follows the engine's publishers for the servicer's whole lifetime: a reconnecting gateway is served the batches after its cursor from history, and a new subscription is answered with either the engine's complete event history or an in-band snapshot of the engine's live blocks, which SMG applies in place of whatever it held for that worker. With several data-parallel ranks the relay refuses a resume cursor (the request carries a single cursor, and each rank keeps its own sequence numbers), so the gateway clears and resubscribes from zero and is answered with the history or snapshot instead, losing nothing. Cache affinity then survives gateway restarts and long disconnects without waiting for new stores.
 
 SMG logs `Sequence gap detected, reconnecting for replay from seq N` on a gap, and `KV event replay cursor expired; clearing worker state and requesting a current snapshot` or `KV event subscriber fell behind; clearing worker state and requesting a current snapshot` when it drops a worker's entries. A restart of the engine's own publisher (its sequence numbers start over) also clears the worker's entries — the engine's cache is empty again — and the stream continues from the new sequence.
 
@@ -272,7 +272,7 @@ The event index holds what the engines report: block-removed and all-blocks-clea
 | `--overlap-decay` | SMG | De-ranks candidates with a waiting-prefill backlog. Needs workers that report waiting uncached tokens (SGLang does; vLLM and TokenSpeed do not). |
 | `--selection-temperature` | SMG | Spreads picks across candidates with near-equal overlap instead of always taking the best. |
 | `--balance-token-usage-threshold` / `--overload-token-usage-threshold` | SMG | Suspend cache affinity under KV pressure (off by default). |
-| `replay_endpoint` / `buffer_steps` | `--kv-events-config` | Enable gap replay; raise `buffer_steps` (SGLang and vLLM) if gaps go unfilled because the missed batches already left the buffer. |
+| `replay_endpoint` / `buffer_steps` | `--kv-events-config` | Enable gap replay; raise `buffer_steps` (SGLang and vLLM only) if gaps go unfilled because the missed batches already left the buffer. |
 | `hwm` | `--kv-events-config` | Raise if events are dropped under bursty load. |
 
 `--cache-threshold` does not apply to event-driven routing: any worker holding at least the request's first full block is a candidate. See [Cache-Aware Routing](../concepts/routing/cache-aware.md#tuning-knobs) for the full list of knobs.

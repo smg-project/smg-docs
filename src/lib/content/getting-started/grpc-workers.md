@@ -6,7 +6,7 @@ title: gRPC Workers
 
 When workers connect via gRPC instead of HTTP, SMG becomes a full OpenAI-compatible server: it handles tokenization, chat templates, reasoning extraction, and tool calling at the gateway level. Workers run raw inference only.
 
-For vLLM or TokenSpeed engines on the same host as the gateway, the [ZMQ direct backend](zmq-workers.md) is an alternative: it runs the same gateway pipeline over local IPC sockets.
+For vLLM, TokenSpeed, or SGLang engines on the same host as the gateway, the [ZMQ direct backend](zmq-workers.md) is an alternative: it runs the same gateway pipeline over local IPC sockets.
 
 <div class="prerequisites" markdown>
 
@@ -436,7 +436,7 @@ export TIKTOKEN_ENCODINGS_BASE=/opt/tiktoken   # contains o200k_base.tiktoken
 ## Next Steps
 
 - [gRPC Pipeline Concepts](../concepts/architecture/grpc-pipeline.md) — Pipeline architecture, parser selection, and all supported parsers
-- [ZMQ Workers](zmq-workers.md) — Same-host vLLM and TokenSpeed engines over the ZMQ direct backend
+- [ZMQ Workers](zmq-workers.md) — Same-host vLLM, TokenSpeed, and SGLang engines over the ZMQ direct backend
 - [Multimodal Pipeline](../concepts/architecture/multimodal.md) — Image and video processing on the router or the worker
 - [Tokenizer Caching](../concepts/performance/tokenizer-caching.md) — Two-level cache for reduced CPU overhead
 - [MCP in Responses API](mcp.md) — Configure Model Context Protocol servers for `/v1/responses`

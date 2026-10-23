@@ -82,7 +82,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
 
     For example, v1.13.0 published `ghcr.io/smg-project/smg:1.13.0-vllm-v0.31.0` and `ghcr.io/smg-project/smg:1.13.0-sglang-v0.5.21`, both built from SMG 1.13.0. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
 
-    The TokenSpeed image is built from the latest dated TokenSpeed nightly at build time, and its tag suffix carries that nightly's version. The older `tokenspeed-tml` release images belong to 1.11.0 and earlier, and they do not contain that release's SMG: they were built from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG.
+    Each release's TokenSpeed image is built from the dated TokenSpeed nightly pinned in the SMG repository at build time, and its tag suffix carries that nightly's version. The older `tokenspeed-tml` release images belong to 1.11.0 and earlier, and they do not contain that release's SMG: they were built from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG.
 
 === "From Source"
 

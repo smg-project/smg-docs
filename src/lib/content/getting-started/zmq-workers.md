@@ -4,7 +4,7 @@ title: ZMQ Direct Workers
 
 # ZMQ Direct Workers
 
-When SMG and the inference engine share a host, SMG can connect straight to the engine core over ZMQ. No engine HTTP server or gRPC servicer sits in the path: the engine runs headless (scheduling and model execution only), SMG does everything else — tokenization, chat templates, parsing, stop handling, and routing — and the two exchange token IDs over local `ipc://` sockets. Direct ZMQ connections were added in v1.10.0.
+When SMG and the inference engine share a host, SMG can connect straight to the engine core over ZMQ. No engine HTTP server or gRPC servicer sits in the path: the engine runs headless (scheduling and model execution only), SMG does everything else — tokenization, chat templates, parsing, stop handling, and routing — and the two exchange token IDs over local `ipc://` sockets.
 
 <div class="prerequisites" markdown>
 
@@ -67,8 +67,6 @@ The engine never sees text, so SMG also does the work that the engine's API serv
 All of these engines use the same handshake, so SMG can't tell which one dialed in. Declare the runtime with `--backend` (startup workers) or `runtime_type` (worker API). A ZMQ worker without a runtime is treated as vLLM, and SMG logs `runtime_type unspecified for ZMQ worker; defaulting to vLLM EngineCore`.
 
 These are the only three ZMQ runtimes: `smg serve` accepts `--connection-mode zmq` only with `--backend vllm`, `--backend tokenspeed`, or `--backend sglang`, and the gateway rejects any other runtime with `ZMQ worker ... has unsupported runtime ...: only vllm, tokenspeed and sglang are supported over the ZMQ direct backend`. TensorRT-LLM and MLX can't use ZMQ; connect those engines over [gRPC](grpc-workers.md).
-
-SGLang over ZMQ requires SMG v1.12.0 or newer.
 
 SMG doesn't check engine versions at connect time, and its decoders accept fields that newer engine releases append. SMG's CI runs the ZMQ suites against vLLM 0.31.0, SGLang 0.5.21, and a pinned TokenSpeed revision.
 
@@ -354,7 +352,7 @@ score = max(requests SMG has in flight on the rank, running + waiting)
 Rank selection happens inside the connection. Routing policies see the group as one worker, and requests are never pinned to a rank.
 
 !!! note "TokenSpeed attention-DP rank affinity uses gRPC"
-    v1.10.1 added rank affinity for TokenSpeed attention data parallelism, which keeps multi-turn requests on the rank that holds their prefix cache. It works over gRPC with `--dp-aware`: the TokenSpeed gRPC servicer advertises a `dp_size` label only when the engine and its protocol stubs support rank pinning (the capability handshake) and the width is above 1, and the gateway then registers one worker per rank and pins `data_parallel_rank` on each request. Single-rank engines register as ordinary, unpinned workers. None of this applies over ZMQ: TokenSpeed ZMQ requests carry no rank field, and ZMQ workers can't be dp-aware expanded.
+    Rank affinity for TokenSpeed attention data parallelism keeps multi-turn requests on the rank that holds their prefix cache. It works over gRPC with `--dp-aware`: the TokenSpeed gRPC servicer advertises a `dp_size` label only when the engine and its protocol stubs support rank pinning (the capability handshake) and the width is above 1, and the gateway then registers one worker per rank and pins `data_parallel_rank` on each request. Single-rank engines register as ordinary, unpinned workers. None of this applies over ZMQ: TokenSpeed ZMQ requests carry no rank field, and ZMQ workers can't be dp-aware expanded.
 
 ---
 
@@ -483,7 +481,7 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
     **Solutions:**
 
     1. `has no model identity`: start SMG with `--model-path` (with `smg serve`, `--router-model-path`), or set a `model_path` label on the worker.
-    2. `has unsupported runtime`: use `vllm`, `tokenspeed`, or `sglang` (`sglang` over ZMQ needs v1.12.0 or newer).
+    2. `has unsupported runtime`: use `vllm`, `tokenspeed`, or `sglang`.
     3. `would bind handshake address ..., already claimed by worker ...`: two socket paths hash to the same port. Rename one, or set `zmq_handshake_address`.
     4. `zmq_handshake_address must be a tcp:// address` or `ZMQ worker URL must be ipc://<path>`: fix the address or URL.
     5. `cannot serve worker type`: ZMQ workers must be `regular`.

@@ -132,6 +132,8 @@ def validate_checks(result, context, slug):
     if not isinstance(checks, list):
         raise ValueError('Missing release audit dispositions')
     proposals = {p['concern']: p for p in result['concerns']}
+    pending = {(p['source_sha'], p['area'], p['concern'])
+               for p in context.get('pending_concerns', [])}
     seen, owned = set(), set()
     for check in checks:
         identity = check.get('candidate_id')
@@ -160,8 +162,11 @@ def validate_checks(result, context, slug):
             # candidate. validate_scan checks every proposal's source, inspected
             # history and page scope before checking these references.
             if concern.startswith('release-audit-'):
-                if proposal['source_sha'] != context['source_sha']:
-                    raise ValueError(f'Release audit concern {concern} must use the pinned main source')
+                # Queued corrections retain their full source/area/concern
+                # identity when main advances; only new corrections use its pin.
+                identity_key = (proposal['source_sha'], proposal['area'], concern)
+                if proposal['source_sha'] != context['source_sha'] and identity_key not in pending:
+                    raise ValueError(f'Release audit concern {concern} must use the pinned main source or its queued identity')
                 if concern.startswith('release-audit-' + identity + '-'):
                     owned.add(concern)
     if seen != set(expected):

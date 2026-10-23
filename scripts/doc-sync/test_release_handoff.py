@@ -199,6 +199,41 @@ class DiscoveryHandoffTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.validate_scan({'concerns': [{**item, **changes}], 'release_audit_checks': [check]})
 
+    def test_queued_audit_keeps_full_identity_when_main_advances(self):
+        old = docs.validate_item({**self.item, 'source_sha': 'b' * 40})
+        self.context['pending_concerns'] = [old]
+        unrelated = {**self.item, 'concern': 'ordinary-change'}
+        result = {**self.result, 'concerns': [old, unrelated]}
+        scan = self.validate_scan(result)
+        self.assertEqual(scan['concerns'], [old, unrelated])
+        self.assertEqual(scan['release_audit_checks'], [self.check])
+        self.assertEqual(docs.validate_item(scan['concerns'][0])['key'], old['key'])
+
+    def test_old_audit_source_requires_exact_queued_identity(self):
+        old = docs.validate_item({**self.item, 'source_sha': 'b' * 40})
+        result = {**self.result, 'concerns': [old]}
+        for pending in [[], [{**old, 'source_sha': 'c' * 40}],
+                        [{**old, 'area': 'other'}], [{**old, 'concern': old['concern'] + '-other'}]]:
+            with self.subTest(pending=pending), self.assertRaisesRegex(ValueError, 'queued identity'):
+                # Stale/forged key metadata cannot replace matching the fields.
+                self.context['pending_concerns'] = pending
+                self.validate_scan(result)
+
+    def test_queued_audit_still_requires_inspected_history_page_and_owner(self):
+        old = docs.validate_item({**self.item, 'source_sha': 'b' * 40})
+        context = {**self.context, 'pending_concerns': [old], 'base_sha': 'c' * 40,
+                   'existing_prs': [], 'doc_inventory': [{'path': self.path}]}
+        result = {**self.result, 'concerns': [old], 'inspected_commits': ['a' * 40, 'b' * 40],
+                  'remaining_work': 'Done'}
+        history = ['a' * 40 + ' current', 'b' * 40 + ' original']
+        variants = [({**result, 'inspected_commits': ['a' * 40]}, history),
+                    ({**result, 'inspected_commits': ['a' * 40]}, history[:1]),
+                    ({**result, 'concerns': [{**old, 'doc_paths': [docs.DOC_ROOT + 'other.md']}]}, history),
+                    ({**result, 'release_audit_checks': [{**self.check, 'status': 'deferred', 'concerns': []}]}, history)]
+        for raw, commits in variants:
+            with self.subTest(raw=raw, commits=commits), self.assertRaises(ValueError):
+                discovery.validate_scan(json.dumps(raw), context, 'routing-workers', commits)
+
     def shared_result(self):
         second = {'id': 'fedcba0987654321', 'shard': 'routing-workers',
                   'doc_path': docs.DOC_ROOT + 'reference/routing.md'}

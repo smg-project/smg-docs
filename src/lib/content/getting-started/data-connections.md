@@ -140,9 +140,9 @@ The Rust `smg` binary reads no environment variables for PostgreSQL or Redis. On
 curl http://localhost:30000/health
 ```
 
-If startup fails, SMG returns a config validation error (for example missing DB URL or Oracle credentials).
+A missing or invalid required flag (for example the DB URL or Oracle credentials) fails startup with a config validation error.
 
-Every remote backend is contacted at startup. A PostgreSQL or Redis store that is unreachable, or that accepts connections but does not answer, stops startup with an error naming the backend and the store URL (password masked). PostgreSQL and Oracle additionally create tables and check migrations at startup, so an unreachable database or pending migrations stop startup too.
+Every remote backend is contacted at startup, and SMG refuses to start when its store cannot be reached. For PostgreSQL and Redis, a store that is unreachable, or that accepts connections but does not answer, stops startup with an error naming the backend and the store URL (password masked). PostgreSQL and Oracle also create tables and check migrations at startup, so pending migrations stop startup too (see [Schema migrations](#schema-migrations)).
 
 ---
 

@@ -471,7 +471,7 @@ Some parsers add rules on top of their structural tag:
 
     - `after_reasoning` (SGLang running a reasoning parser): the engine defers the grammar behind its own reasoning parser, so the tag holds the bare calls, forced right at the thought's end.
     - `first_token` (TokenSpeed always; SGLang without a reasoning parser; vLLM advertises either, from its structured-outputs config): the engine applies the grammar from the first generated token, so the tag opens with a thought block closed by the family's thought-end marker — the think and call markers excluded — and the calls follow.
-    - No label: free text that writes none of the call markers, with nothing owed at its end — a shape that fits either kind of engine.
+    - No label: free text that writes none of the call markers, with nothing owed at its end, then the calls — a shape that fits either kind of engine.
 
     Under PD disaggregation the decode worker's label counts, and a retry re-shapes the tag for the worker it picks.
 - **`kimi_k3`**: each argument grammar carries the tool schema's `$defs` / `definitions` block, so parameters that use `$ref` compile instead of failing the request.

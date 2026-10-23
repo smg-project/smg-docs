@@ -331,7 +331,7 @@ Headers specific to the Messages API:
 | `anthropic-beta` | Read for one rule: an entry starting with `interleaved-thinking` lets `thinking.budget_tokens` be at or above `max_tokens`, which is otherwise refused with `400` (`thinking_budget_exceeds_max_tokens`). Forwarded to HTTP and PD workers and to the Anthropic API. |
 | `x-api-key` | Not read by SMG. Forwarded only to the Anthropic API; see [Authentication](#authentication). |
 
-The `anthropic-version` and `anthropic-beta` checks run on the parsed request. Like the [request-body rules](#request-body), they are skipped for a body the HTTP router streams through unparsed (see [HTTP and PD Workers](#http-and-pd-workers)).
+Like the [request-body rules](#request-body), both checks are skipped for a `/v1/messages` body the HTTP router streams through unparsed (see [HTTP and PD Workers](#http-and-pd-workers)). A `/v1/messages/count_tokens` body always buffers, so its check always runs.
 
 ### Forwarded Headers
 

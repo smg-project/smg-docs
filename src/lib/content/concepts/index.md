@@ -143,6 +143,18 @@ Understand how SMG handles failures:
 - [Health Checks](reliability/health-checks.md) — Detecting unhealthy workers and taking them out of rotation
 - [Graceful Shutdown](reliability/graceful-shutdown.md) — Draining in-flight requests before the gateway stops
 
+### Data
+
+Store conversation data behind the gateway:
+
+- [Chat History](data/chat-history.md) — Storage backends for conversations and stored responses
+
+### Security
+
+Control access to SMG:
+
+- [Authentication](security/authentication.md) — API keys, JWT/OIDC, and role-based access control
+
 ---
 
 ## Design Principles

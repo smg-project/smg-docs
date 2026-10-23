@@ -170,6 +170,73 @@ class DiscoveryHandoffTests(unittest.TestCase):
         self.assertEqual(handoff.validate_checks(result, self.context, 'routing-workers'),
                          result['release_audit_checks'])
 
+    def validate_scan(self, result):
+        history = [self.context['source_sha'] + ' current', 'b' * 40 + ' original change']
+        context = {**self.context, 'base_sha': 'c' * 40, 'code_history': history,
+                   'existing_prs': [], 'doc_inventory': [{'path': self.path}]}
+        raw = json.dumps({**result, 'inspected_commits': [line.split()[0] for line in history],
+                          'remaining_work': 'Other corrections remain deferred.'})
+        return discovery.validate_scan(raw, context, 'routing-workers', history)
+
+    def test_existing_concern_references_preserve_source_and_dedup_identity(self):
+        for slug, sha in [('version-context-routing', self.context['source_sha']),
+                          ('bootstrap-port-probe-at-registration', 'b' * 40)]:
+            with self.subTest(slug=slug):
+                item = {**self.item, 'concern': slug, 'source_sha': sha}
+                check = {**self.check, 'status': 'deferred', 'concerns': [slug]}
+                scan = self.validate_scan({'concerns': [item], 'release_audit_checks': [check]})
+                self.assertEqual(scan['concerns'], [item])
+                self.assertEqual(scan['release_audit_checks'], [check])
+                original = docs.validate_item(item)
+                self.assertTrue(docs.covered(docs.validate_item(scan['concerns'][0]),
+                                            [pr(original, state='closed')]))
+
+    def test_ordinary_reference_cannot_bypass_source_or_page_validation(self):
+        item = {**self.item, 'concern': 'existing-correction'}
+        check = {**self.check, 'concerns': [item['concern']]}
+        for changes in [{'source_sha': 'f' * 40}, {'doc_paths': [docs.DOC_ROOT + 'other.md']},
+                        {'doc_paths': ['src/lib/versions/v1.13.0/content/other.md']}]:
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.validate_scan({'concerns': [{**item, **changes}], 'release_audit_checks': [check]})
+
+    def shared_result(self):
+        second = {'id': 'fedcba0987654321', 'shard': 'routing-workers',
+                  'doc_path': docs.DOC_ROOT + 'reference/routing.md'}
+        context = {**self.context, 'release_audit_candidates': [
+            *self.context['release_audit_candidates'], second]}
+        item = {**self.item, 'doc_paths': [self.path, second['doc_path']]}
+        reference = {**self.check, 'candidate_id': second['id'], 'status': 'deferred'}
+        result = {'concerns': [item], 'release_audit_checks': [self.check, reference]}
+        return result, context
+
+    def test_one_owned_concern_can_cover_multiple_candidate_pages(self):
+        result, context = self.shared_result()
+        for checks in [result['release_audit_checks'], list(reversed(result['release_audit_checks']))]:
+            self.assertEqual(handoff.validate_checks({**result, 'release_audit_checks': checks},
+                                                    context, 'routing-workers'), checks)
+
+    def test_cross_page_reference_cannot_replace_owner_or_pinned_source(self):
+        result, context = self.shared_result()
+        owner, reference = result['release_audit_checks']
+        with self.assertRaisesRegex(ValueError, 'owning candidate'):
+            handoff.validate_checks({**result, 'release_audit_checks': [
+                {**owner, 'status': 'deferred', 'concerns': []}, reference]}, context, 'routing-workers')
+        with self.assertRaisesRegex(ValueError, 'pinned main source'):
+            handoff.validate_checks({**result, 'concerns': [
+                {**result['concerns'][0], 'source_sha': 'b' * 40}]}, context, 'routing-workers')
+        with self.assertRaisesRegex(ValueError, 'unrelated concern'):
+            handoff.validate_checks({**result, 'concerns': [self.item]}, context, 'routing-workers')
+        foreign = {**context, 'release_audit_candidates': [
+            {**context['release_audit_candidates'][0], 'shard': 'api-protocols'},
+            context['release_audit_candidates'][1]]}
+        with self.assertRaisesRegex(ValueError, 'owning candidate'):
+            handoff.validate_checks({**result, 'release_audit_checks': [reference]}, foreign, 'routing-workers')
+
+    def test_duplicate_slugs_cannot_make_reference_ambiguous(self):
+        with self.assertRaisesRegex(ValueError, 'duplicate concern slug'):
+            handoff.validate_checks({**self.result, 'concerns': [self.item, dict(self.item)]},
+                                    self.context, 'routing-workers')
+
     def test_resolution_preserves_dispositions_and_dedup_survives_new_main(self):
         item = dict(self.item)
         del item['source_sha']

@@ -33,7 +33,8 @@ Return one release_audit_checks disposition for EVERY assigned candidate_id:
 
 - proposed: verified missing/inaccurate main coverage; list all proposed concern
   slugs and cite current source paths/callers in evidence. Split unrelated fixes
-  even on the same page; use release-audit-<candidate_id>-<topic> slugs (64 chars
+  even on the same page; for NEW audit corrections use
+  release-audit-<candidate_id>-<topic> slugs (64 chars
   maximum), stable topic names, and the newest supplied source_commit as the
   verification baseline. Include the candidate's main doc_path in each proposal
   and all related canonical pages. Its baseline need not introduce the behavior.
@@ -48,15 +49,24 @@ Return one release_audit_checks disposition for EVERY assigned candidate_id:
 A proposed disposition must account for the entire candidate: explain any other
 audit changes as already covered or inapplicable with evidence, or defer instead.
 Page candidates can contain several concerns; never bundle them to finish a
-candidate. Reuse an existing pending concern's slug; do not reword a previously
-merged/declined concern to evade deduplication. Keep unfinished candidates visible.
+candidate. Reuse an existing pending concern's area, slug and source_commit; do
+not rename it to release-audit- or replace its source identity. A version-context-
+cleanup keeps its own slug and newest-commit baseline. Either can be listed in
+concerns if it is included in this scan's proposals and includes this candidate's
+doc_path. Explain how it covers the audit correction using current-source
+evidence. Do not reword a previously merged/declined concern to evade
+deduplication. Keep unfinished candidates visible.
 
 Candidate pages are discovery starting points, not PR boundaries. When the same
 correction affects a guide and its reference, propose ONE concern covering every
 canonical page. Do not split it into "endpoint names" and "pipeline names", or
 promise that separate PRs will later make the docs consistent. Choose one owning
-candidate for the proposal; mark other affected candidates deferred and explain
-which proposal covers that part, without linking a foreign candidate's slug.
+candidate for the proposal and list it in that owner's disposition. Other
+assigned candidates may reference that same proposal in concerns if their
+doc_path is included; explain which part it covers and defer any unfinished
+remainder. References must name proposals returned by THIS scan. For a proposal
+owned by another scan, explain the overlap in evidence and defer without a
+concern reference. Cross-page references never replace the owner's disposition.
 
 A completed release audit does not supersede a closed, unmerged main-doc PR.
 Adding another parser/feature or changing the candidate/slug does not authorize

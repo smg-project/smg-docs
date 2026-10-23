@@ -132,7 +132,7 @@ def validate_checks(result, context, slug):
     if not isinstance(checks, list):
         raise ValueError('Missing release audit dispositions')
     proposals = {p['concern']: p for p in result['concerns']}
-    seen, linked = set(), set()
+    seen, owned = set(), set()
     for check in checks:
         identity = check.get('candidate_id')
         if identity not in expected or identity in seen:
@@ -150,16 +150,25 @@ def validate_checks(result, context, slug):
                 or (status in ('covered', 'not_applicable') and concerns)):
             raise ValueError('Invalid release audit concern references')
         for concern in concerns:
+            if sum(p['concern'] == concern for p in result['concerns']) > 1:
+                raise ValueError(f'Ambiguous release audit reference: duplicate concern slug {concern}')
             proposal = proposals.get(concern)
-            if (not proposal or not concern.startswith('release-audit-' + identity + '-')
-                    or proposal['source_sha'] != context['source_sha']
-                    or expected[identity]['doc_path'] not in proposal['doc_paths']):
-                raise ValueError('Release audit proposal is not bound to its candidate and main source')
-            linked.add(concern)
+            if not proposal or expected[identity]['doc_path'] not in proposal['doc_paths']:
+                raise ValueError(f'Release audit candidate {identity} references missing or unrelated concern {concern}')
+            # A disposition can reference an existing ordinary proposal (keeping
+            # its original source/identity) or a shared correction owned by another
+            # candidate. validate_scan checks every proposal's source, inspected
+            # history and page scope before checking these references.
+            if concern.startswith('release-audit-'):
+                if proposal['source_sha'] != context['source_sha']:
+                    raise ValueError(f'Release audit concern {concern} must use the pinned main source')
+                if concern.startswith('release-audit-' + identity + '-'):
+                    owned.add(concern)
     if seen != set(expected):
         raise ValueError('Every assigned release audit candidate needs a disposition; defer unfinished work')
-    if {c for c in proposals if c.startswith('release-audit-')} != linked:
-        raise ValueError('Release audit concern lacks verified candidate evidence')
+    # A cross-page reference cannot replace the owning candidate's evidence.
+    if {c for c in proposals if c.startswith('release-audit-')} != owned:
+        raise ValueError('Release audit concern lacks verified owning candidate evidence')
     return checks
 
 

@@ -47,7 +47,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup toolchain install nightly --profile minimal --component rustfmt
 ```
 
-The checked-in `rust-toolchain.toml` pins Rust 1.98.0 with the `clippy` and `rustfmt` components: rustup installs and selects that toolchain on your first `cargo` command in the checkout, so there is no stable toolchain to install by hand. Newer stable toolchains can report clippy lints that 1.98.0 does not. A directory override (`rustup override set`) takes precedence over the pin; if your clippy results differ from CI's, remove it with `rustup override unset`.
+The checked-in `rust-toolchain.toml` pins Rust 1.98.0 with the `clippy` and `rustfmt` components: rustup installs and selects that toolchain on your first `cargo` command in the checkout, so there is no stable toolchain to install by hand.
+
+A directory override (`rustup override set`) takes precedence over the pin, and newer stable toolchains can report clippy lints that 1.98.0 does not. If your clippy results differ from CI's, remove the override with `rustup override unset`.
 
 ### 3. Install System Packages
 

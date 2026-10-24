@@ -708,7 +708,24 @@ Error types: `timeout` (status `504`) and `backend_error` (other server errors, 
 
 ---
 
-### `smg_kv_event_subscription_failures_total`
+### KV Event Metrics
+
+The per-worker subscriptions to gRPC workers' KV cache events, which feed the chain index that event-driven cache-aware routing reads, and the batches they carry. See [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md). `worker` is the worker URL. When a worker's subscription starts, its gap, missed-batch, resync, failure, parent-less, sub-block and degraded-rank series are published at zero, so a series that is absent means the worker has no subscription, not that nothing happened.
+
+#### `smg_kv_event_subscriptions_total`
+
+KV event streams connected, by worker. A reconnect counts again, so a worker whose stream keeps dropping shows as a rising counter where the log has one line per attempt.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker` |
+
+```promql
+# Workers that reconnected their KV event stream in the last hour
+increase(smg_kv_event_subscriptions_total[1h]) > 1
+```
+
+#### `smg_kv_event_subscription_failures_total`
 
 Failures of the per-worker tasks that subscribe to gRPC workers' KV cache events for event-driven cache-aware routing. See [Cache-Aware Routing with KV Events](../getting-started/kv-events-cache-aware.md).
 
@@ -717,6 +734,149 @@ Failures of the per-worker tasks that subscribe to gRPC workers' KV cache events
 | Counter | `worker`, `reason` |
 
 Reasons: `panic`, `join_error`, `intern_failed`
+
+#### `smg_kv_event_stream_errors_total`
+
+KV event streams that failed after they had connected, by worker and the gRPC status of the error in lower case (`out_of_range`, `unavailable`, `data_loss`, `unimplemented`, ...). A stream that dies on its first message at every reconnect shows here, where the connection counter alone reads as a healthy subscription.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker`, `error` |
+
+#### `smg_kv_events_unavailable`
+
+`1` while a worker's backend serves no KV events (its `SubscribeKvEvents` answered `UNIMPLEMENTED`: the engine's publisher is off), `0` once the worker leaves. Cache-aware routing is blind to such a worker's cache.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `worker` |
+
+```promql
+# Workers whose cache the router cannot see
+smg_kv_events_unavailable == 1
+```
+
+#### `smg_kv_event_batches_total`
+
+KV event batches received, by worker and what the subscriber did with each.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker`, `disposition` |
+
+Dispositions: `applied` (a live batch applied to the index), `snapshot` (a chunk of a relay's state snapshot, applied in place of the worker's earlier state), `stale` (a sequence number the rank's cursor had already passed, skipped), `load_only` (a batch carrying the engine's load record and no cache events: the load is read, nothing is indexed).
+
+#### `smg_kv_event_gaps_total`
+
+Sequence gaps in a worker's KV event stream, by outcome.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker`, `outcome` |
+
+Outcomes: `replay_requested` (the first sight of a gap: the subscriber reconnects asking the publisher to replay the missing batches), `unrecovered_kept` (the replay did not bring them and the stream went on from the live events with the worker's index kept; the rank counts as degraded), `unrecovered_cleared` (the same for a gap too large to keep the index: the worker's index state was cleared first).
+
+#### `smg_kv_event_missed_batches_total`
+
+KV event batches the publisher skipped and could not replay, by worker: the size of the gaps where `smg_kv_event_gaps_total` counts them.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker` |
+
+#### `smg_kv_event_resyncs_total`
+
+Times a worker's index state was dropped to be rebuilt from the stream, by reason.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker`, `reason` |
+
+Reasons: `publisher_restart` (a rank's sequence numbers started over), `out_of_range` and `data_loss` (the stream ended with that status: the publisher declared its history gone), `gap_cleared` (an unreplayed gap too large to keep the index), `snapshot` (a relay's state snapshot replaced the worker's state).
+
+#### `smg_kv_event_degraded_ranks`
+
+Data-parallel ranks of the worker whose index may be stale: a gap that was not replayed, or a relay snapshot that started after the engine's earliest blocks. Back to `0` when the state is resynced.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `worker` |
+
+#### `smg_kv_event_lag_seconds`
+
+Age of a KV event batch when it is applied: the router's clock minus the publisher's timestamp, by worker. A batch is normally a few milliseconds old; seconds or more mean a relay replaying history or a router falling behind. The histogram has buckets of its own, eighteen edges from 0.1 ms to 60 s, so its percentiles aggregate across workers.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `worker` |
+
+```promql
+# P99 age of the KV events a worker's batches carry
+histogram_quantile(0.99, sum by (worker, le) (rate(smg_kv_event_lag_seconds_bucket[5m])))
+```
+
+#### `smg_kv_event_apply_seconds`
+
+Time to apply one KV event batch to the index, by worker. The buckets double from half a microsecond to a quarter of a second.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `worker` |
+
+#### `smg_kv_event_blocks_total`
+
+Blocks named by the applied KV events, by worker and op, counted before the monitor's tier and group filters: the rate at which the index is offered blocks.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker`, `op` |
+
+Ops: `stored` and `removed` (live events), `snapshot` (the live set a relay's state snapshot listed).
+
+```promql
+# Blocks stored per second, by worker
+sum by (worker) (rate(smg_kv_event_blocks_total{op="stored"}[5m]))
+```
+
+#### `smg_kv_event_parentless_stores_total`
+
+Stores whose parent block the index did not hold for the worker (the parent evicted, dropped or cleared), placed as a new chain from the root instead, by worker.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker` |
+
+#### `smg_kv_event_parentless_blocks_total`
+
+Blocks the parent-less stores carried, by worker.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker` |
+
+#### `smg_kv_event_sub_block_stores_total`
+
+Stores of blocks narrower than the worker's block of record (a hybrid engine's prefix entries at its hash granularity), left out of the index, by worker.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker` |
+
+#### `smg_kv_event_sub_block_blocks_total`
+
+Blocks the sub-block stores carried, by worker.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker` |
+
+#### `smg_kv_block_size_tokens`
+
+Tokens per KV block of a model as the gateway knows it: seeded from a worker's registration, replaced by the size of the first block its KV event stream stores, `0` once the model's last subscription ended and no size is known.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
 
 ---
 

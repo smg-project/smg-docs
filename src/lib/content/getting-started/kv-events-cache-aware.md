@@ -288,6 +288,8 @@ The event index holds what the engines report: block-removed and all-blocks-clea
 
 The `smg_cache_aware_policy_branch_total` and `smg_cache_aware_match_ratio` metrics count tree-mode decisions only; use the debug log above to inspect event-driven decisions.
 
+The stream metrics of the subscriptions (`smg_kv_event_*`, `smg_kv_events_unavailable`, `smg_kv_block_size_tokens`) are listed under [KV Event Metrics](../reference/metrics.md#kv-event-metrics) in the metrics reference.
+
 ---
 
 ## Caveats

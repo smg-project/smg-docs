@@ -115,6 +115,26 @@ Resident bytes that grow while allocated bytes stay flat point at memory the all
 smg_allocator_resident_bytes - smg_allocator_allocated_bytes
 ```
 
+#### `smg_allocator_prof_dumps_total`
+
+Heap profile dumps asked of `POST /heap_profile`, by outcome (`ok`, `error`). Exported by the same builds as the gauges above.
+
+| Type | Labels |
+|------|--------|
+| Counter | `outcome` |
+
+---
+
+### Log Writer Metrics
+
+#### `smg_log_dropped_lines`
+
+Log lines the lossy writer queue dropped since the process started, by sink (`stdout`, `file`). Published together with the warning that reports the lines dropped since the last report.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `sink` |
+
 ---
 
 ## Layer 1: HTTP Metrics
@@ -192,6 +212,26 @@ Requests currently in flight on the main listener. A streaming response stays in
 | Type | Labels |
 |------|--------|
 | Gauge | None |
+
+---
+
+### `smg_http_connection_timeouts_total`
+
+HTTP connections closed for carrying no request, by the timeout that closed them: `header_read` (no request head arrived in time) or `idle` (a kept-alive connection sent nothing more).
+
+| Type | Labels |
+|------|--------|
+| Counter | `timeout` |
+
+---
+
+### `smg_http_connections_rejected_total`
+
+HTTP connections closed at accept for arriving beyond the listener's connection limit: nothing was read from or written to them. Published at zero at start-up.
+
+| Type | Labels |
+|------|--------|
+| Counter | None |
 
 ---
 
@@ -442,6 +482,26 @@ Serialized size of request buffers the router freed as soon as the request was d
 
 ---
 
+### `smg_router_local_stop_aborts_total`
+
+Streamed requests the gateway aborted at the engine because its own stop (a stop string or stop token id matched in the gateway, not by the engine) had ended every choice for the client while the engine was still generating. gRPC pipeline only.
+
+| Type | Labels |
+|------|--------|
+| Counter | `router_type`, `backend_type`, `model`, `endpoint` |
+
+---
+
+### `smg_router_local_stop_tail_tokens_total`
+
+Output tokens the engine streamed for a choice after the gateway's own stop had ended that choice, read before the request was aborted: the tail generated for nobody. What the abort cuts on the engine side is never read, so never counted. gRPC pipeline only.
+
+| Type | Labels |
+|------|--------|
+| Counter | `router_type`, `backend_type`, `model`, `endpoint` |
+
+---
+
 ### PD Disaggregation Metrics
 
 Signals that only the gateway can measure, because it is the one component that sees both the prefill and the decode leg of a disaggregated request. Durations are recorded once per request, not per retry attempt. See [PD Disaggregation](../concepts/routing/pd-disaggregation.md).
@@ -609,6 +669,66 @@ sum by (layer) (rate(smg_tokenizer_cache_lookups_total[5m]))
 # Evictions per second, a sign the cache is too small
 sum by (layer) (rate(smg_tokenizer_cache_evictions_total[5m]))
 ```
+
+---
+
+### Tokenizer Encode Metrics
+
+Process-lifetime totals of the tokenizer's encode and decode paths, read on every scrape like the cache totals.
+
+#### `smg_tokenizer_encode_path_loads_total`
+
+Hugging Face tokenizers loaded, by the encode path chosen at load: `v1` (the opt-in tokenizers v1 pipeline), `native` (the direct byte-level encoder) or `tokenizers` (the reference implementation). A tokenizer loaded twice counts twice.
+
+| Type | Labels |
+|------|--------|
+| Counter | `path` |
+
+#### `smg_tokenizer_encode_fallbacks_total`
+
+Inputs the direct byte-level encoder gave up to the reference implementation after the load's choice, by reason: `not_nfc` (text not in NFC under an NFC normalizer) or `piece_declined` (the model declined a piece).
+
+| Type | Labels |
+|------|--------|
+| Counter | `reason` |
+
+#### `smg_detokenize_prefix_mismatch_total`
+
+Incremental decode steps and end-of-input finishes whose output no longer started with the text already decoded and went on with the remainder (several per stream are possible; unary responses count too), by kind: `byte_run` (an invalid byte collapsed a ByteFallback run whose characters were already decoded) or `decoder` (another decoder step rewrote the decoded prefix).
+
+| Type | Labels |
+|------|--------|
+| Counter | `kind` |
+
+---
+
+### Responses Metrics
+
+The Responses API's streams and stores.
+
+#### `smg_responses_stream_failures_total`
+
+Responses streams that ended with a `response.failed` terminal event, by model and reason (`stream_error`, `server_error`, `other`).
+
+| Type | Labels |
+|------|--------|
+| Counter | `model`, `reason` |
+
+#### `smg_responses_not_stored_total`
+
+Responses with `store: true` whose record or conversation linking was not written, by mode (`foreground`: the request was answered with the failure; `background`: the record keeps what it had) and step (`record`: nothing is stored; `linking`: the record is stored, its items are not in the conversation).
+
+| Type | Labels |
+|------|--------|
+| Counter | `mode`, `step` |
+
+#### `smg_history_memory_records`
+
+Records the in-memory history backend holds, by kind (`responses`, `conversations`, `items`), sampled every 10 seconds. Memory backend only: a store that cannot count its records without a query (Postgres, Redis, Oracle) sets nothing.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `kind` |
 
 ---
 
@@ -930,6 +1050,26 @@ Workers the reconciler currently wants registered.
 | Type | Labels |
 |------|--------|
 | Gauge | `source` |
+
+---
+
+### `smg_discovery_snapshot_errors_total`
+
+Discovery source observations rejected, by source and reason: `unreadable` (the source could not be read: a failed request, a failed command, an unreadable file) or `invalid` (it was read but did not parse as a snapshot). A read that fails leaves the last good snapshot in place, so a broken source never removes a worker.
+
+| Type | Labels |
+|------|--------|
+| Counter | `source`, `reason` |
+
+---
+
+### `smg_discovery_skipped_total`
+
+Discovered workers left out of an otherwise good snapshot, by source and reason: `invalid` (a record the provider could not turn into a worker) or `conflict` (a record that collides with another). Counted on every read; a skip is logged when it first appears.
+
+| Type | Labels |
+|------|--------|
+| Counter | `source`, `reason` |
 
 ---
 

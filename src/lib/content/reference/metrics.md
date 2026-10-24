@@ -514,6 +514,64 @@ gRPC prefill-decode dispatches shed with `503 worker_overload_protection_shed`, 
 |------|--------|
 | Counter | None |
 
+#### `smg_pd_admission_window`
+
+The running window the PD admission gate bounds a decode worker by: the engine's running-request window the gate claims rooms against. `0` when the engine reports none and the gate abstains for that worker.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `worker` |
+
+#### `smg_pd_decode_ttft_seconds`
+
+The PD decode phase: from the decode dispatch to the first decode token, the engines' KV transfer and the decode scheduling included (the whole TTFT under parallel dispatch).
+
+| Type | Labels |
+|------|--------|
+| Histogram | `backend_type`, `model`, `runtime` |
+
+#### `smg_pd_prefill_admission_inflight`
+
+Prefill requests this gateway has admitted to a prefill worker and not yet released, under the [Prefill Admission](configuration.md#prefill-admission) gate.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `worker` |
+
+#### `smg_pd_prefill_admission_queued`
+
+Requests waiting in the Prefill admission queue.
+
+| Type | Labels |
+|------|--------|
+| Gauge | None |
+
+#### `smg_pd_prefill_admission_wait_seconds`
+
+Time a request waited in the Prefill admission queue. No buckets are configured for it, so it is exported as a Prometheus summary (`quantile` series plus `_sum` and `_count`).
+
+| Type | Labels |
+|------|--------|
+| Summary | None |
+
+#### `smg_pd_prefill_admission_rejections_total`
+
+Requests the Prefill admission gate refused, by reason.
+
+| Type | Labels |
+|------|--------|
+| Counter | `reason` |
+
+Reasons: `queue_full` (the queue held `--prefill-queue-size` waiters already, `429 pd_prefill_queue_full`), `queue_timeout` (the request waited `--prefill-queue-timeout-secs` without a slot, `429 pd_prefill_queue_timeout`), `unavailable` (no prefill worker could take the request).
+
+#### `smg_pd_rendezvous_failures_total`
+
+PD rendezvous failures, by `leg` (the worker type of the side whose rendezvous failed) and `phase`: `probe` (a bootstrap port that refused the registration probe), `request` (the same probe, run when a decode side's engine failed a request without a reason; counted on the prefill side whose port it is), and the failures the engines report on the gRPC path, `bootstrap` (the sides never met) and `transfer` (the KV handoff after they met failed). Its own family: the injection failure counters above keep their unlabelled series.
+
+| Type | Labels |
+|------|--------|
+| Counter | `leg`, `phase` |
+
 ```promql
 # P95 end-to-end TTFT for PD requests, by model
 histogram_quantile(0.95, sum by (model, le) (rate(smg_pd_ttft_seconds_bucket[5m])))

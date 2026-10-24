@@ -326,6 +326,8 @@ The probes above are how SMG checks its workers. For Kubernetes, load balancers,
 | `tokenizer not yet registered` | A `Ready` gRPC or ZMQ worker's tokenizer is not registered: it is still loading, or loading failed (skipped with `--disable-tokenizer-autoload`) |
 | `draining` | [Graceful shutdown](graceful-shutdown.md) has started |
 
+Unreleased: on current main both readiness bodies also carry a `models` array, one entry per served model sorted by id, with the gateway's own predicates applied to that model's workers: `{"model": "m2", "ready": false, "reason": "no_healthy_worker", "healthy_workers": 0, "total_workers": 1}`. A ready entry has no `reason`; the per-model reasons are `no_healthy_worker` (in PD or EPD mode `no_healthy_prefill_worker`, `no_healthy_decode_worker` or `no_healthy_encode_worker`), `tokenizer_not_ready` and `draining`. The gateway-wide `status` and `reason` are unchanged, so a probe that reads only them sees nothing new; a model whose workers are all gone is not listed. v1.13.0 answers without the array.
+
 The readiness decision is recomputed from worker registry events (and at least once per second) and served from memory, so probes answer in constant time regardless of fleet size. Probe responses, including the expected `503`s, are logged at DEBUG level, so polling does not flood the log with errors.
 
 Set `--health-check-port <port>` to also serve `/liveness`, `/readiness`, and `/health` on a dedicated plain-HTTP listener with its own runtime thread, so a saturated gateway cannot starve its probes. The routes stay available on the main port. See [Dedicated Probe Port](graceful-shutdown.md#dedicated-probe-port) for a Kubernetes example.

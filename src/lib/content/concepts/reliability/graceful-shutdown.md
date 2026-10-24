@@ -259,7 +259,8 @@ curl http://gateway:30000/health
 # Returns 200 OK both during normal operation and throughout the drain
 
 curl http://gateway:30000/readiness
-# 200 while serving; 503 {"status":"not ready","reason":"draining"} once shutdown begins
+# 200 while serving; 503 {"status":"not ready","reason":"draining", ...} once shutdown begins
+# (current main adds a per-model "models" array to both bodies; see Gateway Probe Endpoints)
 ```
 
 `/readiness` also returns `503` independent of the shutdown signal when SMG cannot serve: when no healthy workers remain (in prefill/decode mode, when either side has no healthy worker), or while a healthy gRPC or ZMQ worker's tokenizer is not registered yet. See [Gateway Probe Endpoints](health-checks.md#gateway-probe-endpoints) for every reason. The readiness decision is maintained event-driven from worker registry state and served from cached memory, so probes stay O(1) regardless of fleet size.

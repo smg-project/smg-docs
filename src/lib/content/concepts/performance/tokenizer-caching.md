@@ -253,7 +253,7 @@ Path to a Jinja2 chat template file.
 
 **Template discovery priority**:
 
-1. An explicit template: a model card's `chat_template` path, or `--chat-template` (highest priority)
+1. An explicit template: a model card's `chat_template` path or `--chat-template` (highest priority)
 2. `chat_template.jinja` in model directory
 3. `chat_template` field in `tokenizer_config.json` — a string, or a list of named templates (the `default` entry renders plain requests, the `tool_use` entry renders requests that declare tools)
 4. Legacy `chat_template.json` in model directory (used only when `tokenizer_config.json` carries no template)

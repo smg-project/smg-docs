@@ -155,7 +155,13 @@ The reference tables under [Reasoning Parsers](#reasoning-parsers) and [Tool Cal
 
 ## Chat Templates and Native Renderers
 
-In gRPC mode the gateway builds the prompt text itself. Most models use a Jinja2 chat template. SMG takes it from a model card's `chat_template` path or `--chat-template`, then from a `chat_template.json` or `.jinja` file in the model directory, and finally from the `chat_template` field of `tokenizer_config.json`. Templates render with minijinja 2.24, so two Python Jinja2 behaviors work: conditional expressions inside keyword arguments (`namespace(name=x if x else '')`) compile, and booleans and none render as `True`, `False` and `None` (smg-project/smg#2277).
+In gRPC mode the gateway builds the prompt text itself. Most models use a Jinja2 chat template. An explicit template always wins: a model card's `chat_template` path or `--chat-template`. Otherwise SMG searches the model directory in this order: a `chat_template.jinja` file, then the `chat_template` field of `tokenizer_config.json`, then the legacy `chat_template.json` file (read only when `tokenizer_config.json` carries no template), and finally any other `.jinja` file.
+
+The config's `chat_template` field may also hold a list of named templates, read the way HuggingFace Transformers reads it: the `default` entry renders a plain request, and the `tool_use` entry renders a request that declares tools. A template file replaces the config's templates, named ones included.
+
+A multimodal checkpoint may also ship a processor `chat_template.json` beside the tokenizer's template. Requests without tools then render through the processor's template, and requests with tools keep the tokenizer's — provided the processor file differs from the default template, compiles, and agrees with it on how a request's thinking is prepared and read and on how a history tool call's `arguments` are written. A processor file that disagrees or does not compile is left unused with a logged warning, and every request renders through the tokenizer's templates. A template given with `--chat-template` or a model card stands alone: the processor file is ignored.
+
+Templates render with minijinja 2.24, so two Python Jinja2 behaviors work: conditional expressions inside keyword arguments (`namespace(name=x if x else '')`) compile, and booleans and none render as `True`, `False` and `None`.
 
 ### Native Renderers
 

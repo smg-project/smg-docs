@@ -85,7 +85,7 @@ POST /v1/responses
 | `store` | boolean | No | Store response for later retrieval, default: true |
 | `background` | boolean | No | Return a `queued` response object at once and run the request in the background; see [Background Mode](#background-mode) |
 | `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, and built-in tool types |
-| `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` or `auto` requires a non-empty `tools` array; `auto` without tools answers in text, like an omitted `tool_choice` |
+| `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` or `auto` requires a non-empty `tools` array; with `auto` and no tools the model answers in text, as if `tool_choice` were omitted |
 | `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
 | `previous_response_id` | string | No | Continue from a stored response |
 | `conversation` | string or object | No | Conversation ID (`conv_...`) or `{"id": "conv_..."}`; mutually exclusive with `previous_response_id` |
@@ -102,7 +102,8 @@ SMG accepts is declared. Besides the fields above and the
 `service_tier`, `truncation`, `prompt`, `prompt_cache_key`, `prompt_cache_retention`,
 `safety_identifier`, and `context_management`, plus SMG's own `request_id` and
 `priority`. `client_metadata`, an object of tracing identifiers sent by clients such as
-Codex, is also accepted; SMG leaves it out of every request body it serializes.
+Codex, is also accepted but not forwarded: SMG leaves it out of the request bodies it
+sends to workers and providers.
 
 These rules match the public API's request contract and are new on main after v1.12.0. In
 v1.12.0 and earlier, unknown top-level parameters are ignored, `max_output_tokens` only

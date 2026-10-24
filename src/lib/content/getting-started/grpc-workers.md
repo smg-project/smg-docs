@@ -185,9 +185,9 @@ In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servic
 
 What the scheduler's msgpack wire does not carry, the Rust path reports rather than emulates:
 
-- PD and EPD disaggregation stay with the Python servicer: a worker with a `disaggregation_mode` set, or with `language_only` or `encoder_only`, refuses to start on the Rust path.
-- Multimodal inputs and hidden states are refused per request, and LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
-- SGLang's HTTP sidecar (profiling, `/metrics`) is not started.
+- Unreleased: current main serves prefill/decode disaggregation on the Rust path (`--disaggregation-mode prefill|decode`: the prefill worker starts SGLang's KV bootstrap server in the servicer process, and the request's `disaggregated_params` reach the scheduler as on the Python servicer); v1.13.0 refuses a disaggregated launch there. The EPD roles stay with the Python servicer: a worker with `language_only` or `encoder_only` refuses to start on the Rust path, and so does a prefill or decode leg with more than one scheduler rank (the data-parallel width times the attention-DP width; the Rust path does not place a request by its bootstrap room yet); each refusal names the Python servicer.
+- Unreleased: current main carries a request's image inputs to the scheduler on the Rust path (the tensors the gateway's media pipeline prepares for an SGLang worker reach it as the Python servicer's own object, and `supports_vision` is reported as the launcher reports it; another modality, and an embedding request with media, are refused per request) and returns hidden states within the scheduler's launch mode (`--return-hidden-states-mode`; a request above it is refused with the engine's own words, as on the Python servicer); v1.13.0 refuses multimodal inputs and hidden states per request there. LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
+- SGLang's HTTP sidecar (profiling, `/metrics`) is not started; the servicer's own Prometheus families are served when `--metrics-port` (or `SMG_SGLANG_SERVICER_METRICS_PORT`) is set.
 
 `Embed`, `FlushCache` and profiling answer as on the Python servicer, and `SubscribeKvEvents` relays the ZMQ publisher SGLang was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
 
@@ -214,7 +214,7 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 
 - `FlushCache` and profiling answer UNIMPLEMENTED.
 - Ranked `top_logprobs` and prompt logprobs are refused per request.
-- PD and EPD disaggregation stay with the Python servicer.
+- Unreleased: current main serves prefill/decode disaggregation on the Rust path (the KV rendezvous triple rides the engine's own request slots; under attention data parallelism a disaggregated request goes to the rank of its room's residue, as the engine dispatches it) and the prefill side of encode-prefill-decode; v1.13.0 drops the bootstrap fields there. The encode role stays with the Python servicer: it takes its requests over the engine's in-process channel, which the Rust servicer does not have, and the refusal names the Python path.
 - The [RL control plane](rl-control-plane.md) extras stay with the Python servicer: the `rl.*` capability advertisement, the live `weight_version` on generate responses, and `is_paused`.
 
 Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer. `SubscribeKvEvents` relays the ZMQ KV-event publisher TokenSpeed was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).

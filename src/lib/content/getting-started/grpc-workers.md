@@ -52,6 +52,8 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     This starts the default Python servicer. Setting `SMG_VLLM_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust vLLM Servicer](#rust-vllm-servicer).
 
+    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — about a minute by default; `SMG_VLLM_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
+
 === "SGLang"
 
     ```bash
@@ -65,6 +67,8 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
     `--grpc-mode` serves the worker through `smg-grpc-servicer`, which needs SGLang 0.5.21 or later. In this mode SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`).
 
     This starts the default Python servicer. Adding `--servicer-impl rust` — or setting `SMG_SGLANG_SERVICER_IMPL=rust` in the worker's environment — serves the same contract from Rust instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
+
+    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine; `SMG_SGLANG_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 
 === "TensorRT-LLM"
 
@@ -95,6 +99,8 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     This starts the default Python servicer. Setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
 
+    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — several minutes on this engine, which warms every prompt length up to the chunk size; `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
+
 === "MLX"
 
     ```bash
@@ -105,6 +111,37 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
     ```
 
     MLX workers are gRPC-only and run on Apple Silicon. They don't support constrained decoding: chat requests with a forced `tool_choice` or a `response_format` get a 400, as do requests with `n` greater than 1 or string `stop` sequences.
+
+### Planned Warm-Up Before Serving
+
+vLLM, SGLang and TokenSpeed gRPC workers run a planned warm-up over the engine before they report `SERVING` on the gRPC health service — the signal the gateway's [health checks](../concepts/reliability/health-checks.md) and Kubernetes startup and readiness probes read. Both the Python and Rust servicer implementations run the pass; MLX and TensorRT-LLM workers have no such pass, a model that generates nothing (a pooling or embedding model) takes none, and SGLang and TokenSpeed workers skip it on a disaggregation role.
+
+A worker whose health stays `NOT_SERVING` for a while after the engine loaded is warming up, not wedged. The pass logs `Planned warm-up starts (...): readiness is held until it ran`, one INFO line per shape with its time (TokenSpeed's chunk remainders log at DEBUG, with an INFO progress line every 500), and `Planned warm-up over: N of M steps covered ...` at the end.
+
+Engines select and compile kernels lazily: the first scheduler step at a token count the engine has not seen pays a kernel search or a compile of up to several seconds, and every request in flight during that step waits with it. The warm-up visits those token counts while nothing is routed to the worker, so they are not paid by the first traffic ramp — on every worker of a fleet at once when they start together. The pass covers, in order:
+
+- a **decode staircase**: as many concurrent requests as the running window holds, each asking for one more output token than the last, so every running-batch size runs once;
+- a **prefill ladder**: one request per 128-token prompt-length class up to the engine's admission step (its chunk size or prefill token budget), plus the engine's graph-capture sizes and lengths one above the kernel tuners' bucket grid;
+- a **second pass** over the bucket grid, whose logged timings show what the first pass paid;
+- on TokenSpeed, the **chunk remainders**: every remaining prompt length up to the chunk size, because on this engine a prompt length's first use during serving can deadlock the forward pass. They run last, in an order whose every prefix spreads evenly over the range, so a budget cut leaves even coverage rather than a missing tail.
+
+Every request carries its own token IDs, so prefix caching never hides a prefill, and the pass flushes the engine's prefix cache at the end. A servicer that does not serve `FlushCache` (the Rust TokenSpeed servicer) refuses that flush, and the end line then says the warm-up's blocks stay cached.
+
+While the pass runs, a Rust servicer admits only the warm-up's own requests and refuses anything else with gRPC `UNAVAILABLE` ("servicer is warming up"); its health message reads `Warming up`, distinct from `Draining`. The Python servicers hold their health at `NOT_SERVING` without refusing requests, so a request sent to one in that window is served, sharing the engine with the warm-up. Health flips to `SERVING` when the pass ends, whatever it returned: a failed warm-up request is a logged line, never a worker kept out of rotation.
+
+`SMG_VLLM_SERVICER_WARMUP`, `SMG_SGLANG_SERVICER_WARMUP` and `SMG_TOKENSPEED_SERVICER_WARMUP` tune the pass per engine:
+
+| Value | Effect |
+|-------|--------|
+| `full` | The default: every 128-token length class — about a minute at a 16,384-token step. On TokenSpeed, also the chunk remainders — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
+| `fast` | The decode staircase, the graph-capture sizes and the tuners' bucket grid of prefill lengths, skipping the 128-token classes: seconds. On TokenSpeed this also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
+| `off` | No planned warm-up: the worker reports `SERVING` once the engine is up and answering |
+| A number (`120`) | The pass's time budget in seconds, at the `full` level |
+| `<level>:<seconds>` (`fast:30`) | Level and budget together |
+
+The budget defaults to 300 seconds — 900 for TokenSpeed, whose plan holds the chunk remainders. When it runs out, the pass ends between shapes (the end line names the shape it stopped before), and each request's timeout is clamped to what is left of the budget (never below one second), so a shape that hangs cannot hold readiness past it. A TokenSpeed worker with no chunk size set plans about 23 minutes of remainders at its default 8,192-token step, and the budget then cuts the pass about halfway through them (evenly, thanks to the spread order): set a chunk size or a larger budget to cover every length. A value the knob does not take fails a Rust-path worker at startup with an error naming the variable; a Python servicer logs a warning and serves without the warm-up.
+
+Under data parallelism, a vLLM worker runs the staircase once per rank and every prefill shape on every rank at once, each request pinned to its rank, so the log's step count is per rank. SGLang and TokenSpeed workers route each warm-up request to the least-loaded rank instead, so each prefill shape warms one rank and the others pay its first-time cost on their first request of that shape; a warning at the start of the pass says so.
 
 ### Rust vLLM Servicer
 
@@ -219,7 +256,7 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 
 Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer. `SubscribeKvEvents` relays the ZMQ KV-event publisher TokenSpeed was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
 
-Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake. Model load and kernel JIT compilation count against that bound, so raise it when a first start on a cold cache needs longer; a scheduler process that died is noticed on the supervisor's poll rather than waiting out the bound.
+Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake. Model load and kernel JIT compilation count against that bound, so raise it when a first start on a cold cache needs longer; a scheduler process that died is noticed on the supervisor's poll rather than waiting out the bound. After the handshake, the [planned warm-up](#planned-warm-up-before-serving) runs before the worker reports `SERVING`; `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it.
 
 ---
 

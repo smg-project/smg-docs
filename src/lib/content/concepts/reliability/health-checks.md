@@ -116,6 +116,29 @@ The failure count restarts when a worker enters `NotReady`, so a `Ready` worker 
 
 `Failed` is not terminal. A failed worker that is not removed keeps being probed, so an engine that restarts on the same address rejoins without being registered again.
 
+### How Long a Restarted Engine Stays Out
+
+The thresholds above count probes; the schedule turns them into time. Each worker is probed on its own clock, one probe every `--health-check-interval-secs` counted from the start of the previous probe, and a probe with no answer within `--health-check-timeout-secs` is a failure. At the defaults (interval `60`, timeout `5`, `3` failures out, `2` successes back), an engine that stops answering reads as follows.
+
+**Leaving routing.** The first probe after the outage begins falls within one interval, and the third failed probe comes two intervals after it, so a `Ready` worker becomes `NotReady` between two and three intervals after the outage began: 125 to 185 seconds at the defaults, the last probe's timeout included. Until then, requests routed to the worker fail and are retried elsewhere ([Retries](retries.md)), and `--cb-failure-threshold` failures (default `10`) open its [circuit breaker](circuit-breakers.md), which takes it out of selection on its own. A worker whose transport reports the failure (a gRPC worker's load poll or KV event stream failing on a reset connection) leaves routing within `--worker-stall-secs` (default `2`) of the failure, as **unreachable** ([When a Worker Dies or Loses Its Link](overload-protection.md#when-a-worker-dies-or-loses-its-link)); an HTTP worker's failed polls never arm that veto.
+
+**Returning.** Once the engine answers again, how soon the worker takes requests depends on what excluded it:
+
+| What excluded the worker | What brings it back | At the defaults |
+|--------------------------|---------------------|-----------------|
+| The health check (`NotReady` or `Failed`), with probes as the only contact: an HTTP worker, or any worker nothing else reaches while it is out (the load monitor polls `Ready` workers only) | The first passing probe falls within one interval of the engine's return; the second, one interval later, promotes the worker, and the promotion readmits its circuit breaker | Between one and two intervals after the engine is back: 60 to 120 seconds |
+| The health check, after an unreachable veto, on a worker with a transport that reconnects on its own (a gRPC worker's KV event stream) | The first successful contact clears the veto and runs the worker's probe at once instead of at its next slot: success 1 now, success 2 one interval later | About one interval after the first contact: a little over 60 seconds |
+| The health check on a ZMQ worker | The engine's handshake is what the probe reads, so the handshake itself promotes the worker | As soon as the engine completes its handshake |
+| The unreachable veto alone (an outage shorter than the probes needed to demote the worker) | Any successful contact: the next answered load poll, within `--load-monitor-interval` (default `10`); the same contact closes a circuit the failures opened | Within about 10 seconds of the engine's return |
+| The circuit breaker alone (an HTTP worker whose outage was too short to demote it) | The circuit's own timeout, then a half-open trial ([Circuit Breakers](circuit-breakers.md#state-transitions)) | `--cb-timeout-duration-secs` (default `60`) after the circuit opened |
+
+Two consequences of the thresholds:
+
+- **A short outage never changes the health state.** An engine down for 30 seconds meets at most one probe, and three consecutive failures are needed, so the worker stays `Ready` throughout. What excludes it in the meantime, if anything, is the liveness veto or the circuit breaker, which lift as in the last two rows.
+- **One passing probe is deliberately not a return.** The success threshold of `2` keeps a single good answer out of a flapping engine's run from putting it back in rotation, at the price of one more interval. To shorten the return, lower `--health-check-interval-secs`, which shortens the exclusion as well; lowering `--health-success-threshold` to `1` gives up the flap protection instead.
+
+With `--remove-unhealthy-workers` (the default under service discovery), a worker that reaches `Failed` is removed instead and comes back through discovery's registration, which waits for the engine to answer ([Worker Auto-Recovery](#worker-auto-recovery)).
+
 ---
 
 ## Worker Auto-Recovery

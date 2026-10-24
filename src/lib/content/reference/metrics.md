@@ -644,6 +644,16 @@ smg_worker_requests_active / ignoring(worker) group_left sum without (worker) (s
 
 ---
 
+### `smg_worker_requests_total`
+
+Requests dispatched to a worker, by worker URL and model, counted at each send: a retried request counts once per attempt.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker`, `model` |
+
+---
+
 ### `smg_worker_health`
 
 Worker health status.
@@ -658,6 +668,21 @@ count(smg_worker_health == 1)
 
 # Alert on unhealthy workers
 smg_worker_health == 0
+```
+
+---
+
+### `smg_worker_state`
+
+Routing state of a worker: `1` on the series of its current state and reason, `0` on a series it left. `state` is `available` or `excluded`; `reason` is the first fact of the routing decision that excludes the worker: `pending`, `not_ready`, `failed`, `draining` (its status), `overloaded` (the load monitor's veto), `unreachable` or `wedged` (the liveness veto), `circuit_open` (its breaker), or `none` while it is available.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `worker`, `state`, `reason` |
+
+```promql
+# Excluded workers and why
+smg_worker_state{state="excluded"} == 1
 ```
 
 ---
@@ -758,6 +783,33 @@ smg_workers_overloaded > 0
 
 ---
 
+### Liveness Metrics
+
+The liveness veto excludes a worker from routing on what the transport shows rather than on a load report: `unreachable` when its transport fails and nothing has been heard from it for the stall threshold, `wedged` when it answers polls but holds requests that make no progress while its queue grows. A veto that changes reason clears the old reason's series and sets the new one. See [When a Worker Dies or Loses Its Link](../concepts/reliability/overload-protection.md#when-a-worker-dies-or-loses-its-link).
+
+#### `smg_worker_stalled`
+
+`1` while routing skips the worker under the liveness veto, by worker and reason; `0` once the veto lifts.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `worker`, `reason` |
+
+#### `smg_worker_stall_transitions_total`
+
+Times the liveness veto was set on a worker, by worker and reason.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker`, `reason` |
+
+```promql
+# Workers vetoed by liveness right now, with the reason
+smg_worker_stalled == 1
+```
+
+---
+
 ### Circuit Breaker Metrics
 
 #### `smg_worker_cb_state`
@@ -810,6 +862,14 @@ Consecutive successes per worker.
 | Type | Labels |
 |------|--------|
 | Gauge | `worker` |
+
+#### `smg_worker_cb_health_readmissions_total`
+
+Times a worker's open circuit breaker went half-open because the worker's health returned (its promotion to Ready) rather than at the breaker's timeout, by worker. Published at zero before the worker's first return, so the series exists from the start.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker` |
 
 ---
 
@@ -874,6 +934,22 @@ PD gauges, emitted only for ranks whose report carries a disaggregation section:
 | `smg_engine_pd_decode_queue_reqs` | Gauge | `worker`, `role`, `dp_rank` | Requests in the decode queue |
 
 `role` is the engine-reported role: `prefill`, `decode`, or `null`. Values are whatever the engine reports, so which fields are meaningful depends on the engine. When a worker is removed or leaves Ready, its gauges are set to `-1`. The same load snapshot is available as JSON from `GET /loads` on the main port.
+
+#### `smg_engine_kv_capacity_tokens`
+
+Engine-reported KV cache capacity in tokens, by worker, model and DP rank: the denominator of `smg_engine_token_usage`. Absent while the engine has not reported it (a load record that carries only the core figures keeps the last reported value); divided by `smg_kv_block_size_tokens` it is the engine's total KV blocks.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `worker`, `model`, `dp_rank` |
+
+#### `smg_engine_load_polls_total`
+
+Load-monitor tick decisions, by worker and mode: `poll` (no pushed load record on file, the worker is asked), `fallback` (the pushed records are older than the tick interval, the worker is asked), `skipped_fresh_push` (the worker's KV event stream pushed its load within the interval; no load query).
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker`, `mode` |
 
 ```promql
 # KV-cache usage per worker (removed and non-Ready workers report -1)
@@ -991,6 +1067,14 @@ Tool-loop iterations in the Responses API and Anthropic Messages MCP loops.
 
 Decision counters and state gauges of the routing policies. See [Load Balancing](../concepts/routing/load-balancing.md) for the policies themselves.
 
+### `smg_policy_inflight_reconciled_total`
+
+Bookings a policy released at the per-poll reconciliation of its in-flight accounting because their completion never arrived, by policy name (as `smg_worker_selection_total` carries it).
+
+| Type | Labels |
+|------|--------|
+| Counter | `policy` |
+
 ### Cache-Aware Policy Metrics
 
 The branch counter and the match-ratio histogram are recorded for each decision made from the approximate prefix trees (`--cache-index tree`, the default). Decisions made from KV events, in hash mode, or while KV-cache imbalance suspends affinity are not counted. The tree gauges are refreshed after each eviction pass (`--eviction-interval`, default `120` seconds; the pip `smg launch` names it `--eviction-interval-secs` and defaults to `60`). See [Cache-Aware Routing](../concepts/routing/cache-aware.md).
@@ -1051,6 +1135,14 @@ Placement keys with at least one live holder, per model, in hash mode (`--cache-
 | Type | Labels |
 |------|--------|
 | Gauge | `model` |
+
+#### `smg_cache_aware_prefix_margin_held_total`
+
+Cache-aware affinity picks that the spill gate's swing-sized margin alone would have spilled, kept on their holder by the price of the prefix it holds (`--balance-prefix-margin-tokens`).
+
+| Type | Labels |
+|------|--------|
+| Counter | None |
 
 ```promql
 # Tree-mode decisions by branch

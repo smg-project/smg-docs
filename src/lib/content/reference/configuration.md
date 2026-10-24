@@ -358,7 +358,7 @@ Environment-only RDMA settings, read by the gateway. The TokenSpeed worker reads
 
 ## Service Discovery (Kubernetes)
 
-Watches Kubernetes pods and registers the matching ones as workers. Enabling service discovery automatically enables IGW mode. Discovery is not available with `--backend openai`, `anthropic`, or `gemini`. See [Service Discovery](../concepts/architecture/service-discovery.md).
+Watches Kubernetes pods and registers the matching ones as workers; Kubernetes is one of four providers, the others (a file manifest, Consul, Slurm) are in [File, Consul and Slurm Providers](#file-consul-and-slurm-providers) below. Enabling service discovery, with any provider, automatically enables IGW mode. Discovery is not available with `--backend openai`, `anthropic`, or `gemini`. See [Service Discovery](../concepts/architecture/service-discovery.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -381,6 +381,52 @@ Prefill bootstrap ports come from the fixed `sglang.ai/bootstrap-port` pod annot
 ```bash
 --selector app=sglang-worker tier=inference
 ```
+
+### File, Consul and Slurm Providers
+
+`--discovery-provider kubernetes|file|slurm|consul` names the provider; give it or `--service-discovery` (the Kubernetes shorthand), not both. The selectors, namespace, port and annotation options above belong to the Kubernetes provider; `--model-id-from` and `--model-alias` apply to every provider.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--discovery-provider` | unset | `kubernetes`, `file`, `slurm` or `consul`. |
+| `--discovery-check-interval-secs` | `30` | Seconds between periodic discovery passes. Kubernetes, file and Consul discovery apply a change as it happens and use the pass to retry and to catch what went unreported; Slurm discovery polls at this interval. |
+
+**File.** The workers listed in a JSON manifest on disk, reread in full whenever it changes and on every pass. A read that fails leaves the last good list in place, so a half-written file never removes a worker; writers should write a temporary file in the same directory and rename it over the manifest. The manifest is strict: an unknown field, worker type or version rejects the whole file. Editing a record in place updates its worker in place; a new `id` at a reused address replaces the worker there.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--discovery-file` | none | Path of the manifest, for `--discovery-provider file`. It may be created after start-up. |
+
+```json
+{
+  "version": 1,
+  "workers": [
+    { "id": "decode-a", "url": "10.0.0.23:8000", "worker_type": "decode" },
+    { "id": "prefill-a", "url": "10.0.0.22:8000", "worker_type": "prefill",
+      "bootstrap_port": 8998, "kv_connector": "MooncakeConnector" }
+  ]
+}
+```
+
+**Consul.** The instances of one Consul service whose health checks all pass, read through a blocking query on Consul's health API so a change applies as Consul reports it; a query that fails is retried with a doubling delay and leaves the last good list in place. A worker listens at its service's address (or its node's) on the service's port; the instance's `Service.Meta` configures it: `smg_worker_type` (`regular`, `encode`, `prefill` or `decode`; required in disaggregated routing), `smg_bootstrap_port`, `smg_model_id`, and `smg_kv_connector`, `smg_kv_role`, `smg_kv_engine_id`. Any other `smg_` key is refused; keys without the prefix are ignored. An instance that cannot be a worker is left out alone.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--consul-service` | none | Consul service whose passing instances are the workers (required with `--discovery-provider consul`). |
+| `--consul-address` | `CONSUL_HTTP_ADDR`, else `127.0.0.1:8500` | Consul's HTTP API address; HTTPS for one with no scheme when `CONSUL_HTTP_SSL` is true. The ACL token and TLS settings come from Consul's own environment variables (`CONSUL_HTTP_TOKEN` or `CONSUL_HTTP_TOKEN_FILE`, `CONSUL_CACERT`, `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`). |
+| `--consul-datacenter` | the agent's own | Consul datacenter to read. |
+
+**Slurm.** A worker on every node of each running job whose name maps to a worker type, found by polling `squeue` and `scontrol` (Slurm 23.11 or newer) at the check interval, scoped to one user and optionally to an account and a partition. Every node of a selected job runs one server on the configured port, so worker jobs should run `--exclusive` or on nodes of their own. A poll whose commands fail or do not parse is rejected whole and the last good one stays; a job that cannot be placed is left out alone and counted on `smg_discovery_skipped_total`. Discovery stays within the local cluster.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--slurm-job-name` | none | Job name whose nodes are regular workers, for `--discovery-provider slurm`; repeatable. |
+| `--slurm-prefill-job-name`, `--slurm-decode-job-name`, `--slurm-encode-job-name` | none | Job names whose nodes are prefill, decode or encode workers; each repeatable. |
+| `--slurm-port` | none | Port of the inference server on every node of a discovered job (required with `--discovery-provider slurm`). |
+| `--slurm-bootstrap-port` | none | Bootstrap port of the Slurm-discovered encode and prefill workers. |
+| `--slurm-user` | the user the gateway runs as | Discover this user's jobs, by name or uid. |
+| `--slurm-account` | none | Discover only jobs charged to this account. |
+| `--slurm-partition` | none | Discover only jobs in this partition. |
 
 ### Model Aliases
 

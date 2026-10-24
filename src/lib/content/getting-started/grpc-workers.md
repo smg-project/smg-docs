@@ -68,7 +68,7 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     This starts the default Python servicer. Adding `--servicer-impl rust` — or setting `SMG_SGLANG_SERVICER_IMPL=rust` in the worker's environment — serves the same contract from Rust instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
 
-    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine; `SMG_SGLANG_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
+    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — about a minute by default; `SMG_SGLANG_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 
 === "TensorRT-LLM"
 
@@ -99,7 +99,7 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     This starts the default Python servicer. Setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
 
-    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — several minutes on this engine, which warms every prompt length up to the chunk size; `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
+    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — ten minutes or more on this engine, which warms every prompt length up to the chunk size; `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 
 === "MLX"
 
@@ -114,7 +114,7 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
 ### Planned Warm-Up Before Serving
 
-vLLM, SGLang and TokenSpeed gRPC workers run a planned warm-up over the engine before they report `SERVING` on the standard gRPC health service (`grpc.health.v1`) — the signal Kubernetes gRPC startup and readiness probes read. Both the Python and Rust servicer implementations run the pass; MLX and TensorRT-LLM workers have no such pass, a model that generates nothing (a pooling or embedding model) takes none, and SGLang and TokenSpeed workers skip it on a disaggregation role.
+vLLM, SGLang and TokenSpeed gRPC workers run a planned warm-up over the engine before they report `SERVING` on the standard gRPC health service (`grpc.health.v1`) — the signal Kubernetes gRPC startup and readiness probes read. Both the Python and Rust servicer implementations run the pass; MLX and TensorRT-LLM workers have no such pass, a model that generates nothing (a pooling or embedding model) takes none, and TokenSpeed workers skip it on a disaggregation role. An SGLang worker on an EPD role (`--language-only` or `--encoder-only`) takes none either; on a prefill or decode leg the Python servicer skips the pass, while the Rust path runs it as on a single engine — each request carries a stand-in transfer to nobody, so the leg warms up without its peer.
 
 A worker whose health stays `NOT_SERVING` for a while after the engine loaded is warming up, not wedged. The pass logs `Planned warm-up starts (...): readiness is held until it ran`, one INFO line per shape with its time (TokenSpeed's chunk remainders log at DEBUG, with an INFO progress line every 500), and `Planned warm-up over: N of M steps covered ...` at the end.
 
@@ -224,7 +224,7 @@ In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servic
 
 What the scheduler's msgpack wire does not carry, the Rust path reports rather than emulates:
 
-- PD and EPD disaggregation stay with the Python servicer: a worker with a `disaggregation_mode` set, or with `language_only` or `encoder_only`, refuses to start on the Rust path.
+- EPD disaggregation stays with the Python servicer: a worker with `language_only` or `encoder_only` refuses to start on the Rust path, as does a prefill or decode leg with more than one scheduler rank. A single-rank prefill or decode leg is served as on the Python servicer.
 - Multimodal inputs and hidden states are refused per request, and LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
 - SGLang's HTTP sidecar (profiling, `/metrics`) is not started.
 

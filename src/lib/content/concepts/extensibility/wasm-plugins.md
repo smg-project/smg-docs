@@ -204,7 +204,11 @@ smg --enable-wasm --worker-urls http://worker:8000
 
 These values are fixed; no flag changes them. Plugins run on a pool of runtime threads, one per CPU core up to 4.
 
-With an **OnRequest** plugin attached, SMG reads the whole request body before running it, and answers `400` when the body exceeds `max_body_size`. With an **OnResponse** plugin attached, it reads each non-streaming response body the same way, and answers `500` when the body is too large.
+With an **OnRequest** plugin attached, SMG reads the whole request body before running it. A body over a limit — `max_body_size` or `--max-payload-size` — is answered with the gateway's usual `413` and the code `request_body_too_large`; a body that cannot be read for any other reason is answered with `400` and the code `wasm_request_body_unreadable`.
+
+With an **OnResponse** plugin attached, SMG reads each non-streaming response body within `max_body_size`. A response known before the read to exceed the cap — one that declares a `Content-Length` over it, or whose body is already in memory — passes through to the client untouched with a logged warning, just as a streaming response does: the plugins never see it. Only a body that crosses the cap while being read (a streamed body of undeclared size) is answered with `500` and the code `wasm_response_body_too_large`, since the original response can no longer be relayed; a response body that cannot be read for any other reason is answered with `500` and the code `wasm_response_body_unreadable`.
+
+These error answers all use the standard [error envelope](../../reference/api/openai.md#error-format) and repeat the code in the `X-SMG-Error-Code` header.
 
 ---
 

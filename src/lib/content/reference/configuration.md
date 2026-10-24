@@ -269,6 +269,19 @@ These govern every worker registration, not only PD workers, although `--help` l
 | `--worker-startup-delay` | `0` | Grace period in seconds before the first startup probe, leaving a loading engine alone. |
 | `--worker-startup-check-interval` | `30` | Seconds between startup probes. Must be greater than 0. |
 
+### Readiness Gates
+
+In PD and EPD mode `/readiness` answers `200` only while every role has enough healthy workers. Each role needs `max(minimum workers, ceil(expected workers × minimum percent / 100))` healthy workers; without any of these flags that is one healthy prefill worker and one healthy decode worker (and one encode worker in EPD mode, which has no flags of its own). Setting any one of the six turns the gates on for both roles, each role keeping `1` where it has no flag. The readiness body then carries a `roles` object with the healthy, registered, expected, minimum and required counts per role.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--prefill-min-ready-workers` | `1` | Absolute minimum number of healthy prefill workers required. Must be greater than 0 and not above `--prefill-expected-workers` when that is set. |
+| `--prefill-expected-workers` | unset | Desired number of prefill workers, the denominator of the percentage gate. Has no effect on its own; must be greater than 0. |
+| `--prefill-min-ready-percent` | unset | Minimum healthy percentage (`1` to `100`) of `--prefill-expected-workers`, which it requires. |
+| `--decode-min-ready-workers` | `1` | Absolute minimum number of healthy decode workers required. Must be greater than 0 and not above `--decode-expected-workers` when that is set. |
+| `--decode-expected-workers` | unset | Desired number of decode workers, the denominator of the percentage gate. Has no effect on its own; must be greater than 0. |
+| `--decode-min-ready-percent` | unset | Minimum healthy percentage (`1` to `100`) of `--decode-expected-workers`, which it requires. |
+
 ---
 
 ## Load Monitoring Configuration

@@ -440,7 +440,7 @@ The `no_available_workers` message names the missing leg of an incomplete pair (
 
 A model whose only workers are the legs of an incomplete pair is answered by the pair's own router — the gRPC PD or EPD router for gRPC legs, the HTTP PD router for HTTP legs — with that retryable 503. Only a model with no worker on any leg answers 404 `model_not_found`, as for any unknown model.
 
-`/readiness` reports ready only when at least one prefill worker and one decode worker are healthy (and an encode worker in EPD mode).
+`/readiness` reports ready only when at least one prefill worker and one decode worker are healthy (and an encode worker in EPD mode). The [readiness gates](../../reference/configuration.md#readiness-gates) (`--prefill-min-ready-workers`, `--prefill-expected-workers`, `--prefill-min-ready-percent` and their `--decode-*` counterparts) raise that bar per role to an absolute minimum, a percentage of an expected fleet size, or both.
 
 ---
 

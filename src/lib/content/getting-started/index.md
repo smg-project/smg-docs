@@ -677,6 +677,7 @@ The chart creates these resources (names assume the release is called `smg`):
 | `Service` `smg-router` (`ClusterIP`): port 80 to the gateway's 30000, and 29000 for metrics | Always |
 | `ServiceAccount` `smg` | `serviceAccount.create` (default `true`) |
 | `Secret` `smg-hf-token`, passed to the router and workers as `HF_TOKEN` | `huggingface.token` is set |
+| `Secret` `smg-history` holding the history store's connection URL, or `smg-secrets` holding the Oracle credentials | `history.backend` is `postgres` or `redis` with `url` set, or `oracle` with credentials set, and no `existingSecret` replaces it |
 | `Role` and `RoleBinding` allowing `get`, `list`, and `watch` on pods | `router.serviceDiscovery.enabled`, `router.mesh.enabled`, or `rbac.create`; a `ClusterRole` and `ClusterRoleBinding` with `router.serviceDiscovery.clusterWide` |
 | `ServiceMonitor` | `router.metrics.serviceMonitor.enabled` (needs the Prometheus Operator CRDs) |
 | `Ingress`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, Grafana dashboard `ConfigMap` | `router.ingress.enabled`, `router.autoscaling.enabled`, `router.podDisruptionBudget.enabled`, `grafana.dashboard.enabled` |
@@ -688,9 +689,7 @@ A few chart behaviors to know:
 - The chart's schema limits `router.policy` to `cache_aware`, `round_robin`, `power_of_two`, `manual`, `random`, and `prefix_hash`.
 - `global.image.tag` overrides the gateway version, which defaults to the chart's `appVersion`.
 - Engine images for `workers[]` resolve to `ghcr.io/<repository>:<tag>`, and the repository defaults to `global.image.repository` (`lightseekorg/smg`). GHCR has no engine release images under that name after 1.9.0, so set `image.repository: smg-project/smg` next to each worker's `image.tag`. The chart's worker examples still pin 1.3.3 images.
-
-!!! warning "History backends in chart 1.11.0"
-    With `history.backend` set to `postgres` or `redis`, or to `oracle` with `history.oracle.dsn`, chart 1.11.0 passes a flag the gateway image rejects (`--postgres-pool-max-size`, `--redis-pool-max-size`, or `--oracle-dsn`), and the router exits at startup. Leave `history.backend` at `memory` and pass the history flags through `router.extraArgs` instead, for example `--history-backend postgres --postgres-db-url <url>`.
+- `history.backend` selects where conversation history is stored (`memory` by default, `none`, `postgres`, `redis`, or `oracle`). For `postgres` and `redis`, set the store's `url` under `history.<backend>`, or name a Secret you manage with `existingSecret`; for `oracle`, set `history.oracle.dsn`, `user`, and `password`, or `existingSecret`. The connection URL and credentials reach the router from a Secret through environment variables, never in the pod's arguments. [Data Connections](data-connections.md) covers each backend, including schema migrations.
 
 Verify:
 

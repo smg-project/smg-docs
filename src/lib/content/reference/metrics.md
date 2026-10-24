@@ -567,6 +567,118 @@ Where a multimodal request's media was fetched and preprocessed (the `--mm-proce
 - `mode`: `router`, `worker`
 - `reason`: `config` (set explicitly to `router` or `worker`); under `auto`: `auto_uniform` (every worker of the model accepts media references), `auto_mixed`, `auto_none` (no registered worker), `plan_not_forwardable`, `model_not_opted_in`
 
+#### `smg_mm_processing_seconds`
+
+Seconds a multimodal request spent in a processing stage, by model: `config_lookup`, `media_fetch_decode`, `preprocess`, `token_expand`, and `total` for the whole pipeline. The histogram has buckets of its own, from 0.5 ms to 30 s.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `model`, `stage` |
+
+```promql
+# P99 of the fetch-and-decode stage, by model
+histogram_quantile(0.99, sum by (model, le) (rate(smg_mm_processing_seconds_bucket{stage="media_fetch_decode"}[5m])))
+```
+
+#### `smg_mm_media_per_request`
+
+Media items a generation request carried, by model and modality, counted once per request before any refusal or limit (a refused request counts; a token count does not). Buckets from 1 to 64 items.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `model`, `modality` |
+
+Modalities: `image`, `image_embeds`, `audio`, `video`.
+
+#### `smg_mm_media_items_total`
+
+Media items generation requests carried, by model, modality and source, counted before any refusal or limit.
+
+| Type | Labels |
+|------|--------|
+| Counter | `model`, `modality`, `source` |
+
+Sources, as the fetch reads them: `url` (fetched over the network), `data_url` (a `data:` URL in the request), `inline` (bytes in the request), `file` (a file of the host).
+
+#### `smg_mm_media_fetch_seconds`
+
+Seconds one media fetch and decode took, by model, modality, source and outcome. The histogram has buckets of its own, from 0.5 ms to 30 s.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `model`, `modality`, `source`, `outcome` |
+
+Outcomes: `ok` (fetched and decoded), `too_large` (the payload, or what it decodes to, is over a size limit), `client_fault` (a URL that cannot be fetched, bytes that do not decode, a host the policy refuses), `host_fault` (a fetch that timed out, a host that failed, a decoder this process lacks).
+
+#### `smg_mm_media_fetch_bytes_total`
+
+Bytes the media fetches brought in, by model, modality and source.
+
+| Type | Labels |
+|------|--------|
+| Counter | `model`, `modality`, `source` |
+
+#### `smg_mm_pixel_cache_hits_total`
+
+Lookups in the router-side pixel cache (`--mm-pixel-cache-mb`: one cache per process, shared by every model, keyed by image and model configuration) that found the image's preprocessed encoder input, by model. The hit and miss series of a model both exist from its first lookup, so a hit rate reads from the start.
+
+| Type | Labels |
+|------|--------|
+| Counter | `model` |
+
+```promql
+# Pixel cache hit rate, by model
+sum by (model) (rate(smg_mm_pixel_cache_hits_total[5m])) / sum by (model) (rate(smg_mm_pixel_cache_hits_total[5m]) + rate(smg_mm_pixel_cache_misses_total[5m]))
+```
+
+#### `smg_mm_pixel_cache_misses_total`
+
+Pixel cache lookups that had to preprocess the image, by model.
+
+| Type | Labels |
+|------|--------|
+| Counter | `model` |
+
+#### `smg_mm_pixel_cache_evictions_total`
+
+Entries the pixel cache dropped to stay within its byte budget. This counter and the two gauges below are published at zero when the cache is built, so they are on the first scrape.
+
+| Type | Labels |
+|------|--------|
+| Counter | None |
+
+#### `smg_mm_pixel_cache_bytes`
+
+Bytes of preprocessed encoder inputs the pixel cache holds.
+
+| Type | Labels |
+|------|--------|
+| Gauge | None |
+
+#### `smg_mm_pixel_cache_entries`
+
+Images the pixel cache holds.
+
+| Type | Labels |
+|------|--------|
+| Gauge | None |
+
+#### `smg_mm_turbojpeg_available`
+
+`1` when JPEGs decode through libjpeg-turbo, `0` through the pure-Rust fallback.
+
+| Type | Labels |
+|------|--------|
+| Gauge | None |
+
+#### `smg_mm_webp_available`
+
+`1` when WebP files decode through libwebp, `0` through the pure-Rust fallback.
+
+| Type | Labels |
+|------|--------|
+| Gauge | None |
+
 ---
 
 ### Tokenizer Cache Metrics

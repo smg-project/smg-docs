@@ -99,7 +99,7 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     This starts the default Python servicer. Setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
 
-    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — ten minutes or more on this engine, which warms every prompt length up to the chunk size; `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
+    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — ten minutes or more when the engine runs more than one process, since the pass then warms every prompt length up to the chunk size (a one-process engine takes about a minute, as on the other engines); `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 
 === "MLX"
 
@@ -123,7 +123,7 @@ Engines select and compile kernels lazily: the first scheduler step at a token c
 - a **decode staircase**: as many concurrent requests as the running window holds, each asking for one more output token than the last, so every running-batch size runs once;
 - a **prefill ladder**: one request per 128-token prompt-length class up to the engine's admission step (its chunk size or prefill token budget), plus the engine's graph-capture sizes and lengths one above the kernel tuners' bucket grid;
 - a **second pass** over the bucket grid, whose logged timings show what the first pass paid;
-- on TokenSpeed, the **chunk remainders**: every remaining prompt length up to the chunk size, because on this engine a prompt length's first use during serving can deadlock the forward pass. They run last, in an order whose every prefix spreads evenly over the range, so a budget cut leaves even coverage rather than a missing tail.
+- on a TokenSpeed engine of more than one process, the **chunk remainders**: every remaining prompt length up to the chunk size, because on this engine a prompt length's first use during serving can deadlock the forward pass under a collective still in flight. A one-process engine has no peer to wait on and plans the length classes alone, like the other engines. The remainders run last, in an order whose every prefix spreads evenly over the range, so a budget cut leaves even coverage rather than a missing tail.
 
 Every request carries its own token IDs, so prefix caching never hides a prefill, and the pass flushes the engine's prefix cache at the end. A servicer that does not serve `FlushCache` (the Rust TokenSpeed servicer) refuses that flush, and the end line then says the warm-up's blocks stay cached.
 
@@ -135,13 +135,13 @@ A Python servicer answers that RPC healthy throughout (vLLM's reports engine liv
 
 | Value | Effect |
 |-------|--------|
-| `full` | The default: every 128-token length class — about a minute at a 16,384-token step. On TokenSpeed, also the chunk remainders — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
-| `fast` | The decode staircase, the graph-capture sizes and the tuners' bucket grid of prefill lengths, skipping the 128-token classes: seconds. On TokenSpeed this also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
+| `full` | The default: every 128-token length class — about a minute at a 16,384-token step. On a multi-process TokenSpeed engine, also the chunk remainders — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
+| `fast` | The decode staircase, the graph-capture sizes and the tuners' bucket grid of prefill lengths, skipping the 128-token classes: seconds. On a multi-process TokenSpeed engine this also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
 | `off` | No planned warm-up: the worker reports `SERVING` once the engine is up and answering |
 | A number (`120`) | The pass's time budget in seconds, at the `full` level |
 | `<level>:<seconds>` (`fast:30`) | Level and budget together |
 
-The budget defaults to 300 seconds — 900 for TokenSpeed, whose plan holds the chunk remainders. When it runs out, the pass ends between shapes (the end line names the shape it stopped before), and each request's timeout is clamped to what is left of the budget (never below one second), so a shape that hangs cannot hold readiness past it. A TokenSpeed worker with no chunk size set plans about 23 minutes of remainders at its default 8,192-token step, and the budget then cuts the pass about halfway through them (evenly, thanks to the spread order): set a chunk size or a larger budget to cover every length. A value the knob does not take fails a Rust-path worker at startup with an error naming the variable; a Python servicer logs a warning and serves without the warm-up.
+The budget defaults to 300 seconds — 900 for TokenSpeed, whose plan can hold the chunk remainders. When it runs out, the pass ends between shapes (the end line names the shape it stopped before), and each request's timeout is clamped to what is left of the budget (never below one second), so a shape that hangs cannot hold readiness past it. A multi-process TokenSpeed worker with no chunk size set plans about 23 minutes of remainders at its default 8,192-token step, and the budget then cuts the pass about halfway through them (evenly, thanks to the spread order): set a chunk size or a larger budget to cover every length. A value the knob does not take fails a Rust-path worker at startup with an error naming the variable; a Python servicer logs a warning and serves without the warm-up.
 
 Under data parallelism, a vLLM worker runs the staircase once per rank and every prefill shape on every rank at once, each request pinned to its rank, so the log's step count is per rank. SGLang and TokenSpeed workers route each warm-up request to the least-loaded rank instead, so each prefill shape warms one rank and the others pay its first-time cost on their first request of that shape; a logged warning says so.
 
@@ -224,7 +224,7 @@ In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servic
 
 What the scheduler's msgpack wire does not carry, the Rust path reports rather than emulates:
 
-- EPD disaggregation stays with the Python servicer: a worker with `language_only` or `encoder_only` refuses to start on the Rust path, as does a prefill or decode leg with more than one scheduler rank. A single-rank prefill or decode leg is served as on the Python servicer.
+- An encoder-only worker refuses to start on the Rust path (SGLang runs that role on its own encoder server, not on a servicer), as do a language-only worker on the `zmq_to_tokenizer` encoder transfer backend (the frontend itself receives and processes the embeddings there, which neither servicer runs) and a prefill or decode leg with more than one scheduler rank. A single-rank prefill or decode leg, or a language-only worker on the backends whose scheduler ranks receive the embeddings, is served as on the Python servicer.
 - Multimodal inputs and hidden states are refused per request, and LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
 - SGLang's HTTP sidecar (profiling, `/metrics`) is not started.
 

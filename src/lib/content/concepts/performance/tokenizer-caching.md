@@ -254,10 +254,12 @@ Path to a Jinja2 chat template file.
 **Template discovery priority**:
 
 1. Explicit `--chat-template` path (highest priority)
-2. `chat_template.json` in model directory
-3. `chat_template.jinja` in model directory
-4. Any `.jinja` file in model directory
-5. `chat_template` field in `tokenizer_config.json`
+2. `chat_template.jinja` in model directory
+3. `chat_template` field in `tokenizer_config.json` — a string, or a list of named templates (the `default` entry renders plain requests, the `tool_use` entry renders requests that declare tools)
+4. Legacy `chat_template.json` in model directory (used only when `tokenizer_config.json` carries no template)
+5. Any other `.jinja` file in model directory
+
+A checkpoint may ship a processor `chat_template.json` beside the tokenizer's template; requests without tools can render through it. See [Chat Templates and Native Renderers](../architecture/grpc-pipeline.md#chat-templates-and-native-renderers).
 
 #### Template Variables
 

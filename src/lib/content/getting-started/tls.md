@@ -135,7 +135,8 @@ smg launch \
 | `--ca-cert-paths` | One or more CA certificates (PEM) that the gateway trusts, in addition to the system's trusted roots, when it verifies worker certificates. Takes several paths after one flag, and the flag can repeat. |
 
 - These flags belong to the Python launcher (`smg launch` from pip, and the container image). The Rust `smg` binary does not accept them.
-- SMG reads the files at startup. Setting only one of `--client-cert-path` and `--client-key-path`, or passing a file it can't read, stops startup. A key file readable or writable beyond its owner draws the startup warning described under [Enable Server TLS](#enable-server-tls).
+- SMG reads the files at startup. Setting only one of `--client-cert-path` and `--client-key-path`, or passing a file it can't read, stops startup.
+- A key file readable or writable beyond its owner draws the startup warning described under [Enable Server TLS](#enable-server-tls); the gateway still starts.
 - The certificate and CAs apply to the gateway's HTTPS connections only: the per-worker clients that send requests, health probes and admin calls to HTTP workers, and the shared client for external providers and model discovery. gRPC workers (`grpc://`, `grpcs://`) don't use them; see [Gateway to gRPC Workers](#gateway-to-grpc-workers).
 
 If you run the Rust binary, terminate mTLS toward the workers outside SMG, for example with a service mesh (such as Istio) or a sidecar proxy.

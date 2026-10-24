@@ -93,6 +93,10 @@ Routing flags configure the default policy (`--policy`). In PD mode, `--prefill-
 | `manual` | A sticky map from routing key to worker with idle eviction. First-seen keys are placed by `--assignment-mode`. |
 | `bucket` | Maps request length (tokens, or characters when untokenized) to per-worker length buckets whose boundaries adapt every 5 seconds; picks the least-loaded worker when the `--balance-*` imbalance check fires. |
 
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--power-of-two-load-metric` | `expected_wait` | What `power_of_two` compares between its two samples: `expected_wait`, `requests` or `least_requests`. |
+
 **Recommendation**: Use `cache_aware` for LLM workloads to maximize KV cache hit rates.
 
 ### Cache-Aware Policy Options
@@ -115,7 +119,7 @@ Routing flags configure the default policy (`--policy`). In PD mode, `--prefill-
 | `--kv-indexer-ttl-secs` | unset | TTL for event-driven KV indexer entries: entries neither stored nor read within the window are pruned, which bounds growth when a backend stops emitting removal events. Unset or `0` disables the TTL pass. |
 | `--kv-indexer-max-entries` | unset | Per-model capacity ceiling for the event-driven KV indexer; past it, the oldest-touched entries are pruned down to 90% of the ceiling. Unset or `0` disables the ceiling. |
 
-The event-driven options apply when workers publish KV cache events; see [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md).
+The event-driven options apply when workers publish KV cache events; see [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md). `--kv-index` is deprecated: the chain index is the only KV index behind cache-aware routing, so the flag takes `chain` only and does nothing (`positional` names the index that was removed and is refused); it goes in a later release.
 
 ### Least Load Policy Options
 
@@ -406,6 +410,7 @@ smg launch \
 | `--log-level` | `info` | `debug`, `info`, `warn`, or `error`. Applies to every SMG crate; external dependencies log at `warn`. |
 | `--log-dir` | unset (console only) | Also write logs to daily-rotated files named `smg.YYYY-MM-DD` in this directory, which is created if missing. |
 | `--log-json` | `false` | Output logs as JSON (structured) instead of human-readable text, on the console and in log files. |
+| `--access-log-fields` | none | Optional fields of the access-log record, comma-separated: `client_addr`, `forwarded_for`, `user_agent`, `tenant`, `key_id`, `request_bytes`, `response_bytes`, `worker`. Without the flag the record keeps the fields it has always had. |
 
 `RUST_LOG`, when set to a valid filter, replaces the filter built from `--log-level`:
 
@@ -614,6 +619,7 @@ Active health probes of each worker. See [Health Checks](../concepts/reliability
 | `--disable-tokenizer-autoload` | `false` | Disable automatic tokenizer loading at startup and during worker registration. Useful when tokenizers are loaded on demand through the API. |
 | `--tokenizer-cache-enable-l0` | `false` | Enable the L0 (whole-string exact match) tokenizer cache. |
 | `--tokenizer-cache-l0-max-entries` | `10000` | Maximum entries in the L0 cache. Must be greater than 0 when L0 is on. |
+| `--tokenizer-cache-l0-max-memory` | `268435456` (256 MiB) | Maximum memory for the L0 cache, in bytes (texts, ids and per-entry overhead). |
 | `--tokenizer-cache-enable-l1` | `false` | Enable the L1 (prefix matching) tokenizer cache. |
 | `--tokenizer-cache-l1-max-memory` | `52428800` (50 MiB) | Maximum memory for the L1 cache, in bytes. Must be greater than 0 when L1 is on. |
 
@@ -630,7 +636,11 @@ Both flags take a registered parser name; an unknown name fails startup. For eac
 | `--reasoning-parser` | unset (auto-detect) | `base`, `passthrough`, `deepseek_r1`, `deepseek_v31`, `deepseek_v4`, `deepseek_v41`, `qwen3`, `qwen3_thinking`, `kimi`, `kimi_k25`, `kimi_thinking`, `kimi_k3`, `glm45`, `step3`, `minimax`, `minimax_m3`, `cohere_cmd`, `nano_v3`, `inkling` |
 | `--tool-call-parser` | unset (auto-detect) | `passthrough`, `json`, `mistral`, `qwen`, `qwen_xml`, `qwen_coder`, `nemotron`, `pythonic`, `llama`, `deepseek`, `deepseek31`, `deepseek32`, `deepseek_v4`, `deepseek_v41`, `glm45_moe`, `glm47_moe`, `step3`, `sarashina`, `kimik2`, `kimi_k3`, `inkling`, `minimax_m2`, `minimax_m3`, `cohere` |
 
+| `--parser` | `legacy` | `legacy`, `symphony` |
+
 Names use underscores: `--reasoning-parser deepseek-r1` fails; use `deepseek_r1`.
+
+`--parser` chooses which parser reads a chat completion's reasoning and tool calls: the per-model parsers (`legacy`) or Symphony. With `symphony`, a model's worker labels decide, else Symphony's registry for a model it knows, else the two flags above: a Symphony table's name reads with that table, and so does a legacy parser's name whose format a table reads (`qwen` for `qwen3`, `qwen_xml` for `qwen3_tagged`: the table's aliases, so existing flags keep a working parser); any other legacy parser's name keeps the legacy parsers (`passthrough` among them), and no name leaves the legacy parsers to detect. A request's `X-SMG-Parser` header overrides the flag for that request.
 
 ---
 
@@ -656,6 +666,7 @@ Only the file's `servers` list is applied. A server entry's own `proxy:` block s
 | `--history-backend` | `memory` | Storage for conversations and Responses API history: `memory`, `none`, `oracle`, `postgres`, or `redis`. See [Storage Configuration](#storage-configuration) and [Chat History](../concepts/data/chat-history.md). |
 | `--enable-wasm` | `false` | Enable WebAssembly support: the WASM request middleware and module management through the `/wasm` admin routes. See [WASM Plugins](../concepts/extensibility/wasm-plugins.md). |
 | `--storage-hook-wasm-path` | unset | Path to a WASM component implementing storage hooks. When set, every storage backend is wrapped with hook-based interceptors. Independent of `--enable-wasm`. |
+| `--zmq-startup-timeout-secs` | `3600` | Seconds any one stage of a ZMQ engine's start-up handshake (its HELLO, its READY, its input registration) may stay silent before the router gives the handshake up and binds again. The router did not launch the engine and sees nothing from it beside the wire, so this alone must cover the engine's whole init between its HELLO and its READY (weights, KV-cache profiling, graph capture): err on the generous side. `--worker-startup-timeout-secs` bounds registration, not this. |
 | `--schema-config` | unset | Path to a YAML schema config file for storage table/column remapping. It also carries the schema `owner`, `version`, and `auto_migrate` settings (see [Schema Migrations](#schema-migrations)). |
 
 ---
@@ -793,6 +804,9 @@ High-availability mesh networking for multi-router coordination. See [High Avail
 | `--mesh-advertise-host` | the `--mesh-host` value | Routable address advertised to other mesh peers. Required when `--mesh-host` is an unspecified bind address such as `0.0.0.0`. |
 | `--mesh-port` | `39527` | Port for the mesh server. `0` is rejected because peers dial the advertised port. |
 | `--mesh-peer-urls` | none | Peer address to join at startup, as `IP:port`. Only the first entry is used as the initial peer, and it must be an IP address and port: a hostname fails startup. Later entries are ignored without being checked. |
+| `--mesh-tls-ca-cert` | unset | The CA certificate (PEM) the mesh peers' certificates chain to. With `--mesh-tls-cert` and `--mesh-tls-key` the mesh listener serves TLS and requires peer certificates, and every dial presents this node's. |
+| `--mesh-tls-cert` | unset | This mesh node's certificate (PEM), with the node's IP as a SAN. |
+| `--mesh-tls-key` | unset | This mesh node's private key (PKCS#8 PEM). |
 
 Router pods can also discover each other through `--router-selector` (see [Service Discovery (Kubernetes)](#service-discovery-kubernetes)).
 
@@ -834,6 +848,15 @@ That overrides the container-aware default and oversubscribes worker threads
 against the cores the scheduler actually grants, causing scheduler thrash,
 tail-latency spikes, and `/health` starvation. Leaving it unset is the correct
 production configuration.
+
+### Listeners
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--admin-port` | unset (the control plane stays on the data listener) | Port of the admin listener. When set, the control-plane routes (`/flush_cache`, `/start_profile`, `/stop_profile`, `/heap_profile`, `/get_loads`, `/parse/*`, `/wasm`, `/v1/tokenizers`, the worker-registry routes `/workers` and the RL routes `/v1/rl`) are served there, with `/health`, `/liveness` and `/readiness`, and the data listener (`--port`) answers `404` for them, so the control plane can sit on a private address behind its own network policy. Control-plane authentication applies on it as on the data listener. The public `/loads` stays on the data listener. Each listener needs its own port. |
+| `--admin-host` | the `--host` value | Bind host of the admin listener (needs `--admin-port`). |
+| `--max-connections` | `0` (no bound) | Most client connections the data listener holds open at once, counted from accept to close (idle keep-alive connections, connections inside a TLS handshake and upgraded connections included). A connection beyond the bound is closed at once, before any TLS handshake and without a response; the client should retry with backoff; each is counted in `smg_http_connections_rejected_total`. Readiness is unaffected. Probes on the data port are subject to the bound like any connection: point them at `--health-check-port` or `--admin-port`, which it does not cover. |
+| `--jemalloc-prof-dir` | unset (the route answers `404`) | Directory where `POST /heap_profile` (an admin route) writes a jemalloc heap profile of this gateway. Needs a build with the `jemalloc-profiling` feature, started with `_RJEM_MALLOC_CONF=prof:true,prof_active:true`. |
 
 ### Worker Threads
 

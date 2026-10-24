@@ -287,7 +287,9 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `unsupported_content_part` | A content part type the gRPC path does not know |
 | 400 | `invalid_multimodal_request` | The model has no multimodal processor, does not take the modality, or the request has too many items (for example `model spec qwen3_vl supports at most 10 image inputs; got 11`) |
 | 400 | `multimodal_prompt_contract_mismatch` | The rendered prompt does not hold exactly one anchor per media item: a chat template that drops media, or a literal anchor token in user text |
-| 400 | `multimodal_processing_failed` | Fetching, decoding, or preprocessing failed: an HTTP error or timeout, an oversized payload, a malformed data URL, an invalid `fps` or `max_long_side_pixel`, or no ffmpeg on the gateway |
+| 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, or an invalid `fps` or `max_long_side_pixel` |
+| 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
+| 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes above do not cover |
 | 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, audio) |
 | 400 | `multimodal_worker_processing_unsupported_model` | `--mm-processing worker`, and vLLM cannot expand the model's anchor |
 | 400 | `multimodal_hint_unsupported_in_worker_mode` | `--mm-processing worker`, and a part carries `fps` or `max_long_side_pixel` |
@@ -295,7 +297,11 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `media_ref_scheme_not_accepted` | Worker path: the selected worker does not fetch that URL scheme |
 | 413 | `multimodal_payload_too_large` | The request's media exceed the whole in-flight budget |
 | 429 | `multimodal_inflight_budget` | The in-flight budget stayed full for 2 seconds, or the queue waiting for it was full |
+| 500 | `multimodal_processing_failed` | The gateway's own failure: a decoder it cannot run (for example no ffmpeg on the gateway), a scratch file or decoder process that failed on the gateway's side, or a decode or preprocessing task that died |
+| 502 | `media_fetch_failed` | The media's host failed for now: the fetch timed out, the origin answered 5xx, or the transfer broke. The host may recover, so the client can retry later |
 | 503 | `no_media_ref_capable_worker` | `--mm-processing worker`, and no worker of the model advertises a media processor |
+
+`media_fetch_failed` carries the status of whose fault the failure is: the request's own mistake is a 400 to fix, the media host's trouble for now a 502 the client can retry later. SMG never retries the request on another worker — it would fetch from the same host — and a worker that reports a media failure stays healthy and in rotation. The split applies wherever SMG's own pipeline fetches, on the router or on a worker running `--mm-processor smg`; the `inprocess` and `redis` processors answer as described under [Worker-Side Processing on vLLM](#worker-side-processing-on-vllm).
 
 Prefill-decode deployments add three codes, listed under [Prefill-Decode Disaggregation](#prefill-decode-disaggregation).
 

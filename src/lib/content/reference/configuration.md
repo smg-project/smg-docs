@@ -159,21 +159,23 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 
 ## Worker Overload Protection
 
-Absolute per-worker ceilings, evaluated once per load report rather than per request. A worker at or above a ceiling leaves routing until its load report drops below it. When every candidate worker is overloaded, the request is shed immediately with `503` and error code `worker_overload_protection_shed` instead of queueing. The shed carries `Retry-After` set to `--load-monitor-interval` (at least 1 second), and the gateway does not retry it. See [Overload Protection](../concepts/reliability/overload-protection.md).
+Absolute per-worker ceilings, evaluated once per load report rather than per request, on by default since v1.12.0. A worker at or above a ceiling leaves routing, while another candidate is under the ceilings, until its load report drops below it. When every candidate worker is overloaded, the request goes to the least-loaded of them; with `--worker-overload-shed` it is shed immediately with `503` and error code `worker_overload_protection_shed` instead of queueing. The shed carries `Retry-After` set to `--load-monitor-interval` (at least 1 second), and the gateway does not retry it. See [Overload Protection](../concepts/reliability/overload-protection.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--worker-overload-protection` | `false` | Turn protection on with the gateway defaults: `--worker-overload-token-usage 0.9` and no waiting-requests ceiling (a sensible queue ceiling depends on the workload). Explicit thresholds override the default, and either threshold set alone turns protection on without this flag. |
-| `--worker-overload-waiting-requests` | unset | Queued (waiting) requests, summed across DP ranks, at or above which a worker is overloaded. Must be at least `1`, because `0` would veto every worker. |
-| `--worker-overload-token-usage` | unset | Mean KV-cache token usage across DP ranks, in `(0.0, 1.0]`, at or above which a worker is overloaded. The backend must report `token_usage`. `0.0` is rejected because it would veto every worker. |
+| `--worker-overload-protection` | `true` | The default since v1.12.0; the flag is still accepted so that command lines written for earlier releases parse unchanged. |
+| `--disable-worker-overload-protection` | `false` | Switch protection off: no worker is left out of routing for its waiting queue or KV usage. Per-worker `overload` blocks still apply. |
+| `--worker-overload-waiting-requests` | `8` | Queued (waiting) requests, summed across DP ranks, at or above which a worker is overloaded. Must be at least `1`, because `0` would veto every worker. |
+| `--worker-overload-token-usage` | `0.8` | Mean KV-cache token usage across DP ranks, in `(0.0, 1.0]`, at or above which a worker is overloaded. The backend must report `token_usage`. `0.0` is rejected because it would veto every worker. |
+| `--worker-overload-shed` | `false` | Refuse a request with `503 worker_overload_protection_shed` (`Retry-After` the load poll interval) when every worker it could use is overloaded, instead of routing it to the least-loaded one; also refuses it the same way when the worker chosen for it crossed a threshold between selection and dispatch. |
 
-An `overload` block on a worker spec overrides these values per signal, and turns protection on for that worker even when all three flags are unset. Protection needs load reports, so the load monitor keeps polling workers that have it on (see [Load Monitoring Configuration](#load-monitoring-configuration)).
+An `overload` block on a worker spec overrides these values per signal, and keeps protection on for that worker even under `--disable-worker-overload-protection`. Protection needs load reports, so the load monitor keeps polling workers that have it on (see [Load Monitoring Configuration](#load-monitoring-configuration)).
 
 How the overload settings differ from the other load thresholds:
 
 | Setting | Scope | At the threshold |
 |---------|-------|------------------|
-| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing. If every candidate is overloaded, the request gets an immediate `503` shed. |
+| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing while another candidate is under the thresholds. If every candidate is overloaded, the request goes to the least-loaded one, or gets an immediate `503` shed under `--worker-overload-shed`. |
 | `--overload-token-usage-threshold` | `cache_aware` only | The hottest backend is de-ranked within cache-aware selection but stays routable. |
 | `--least-load-max-waiting-requests` | `least_load` only | The worker is skipped while at the cap. With every worker at the cap, the policy selects no worker. |
 
@@ -902,12 +904,12 @@ smg launch \
   --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 \
   --policy least_load \
   --least-load-max-waiting-requests 32 \
-  --worker-overload-protection \
   --worker-overload-waiting-requests 64 \
+  --worker-overload-shed \
   --load-monitor-interval 5
 ```
 
-`least_load` skips a worker once its reported queue, plus requests dispatched since its last load report, reaches 32. Overload protection removes a worker from routing at 90% KV-cache usage (the `--worker-overload-protection` default) or at 64 queued requests. When all three workers are over a ceiling, requests get an immediate `503` with `Retry-After: 5`.
+`least_load` skips a worker once its reported queue, plus requests dispatched since its last load report, reaches 32. Overload protection removes a worker from routing at 80% KV-cache usage (the default) or at 64 queued requests. With `--worker-overload-shed`, when all three workers are over a ceiling, requests get an immediate `503` with `Retry-After: 5`; without it they would go to the least-loaded of the three.
 
 ### Sticky Sessions on Cache-Aware Routing
 

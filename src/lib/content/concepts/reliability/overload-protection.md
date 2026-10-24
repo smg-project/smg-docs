@@ -4,9 +4,9 @@ title: Overload Protection
 
 # Overload Protection
 
-Inference engines accept work past saturation. Once an engine's running batch is full, new requests wait in its scheduler queue, and every request routed there waits a little longer. Load balancing spreads traffic *relative* to the other workers, so when the whole fleet saturates, every engine's queue deepens together until latency collapses, and routing alone never turns a request away. **Worker overload protection** puts an *absolute*, per-worker ceiling on the load each engine reports: a worker at or above its ceiling is taken out of routing until its load drops back under, and a request whose every candidate worker is over the ceiling is rejected immediately with a `503` and a `Retry-After` hint instead of joining an engine queue.
+Inference engines accept work past saturation. Once an engine's running batch is full, new requests wait in its scheduler queue, and every request routed there waits a little longer. Load balancing spreads traffic *relative* to the other workers, so when the whole fleet saturates, every engine's queue deepens together until latency collapses, and routing alone never turns a request away. **Worker overload protection** puts an *absolute*, per-worker ceiling on the load each engine reports: a worker at or above its ceiling is left out of routing, while another worker is under it, until its load drops back under; a request whose every candidate worker is over the ceiling goes to the least-loaded of them, or, with `--worker-overload-shed`, is rejected immediately with a `503` and a `Retry-After` hint instead of joining an engine queue.
 
-Overload protection is **opt-in**. The load monitoring that feeds it is on by default.
+Overload protection is **on by default** since v1.12.0, at `8` waiting requests and `0.8` KV usage, and it steers: a request is never refused for it unless `--worker-overload-shed` is set. `--disable-worker-overload-protection` switches it off. The load monitoring that feeds it is on by default as well.
 
 ---
 
@@ -32,9 +32,9 @@ The check runs once per load report, off the request path. Selection only reads 
 
 <div class="card" markdown>
 
-### :material-close-octagon: Immediate Shed
+### :material-close-octagon: Steer, or Shed on Request
 
-When every candidate worker is overloaded, the request gets a `503` with `Retry-After` right away instead of queueing.
+When every candidate worker is overloaded, the request goes to the least-loaded of them; with `--worker-overload-shed` it gets a `503` with `Retry-After` right away instead of queueing.
 
 </div>
 
@@ -69,7 +69,7 @@ SMG has several controls that react to load. They act at different points and do
 | [Rate limiting](rate-limiting.md) and the [priority scheduler](priority-scheduling.md) | Admission, before routing | Requests in flight through this gateway | Queues the request, then rejects it: `429` when the queue is full, `503` when the queue wait times out, both with `Retry-After: 2` |
 | Cache-aware de-ranking (`--overload-token-usage-threshold`) | Inside the `cache_aware` policy | KV usage of the hottest backend, compared with `>` | Drops prefix affinity for that decision and picks by load. The hot worker stays eligible and nothing is rejected |
 | `least_load` waiting cap (`--least-load-max-waiting-requests`) | Inside the `least_load` policy | Reported waiting requests plus requests dispatched since the last poll | Skips capped workers. When every candidate is capped, the policy picks none and the request fails with `503 no_available_workers` |
-| **Worker overload protection** (`--worker-overload-*`) | Worker eligibility, for every policy, on the HTTP and gRPC routers | Waiting requests (summed across DP ranks) and mean KV token usage, compared with `>=` | Excludes the worker until a report comes back under every threshold. When every candidate is excluded, the request is shed immediately with `503 worker_overload_protection_shed` |
+| **Worker overload protection** (`--worker-overload-*`) | Worker eligibility, for every policy, on the HTTP and gRPC routers | Waiting requests (summed across DP ranks) and mean KV token usage, compared with `>=` | Excludes the worker, while another candidate is under the thresholds, until a report comes back under every threshold. When every candidate is excluded, the request goes to the least-loaded of them, or is shed immediately with `503 worker_overload_protection_shed` under `--worker-overload-shed` |
 
 The layers stack: admission control bounds what the gateway accepts, the routing policy decides where a request goes, and overload protection decides which workers may receive it at all.
 
@@ -168,27 +168,31 @@ A veto is visible while it lasts: the `smg_worker_stalled` gauge reads `1` for t
 
 ## Configuration
 
+Protection needs no flag. This example raises the queue ceiling and turns the shed on:
+
 ```bash
 smg launch \
   --worker-urls http://w1:8000 http://w2:8000 \
-  --worker-overload-protection \
-  --worker-overload-waiting-requests 16
+  --worker-overload-waiting-requests 16 \
+  --worker-overload-shed
 ```
 
 ### Gateway Thresholds
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--worker-overload-protection` | off | Enables protection with the gateway default `--worker-overload-token-usage 0.9`. Leaves the waiting-requests signal unset: KV usage means the same thing on every engine, but a sensible queue ceiling depends on the workload. |
-| `--worker-overload-waiting-requests` | unset | Waiting requests, summed across DP ranks, at or above which a worker is overloaded. Integer `>= 1`. |
-| `--worker-overload-token-usage` | unset (`0.9` with `--worker-overload-protection`) | Mean KV token usage at or above which a worker is overloaded. Fraction in `(0.0, 1.0]`. |
+| `--worker-overload-protection` | on | The default since v1.12.0. The flag is still accepted, so command lines written for earlier releases parse unchanged. |
+| `--disable-worker-overload-protection` | off | Switches both gateway thresholds off: no worker is left out of routing for its waiting queue or KV usage. Per-worker `overload` blocks still apply. |
+| `--worker-overload-waiting-requests` | `8` | Waiting requests, summed across DP ranks, at or above which a worker is overloaded. Integer `>= 1`. |
+| `--worker-overload-token-usage` | `0.8` | Mean KV token usage at or above which a worker is overloaded. Fraction in `(0.0, 1.0]`. |
+| `--worker-overload-shed` | off | Refuses a request with `503 worker_overload_protection_shed` when every worker it could use is overloaded, instead of routing it to the least-loaded one, and refuses it the same way when the worker chosen for it crossed a threshold between selection and dispatch. |
 
-Either threshold on its own enables protection; `--worker-overload-protection` is not required. An explicit `--worker-overload-token-usage` overrides the `0.9` default. With all three unset (and no per-worker blocks), protection is off and routing is unchanged.
+Both thresholds are always set; an explicit value replaces the default for that signal. The command line has no switch for one signal alone: `--disable-worker-overload-protection` turns both off, and a per-worker `overload` block still applies afterwards.
 
 !!! note "Validation"
     Both comparisons are inclusive (`>=`), so a threshold of `0` would veto every worker unconditionally. Startup rejects `--worker-overload-waiting-requests 0` and any `--worker-overload-token-usage` outside `(0.0, 1.0]`, including `0`. A token usage threshold of `1.0` is accepted and vetoes a worker only when its KV cache is full.
 
-The Python launchers accept the same flags; under `smg serve` they take the `--router-` prefix (for example `--router-worker-overload-protection`). See the [Configuration Reference](../../reference/configuration.md#worker-overload-protection) for every flag.
+The Python launchers accept the same flags; under `smg serve` they take the `--router-` prefix (for example `--router-worker-overload-shed`). See the [Configuration Reference](../../reference/configuration.md#worker-overload-protection) for every flag.
 
 ### Per-Worker Thresholds
 
@@ -201,8 +205,8 @@ curl -X POST http://localhost:30000/workers \
   -d '{
     "url": "http://gpu-small:8000",
     "overload": {
-      "waiting_requests": 8,
-      "token_usage": 0.85
+      "waiting_requests": 4,
+      "token_usage": 0.7
     }
   }'
 ```
@@ -213,7 +217,7 @@ curl -X POST http://localhost:30000/workers \
 | `overload.token_usage` | number | Overrides `--worker-overload-token-usage` for this worker. Must be in `(0.0, 1.0]`. |
 
 - **Per signal**: a field set in the block wins; an omitted field falls back to the gateway value.
-- **Enables protection on its own**: a block turns protection on for its worker even when every gateway flag is unset.
+- **Applies on its own**: a block keeps protection on for its worker even under `--disable-worker-overload-protection`.
 - **Resolved at registration**: out-of-range values fail that worker's registration. The `POST` is still answered with `202 Accepted`, but the worker is not added.
 - **Not patchable**: `PATCH /workers/{worker_id}` cannot change the block and keeps it as is. To change it, send the complete spec with `PUT /workers/{worker_id}`, which re-runs registration (data-parallel workers need `DELETE` and a new `POST` instead).
 - **Visible**: `GET /workers` returns the block as part of each worker's spec.
@@ -228,13 +232,15 @@ Workers without a block, including those from `--worker-urls` and service discov
 
 While a worker is overloaded:
 
-- **Every routing policy skips it**, on the HTTP and gRPC routers, for regular workers and for each leg of a prefill/decode pair. Hash-based and sticky policies treat it like an unhealthy worker and route the key elsewhere while the veto lasts.
+- **Every routing policy skips it** while another candidate is under the thresholds, on the HTTP and gRPC routers, for regular workers and for each leg of a prefill/decode pair. Hash-based and sticky policies treat it like an unhealthy worker and route the key elsewhere while the veto lasts. One exception: a prefill pool placed by `cache_aware` is not steered by the thresholds unless `--worker-overload-shed` is set; the policy's own spill gate balances it.
 - **Requests already running on it are unaffected**. The veto only applies to selection.
 - **It returns to routing** on the first poll whose report is under every threshold.
 
-### Shedding Requests
+### When Every Worker Is Overloaded
 
-When every worker the request could have been routed to (the pool selection drew from: same model, worker type, and transport) is overloaded, the gateway rejects the request at once instead of queueing it:
+When every worker the request could have been routed to (the pool selection drew from: same model, worker type, and transport) is overloaded, the gateway never queues it. By default it **steers**: the request goes to the worker with the fewest requests this gateway has in flight to it (ties drawn at random), and the placement counts in `smg_worker_overload_fallback_total{stage="selection"}`. A fleet that is uniformly over its ceilings is still a fleet, and refusing the request would turn a load signal into an outage.
+
+With `--worker-overload-shed` the gateway **sheds** instead, rejecting the request at once:
 
 ```text
 HTTP/1.1 503 Service Unavailable
@@ -257,11 +263,14 @@ X-SMG-Error-Code: worker_overload_protection_shed
 - **`Retry-After`** is the gateway's `--load-monitor-interval` in whole seconds (at least `1`), because a vetoed worker's load is not re-checked before the next poll. Clients should wait that long before retrying.
 - **Not retried internally**: the gateway's retry layer never retries a shed, so the answer comes back immediately rather than after rounds of backoff against the same verdict.
 - **Trustworthy code**: `X-SMG-Error-Code` is set only by the gateway and is stripped from responses forwarded from workers, so it always marks a decision this gateway made.
-- **Dispatch-time re-check**: if the chosen worker is flagged between selection and dispatch, the request is shed with the message `Worker '<url>' for model '<model>' became overloaded before dispatch`. The gateway sheds instead of re-selecting; the flag is only set at poll cadence, so this window is rare.
+- **Dispatch-time re-check**, under `--worker-overload-shed` only: if the chosen worker is flagged between selection and dispatch, the request is shed with the message `Worker '<url>' for model '<model>' became overloaded before dispatch`. The gateway sheds instead of re-selecting; the flag is only set at poll cadence, so this window is rare. Without the flag the dispatch stands: the worker was the right choice when it was made.
 - **Mixed causes are not a shed**: if some candidates are out for another reason (unhealthy, or circuit breaker open) and the rest are overloaded, the request gets the ordinary `503 no_available_workers`.
 
 !!! note "Changed in v1.11.0"
     In v1.10.x an overload shed used the generic `503 no_available_workers` code. Since v1.11.0 sheds carry their own `worker_overload_protection_shed` code, so alerts and upstream proxies can tell a shed apart from an availability failure.
+
+!!! note "Changed in v1.12.0"
+    Before v1.12.0, overload protection was opt-in: `--worker-overload-protection` turned it on at `0.9` KV usage with no queue ceiling, either threshold alone turned it on, and a request whose every candidate was overloaded was always shed with `503`. Since v1.12.0 it is on by default at `8` waiting requests and `0.8` KV usage, `--disable-worker-overload-protection` switches it off, and the shed is the opt-in `--worker-overload-shed`; without it the request is steered to the least-loaded worker.
 
 ---
 
@@ -286,7 +295,7 @@ In gRPC prefill/decode disaggregation, SGLang-lineage engines (SGLang, TokenSpee
 The gateway therefore never has more disaggregated requests in flight to a decode worker than that worker's running window holds (counted per gateway instance):
 
 - **Room in the window**: the request is dispatched immediately.
-- **Window full**: the request waits in the gateway for up to `--pd-admission-wait-secs` (default `30`). If no room frees, it is shed with the same `503 worker_overload_protection_shed` response and `Retry-After` header.
+- **Window full**: the request waits in the gateway for up to `--pd-admission-wait-secs` (default `30`). If no room frees, it is shed with the `503 worker_overload_protection_shed` response and `Retry-After` header described above, whether or not `--worker-overload-shed` is set.
 - **Wider than the window**: a batched request that needs more rooms than the window holds is shed immediately.
 - **`0`** sheds as soon as the window is full, without waiting.
 - **No window reported**: workers whose engine reports no running window are never gated.
@@ -303,6 +312,7 @@ This gate is on by default and independent of the overload thresholds. Keep the 
 |--------|------|--------|-------------|
 | `smg_workers_overloaded` | Gauge | `model` | Workers of the model currently excluded by overload protection. Updated when a worker's verdict changes. |
 | `smg_worker_overload_shed_total` | Counter | `stage` | Requests shed with `worker_overload_protection_shed`. `stage` is `selection` (every candidate overloaded), `dispatch` (chosen worker flagged before dispatch), or `pd_admission` (decode window full). |
+| `smg_worker_overload_fallback_total` | Counter | `stage` | Requests placed although every worker they could use was overloaded, because shedding is off: routed to the least-loaded worker or, for a cache-aware prefill pool of a prefill/decode pair, placed by that policy. `stage` is `selection`. |
 | `smg_worker_stalled` | Gauge | `worker`, `reason` | `1` while a liveness veto excludes the worker from routing. `reason` is `unreachable` or `wedged`. |
 | `smg_worker_stall_transitions_total` | Counter | `worker`, `reason` | Liveness vetoes set on the worker, counted each time one lands. |
 | `smg_worker_liveness_fallback_total` | Counter | `stage` | Requests routed to a worker the liveness tracker vetoed because every candidate was vetoed. `stage` is `selection`. |
@@ -329,6 +339,9 @@ smg_workers_overloaded
 sum by (stage) (
   rate(smg_worker_overload_shed_total[5m])
 )
+
+# Requests steered onto an all-overloaded pool (shedding off)
+sum(rate(smg_worker_overload_fallback_total[5m]))
 ```
 
 </div>
@@ -372,6 +385,8 @@ groups:
           summary: "SMG is shedding requests with worker_overload_protection_shed"
 ```
 
+With shedding off (the default), `smg_worker_overload_shed_total` moves only for PD admission sheds; an all-overloaded fleet shows in `smg_worker_overload_fallback_total` instead, so alert on that counter as well.
+
 ---
 
 ## Production Tuning
@@ -382,32 +397,31 @@ groups:
 
 <div class="card" markdown>
 
-#### :material-shield-check: KV Ceiling Only
+#### :material-shield-check: The Defaults
 
-The engine-agnostic default: exclude a worker at 90% KV usage.
+Nothing to pass: a worker leaves routing at 8 waiting requests or 80% KV usage, and an all-overloaded fleet is steered, not refused.
 
 ```bash
-smg launch \
-  --worker-overload-protection
+smg launch
 ```
 
-**Use when**: Turning protection on for the first time
+**Use when**: Starting out; size the ceilings from your own traffic afterwards
 
 </div>
 
 <div class="card" markdown>
 
-#### :material-tray-full: KV and Queue Ceilings
+#### :material-tray-full: Ceilings Sized to the Fleet
 
-Also cap the waiting queue, sized from your own traffic.
+Move the ceilings to where your engines saturate, read from `smg_engine_waiting_requests` and `smg_engine_token_usage` at healthy peak load.
 
 ```bash
 smg launch \
-  --worker-overload-protection \
-  --worker-overload-waiting-requests 16
+  --worker-overload-waiting-requests 16 \
+  --worker-overload-token-usage 0.9
 ```
 
-**Use when**: Latency-sensitive traffic, where a long queue is a failure even with KV room left
+**Use when**: The defaults veto workers that still have headroom, or never fire
 
 </div>
 
@@ -418,9 +432,9 @@ smg launch \
 Gateway defaults plus `overload` blocks on the workers that saturate earlier.
 
 ```bash
-smg launch --worker-overload-protection
+smg launch
 # then register small workers with
-# "overload": {"waiting_requests": 8}
+# "overload": {"waiting_requests": 4}
 ```
 
 **Use when**: Workers differ in GPU memory or batch size
@@ -435,11 +449,25 @@ Poll more often, so vetoes set and clear sooner and `Retry-After` is shorter.
 
 ```bash
 smg launch \
-  --worker-overload-protection \
   --load-monitor-interval 5
 ```
 
 **Use when**: Bursty traffic, and workers can take more frequent load polls
+
+</div>
+
+<div class="card" markdown>
+
+#### :material-close-octagon: Shed Instead of Steer
+
+Refuse a request with `503` and `Retry-After` when every worker it could use is over a ceiling.
+
+```bash
+smg launch \
+  --worker-overload-shed
+```
+
+**Use when**: Clients honor `Retry-After`, and a fast `503` is better than a slow answer from a saturated engine
 
 </div>
 
@@ -451,14 +479,15 @@ The values above are starting points, not recommendations for your hardware. Siz
 
 | Symptom | Potential Adjustment |
 |---------|---------------------|
-| Requests shed while engines still have headroom | Raise the thresholds, or give larger workers their own `overload` block |
+| Workers vetoed (or, under `--worker-overload-shed`, requests shed) while engines still have headroom | Raise the thresholds, or give larger workers their own `overload` block |
 | Latency climbs but no worker is ever vetoed | Lower `--worker-overload-token-usage`, or add `--worker-overload-waiting-requests` |
 | Bursts overshoot the ceiling before the veto lands | Lower `--load-monitor-interval`, or use `least_load` with `--least-load-max-waiting-requests`, which also counts requests dispatched since the last poll |
 | Protection never engages on some workers | Check that they report load: `GET /loads` omits workers without a report (for example gRPC TRT-LLM and MLX), and a vLLM gRPC worker started with `--disable-log-stats` reports zeros |
 | Cache-aware keeps piling onto a hot worker until it is vetoed | Set `--overload-token-usage-threshold` below `--worker-overload-token-usage`, so cache-aware spreads load before the veto fires |
 | gRPC PD requests shed at stage `pd_admission` | Add decode capacity, or raise `--pd-admission-wait-secs` while keeping it under the engine's bootstrap deadline |
+| Every worker is over a ceiling and requests still land on saturated engines | That is the steering default, counted in `smg_worker_overload_fallback_total`; set `--worker-overload-shed` to refuse them with `503`, and bound what the gateway accepts with [rate limiting](rate-limiting.md) |
 
-Overload protection sheds; it does not queue. Keep [rate limiting](rate-limiting.md) or the [priority scheduler](priority-scheduling.md) in front of it to bound what the gateway accepts, and make sure clients honor `Retry-After`.
+Overload protection steers, or sheds under `--worker-overload-shed`; it never queues. Keep [rate limiting](rate-limiting.md) or the [priority scheduler](priority-scheduling.md) in front of it to bound what the gateway accepts, and make sure clients honor `Retry-After`.
 
 ---
 

@@ -453,6 +453,7 @@ See the [Metrics Reference](metrics.md).
 | `--storage-context-headers` | none | Space-separated `header=context_key` entries that map request headers into the storage-hook request context. See [Storage Context Headers](#storage-context-headers). |
 | `--trust-tenant-header` | `false` | Take the tenant identity from an upstream-set header (see `--tenant-header-name`). The tenant identity keys tenant rate limits and the priority scheduler. An identity from an API key still wins; with neither, the tenant is the client IP. |
 | `--tenant-header-name` | `x-smg-tenant-id` | Header read when `--trust-tenant-header` is on. Must be a valid header name. |
+| `--max-background-responses` | `1024` | Most Responses API requests with `background: true` in flight at once; one beyond answers `429` (`background_responses_limit_reached`). `0` switches background mode off: such requests then run in the foreground. See [Responses API](api/responses.md). |
 | `--cors-allowed-origins` | none (no cross-origin allowance) | Space-separated exact origins a browser may call the gateway from, or `*` alone for any origin, method and header. Without the flag no CORS headers are sent: a browser's preflight gets no `access-control-allow-*` headers and the browser refuses the cross-origin call; other clients are unaffected. Earlier releases allowed any origin when the flag was absent; set `*` to keep that. |
 
 `--stream-request-bodies-over`, which existed briefly in pre-release builds, was removed before v1.10.0; v1.11.0 rejects it as an unknown argument. The per-request decision described under `--max-buffered-request-bytes` replaces it.
@@ -686,6 +687,8 @@ The connection uses `--oracle-dsn` when it is set; otherwise `--oracle-wallet-pa
 |--------|---------|-------------|
 | `--postgres-db-url` | unset | Connection URL (`postgres://` or `postgresql://`, with a host and a database name). Required with `--history-backend postgres`. |
 | `--postgres-pool-max-size` | `16` | Maximum connection pool size. Must be greater than 0. |
+| `--postgres-db-url-file` | unset | File holding the connection URL alone, such as a mounted secret; surrounding whitespace is dropped. Read when the history backend is `postgres`. Env: `SMG_POSTGRES_DB_URL_FILE`. |
+| `--postgres-op-timeout-secs` | `5` | Bound in seconds on each call to the PostgreSQL store (pool wait, connect and the statement); a call past it is answered `503 storage_unavailable`. |
 
 ### Redis Database
 
@@ -694,8 +697,20 @@ The connection uses `--oracle-dsn` when it is set; otherwise `--oracle-wallet-pa
 | `--redis-url` | unset | Connection URL (`redis://`, with a host). Required with `--history-backend redis`. A `rediss://` URL passes validation, but v1.11.0 is built without Redis TLS support, so startup fails. |
 | `--redis-pool-max-size` | `16` | Maximum connection pool size. Must be greater than 0. |
 | `--redis-retention-days` | `30` | Data retention in days. `-1` (any negative value) keeps data persistently. |
+| `--redis-url-file` | unset | File holding the connection URL alone, such as a mounted secret; surrounding whitespace is dropped. Read when the history backend is `redis`. Env: `SMG_REDIS_URL_FILE`. |
+| `--redis-op-timeout-secs` | `5` | Bound in seconds on each call to the Redis store (pool wait, connect and the command; it replaces the client library's 500 ms and 1 s defaults); a call past it is answered `503 storage_unavailable`. |
 
-The Rust CLI declares no environment variables for PostgreSQL or Redis. `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `REDIS_URL`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS` are read only by the [Python launcher](#python-launcher-differences).
+The Rust CLI declares no environment variables for the PostgreSQL or Redis URLs themselves (the `*-url-file` flags above read `SMG_POSTGRES_DB_URL_FILE` and `SMG_REDIS_URL_FILE`). `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `REDIS_URL`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS` are read only by the [Python launcher](#python-launcher-differences).
+
+### Memory Backend
+
+The in-memory history backend (the default when no database is configured) keeps its records under three bounds, each checked on every write.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--history-memory-max-responses` | `10000` | Most stored responses kept; the oldest go first (a stored response takes about 12 KB). |
+| `--history-memory-max-items` | `100000` | Most conversation items kept; the oldest go first and leave every conversation that listed them (an item takes about 1.5 KB). |
+| `--history-memory-retention-secs` | `86400` | How long a record is kept, in seconds; `0` keeps a record until a count bound drops it. A conversation is kept that long after its last use (created, read or updated); a background response still running is not dropped by a count bound. |
 
 ### Schema Migrations
 
@@ -768,6 +783,8 @@ Authentication for the admin routes: worker management, cache and tokenizer oper
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--api-key` | unset | Shared gateway API key. When set, the inference routes require `Authorization: Bearer <key>` (or a `--tenant-api-key` key) and return `401` otherwise; public routes such as `/health` and `/v1/models` stay open. The admin routes accept it when no control plane authentication is configured. It is also attached to every startup and discovered worker as that worker's API key, and the gateway sends it to the worker (as `Authorization: Bearer <key>` for local workers) when the client request carries no `Authorization` header of its own. |
+| `--api-key-file` | unset | File holding the shared API key alone, such as a mounted secret; surrounding whitespace is dropped. Env: `SMG_API_KEY_FILE`. |
+| `--tenant-api-keys-file` | unset | File holding the per-tenant keys, one `tenant_id:key` per line (blank lines and lines starting with `#` are skipped), such as a mounted secret. Env: `SMG_TENANT_API_KEYS_FILE`. |
 | `--tenant-api-key` | none | Per-tenant key as `tenant_id:key`, one per flag. Layers on top of `--api-key`; each key resolves to its own tenant identity (`auth:<tenant_id>`), which tenant rate limits and the priority scheduler use. Tenant keys never unlock the admin routes: with tenant keys but no `--api-key` and no control plane authentication, the admin routes return `401`. An entry without `:` fails startup, as do empty values and a key value used twice (including one equal to `--api-key`). |
 
 **Example**:

@@ -115,6 +115,26 @@ Resident bytes that grow while allocated bytes stay flat point at memory the all
 smg_allocator_resident_bytes - smg_allocator_allocated_bytes
 ```
 
+#### `smg_allocator_prof_dumps_total`
+
+Heap profile dumps asked of `POST /heap_profile`, by outcome (`ok`, `error`). Exported by the same builds as the gauges above.
+
+| Type | Labels |
+|------|--------|
+| Counter | `outcome` |
+
+---
+
+### Log Writer Metrics
+
+#### `smg_log_dropped_lines`
+
+Log lines the lossy writer queue dropped since the process started, by sink (`stdout`, `file`). Published together with the warning that reports the lines dropped since the last report.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `sink` |
+
 ---
 
 ## Layer 1: HTTP Metrics
@@ -192,6 +212,26 @@ Requests currently in flight on the main listener. A streaming response stays in
 | Type | Labels |
 |------|--------|
 | Gauge | None |
+
+---
+
+### `smg_http_connection_timeouts_total`
+
+HTTP connections closed for carrying no request, by the timeout that closed them: `header_read` (no request head arrived in time) or `idle` (a kept-alive connection sent nothing more).
+
+| Type | Labels |
+|------|--------|
+| Counter | `timeout` |
+
+---
+
+### `smg_http_connections_rejected_total`
+
+HTTP connections closed at accept for arriving beyond the listener's connection limit: nothing was read from or written to them. Published at zero at start-up.
+
+| Type | Labels |
+|------|--------|
+| Counter | None |
 
 ---
 
@@ -442,6 +482,26 @@ Serialized size of request buffers the router freed as soon as the request was d
 
 ---
 
+### `smg_router_local_stop_aborts_total`
+
+Streamed requests the gateway aborted at the engine because its own stop (a stop string or stop token id matched in the gateway, not by the engine) had ended every choice for the client while the engine was still generating. gRPC pipeline only.
+
+| Type | Labels |
+|------|--------|
+| Counter | `router_type`, `backend_type`, `model`, `endpoint` |
+
+---
+
+### `smg_router_local_stop_tail_tokens_total`
+
+Output tokens the engine streamed for a choice after the gateway's own stop had ended that choice, read before the request was aborted: the tail generated for nobody. What the abort cuts on the engine side is never read, so never counted. gRPC pipeline only.
+
+| Type | Labels |
+|------|--------|
+| Counter | `router_type`, `backend_type`, `model`, `endpoint` |
+
+---
+
 ### PD Disaggregation Metrics
 
 Signals that only the gateway can measure, because it is the one component that sees both the prefill and the decode leg of a disaggregated request. Durations are recorded once per request, not per retry attempt. See [PD Disaggregation](../concepts/routing/pd-disaggregation.md).
@@ -609,6 +669,120 @@ sum by (layer) (rate(smg_tokenizer_cache_lookups_total[5m]))
 # Evictions per second, a sign the cache is too small
 sum by (layer) (rate(smg_tokenizer_cache_evictions_total[5m]))
 ```
+
+---
+
+### Tokenizer Encode Metrics
+
+Process-lifetime totals of the tokenizer's encode and decode paths, read on every scrape like the cache totals.
+
+#### `smg_tokenizer_encode_path_loads_total`
+
+Hugging Face tokenizers loaded, by the encode path chosen at load: `v1` (the opt-in tokenizers v1 pipeline), `native` (the direct byte-level encoder) or `tokenizers` (the reference implementation). A tokenizer loaded twice counts twice.
+
+| Type | Labels |
+|------|--------|
+| Counter | `path` |
+
+#### `smg_tokenizer_encode_fallbacks_total`
+
+Inputs the direct byte-level encoder gave up to the reference implementation after the load's choice, by reason: `not_nfc` (text not in NFC under an NFC normalizer) or `piece_declined` (the model declined a piece).
+
+| Type | Labels |
+|------|--------|
+| Counter | `reason` |
+
+#### `smg_detokenize_prefix_mismatch_total`
+
+Incremental decode steps and end-of-input finishes whose output no longer started with the text already decoded and went on with the remainder (several per stream are possible; unary responses count too), by kind: `byte_run` (an invalid byte collapsed a ByteFallback run whose characters were already decoded) or `decoder` (another decoder step rewrote the decoded prefix).
+
+| Type | Labels |
+|------|--------|
+| Counter | `kind` |
+
+---
+
+### Responses Metrics
+
+The Responses API's streams and stores.
+
+#### `smg_responses_stream_failures_total`
+
+Responses streams that ended with a `response.failed` terminal event, by model and reason (`stream_error`, `server_error`, `other`).
+
+| Type | Labels |
+|------|--------|
+| Counter | `model`, `reason` |
+
+#### `smg_responses_not_stored_total`
+
+Responses with `store: true` whose record or conversation linking was not written, by mode (`foreground`: the request was answered with the failure; `background`: the record keeps what it had) and step (`record`: nothing is stored; `linking`: the record is stored, its items are not in the conversation).
+
+| Type | Labels |
+|------|--------|
+| Counter | `mode`, `step` |
+
+#### `smg_history_memory_records`
+
+Records the in-memory history backend holds, by kind (`responses`, `conversations`, `items`), sampled every 10 seconds. Memory backend only: a store that cannot count its records without a query (Postgres, Redis, Oracle) sets nothing.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `kind` |
+
+---
+
+### Symphony Metrics
+
+What the Symphony reader records about the outputs it reads, by `table` (the model family's table, or `response_template` for the format a response template compiles into). See [Tokenization and Parsing](../getting-started/tokenization-and-parsing.md).
+
+#### `smg_symphony_outputs_total`
+
+Outputs read to their end, by table and outcome: `clean`; `malformed` (a call region the table read but gave up on, or a marker of the table where no row leads, kept as content text); `failed` (an output the table could not read at all: the request answers with an error); `empty` (no text, no reasoning and no call); `unknown_tool` (an output read whole in which a call names a function the request did not declare).
+
+| Type | Labels |
+|------|--------|
+| Counter | `table`, `outcome` |
+
+#### `smg_symphony_malformed_total`
+
+Malformed runs, by table and reason: `unterminated_region`, `invalid_arguments`, `unknown_tool`, `text_between_tags`, `tag_out_of_place`, `tag_cut_short`, `tag_tail`, `empty_name`, `call_without_name`, `call_without_function_tag`, `second_function_tag`, `closed_before_the_name`, `text_where_the_name_should_be`, `text_between_calls`, `text_where_an_argument_should_begin`, `text_in_place_of_the_list`, `text_after_the_arguments`, `text_after_the_list`, `name_without_arguments`, `name_without_a_call`, `key_written_twice`, `key_without_a_value`, `key_cut_short`, `value_cut_short`, `empty_key`, `block_without_a_complete_call`, `no_forced_function`, `marker_out_of_place`, `open_at_the_stop`, `open_at_the_marker`, or `other`.
+
+| Type | Labels |
+|------|--------|
+| Counter | `table`, `reason` |
+
+#### `smg_symphony_malformed_bytes`
+
+The bytes of the malformed runs of one output, by table, observed once for each output counted `malformed`. The histogram has buckets of its own: 1, 4, 16, 64, 256, 1024, 4096, 16384 and 65536 bytes.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `table` |
+
+#### `smg_symphony_calls_suppressed_total`
+
+Calls after the first, dropped under `parallel_tool_calls: false`, by table.
+
+| Type | Labels |
+|------|--------|
+| Counter | `table` |
+
+#### `smg_symphony_fallback_total`
+
+Requests Symphony was configured for (the gateway's flag, or the request's header) that the legacy parsers read instead of a table, counted once per request where the assignment is decided, by reason and table (`none` when no table was involved): `no_table` (no table reads the model and no name is set for it), `reasoning_name_only` (a reasoning name alone that no table answers to), `legacy_tool_name` (a legacy tool-call parser's name no table answers to), `passthrough`, or `forced_call_without_tag` (a table without a tag for the request's forced call). The response's `x-smg-parser` header says `legacy` for the same request.
+
+| Type | Labels |
+|------|--------|
+| Counter | `reason`, `table` |
+
+#### `smg_symphony_refused_total`
+
+Whole Messages responses refused after the output was read, by table and reason: `tool_use_input`, a `tool_use` block that cannot carry the arguments the model wrote. The output keeps the outcome its read gave it, so a sum over the outcomes still reads the table's reading.
+
+| Type | Labels |
+|------|--------|
+| Counter | `table`, `reason` |
 
 ---
 
@@ -930,6 +1104,26 @@ Workers the reconciler currently wants registered.
 | Type | Labels |
 |------|--------|
 | Gauge | `source` |
+
+---
+
+### `smg_discovery_snapshot_errors_total`
+
+Discovery source observations rejected, by source and reason: `unreadable` (the source could not be read: a failed request, a failed command, an unreadable file) or `invalid` (it was read but did not parse as a snapshot). A read that fails leaves the last good snapshot in place, so a broken source never removes a worker.
+
+| Type | Labels |
+|------|--------|
+| Counter | `source`, `reason` |
+
+---
+
+### `smg_discovery_skipped_total`
+
+Discovered workers left out of an otherwise good snapshot, by source and reason: `invalid` (a record the provider could not turn into a worker) or `conflict` (a record that collides with another). Counted on every read; a skip is logged when it first appears.
+
+| Type | Labels |
+|------|--------|
+| Counter | `source`, `reason` |
 
 ---
 

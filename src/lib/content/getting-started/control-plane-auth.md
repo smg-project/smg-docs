@@ -27,6 +27,7 @@ These routes are guarded by control-plane auth middleware when configured:
 - WASM management: `/wasm`, `/wasm/{module_uuid}`
 - Cache flush: `/flush_cache`
 - Profiling: `/start_profile`, `/stop_profile`
+- Diagnostics of the gateway process: `/inflight`, `/heap_profile`
 - Deprecated load alias: `/get_loads` (the public `/loads` route it aliases needs no credential)
 - RL control plane: `/v1/rl/*`, mounted only with `--enable-rl`
 

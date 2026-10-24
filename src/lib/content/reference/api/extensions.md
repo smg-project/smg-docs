@@ -120,6 +120,15 @@ The WASM routes need `--enable-wasm`; without it they answer `500`.
 
 `/start_profile` also accepts the engine's profiler options (`output_dir`, `start_step`, `num_steps`, `activities`, `with_stack`, `record_shapes`, `profile_by_stage`). SMG sends them as the JSON body of an HTTP worker's own `/start_profile`, or through the `StartProfile` RPC to SGLang and TokenSpeed gRPC workers. gRPC vLLM, TensorRT-LLM, and MLX workers and ZMQ workers do not support profiling and are reported as failed. Both routes answer `200` when every targeted worker succeeds, `206` with `successful` and `failed` lists when any fails, and `404` when no worker matches.
 
+### Diagnostics
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/inflight` | The requests this gateway process is serving right now: its instance id and their sequence numbers |
+| `POST` | `/heap_profile` | A jemalloc heap profile of this gateway process, written under `--jemalloc-prof-dir` (a `jemalloc-profiling` build; `501` otherwise) |
+
+Both are control-plane routes. See [Diagnostics](admin.md#diagnostics) for the response shapes and the preconditions a heap profile needs.
+
 ### Cache and Load Utilities
 
 | Method | Path | Purpose |

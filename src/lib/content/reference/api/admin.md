@@ -1001,6 +1001,68 @@ On failure returns `400 Bad Request` with the error text as the body. A `module_
 
 ---
 
+## Diagnostics
+
+Two admin routes read the gateway process itself rather than its workers. Both require admin [authentication](#authentication).
+
+### In-flight Requests
+
+```text
+GET /inflight
+```
+
+Lists the HTTP requests this gateway process is serving at the moment of the call: every request that has entered the metrics layer and whose response body has not ended yet, so a streamed answer counts until its last byte, and the `/inflight` call itself is one of them. An upgraded connection (the realtime WebSocket) leaves the list once its upgrade response is sent; those connections are drained separately. The ids are the process's own sequence numbers, not the `x-request-id` values of the request-id layer; `instance_id` is a UUIDv7 generated at startup, so two gateways behind one load balancer answer with different ids.
+
+**Response:** `200 OK`
+
+```json
+{
+  "instance_id": "01999c2e-9c3a-7c4e-8d5f-0f1a2b3c4d5e",
+  "request_ids": [1842, 1845, 1846]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `instance_id` | This process's id, generated at startup |
+| `request_ids` | The sequence numbers of the requests in flight, in no particular order |
+
+The count behind this list is the `smg_http_connections_active` gauge; the ages of the requests in it feed `smg_http_inflight_request_age_count`.
+
+---
+
+### Heap Profile
+
+```text
+POST /heap_profile
+```
+
+Asks this process's allocator for a heap profile (jemalloc `prof.dump`) written under the directory `--jemalloc-prof-dir` names, and answers the file's path. It needs a gateway built with the `jemalloc-profiling` feature and started with profiling on (`_RJEM_MALLOC_CONF=prof:true,prof_active:true,lg_prof_sample:19`); the file reads with `jeprof`. The route exists on every build, so a client learns why a dump is unavailable rather than meeting a `404` for the route.
+
+**Response:** `200 OK` with the file written. The name carries the UTC second, the process id and a per-process sequence number, so two dumps in one second are two files.
+
+```json
+{
+  "path": "/var/lib/smg/heap/smg-heap-20261024T191500Z-12345-0.heap",
+  "prof_active": true
+}
+```
+
+`prof_active` is jemalloc's sampling state at the dump; a profile taken while sampling is off holds nothing.
+
+Anything else answers with the gateway [error envelope](#error-responses), `code` saying which precondition is missing:
+
+| Status | `code` | When |
+|--------|--------|------|
+| `501` | `heap_profile_not_built` | The binary was built without the `jemalloc-profiling` feature |
+| `404` | `heap_profile_dir_not_configured` | `--jemalloc-prof-dir` is not set |
+| `409` | `heap_profile_inactive` | The process runs without `prof:true` in `_RJEM_MALLOC_CONF` |
+| `500` | `heap_profile_dump_failed` | The directory could not be created, or jemalloc refused the dump |
+
+On a build that can dump, every attempt increments `smg_allocator_prof_dumps_total{outcome="ok"|"error"}`.
+
+---
+
 ## Error Responses
 
 The admin endpoints do not share one error format. The body depends on the part of SMG that rejects the request:

@@ -269,10 +269,10 @@ Neither setting enables a modality the model does not support. When you raise a 
 | Decoded image | 512 MiB | Fixed; the libjpeg-turbo path checks it before allocating (smg-project/smg#2569) |
 | Decoded video frames | 1 GiB | `SMG_VIDEO_MAX_DECODED_BYTES` |
 | Inkling image patches per request | 32,768 | `in_patch_limit` in the preprocessor config (smg-project/smg#2102) |
-| Media fetch | 10 seconds per URL | Fixed |
+| Media fetch | 10 seconds per image or audio URL, 30 per video URL | `--mm-fetch-timeout-ms`, `--mm-video-fetch-timeout-ms` (`SMG_MM_FETCH_TIMEOUT_MS`, `SMG_MM_VIDEO_FETCH_TIMEOUT_MS`) |
 
-!!! warning "No domain allowlist on the router path"
-    When SMG preprocesses media, it fetches any `http://` or `https://` URL a request names. If clients are untrusted, restrict the gateway's outbound network access. On the worker path, vLLM's `--allowed-media-domains` applies with the `inprocess` and `redis` processors; a worker running `--mm-processor smg` also fetches from any host, so restrict its outbound access the same way.
+!!! note "Where the gateway fetches media from"
+    When SMG preprocesses media, it fetches the `http://` and `https://` URLs a request names under a host policy. A URL that names or resolves to a loopback, link-local, private or otherwise non-public address is refused before anything is connected, so a gateway fetching on a client's behalf cannot be made to reach what only it can reach; `--mm-allow-private-media-hosts` (`SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS`) admits such origins for a deployment whose media lives inside. `--mm-allowed-media-domains` restricts fetches to the named hosts, every redirect hop included; without it, any host the address policy passes is fetched, so for untrusted clients name the hosts or restrict the gateway's outbound network access. On the worker path, vLLM's `--allowed-media-domains` applies with the `inprocess` and `redis` processors; a worker running `--mm-processor smg` also fetches from any host, so restrict its outbound access the same way.
 
 ### In-Flight Media Budget
 

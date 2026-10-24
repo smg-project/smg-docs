@@ -303,7 +303,7 @@ See [Circuit Breakers](circuit-breakers.md) for thresholds and state transitions
 |--------|------|--------|-------------|
 | `smg_worker_retries_total` | Counter | `worker_type`, `endpoint` | Retries performed, one per backoff. PD mode counts each retry under both `prefill` and `decode` |
 | `smg_worker_retries_exhausted_total` | Counter | `worker_type`, `endpoint` | Requests whose last attempt still returned a retryable status; also counted when retries are disabled |
-| `smg_worker_retry_backoff_seconds` | Summary | `attempt` | Backoff delay before each retry; `attempt` is the retry number, `1` for the first retry. Exported as `quantile` series over a rolling one-minute window, plus `_sum` and `_count` |
+| `smg_worker_retry_backoff_seconds` | Histogram | `attempt` | Backoff delay before each retry; `attempt` is the retry number, `1` for the first retry. Buckets of its own, from 10 ms to 60 s |
 | `smg_router_upstream_send_retries_total` | Counter | `router_type` | Immediate resends after a pre-response transport failure |
 
 `worker_type` is `regular`, `prefill`, or `decode` for local workers and `external` for the OpenAI provider router.
@@ -335,9 +335,8 @@ sum(rate(smg_worker_retries_exhausted_total[5m]))
 sum(rate(smg_worker_retry_backoff_seconds_sum[5m]))
   / sum(rate(smg_worker_retry_backoff_seconds_count[5m]))
 
-# 99th percentile backoff per retry number, over the last minute
-# (a summary: SMG exports precomputed quantiles, not _bucket series)
-max by (attempt) (smg_worker_retry_backoff_seconds{quantile="0.99"})
+# 99th percentile backoff per retry number
+histogram_quantile(0.99, sum by (attempt, le) (rate(smg_worker_retry_backoff_seconds_bucket[5m])))
 ```
 
 </div>
@@ -350,7 +349,7 @@ max by (attempt) (smg_worker_retry_backoff_seconds{quantile="0.99"})
 |--------|-------|------------------|
 | Retry rate rising | `sum(rate(smg_worker_retries_total[5m]))` | Workers are returning retryable errors; check worker health and circuit breaker state |
 | Exhausted retries | `sum(rate(smg_worker_retries_exhausted_total[5m]))` | Failures are reaching clients despite retries |
-| Long backoffs | `max(smg_worker_retry_backoff_seconds{quantile="0.99"})` | Requests spend noticeable time waiting between attempts |
+| Long backoffs | `histogram_quantile(0.99, sum by (le) (rate(smg_worker_retry_backoff_seconds_bucket[5m])))` | Requests spend noticeable time waiting between attempts |
 | Retries forfeited | `sum(rate(smg_router_request_body_path_total{reason="retry_forfeited"}[5m]))` | Large bodies are streaming with a single attempt |
 | Pre-response resends | `sum(rate(smg_router_upstream_send_retries_total[5m]))` | Pooled connections are going stale; check `--upstream-pool-idle-timeout-secs` |
 

@@ -363,6 +363,31 @@ sum(rate(smg_router_tpot_seconds_sum[5m])) / sum(rate(smg_router_tpot_seconds_co
 
 ---
 
+### `smg_router_time_to_first_token_seconds`
+
+Time to first token on edges that resolve it: the same observation as `smg_router_ttft_seconds`, which keeps the request-duration buckets (and so the `le` values existing recording rules were written against). gRPC pipeline only. The buckets are its own, six per decade (1, 1.5, 2, 3, 5, 7.5) from 10 ms to 10 s, then 20 s, 30 s, 60 s and 120 s; a later first token lands in `+Inf`. `--prometheus-duration-buckets` does not apply to it.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `router_type`, `backend_type`, `model`, `endpoint` |
+
+```promql
+# P99 time to first token by model, on the fine edges
+histogram_quantile(0.99, sum by (model, le) (rate(smg_router_time_to_first_token_seconds_bucket[5m])))
+```
+
+---
+
+### `smg_router_request_time_per_output_token_seconds`
+
+Per-request mean time per output token on edges that resolve it: the same observation as `smg_router_tpot_seconds`, which keeps the request-duration buckets. A per-request mean, as the servicer's `request_time_per_output_token` family, not the per-interval gap. gRPC pipeline only. The buckets are its own, six per decade from 1 ms to 1 s, then 2.5 s and 10 s for stalled decodes. `--prometheus-duration-buckets` does not apply to it.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `router_type`, `backend_type`, `model`, `endpoint` |
+
+---
+
 ### `smg_router_tokens_total`
 
 Token counts by type. Recorded for streaming responses on the gRPC router, and for non-streaming responses from the Anthropic Messages provider.
@@ -837,15 +862,15 @@ Requests that exhausted all retries.
 
 #### `smg_worker_retry_backoff_seconds`
 
-Backoff before each retry, by retry number: `attempt="1"` is the wait before the first retry, which is the second attempt. No buckets are configured for this metric, so it is exported as a Prometheus summary: `quantile` series (`0`, `0.5`, `0.9`, `0.95`, `0.99`, `0.999`, `1`) over a rolling one-minute window, plus `_sum` and `_count`.
+Backoff before each retry, by retry number: `attempt="1"` is the wait before the first retry, which is the second attempt. The histogram has buckets of its own, twelve edges from 10 ms to 60 s, which span the exponential schedule from the default initial backoff (50 ms) to the default maximum (30 s).
 
 | Type | Labels |
 |------|--------|
-| Summary | `attempt` |
+| Histogram | `attempt` |
 
 ```promql
 # P99 backoff before the second retry (the third attempt)
-smg_worker_retry_backoff_seconds{attempt="2", quantile="0.99"}
+histogram_quantile(0.99, sum by (le) (rate(smg_worker_retry_backoff_seconds_bucket{attempt="2"}[5m])))
 ```
 
 ---
@@ -1154,7 +1179,7 @@ Decision branch of the `prefix_hash` policy.
 
 With `--priority-scheduler-enabled` (a Rust-binary flag the pip `smg launch` does not accept), the priority scheduler replaces the concurrency limiter and exports its own metrics: `smg_scheduler_admit_total`, `smg_scheduler_queue_wait_seconds`, `smg_scheduler_preemption_total`, `smg_scheduler_clamp_total`, `smg_scheduler_unknown_priority_value_total`, `smg_scheduler_starvation_promotion_total`, `smg_scheduler_inflight`, `smg_scheduler_queue_depth`, `smg_scheduler_queue_size_limit`, `smg_scheduler_utilization`, and `smg_scheduler_class_capacity_pressure`. Their types, labels, and values are listed in the [Priority Scheduler Reference](priority-scheduler.md#metrics).
 
-`smg_scheduler_queue_wait_seconds` has no configured buckets, so like `smg_worker_retry_backoff_seconds` it is exported as a summary (`quantile` series plus `_sum` and `_count`).
+`smg_scheduler_queue_wait_seconds` has no configured buckets, so it is exported as a summary (`quantile` series plus `_sum` and `_count`).
 
 ---
 
@@ -1250,4 +1275,19 @@ Configure custom buckets for these histograms via CLI:
 smg launch --prometheus-duration-buckets 0.01 0.1 0.5 1 5 10
 ```
 
-Two histograms have fixed buckets of their own: `smg_tokio_event_loop_delay_seconds` (0 to 1 s) and `smg_cache_aware_match_ratio` (deciles). A histogram that matches none of these rules is exported as a Prometheus summary instead; in v1.11.0 that applies to `smg_worker_retry_backoff_seconds` and `smg_scheduler_queue_wait_seconds`.
+Histograms with buckets of their own, fixed in the code:
+
+| Histogram | Buckets |
+|-----------|---------|
+| `smg_tokio_event_loop_delay_seconds` | 0, 1 ms, 5 ms, 10 ms, 25 ms, 50 ms, 100 ms, 250 ms, 500 ms, 1 s |
+| `smg_cache_aware_match_ratio` | deciles, 0 to 1 |
+| `smg_router_time_to_first_token_seconds` | 10 ms, 15 ms, 20 ms, 30 ms, 50 ms, 75 ms, 100 ms, 150 ms, 200 ms, 300 ms, 500 ms, 750 ms, 1 s, 1.5 s, 2 s, 3 s, 5 s, 7.5 s, 10 s, 20 s, 30 s, 60 s, 120 s |
+| `smg_router_request_time_per_output_token_seconds` | 1 ms, 1.5 ms, 2 ms, 3 ms, 5 ms, 7.5 ms, 10 ms, 15 ms, 20 ms, 30 ms, 50 ms, 75 ms, 100 ms, 150 ms, 200 ms, 300 ms, 500 ms, 750 ms, 1 s, 2.5 s, 10 s |
+| `smg_kv_event_lag_seconds` | 0.1 ms, 0.25 ms, 0.5 ms, 1 ms, 2.5 ms, 5 ms, 10 ms, 25 ms, 50 ms, 100 ms, 250 ms, 500 ms, 1 s, 2.5 s, 5 s, 10 s, 30 s, 60 s |
+| `smg_kv_index_lookup_seconds`, `smg_kv_event_apply_seconds` | doubling from 0.5 µs to 16.384 ms, then 65.536 ms and 262.144 ms |
+| `smg_worker_retry_backoff_seconds` | 10 ms, 25 ms, 50 ms, 100 ms, 250 ms, 500 ms, 1 s, 2.5 s, 5 s, 10 s, 30 s, 60 s |
+| `smg_symphony_malformed_bytes` | 1, 4, 16, 64, 256, 1024, 4096, 16384, 65536 bytes |
+| `smg_mm_processing_seconds`, `smg_mm_media_fetch_seconds` | 0.5 ms, 1 ms, 2.5 ms, 5 ms, 10 ms, 25 ms, 50 ms, 100 ms, 250 ms, 500 ms, 1 s, 2.5 s, 5 s, 10 s, 30 s |
+| `smg_mm_media_per_request` | 1, 2, 3, 4, 5, 6, 8, 10, 16, 32, 64 items |
+
+A histogram that matches none of these rules is exported as a Prometheus summary instead (`quantile` series over a rolling one-minute window, plus `_sum` and `_count`): `smg_scheduler_queue_wait_seconds` and `smg_pd_prefill_admission_wait_seconds`.

@@ -118,7 +118,9 @@ The WASM routes need `--enable-wasm`; without it they answer `500`.
 | `POST` | `/start_profile` | Start the engine profiler on every worker, or only on the worker whose URL equals `url` in the optional JSON body |
 | `POST` | `/stop_profile` | Stop the profiler, with the same optional `url` |
 
-`/start_profile` also accepts the engine's profiler options (`output_dir`, `start_step`, `num_steps`, `activities`, `with_stack`, `record_shapes`, `profile_by_stage`). SMG sends them as the JSON body of an HTTP worker's own `/start_profile`, or through the `StartProfile` RPC to SGLang and TokenSpeed gRPC workers. gRPC vLLM, TensorRT-LLM, and MLX workers and ZMQ workers do not support profiling and are reported as failed. Both routes answer `200` when every targeted worker succeeds, `206` with `successful` and `failed` lists when any fails, and `404` when no worker matches.
+`/start_profile` also accepts the engine's profiler options (`output_dir`, `start_step`, `num_steps`, `activities`, `with_stack`, `record_shapes`, `profile_by_stage`). SMG sends them as the JSON body of an HTTP worker's own `/start_profile`, or through the `StartProfile` RPC to SGLang, TokenSpeed, and vLLM gRPC workers. gRPC TensorRT-LLM and MLX workers and ZMQ workers do not support profiling and are reported as failed. Both routes answer `200` when every targeted worker succeeds, `206` with `successful` and `failed` lists when any fails, and `404` when no worker matches.
+
+A vLLM gRPC worker starts and stops the engine's own torch profiler on every rank, with the trace directory and the profiler options fixed by the engine's launch configuration. A start that sets any of the options above is refused on vLLM, so a `/start_profile` carrying profiler options lists vLLM workers under `failed`; profile them with a start that sets none of these options (a body with only `url` is fine).
 
 ### Cache and Load Utilities
 

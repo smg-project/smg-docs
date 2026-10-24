@@ -4,7 +4,7 @@ title: Metrics Reference
 
 # Metrics Reference
 
-Complete reference for the Prometheus metrics SMG exports. Metrics are grouped by layer, from the gateway's own runtime through HTTP, routing, workers, discovery, and MCP, followed by groups that belong to specific features: routing policies, the priority scheduler, the RL control plane, and the HA mesh.
+Complete reference for the Prometheus metrics SMG exports. Metrics are grouped by layer, from the gateway's own runtime through HTTP, routing, workers, discovery, and MCP, followed by groups that belong to specific features: routing policies, the priority scheduler, the RL control plane, and the HA mesh. The worker-side servicer's own families (`smg_servicer_*`) are on the [Servicer Metrics Reference](servicer-metrics.md).
 
 A series appears on `/metrics` only after the first event that records it, and several groups exist only when the feature that produces them is enabled. Each entry says when it is emitted.
 

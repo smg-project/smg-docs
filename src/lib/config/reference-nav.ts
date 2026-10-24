@@ -20,6 +20,7 @@ export const referenceNav: DocsNavSection[] = [
 			{ label: 'Tenant Rate Limiting', href: `${base}/reference/tenant-rate-limiting` },
 			{ label: 'Priority Scheduler', href: `${base}/reference/priority-scheduler` },
 			{ label: 'Metrics', href: `${base}/reference/metrics` },
+			{ label: 'Servicer Metrics', href: `${base}/reference/servicer-metrics` },
 			{ label: 'Internal MCP Servers', href: `${base}/reference/mcp-internal-servers` }
 		]
 	}

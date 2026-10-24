@@ -108,6 +108,14 @@ Reference documentation provides detailed specifications for SMG's APIs, CLI, co
 
     [:octicons-arrow-right-24: Metrics](metrics.md)
 
+-   :material-chart-line:{ .lg .middle } **Servicer Metrics Reference**
+
+    ---
+
+    The worker-side servicer's own Prometheus families, served on a listener of its own.
+
+    [:octicons-arrow-right-24: Servicer Metrics](servicer-metrics.md)
+
 </div>
 
 ---

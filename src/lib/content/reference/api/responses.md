@@ -101,9 +101,9 @@ SMG accepts is declared. Besides the fields above and the
 [SGLang extensions](#sglang-extensions), the declared set covers the public API's
 `service_tier`, `truncation`, `prompt`, `prompt_cache_key`, `prompt_cache_retention`,
 `safety_identifier`, and `context_management`, plus SMG's own `request_id` and
-`priority`. `client_metadata`, an object of tracing identifiers that clients such as
-Codex send on every request, is also accepted; SMG leaves it out of every request body
-it serializes.
+`priority`. `client_metadata`, an object of client-side tracing identifiers sent by
+clients such as Codex, is also accepted; SMG leaves it out of every request body it
+serializes.
 
 These rules match the public API's request contract and are new on main after v1.12.0. In
 v1.12.0 and earlier, unknown top-level parameters are ignored, `max_output_tokens` only

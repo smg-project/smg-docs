@@ -514,7 +514,7 @@ Gateway-wide admission control for the inference routes. For behavior and sizing
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--max-concurrent-requests` | `-1` (unlimited) | Maximum standing concurrent requests. Each admission permit is held for the full response, including streaming bodies. `-1` (any value of 0 or less) disables the limit. |
+| `--max-concurrent-requests` | `-1`: 1024 per available core, at least 4096 | Maximum standing concurrent requests. Each admission permit is held for the full response, including streaming bodies. `-1` (the default) derives the cap from the host; `0` disables the limit. |
 | `--queue-size` | `100` | Requests that may wait for a permit when the limit is reached. A request that finds the queue full, or no queue (`0`), gets `429` (`admission_queue_full`). |
 | `--queue-timeout-secs` | `60` | Maximum time a request waits in the queue before it gets `503` (`admission_queue_timeout`). Must be greater than 0 when `--queue-size` is greater than 0. |
 | `--rate-limit-tokens-per-second` | unset | Refill rate of the admission token bucket, whose capacity is `--max-concurrent-requests`. It has no effect while that limit is off. Unset or `0` means no refill: `--max-concurrent-requests` bounds standing concurrency alone. A positive value also refills the bucket over time, on top of the permits that finished requests return, so more than `--max-concurrent-requests` requests can be in flight. With `--priority-scheduler-enabled`, a positive value instead caps admissions at this many requests per second, in bursts of up to `--max-concurrent-requests`; excess requests get `429` (`scheduler_queue_full`). Must be 0 or more. |

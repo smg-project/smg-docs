@@ -4,7 +4,7 @@ title: Rate Limiting
 
 # Rate Limiting
 
-Rate limiting in SMG is gateway admission control. The gateway caps how many requests it runs at once, keeps a bounded number of extra requests waiting in a first-in, first-out queue, and turns the rest away with a status code and a `Retry-After` header that tell clients to back off. It is off by default; setting `--max-concurrent-requests` above `0` turns it on.
+Rate limiting in SMG is gateway admission control. The gateway caps how many requests it runs at once, keeps a bounded number of extra requests waiting in a first-in, first-out queue, and turns the rest away with a status code and a `Retry-After` header that tell clients to back off. It is on by default: with `--max-concurrent-requests` unset (`-1`), the cap is derived from the host, 1024 permits per available core and at least 4096, far above a healthy gateway's in-flight count. Set a value to shape traffic, or `0` to turn admission control off.
 
 !!! warning "Behavior changed in v1.10"
     - A permit is held for the full response lifetime, including streaming bodies.
@@ -119,7 +119,7 @@ When `--priority-scheduler-enabled` is set and the scheduler starts, it replaces
 
 - The scheduler's slots and per-class queues handle concurrency and queueing. `--queue-size` and `--queue-timeout-secs` are not used.
 - `--max-concurrent-requests` no longer caps concurrency. The scheduler only uses it as a fallback capacity while no healthy worker is registered.
-- A positive `--rate-limit-tokens-per-second` (with `--max-concurrent-requests` above `0`) becomes a plain request-rate check in front of the scheduler. Tokens refill at that rate and are not returned when responses finish; a request that finds the bucket empty is shed with 429 `scheduler_queue_full` and `Retry-After: 2`.
+- A positive `--rate-limit-tokens-per-second` (unless `--max-concurrent-requests` is `0`) becomes a plain request-rate check in front of the scheduler. Tokens refill at that rate and are not returned when responses finish; a request that finds the bucket empty is shed with 429 `scheduler_queue_full` and `Retry-After: 2`.
 
 If the scheduler fails to start, the gateway logs an error and falls back to the limiter described on this page. See [Priority Scheduling](priority-scheduling.md).
 
@@ -139,7 +139,7 @@ smg launch \
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--max-concurrent-requests` | `-1` (disabled) | Maximum requests holding a permit at once. A permit lasts for the full response, streaming included. Any value `<= 0` turns admission control off. |
+| `--max-concurrent-requests` | `-1`: 1024 per available core, at least 4096 | Maximum requests holding a permit at once. A permit lasts for the full response, streaming included. `-1` derives the cap from the host; `0` turns admission control off. |
 | `--queue-size` | `100` | Maximum requests waiting for a permit. `0` disables the queue. |
 | `--queue-timeout-secs` | `60` | Longest time a request waits in the queue before it is shed with 503. Must be `> 0` when `--queue-size` is above `0`. |
 | `--rate-limit-tokens-per-second` | unset (no refill) | Tokens added to the bucket per second. Unset or `0` means no refill, so `--max-concurrent-requests` alone bounds requests in flight. Must be `>= 0`. |
@@ -147,6 +147,9 @@ smg launch \
 The limits apply per gateway process. With several gateway replicas in front of the same workers, the fleet-wide cap is the per-replica value times the number of replicas.
 
 `--request-timeout-secs` (default `1800`) is the default timeout for requests the gateway sends to HTTP workers, so it also bounds how long a stalled HTTP request can keep its permit.
+
+!!! note "Changed in v1.13.0"
+    Before v1.13.0, admission control was off unless `--max-concurrent-requests` was set above `0`, and `-1` meant unlimited. Since v1.13.0 the unset value is the host-derived cap above, so a gateway under more load than it can serve sheds with `429` and `503` instead of holding requests without limit; `0` keeps the earlier unlimited behavior.
 
 ---
 
@@ -179,6 +182,28 @@ Other layers also answer 429 or 503. The error code tells them apart:
 | `worker_overload_protection_shed` | 503 | [Overload protection](overload-protection.md) shed the request, for example because every candidate worker is overloaded; see that page for its `Retry-After` |
 | `tenant_rate_limit_exceeded` | 429 | [Tenant rate limiting](tenant-rate-limiting.md) |
 | `no_available_workers` | 503 | No worker for the model can take the request, for example because each one is unhealthy or has an open [circuit breaker](circuit-breakers.md) |
+
+---
+
+## Request Limits in One Place
+
+Admission control is one of three bounds the gateway puts on a request: how many it holds at once, how large one request body may be, and how many bytes of preprocessed media it keeps in flight for the engines. Each has one flag, one default and one answer to the client. The linked pages hold the details; this table puts the bounds side by side.
+
+| Bound | Flag | Default | Over the bound | Enforced by |
+|-------|------|---------|----------------|-------------|
+| Requests in flight | `--max-concurrent-requests` | `-1`: 1024 per available core, at least 4096 | `429 admission_queue_full` when no permit is free and the queue is full or off; `503 admission_queue_timeout` after `--queue-timeout-secs` (default `60`) in the queue | Admission, before routing (this page) |
+| Requests waiting for a permit | `--queue-size` | `100` | Counted above | The admission queue |
+| One request body | `--max-payload-size` | `536870912` bytes (512 MiB) | `413 request_body_too_large`, whether the length is declared up front or the body crosses the limit while it is read; in regular HTTP mode the same limit caps a buffered worker response, which fails with `502` | The HTTP edge's body limit and the streamed-body relays ([Request Streaming](../performance/request-streaming.md)) |
+| A body buffered to stay retryable | `--max-buffered-request-bytes` | `1048576` bytes (1 MiB) | Not an error: a larger eligible body streams to the worker and forfeits router-level retries ([Retries](retries.md)) | The request body path |
+| Preprocessed media held for the engines | `--multimodal-max-inflight-bytes` | unset: no cap | `413 multimodal_payload_too_large` when one request's media exceed the whole budget; `429 multimodal_inflight_budget` with `Retry-After` when the budget does not free up within 2 seconds | The multimodal pipeline ([Multimodal](../architecture/multimodal.md)) |
+
+How they compose:
+
+- **Admission first, size second.** A request takes its permit before its body is read (a WASM `OnRequest` module reads the body first) and keeps the permit until the response ends, streaming included. The body limit is applied as the body arrives: a declared length over the limit is refused before anything else runs, and an undeclared body is cut off the moment it crosses the limit, so no frame past it is read from the client.
+- **The default cap is a ceiling, not a target.** 1024 per core, at least 4096, sits far above a healthy gateway's in-flight count (arrival rate times latency). It exists so that a gateway under more load than it can serve sheds with `429` and `503` instead of parking requests without bound, each one holding its body and its encoding until it is served. Set `--max-concurrent-requests` to shape traffic, following the [Sizing Guidelines](#sizing-guidelines).
+- **Memory follows the bounds.** The most a gateway holds for request bodies is the permits in use times the body size, plus the media budget. Size them together, and per gateway process: a fleet of replicas multiplies each bound.
+
+Not bounded here: prompt length, which is the engine's context window; per-tenant token and request budgets, which are [Tenant Rate Limiting](tenant-rate-limiting.md); and the depth an engine's own queue may reach, which is the ceiling of [Overload Protection](overload-protection.md), read from the engine's load reports.
 
 ---
 

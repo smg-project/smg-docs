@@ -53,6 +53,40 @@ Idle pins expire, a key's requests beyond two in flight are placed again instead
 
 ---
 
+## What a Routing Key Guarantees
+
+A routing key is a promise with bounds. While the key's pinned worker is available, a request that carries the key goes to it, up to the override's in-flight threshold described below; the moment the worker is not available, the request is placed elsewhere, with one bound: when every worker the request could use is vetoed at once, the gateway places it on the least-loaded of them (the pin included) rather than refuse it, and counts the fallback. In full:
+
+- **Same key, same worker.** Every request that resolves to the key (a body `rid` under the override, or the first valid routing-key header, `x-smg-routing-key` by default; see [Key Precedence](#key-precedence)) goes to the key's pinned worker, on every policy. Each key remembers a primary worker and one failover candidate ([Reuse and Failover](#reuse-and-failover)).
+- **Available means routable.** A pinned worker takes the request only while it is healthy (`Ready`), its circuit breaker is not open, and no veto excludes it. Two vetoes are on by default: [overload protection](../reliability/overload-protection.md) takes a worker out of routing while its last load report shows `8` or more waiting requests or KV-cache usage at or above `0.8` (`--worker-overload-waiting-requests`, `--worker-overload-token-usage`; `--disable-worker-overload-protection` switches it off), and the [liveness vetoes](../reliability/overload-protection.md#when-a-worker-dies-or-loses-its-link) exclude a worker whose transport failed and has gone silent, or whose engine has stopped producing. When none of a key's remembered workers is available, the request is placed again: in the override's default `delegate` mode the new worker becomes the primary and the old one its failover candidate; in the other modes the earlier worker stays first and the key returns to it once it is available (`occupied_miss` in the [metrics](#metrics)). When every candidate is vetoed at once there is no elsewhere: the request goes to the least-loaded worker that is routable but for its veto, overloaded ones before stalled ones, counted in `smg_worker_overload_fallback_total` or `smg_worker_liveness_fallback_total` (`stage="selection"`); under `--worker-overload-shed` an all-overloaded pool is refused with `503 worker_overload_protection_shed` instead, while a liveness veto still steers.
+- **The spill is bounded.** Under the override, once a key has `2` of its requests in flight on its pinned worker, the next concurrent request for the key is placed again (`cap_respill`) rather than queued behind the pin, so one busy conversation cannot stack every turn on one worker ([In-Flight Threshold](#in-flight-threshold)). The threshold triggers a new placement; it is not a cap on the worker: the placement may choose the pinned worker again when the policy prefers it, for example because it holds the conversation's prefix, so more than `2` of a key's requests can run there.
+- **A failure does not stay put.** A request that fails on the pinned worker with a retryable answer is retried on another worker, never replayed on the one that just failed ([Retries](../reliability/retries.md)).
+- **Pins expire.** A key idle for longer than `--max-idle-secs` (default `14400`, four hours) is dropped by the next eviction sweep, and its next request starts over as a new key; `0` disables eviction ([Idle Eviction](#idle-eviction)).
+
+What a routing key does not guarantee:
+
+- **One pin across gateway replicas.** Each replica keeps its own map ([Scoping](#scoping)). Send a conversation to one replica, or use `consistent_hashing`, which computes the same placement on every replica that sees the same workers.
+- **A warm cache.** The pin keeps a conversation on the worker that served it; whether that worker still holds the conversation's prefix is the engine's cache policy. For requests without a key, cache-aware routing follows the prefix instead.
+- **Order between concurrent turns.** Two requests for one key in flight at once are served in whichever order the worker schedules them, and, under the override, a third may run elsewhere (the bounded spill above).
+
+A minimal configuration, and what each flag changes:
+
+```bash
+# Keyed requests stick on top of cache-aware placement; a new key starts where
+# cache-aware puts it, and the default overload veto and the two-in-flight spill stay on
+smg launch --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 \
+  --policy cache_aware --routing-key-override
+```
+
+| What you set | What you get |
+|--------------|--------------|
+| `--routing-key-override` alone | Keys from the body `rid` (lineage stripped) or `x-smg-routing-key`; the first request of a key is placed by the configured policy, then pinned |
+| `--routing-key-headers a b` | The first of `a`, `b` carrying a valid value (non-empty UTF-8, at most 128 bytes) is the key; a body `rid` still wins under the override |
+| `--disable-worker-overload-protection` | A pinned worker stays the pin however deep its queue; the two-in-flight spill still applies |
+| `--max-idle-secs N` | A key idle for `N` seconds is dropped by the next eviction sweep; `0` disables eviction |
+
+---
+
 ## Deriving the Routing Key
 
 ### Key Precedence

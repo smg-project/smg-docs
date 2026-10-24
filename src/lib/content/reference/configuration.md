@@ -312,6 +312,11 @@ On the worker side, the vLLM and TokenSpeed gRPC servicers read `TOKENSPEED_UNLI
 | `--mm-processing` | `auto` | Where media for vLLM gRPC workers is fetched and preprocessed: `auto` (the worker when both the model spec and the worker allow it, otherwise the gateway), `router` (always the gateway), or `worker` (always the engine; models without worker-side expansion are rejected). Case-insensitive. Env: `SMG_MM_PROCESSING`; an unreadable value there stops startup. |
 | `--mm-pixel-cache-mb` | `0` (off) | Budget in MiB for the cache of router-side preprocessed media. Env: `SMG_MM_PIXEL_CACHE_MB`; a non-numeric value logs a warning and leaves the cache off. |
 | `--log-mm-timing` | `false` | Log per-request multimodal timing at `INFO`. Env: `SMG_LOG_MM_TIMING` (`1`, `true`, `yes`, or `on`). |
+| `--mm-allowed-media-domains` | unset (any host the address policy passes) | Hosts the gateway fetches client-supplied media URLs from when it processes media itself, by name, comma-separated; a redirect to any other host is refused. |
+| `--mm-allow-private-media-hosts` | `false` | Allow client-supplied media URLs that name or resolve to a loopback, link-local or private address, for a deployment whose media origin is internal; by default such URLs are refused before anything is connected. Env: `SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS`. |
+| `--mm-fetch-timeout-ms` | `10000` | Image and audio download timeout in milliseconds; must be positive. Env: `SMG_MM_FETCH_TIMEOUT_MS`. |
+| `--mm-video-fetch-timeout-ms` | `30000` | Video download timeout in milliseconds; must be positive. Env: `SMG_MM_VIDEO_FETCH_TIMEOUT_MS`. |
+| `--mm-turbojpeg` | `prefer` | What the gateway's own media pipeline does when libjpeg-turbo (`libturbojpeg.so.0`) cannot be loaded: `prefer` decodes JPEGs with the pure-Rust decoder, whose pixels differ from the reference decoder's by a few levels, says so once at start-up and sets the gauge `smg_mm_turbojpeg_available` to `0`; `require` stops start-up with an error instead, for a deployment whose pixels must match the engine's. Env: `SMG_MM_TURBOJPEG`. |
 
 ### RDMA Pixel Lane
 
@@ -1066,6 +1071,7 @@ Described in [Multimodal Configuration](#multimodal-configuration).
 | `SMG_IMAGE_MAX_INPUT_BYTES`, `SMG_VIDEO_MAX_INPUT_BYTES`, `SMG_AUDIO_MAX_INPUT_BYTES`, `SMG_VIDEO_MAX_DECODED_BYTES`, `SMG_AUDIO_MAX_DECODED_BYTES` | Media size caps |
 | `SMG_VIDEO_PROCESS_TIMEOUT_SECS`, `SMG_AUDIO_PROCESS_TIMEOUT_SECS`, `SMG_VIDEO_DECODE_BACKEND`, `SMG_AUDIO_DECODE_BACKEND` | Media decoding |
 | `SMG_IMAGE_MAX_COUNT`, `SMG_VIDEO_MAX_COUNT`, `SMG_AUDIO_MAX_COUNT` | Per-request media counts |
+| `SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS`, `SMG_MM_FETCH_TIMEOUT_MS`, `SMG_MM_VIDEO_FETCH_TIMEOUT_MS`, `SMG_MM_TURBOJPEG` | Fallbacks for `--mm-allow-private-media-hosts`, `--mm-fetch-timeout-ms`, `--mm-video-fetch-timeout-ms`, `--mm-turbojpeg` |
 | `SMG_VLLM_ENCODER_INPUT_DTYPE`, `SMG_TOKENSPEED_ENCODER_INPUT_DTYPE`, `SMG_TOKENSPEED_IMAGE_ENCODER_INPUT_DTYPE`, `SMG_TOKENSPEED_VIDEO_ENCODER_INPUT_DTYPE`, `SMG_TOKENSPEED_AUDIO_ENCODER_INPUT_DTYPE` | Encoder input wire dtype |
 
 ### Python Launcher Variables

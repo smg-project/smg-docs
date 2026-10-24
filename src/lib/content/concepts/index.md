@@ -138,7 +138,7 @@ Understand how SMG handles failures:
 - [Rate Limiting](reliability/rate-limiting.md) — Gateway concurrency limits and request queuing
 - [Tenant Rate Limiting](reliability/tenant-rate-limiting.md) — Per-tenant token and request budgets
 - [Priority Scheduling](reliability/priority-scheduling.md) — Priority classes, reserved capacity, and preemption
-- [Overload Protection](reliability/overload-protection.md) — Excluding saturated workers and shedding load
+- [Overload Protection](reliability/overload-protection.md) — Excluding saturated workers, on by default, and shedding load on request
 - [Retries](reliability/retries.md) — Retrying transient failures with backoff
 - [Health Checks](reliability/health-checks.md) — Detecting unhealthy workers and taking them out of rotation
 - [Graceful Shutdown](reliability/graceful-shutdown.md) — Draining in-flight requests before the gateway stops

@@ -422,7 +422,7 @@ On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longe
 |--------|------|---------|
 | 503 | `no_available_workers` | A leg has no available worker: all of its workers are unhealthy or circuit-open, or no worker is registered on it at all while the other leg has workers (the pair is incomplete). Sent with `Retry-After`. Same code as the regular HTTP and gRPC routers |
 | 503 | `no_compatible_pd_pair` | No prefill shares a KV transfer protocol with any decode |
-| 503 | `worker_overload_protection_shed` | The decode admission window stayed full, or [overload protection](../reliability/overload-protection.md) vetoed a leg. Sent with `Retry-After` |
+| 503 | `worker_overload_protection_shed` | The decode admission window stayed full, or, with `--worker-overload-shed`, [overload protection](../reliability/overload-protection.md) left no leg to route to. Sent with `Retry-After` |
 | 400 | `context_length_exceeded` | gRPC: the prompt exceeds the smaller context window of the two legs |
 | 400 | `runtime_pd_not_supported` | gRPC: the selected runtime has no PD protocol |
 | Engine status | `prefill_worker_failed_to_start`, `decode_worker_failed_to_start` | gRPC: the engine refused that leg |
@@ -594,7 +594,7 @@ smg_worker_requests_active
 | 503 `no_available_workers` | A leg has no healthy worker with a closed circuit (over HTTP, the message names it) | Check `/workers`; restore or add workers on that leg |
 | 503 `no_available_workers` naming a missing leg | No worker is registered on that leg while the other leg has workers: the pair is incomplete (a leg restarting or not yet discovered) | Register or bring back the missing leg; clients can retry after `Retry-After` |
 | 503 `no_compatible_pd_pair` | No prefill shares a KV transfer protocol with any decode | Compare the `pd_pairing` keys in `/workers`; align the engines or set a shared [pairing protocol](#explicit-pairing-protocol) |
-| 503 `worker_overload_protection_shed` | The decode admission window stayed full, or a leg is overloaded | Add decode workers or raise the engine's running window |
+| 503 `worker_overload_protection_shed` | The decode admission window stayed full, or every leg is overloaded under `--worker-overload-shed` | Add decode workers or raise the engine's running window |
 | 400 `context_length_exceeded` (gRPC) | The prompt exceeds the smaller context window of the two legs | Shorten the prompt or give both legs the same context length |
 | vLLM PD answers correctly but decode recomputes prompts | The prefill worker has no KV connector (`mode="passthrough"`), or a NIXL prefill returned no params (`smg_pd_kv_transfer_failures_total`) | Register HTTP workers with `kv_connector`; check `--kv-transfer-config`; upgrade the servicer |
 | SGLang `n>1` completions stall over HTTP | The HTTP PD router has no per-sample fan-out | Serve `n>1` traffic through gRPC workers |

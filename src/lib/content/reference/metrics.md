@@ -722,7 +722,7 @@ Reasons: `panic`, `join_error`, `intern_failed`
 
 ### Overload Protection Metrics
 
-A worker whose load report crosses an overload threshold is excluded from routing until the signal recovers; when every candidate is excluded, the request is shed immediately (smg-project/smg#2220). Protection is on when `--worker-overload-protection`, `--worker-overload-token-usage`, or `--worker-overload-waiting-requests` is set, or when a worker spec has an `overload` block. See [Overload Protection](../concepts/reliability/overload-protection.md).
+A worker whose load report crosses an overload threshold is excluded from routing until the signal recovers; when every candidate is excluded, the request is steered to the least-loaded of them (`smg_worker_overload_fallback_total`) or, with `--worker-overload-shed`, shed immediately (smg-project/smg#2220). Protection is on by default since v1.12.0 (`8` waiting requests, `0.8` KV usage); `--disable-worker-overload-protection` switches it off, and a worker spec's `overload` block applies either way. See [Overload Protection](../concepts/reliability/overload-protection.md).
 
 #### `smg_workers_overloaded`
 
@@ -754,6 +754,19 @@ sum by (stage) (rate(smg_worker_overload_shed_total[5m]))
 
 # Models with vetoed workers
 smg_workers_overloaded > 0
+```
+
+#### `smg_worker_overload_fallback_total`
+
+Requests placed although every worker they could use was flagged overloaded, because `--worker-overload-shed` is not set: routed to the least-loaded of them or, for a cache-aware prefill pool of a prefill/decode pair, placed by that policy. The steering default's counterpart to `smg_worker_overload_shed_total`; published at zero from start-up like the shed counter.
+
+| Type | Labels |
+|------|--------|
+| Counter | `stage` (`selection`) |
+
+```promql
+# Requests steered onto an all-overloaded pool per second
+sum(rate(smg_worker_overload_fallback_total[5m]))
 ```
 
 ---

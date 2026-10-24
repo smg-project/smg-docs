@@ -1064,7 +1064,7 @@ limiting, or overload protection gets `429` or `503` with the standard
 | `scheduler_queue_timeout` | 503 | `2` | Priority scheduler: the request waited longer than its class's queue timeout |
 | `scheduler_preempted` | 503 | `1` | Priority scheduler: preempted by higher-priority traffic before its first token; also sets `X-SMG-Preempted: true` |
 | `tenant_rate_limit_exceeded` | 429 | Seconds until the tenant's budget can admit the request; omitted when it never can | Tenant rate limiting |
-| `worker_overload_protection_shed` | 503 | `--load-monitor-interval` (default `10`) | Every eligible worker is over its overload threshold (or the selected one crossed it just before dispatch), or a PD decode worker could not admit the request within `--pd-admission-wait-secs` |
+| `worker_overload_protection_shed` | 503 | `--load-monitor-interval` (default `10`) | With `--worker-overload-shed`: every eligible worker is over its overload threshold, or the selected one crossed it just before dispatch. In any configuration: a PD decode worker could not admit the request within `--pd-admission-wait-secs` |
 
 Wait at least `Retry-After` seconds before retrying. For configuration, see
 [Rate Limiting](../../concepts/reliability/rate-limiting.md),

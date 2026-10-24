@@ -390,7 +390,7 @@ groups:
 
 ### Health Checks
 
-Circuit breakers and health checks are independent gates: health checks probe workers in the background, while circuit breakers react to real request outcomes. A worker receives traffic only when both allow it, and when [overload protection](overload-protection.md), if enabled, has not vetoed it:
+Circuit breakers and health checks are independent gates: health checks probe workers in the background, while circuit breakers react to real request outcomes. A worker receives traffic only when both allow it, and when [overload protection](overload-protection.md), on by default, has not vetoed it:
 
 | Health Check | Circuit Breaker | Receives traffic? |
 |--------------|-----------------|-------------------|

@@ -176,7 +176,7 @@ Other layers also answer 429 or 503. The error code tells them apart:
 | Error code | Status | Source |
 |------------|--------|--------|
 | `scheduler_queue_full`, `scheduler_queue_timeout`, `scheduler_preempted` | 429, 503 | The [priority scheduler](../../reference/priority-scheduler.md#response-codes), when enabled |
-| `worker_overload_protection_shed` | 503 | [Overload protection](overload-protection.md) shed the request, for example because every candidate worker is overloaded; see that page for its `Retry-After` |
+| `worker_overload_protection_shed` | 503 | [Overload protection](overload-protection.md) shed the request: every candidate worker is overloaded and `--worker-overload-shed` is set, or a prefill/decode request found no room in the decode window; see that page for its `Retry-After` |
 | `tenant_rate_limit_exceeded` | 429 | [Tenant rate limiting](tenant-rate-limiting.md) |
 | `no_available_workers` | 503 | No worker for the model can take the request, for example because each one is unhealthy or has an open [circuit breaker](circuit-breakers.md) |
 

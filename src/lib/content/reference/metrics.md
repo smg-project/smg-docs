@@ -732,6 +732,60 @@ Records the in-memory history backend holds, by kind (`responses`, `conversation
 
 ---
 
+### Symphony Metrics
+
+What the Symphony reader records about the outputs it reads, by `table` (the model family's table, or `response_template` for the format a response template compiles into). See [Tokenization and Parsing](../getting-started/tokenization-and-parsing.md).
+
+#### `smg_symphony_outputs_total`
+
+Outputs read to their end, by table and outcome: `clean`; `malformed` (a call region the table read but gave up on, or a marker of the table where no row leads, kept as content text); `failed` (an output the table could not read at all: the request answers with an error); `empty` (no text, no reasoning and no call); `unknown_tool` (an output read whole in which a call names a function the request did not declare).
+
+| Type | Labels |
+|------|--------|
+| Counter | `table`, `outcome` |
+
+#### `smg_symphony_malformed_total`
+
+Malformed runs, by table and reason: `unterminated_region`, `invalid_arguments`, `unknown_tool`, `text_between_tags`, `tag_out_of_place`, `tag_cut_short`, `tag_tail`, `empty_name`, `call_without_name`, `call_without_function_tag`, `second_function_tag`, `closed_before_the_name`, `text_where_the_name_should_be`, `text_between_calls`, `text_where_an_argument_should_begin`, `text_in_place_of_the_list`, `text_after_the_arguments`, `text_after_the_list`, `name_without_arguments`, `name_without_a_call`, `key_written_twice`, `key_without_a_value`, `key_cut_short`, `value_cut_short`, `empty_key`, `block_without_a_complete_call`, `no_forced_function`, `marker_out_of_place`, `open_at_the_stop`, `open_at_the_marker`, or `other`.
+
+| Type | Labels |
+|------|--------|
+| Counter | `table`, `reason` |
+
+#### `smg_symphony_malformed_bytes`
+
+The bytes of the malformed runs of one output, by table, observed once for each output counted `malformed`. The histogram has buckets of its own: 1, 4, 16, 64, 256, 1024, 4096, 16384 and 65536 bytes.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `table` |
+
+#### `smg_symphony_calls_suppressed_total`
+
+Calls after the first, dropped under `parallel_tool_calls: false`, by table.
+
+| Type | Labels |
+|------|--------|
+| Counter | `table` |
+
+#### `smg_symphony_fallback_total`
+
+Requests Symphony was configured for (the gateway's flag, or the request's header) that the legacy parsers read instead of a table, counted once per request where the assignment is decided, by reason and table (`none` when no table was involved): `no_table` (no table reads the model and no name is set for it), `reasoning_name_only` (a reasoning name alone that no table answers to), `legacy_tool_name` (a legacy tool-call parser's name no table answers to), `passthrough`, or `forced_call_without_tag` (a table without a tag for the request's forced call). The response's `x-smg-parser` header says `legacy` for the same request.
+
+| Type | Labels |
+|------|--------|
+| Counter | `reason`, `table` |
+
+#### `smg_symphony_refused_total`
+
+Whole Messages responses refused after the output was read, by table and reason: `tool_use_input`, a `tool_use` block that cannot carry the arguments the model wrote. The output keeps the outcome its read gave it, so a sum over the outcomes still reads the table's reading.
+
+| Type | Labels |
+|------|--------|
+| Counter | `table`, `reason` |
+
+---
+
 ## Layer 3: Worker Metrics
 
 Metrics for worker pool management and resilience.

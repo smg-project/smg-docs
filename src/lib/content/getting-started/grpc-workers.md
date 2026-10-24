@@ -118,7 +118,7 @@ vLLM, SGLang and TokenSpeed gRPC workers run a planned warm-up over the engine b
 
 A worker whose health stays `NOT_SERVING` for a while after the engine loaded is warming up, not wedged. The pass logs `Planned warm-up starts (...): readiness is held until it ran`, one INFO line per shape with its time (TokenSpeed's chunk remainders log at DEBUG, with an INFO progress line every 500), and `Planned warm-up over: N of M steps covered ...` at the end.
 
-Engines select and compile kernels lazily: the first scheduler step at a token count the engine has not seen pays a kernel search or a compile of up to several seconds, and every request in flight during that step waits with it. The warm-up visits those token counts while nothing is routed to the worker, so they are not paid by the first traffic ramp — on every worker of a fleet at once when they start together. The pass covers, in order:
+Engines select and compile kernels lazily: the first scheduler step at a token count the engine has not seen pays a kernel search or a compile of up to several seconds, and every request in flight during that step waits with it. The warm-up visits those token counts while nothing is routed to the worker; without it, the first traffic ramp pays them — on every worker of a fleet at once when the workers start together. The pass covers, in order:
 
 - a **decode staircase**: as many concurrent requests as the running window holds, each asking for one more output token than the last, so every running-batch size runs once;
 - a **prefill ladder**: one request per 128-token prompt-length class up to the engine's admission step (its chunk size or prefill token budget), plus the engine's graph-capture sizes and lengths one above the kernel tuners' bucket grid;
@@ -141,7 +141,7 @@ While the pass runs, a Rust servicer admits only the warm-up's own requests and 
 
 The budget defaults to 300 seconds — 900 for TokenSpeed, whose plan holds the chunk remainders. When it runs out, the pass ends between shapes (the end line names the shape it stopped before), and each request's timeout is clamped to what is left of the budget (never below one second), so a shape that hangs cannot hold readiness past it. A TokenSpeed worker with no chunk size set plans about 23 minutes of remainders at its default 8,192-token step, and the budget then cuts the pass about halfway through them (evenly, thanks to the spread order): set a chunk size or a larger budget to cover every length. A value the knob does not take fails a Rust-path worker at startup with an error naming the variable; a Python servicer logs a warning and serves without the warm-up.
 
-Under data parallelism, a vLLM worker runs the staircase once per rank and every prefill shape on every rank at once, each request pinned to its rank, so the log's step count is per rank. SGLang and TokenSpeed workers route each warm-up request to the least-loaded rank instead, so each prefill shape warms one rank and the others pay its first-time cost on their first request of that shape; a warning at the start of the pass says so.
+Under data parallelism, a vLLM worker runs the staircase once per rank and every prefill shape on every rank at once, each request pinned to its rank, so the log's step count is per rank. SGLang and TokenSpeed workers route each warm-up request to the least-loaded rank instead, so each prefill shape warms one rank and the others pay its first-time cost on their first request of that shape; a logged warning says so.
 
 ### Rust vLLM Servicer
 

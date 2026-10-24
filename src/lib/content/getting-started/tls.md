@@ -106,6 +106,8 @@ smg \
 
 Set both flags or neither: SMG refuses to start with only one of them, or when it can't read one of the files. Both files are PEM. HTTPS covers the main listener only; the Prometheus metrics endpoint (`--prometheus-port`) stays plain HTTP.
 
+At startup SMG also checks the Unix mode of each TLS private key file it was given: the server key (`--tls-key-path`), the client key (`--client-key-path`), and the mesh key (`--mesh-tls-key`, see [Mesh mTLS](../concepts/architecture/high-availability.md#mesh-mtls)). Keep a key the gateway's user owns at `0600` or `0400`: any group or other permission bit triggers one warning naming the file, the flag and the mode, never the key's content. A key another user owns — a secret volume's key, or a `root:ssl-cert` key — may also be group-readable (`0640`), since group read is how the gateway reads it at all; group write, or any permission for others, still warns. A shared mode never blocks startup: a secret manager may tighten the mode after the file lands.
+
 ### Verification
 
 ```bash
@@ -134,6 +136,7 @@ smg launch \
 
 - These flags belong to the Python launcher (`smg launch` from pip, and the container image). The Rust `smg` binary does not accept them.
 - SMG reads the files at startup. Setting only one of `--client-cert-path` and `--client-key-path`, or passing a file it can't read, stops startup.
+- A key file readable or writable beyond its owner triggers the startup warning described under [Enable Server TLS](#enable-server-tls); the gateway still starts.
 - The certificate and CAs apply to the gateway's HTTPS connections only: the per-worker clients that send requests, health probes and admin calls to HTTP workers, and the shared client for external providers and model discovery. gRPC workers (`grpc://`, `grpcs://`) don't use them; see [Gateway to gRPC Workers](#gateway-to-grpc-workers).
 
 If you run the Rust binary, terminate mTLS toward the workers outside SMG, for example with a service mesh (such as Istio) or a sidecar proxy.

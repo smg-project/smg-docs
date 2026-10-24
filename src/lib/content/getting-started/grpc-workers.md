@@ -114,11 +114,11 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
 ### Planned Warm-Up Before Serving
 
-vLLM, SGLang and TokenSpeed gRPC workers run a planned warm-up over the engine before they report `SERVING` on the gRPC health service — the signal the gateway's [health checks](../concepts/reliability/health-checks.md) and Kubernetes startup and readiness probes read. Both the Python and Rust servicer implementations run the pass; MLX and TensorRT-LLM workers have no such pass, a model that generates nothing (a pooling or embedding model) takes none, and SGLang and TokenSpeed workers skip it on a disaggregation role.
+vLLM, SGLang and TokenSpeed gRPC workers run a planned warm-up over the engine before they report `SERVING` on the standard gRPC health service (`grpc.health.v1`) — the signal Kubernetes gRPC startup and readiness probes read. Both the Python and Rust servicer implementations run the pass; MLX and TensorRT-LLM workers have no such pass, a model that generates nothing (a pooling or embedding model) takes none, and SGLang and TokenSpeed workers skip it on a disaggregation role.
 
 A worker whose health stays `NOT_SERVING` for a while after the engine loaded is warming up, not wedged. The pass logs `Planned warm-up starts (...): readiness is held until it ran`, one INFO line per shape with its time (TokenSpeed's chunk remainders log at DEBUG, with an INFO progress line every 500), and `Planned warm-up over: N of M steps covered ...` at the end.
 
-Engines select and compile kernels lazily: the first scheduler step at a token count the engine has not seen pays a kernel search or a compile of up to several seconds, and every request in flight during that step waits with it. The warm-up visits those token counts while nothing is routed to the worker; without it, the first traffic ramp pays them — on every worker of a fleet at once when the workers start together. The pass covers, in order:
+Engines select and compile kernels lazily: the first scheduler step at a token count the engine has not seen pays a kernel search or a compile of up to several seconds, and every request in flight during that step waits with it. The warm-up visits those token counts before the worker reports `SERVING`; without it, the first traffic ramp pays them — on every worker of a fleet at once when the workers start together. The pass covers, in order:
 
 - a **decode staircase**: as many concurrent requests as the running window holds, each asking for one more output token than the last, so every running-batch size runs once;
 - a **prefill ladder**: one request per 128-token prompt-length class up to the engine's admission step (its chunk size or prefill token budget), plus the engine's graph-capture sizes and lengths one above the kernel tuners' bucket grid;
@@ -127,7 +127,9 @@ Engines select and compile kernels lazily: the first scheduler step at a token c
 
 Every request carries its own token IDs, so prefix caching never hides a prefill, and the pass flushes the engine's prefix cache at the end. A servicer that does not serve `FlushCache` (the Rust TokenSpeed servicer) refuses that flush, and the end line then says the warm-up's blocks stay cached.
 
-While the pass runs, a Rust servicer admits only the warm-up's own requests and refuses anything else with gRPC `UNAVAILABLE` ("servicer is warming up"); its health message reads `Warming up`, distinct from `Draining`. The Python servicers hold their health at `NOT_SERVING` without refusing requests, so a request sent to one in that window is served, sharing the engine with the warm-up. Health flips to `SERVING` when the pass ends, whatever it returned: a failed warm-up request is a logged line, never a worker kept out of rotation.
+The gateway's [health checks](../concepts/reliability/health-checks.md) read a different signal: each engine's own `HealthCheck` RPC, not the standard health service. While the pass runs, a Rust servicer mirrors the hold there — not healthy, with the message `Warming up`, distinct from `Draining` — and admits only the warm-up's own requests, refusing anything else with gRPC `UNAVAILABLE` ("servicer is warming up"), so the gateway neither finishes registering a warming worker nor routes traffic to it.
+
+A Python servicer answers that RPC healthy throughout (vLLM's reports engine liveness; SGLang's and TokenSpeed's one-token probe is served like any other request) and refuses nothing, so it registers and passes the gateway's health checks while it warms: a request routed to it in that window is served, sharing the engine with the warm-up. On both implementations the hold is released when the pass ends, whatever it returned — health flips to `SERVING`, and a failed warm-up request is a logged line, never a worker kept out of rotation.
 
 `SMG_VLLM_SERVICER_WARMUP`, `SMG_SGLANG_SERVICER_WARMUP` and `SMG_TOKENSPEED_SERVICER_WARMUP` tune the pass per engine:
 
@@ -256,7 +258,9 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 
 Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer. `SubscribeKvEvents` relays the ZMQ KV-event publisher TokenSpeed was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
 
-Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake. Model load and kernel JIT compilation count against that bound, so raise it when a first start on a cold cache needs longer; a scheduler process that died is noticed on the supervisor's poll rather than waiting out the bound. After the handshake, the [planned warm-up](#planned-warm-up-before-serving) runs before the worker reports `SERVING`; `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it.
+Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake. Model load and kernel JIT compilation count against that bound, so raise it when a first start on a cold cache needs longer; a scheduler process that died is noticed on the supervisor's poll rather than waiting out the bound.
+
+After the handshake, the [planned warm-up](#planned-warm-up-before-serving) runs before the worker reports `SERVING`; `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it.
 
 ---
 

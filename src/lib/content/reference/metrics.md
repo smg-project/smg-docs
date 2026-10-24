@@ -880,6 +880,110 @@ Tokens per KV block of a model as the gateway knows it: seeded from a worker's r
 
 ---
 
+### KV Index Metrics
+
+The chain index the subscriptions feed: one lookup histogram on the routing path, one gauge per worker, and nine gauges per model that the monitor's stats task publishes every 30 seconds and sets to zero when the model's index is dropped. `model` is the model id.
+
+#### `smg_kv_index_lookup_seconds`
+
+Time of one KV index lookup in cache-aware routing (the overlap scoring of a request's block hashes), recorded after the lookup returned and outside any lock. `index` is the index kind, `chain`. The buckets double from half a microsecond to a quarter of a second.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `index` |
+
+```promql
+# P99 index lookup on the routing path
+histogram_quantile(0.99, sum by (le) (rate(smg_kv_index_lookup_seconds_bucket[5m])))
+```
+
+#### `smg_kv_index_blocks`
+
+Blocks the index holds for a worker, as the index counts them: set when a batch is applied (live or snapshot), when the worker's state is reset, and to `0` when the worker's subscription ends.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `worker` |
+
+#### `smg_kv_index_memberships`
+
+Blocks the index holds across a model's workers; a block two workers hold counts twice.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_entries`
+
+Distinct blocks on a chain of the model's index.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_runs_live`
+
+Runs linked in the chain index. `smg_kv_index_blocks_live` over `smg_kv_index_runs_live` is the mean run length; a falling ratio under steady traffic is fragmentation.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+```promql
+# Mean run length of a model's chain index
+smg_kv_index_blocks_live / smg_kv_index_runs_live
+```
+
+#### `smg_kv_index_blocks_live`
+
+Content hashes held by the chain index's live runs.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_arena_bytes`
+
+Bytes the chain index's word arena has handed out: hash arrays, child tables, free lists included.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_arena_free_bytes`
+
+Bytes of the chain index's word arena sitting in free lists.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_slab_bytes`
+
+Bytes the chain index's run slab holds from the allocator: whole chunks of run headers and coverage words, used or not.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_moved_hashes`
+
+Stores that moved a held engine hash to another place in the chain index, cumulative.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_engine_conflicts`
+
+Stored blocks whose engine hash differed from the one the chain index holds for the block, cumulative: a fleet whose engines do not name content alike. Such a block is matched by content and keyed by the worker's own hash.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+---
+
 ### Overload Protection Metrics
 
 A worker whose load report crosses an overload threshold is excluded from routing until the signal recovers; when every candidate is excluded, the request is shed immediately (smg-project/smg#2220). Protection is on when `--worker-overload-protection`, `--worker-overload-token-usage`, or `--worker-overload-waiting-requests` is set, or when a worker spec has an `overload` block. See [Overload Protection](../concepts/reliability/overload-protection.md).

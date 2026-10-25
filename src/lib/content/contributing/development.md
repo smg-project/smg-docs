@@ -433,9 +433,9 @@ The tests named `bellwether_*` in `crates/tokenizer/tests/`, `crates/symphony/te
 
 CI runs them in the `Bellwether Fixtures` workflow when a PR touches the code they cover — `crates/protocols/`, `crates/tokenizer/`, `crates/symphony/`, `model_gateway/src/routers/grpc/`, or the `bellwether_*` test files — or `Cargo.toml`, `Cargo.lock`, or the fixture pin. The fixtures come from the bellwether commit in `.github/versions/bellwether.ref`; a PR that changes that hash runs against the new fixtures.
 
-To reproduce the lane locally, check out bellwether at the pinned commit and unpack the fixture tree with [uv](https://docs.astral.sh/uv/). bellwether is public, so no token is needed, but the unpack step fetches the compressed sets through [Git LFS](https://git-lfs.com/): install `git-lfs` and run `git lfs install` once first.
+To reproduce the lane locally, check out bellwether at the pinned commit and unpack the fixture tree with [uv](https://docs.astral.sh/uv/); bellwether is public, so no token is needed. The unpack step fetches the compressed sets through [Git LFS](https://git-lfs.com/), so install `git-lfs` and run `git lfs install` once first.
 
-CI runs the tests with the `smg/tokenizers-v1` feature (see [Cargo Features](#cargo-features)), so pass it too — without it the BPE tokenizers the pipeline supports encode through a different path than the one CI checks:
+CI runs the tests with the `smg/tokenizers-v1` feature (see [Cargo Features](#cargo-features)), so pass it too — without it, the BPE tokenizers the pipeline supports take a different encode path than the one CI tests:
 
 ```bash
 # Check out bellwether at the commit CI pins. GIT_LFS_SKIP_SMUDGE keeps the

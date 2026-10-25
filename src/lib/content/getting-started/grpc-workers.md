@@ -125,14 +125,14 @@ Engines select and compile kernels lazily: the first scheduler step at a token c
 - a **decode staircase**: as many concurrent requests as the running window holds, each asking for one more output token than the last, so every running-batch size runs once;
 - a **prefill ladder**: one request per 128-token prompt-length class up to the engine's admission step (its chunk size or prefill token budget), plus the engine's graph-capture sizes and lengths one above the kernel tuners' bucket grid;
 - a **second pass** over the bucket grid, whose logged timings show what the first pass paid;
-- on a language-only SGLang worker on the Rust path, the **media leg**: one request carrying one image through the encoders — the engine's own minimal warm-up image, sent as a data URL inside the prompt the model's chat template renders around it — because no text request reaches the scheduler's media path, whose first use costs a fresh worker seconds once. A chat template that renders no image placeholder leaves the leg out (a logged line says why), and the leg runs at the `fast` level too;
+- on a language-only SGLang worker on the Rust path, the **media leg**: one request carrying one image through the encoders — the engine's own minimal warm-up image, sent as a data URL with the prompt the model's chat template renders around it — because no text request reaches the scheduler's media path, whose first use costs a fresh worker a few seconds. A chat template that renders no image placeholder leaves the leg out (a logged line says why), and the leg runs at the `fast` level too;
 - on a TokenSpeed engine of more than one process, the **chunk remainders**: every remaining prompt length up to the chunk size, because on this engine a prompt length's first use during serving can deadlock the forward pass under a collective still in flight. A one-process engine has no peer to wait on and plans the length classes alone, like the other engines. The remainders run last, in an order whose every prefix spreads evenly over the range, so a budget cut leaves even coverage rather than a missing tail.
 
-Every request carries its own token IDs, so prefix caching never hides a prefill, and the pass flushes the engine's prefix cache at the end. A servicer that does not serve `FlushCache` (the Rust TokenSpeed servicer) refuses that flush, and the end line then says the warm-up's blocks stay cached.
+Every request carries its own token IDs, so prefix caching never hides a prefill, and the pass flushes the engine's prefix cache at the end. A servicer that cannot carry that flush to its engine (the Rust TokenSpeed servicer, when TokenSpeed's scheduler wire carries generate and abort only) refuses it, and the end line then says the warm-up's blocks stay cached.
 
 The gateway's [health checks](../concepts/reliability/health-checks.md) read a different signal: each engine's own `HealthCheck` RPC, not the standard health service. While the pass runs, a Rust servicer mirrors the hold there — not healthy, with the message `Warming up`, distinct from `Draining` — and admits only the warm-up's own requests, refusing anything else with gRPC `UNAVAILABLE` ("servicer is warming up"), so the gateway neither finishes registering a warming worker nor routes traffic to it.
 
-A Python servicer answers that RPC healthy throughout (vLLM's reports engine liveness; SGLang's and TokenSpeed's one-token probe is served like any other request) and refuses nothing, so it registers and passes the gateway's health checks while it warms: a request routed to it in that window is served, sharing the engine with the warm-up. On both implementations the hold is released when the pass ends, whatever it returned — health flips to `SERVING`, and a failed warm-up request is a logged line, never a worker kept out of rotation.
+A Python servicer answers that RPC healthy throughout (vLLM's answer reflects engine liveness; SGLang's and TokenSpeed's one-token probe is served like any other request) and refuses nothing, so it registers and passes the gateway's health checks while it warms: a request routed to it in that window is served, sharing the engine with the warm-up. On both implementations the hold is released when the pass ends, whatever it returned — health flips to `SERVING`, and a failed warm-up request is a logged line, never a worker kept out of rotation.
 
 `SMG_VLLM_SERVICER_WARMUP`, `SMG_SGLANG_SERVICER_WARMUP` and `SMG_TOKENSPEED_SERVICER_WARMUP` tune the pass per engine:
 
@@ -256,7 +256,7 @@ In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servic
 
 What the scheduler's msgpack wire does not carry, the Rust path reports rather than emulates:
 
-- `FlushCache` and profiling answer UNIMPLEMENTED.
+- `FlushCache` and profiling answer UNIMPLEMENTED on a TokenSpeed whose handshake declares no control reply; one that declares it gets them as control calls, each scheduler rank's own handler answering.
 - Ranked `top_logprobs` and prompt logprobs are refused per request.
 - PD and EPD disaggregation stay with the Python servicer.
 - The [RL control plane](rl-control-plane.md) extras stay with the Python servicer: the `rl.*` capability advertisement, the live `weight_version` on generate responses, and `is_paused`.

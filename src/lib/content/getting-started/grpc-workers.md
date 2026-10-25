@@ -118,7 +118,7 @@ vLLM, SGLang and TokenSpeed gRPC workers run a planned warm-up over the engine b
 
 TokenSpeed workers skip the pass on a disaggregation role. An encoder-only SGLang worker takes none either: the engine runs that role on its own encoder server, never on a servicer. A language-only SGLang worker runs the pass as on a single engine — its text requests carry no media, so the encoders see nothing of them — and on the Rust path the plan also ends with one image through the encoders (the media leg below). On an SGLang prefill or decode leg the Python servicer skips the pass, while the Rust path runs it as on a single engine: each request carries a stand-in transfer to nobody, so the leg warms up without its peer.
 
-A worker whose health stays `NOT_SERVING` for a while after the engine loaded is warming up, not wedged. The pass logs `Planned warm-up starts (...): readiness is held until it ran`, one INFO line per shape with its time (TokenSpeed's chunk remainders log at DEBUG, with an INFO progress line every 500), and `Planned warm-up over: N of M steps covered ...` at the end.
+A worker whose health stays `NOT_SERVING` for a while after the engine loaded is warming up, not wedged. The pass logs `Planned warm-up starts (...): readiness is held until it ran`, one INFO line per shape with its time (TokenSpeed's chunk remainders log at DEBUG, with an INFO progress line every 500 remainders), and `Planned warm-up over: N of M steps covered ...` at the end.
 
 Engines select and compile kernels lazily: the first scheduler step at a token count the engine has not seen pays a kernel search or a compile of up to several seconds, and every request in flight during that step waits with it. The warm-up visits those token counts before the worker reports `SERVING`; without it, the first traffic ramp pays them — on every worker of a fleet at once when the workers start together. The pass covers, in order:
 
@@ -138,7 +138,7 @@ A Python servicer answers that RPC healthy throughout (vLLM's reports engine liv
 
 | Value | Effect |
 |-------|--------|
-| `full` | The default: every 128-token length class — about a minute at a 16,384-token step. On a multi-process TokenSpeed engine, also the chunk remainders — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
+| `full` | The default: the whole pass above, every 128-token length class included — about a minute at a 16,384-token step. On a multi-process TokenSpeed engine, also the chunk remainders — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
 | `fast` | The decode staircase, the graph-capture sizes and the tuners' bucket grid of prefill lengths, skipping the 128-token classes: seconds. On a multi-process TokenSpeed engine this also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
 | `off` | No planned warm-up: the worker reports `SERVING` once the engine is up and answering |
 | A number (`120`) | The pass's time budget in seconds, at the `full` level |
@@ -230,7 +230,7 @@ In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servic
 What the scheduler's msgpack wire does not carry, the Rust path reports rather than emulates:
 
 - Three launches refuse to start on the Rust path: an encoder-only worker (SGLang runs that role on its own encoder server, not on a servicer), a language-only worker on the `zmq_to_tokenizer` encoder transfer backend (the frontend itself receives and processes the embeddings there, which neither servicer runs), and a prefill leg of several plain data-parallel replicas — `--dp-size N` without attention DP — where every replica reports attention-DP rank 0 to the engine's KV sender, so the decode side cannot bootstrap against the requests the other replicas ran; run attention DP (`--tp-size N --attn-dp-size N`) or one rank per leg. Any other prefill or decode leg, and a language-only worker on the backends whose scheduler ranks receive the embeddings, is served as on the Python servicer.
-- Multimodal inputs are refused per request on every worker but a language-only one, whose encode dispatch hands a request's image references to the encoders; LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
+- A multimodal payload of image references without preprocessed tensors — the encoders' input in encode/prefill disaggregation — is refused per request on every worker but a language-only one, whose encode dispatch hands the references to the encoders; the tensors the gateway preprocesses in gRPC mode reach the scheduler as its own processor's output on every worker. LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
 - SGLang's HTTP sidecar (profiling, `/metrics`) is not started.
 
 `Embed`, `FlushCache` and profiling answer as on the Python servicer, and `SubscribeKvEvents` relays the ZMQ publisher SGLang was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).

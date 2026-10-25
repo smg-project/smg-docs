@@ -127,7 +127,9 @@ The servicer reads each setting below from its `--mm-*` flag when the launcher p
 
 The worker advertises its processor in the `mm_processor`, `mm_processor_source`, and `mm_media_ref_schemes` labels, which appear in `GET /workers`. An engine started with `--language-model-only` never advertises one. With `inprocess` and `redis`, vLLM's own `--allowed-media-domains`, `--allowed-local-media-path`, `--media-io-kwargs`, `--limit-mm-per-prompt`, and `VLLM_*_FETCH_TIMEOUT` govern fetching on the worker; without `--allowed-media-domains` the worker fetches from any host. The `smg` processor fetches with SMG's own connector instead (see [SMG's Pipeline on the Rust Servicer](#smgs-pipeline-on-the-rust-servicer)).
 
-Failures keep their cause. The caller's own mistakes (a bad URL, a disallowed host, an oversized payload) come back as 400, and a saturated worker or a sidecar that is down or overloaded as a retryable 503. Each processor answers a failed fetch — a timeout, a refused connection, an origin 5xx — in its own way: `inprocess` returns a retryable 503; the `redis` sidecar answers with a 400 whose message includes `fetch_failed`; `smg` reports whose fault the fetch is, so the request gets the same 400-or-502 split as on the router path (see [Errors](#errors)). A sidecar timeout is not retried, because the worker already spent the whole budget on that input.
+Failures keep their cause. The caller's own mistakes (a bad URL, a disallowed host, an oversized payload) come back as 400, and a saturated worker or a sidecar that is down or overloaded as a retryable 503.
+
+Each processor answers a failed fetch — a timeout, a refused connection, an origin 5xx — in its own way: `inprocess` returns a retryable 503; the `redis` sidecar answers with a 400 whose message includes `fetch_failed`; `smg` reports whose fault the fetch is, so the request gets the same 400-or-502 split as on the router path (see [Errors](#errors)). A sidecar timeout is not retried, because the worker already spent the whole budget on that input.
 
 ### Redis Media-Processing Sidecar
 

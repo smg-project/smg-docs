@@ -127,7 +127,7 @@ The servicer reads each setting below from its `--mm-*` flag when the launcher p
 
 The worker advertises its processor in the `mm_processor`, `mm_processor_source`, and `mm_media_ref_schemes` labels, which appear in `GET /workers`. An engine started with `--language-model-only` never advertises one. With `inprocess` and `redis`, vLLM's own `--allowed-media-domains`, `--allowed-local-media-path`, `--media-io-kwargs`, `--limit-mm-per-prompt`, and `VLLM_*_FETCH_TIMEOUT` govern fetching on the worker; without `--allowed-media-domains` the worker fetches from any host. The `smg` processor fetches with SMG's own connector instead (see [SMG's Pipeline on the Rust Servicer](#smgs-pipeline-on-the-rust-servicer)).
 
-Failures keep their cause. The caller's own mistakes (a bad URL, a disallowed host, an oversized payload) come back as 400, and a saturated worker or a sidecar that is down or overloaded as a retryable 503. Each processor answers a fetch that fails — a timeout, a refused connection, an origin 5xx — its own way: `inprocess` returns a retryable 503; the `redis` sidecar answers every failure of its own fetch as the caller's 400, with `fetch_failed` in the message; `smg` reports whose fault the fetch is, so the request gets the same 400-or-502 split as on the router path (see [Errors](#errors)). A sidecar timeout is not retried, because the worker already spent the whole budget on that input.
+Failures keep their cause. The caller's own mistakes (a bad URL, a disallowed host, an oversized payload) come back as 400, and a saturated worker or a sidecar that is down or overloaded as a retryable 503. Each processor answers a failed fetch — a timeout, a refused connection, an origin 5xx — in its own way: `inprocess` returns a retryable 503; the `redis` sidecar answers every failure of its own fetch with a 400 whose message includes `fetch_failed`; `smg` reports whose fault the fetch is, so the request gets the same 400-or-502 split as on the router path (see [Errors](#errors)). A sidecar timeout is not retried, because the worker already spent the whole budget on that input.
 
 ### Redis Media-Processing Sidecar
 
@@ -289,7 +289,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `multimodal_prompt_contract_mismatch` | The rendered prompt does not hold exactly one anchor per media item: a chat template that drops media, or a literal anchor token in user text |
 | 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, or an invalid `fps` or `max_long_side_pixel` |
 | 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
-| 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes above do not cover |
+| 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes do not cover |
 | 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, audio) |
 | 400 | `multimodal_worker_processing_unsupported_model` | `--mm-processing worker`, and vLLM cannot expand the model's anchor |
 | 400 | `multimodal_hint_unsupported_in_worker_mode` | `--mm-processing worker`, and a part carries `fps` or `max_long_side_pixel` |

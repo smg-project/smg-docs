@@ -435,7 +435,7 @@ CI runs them in the `Bellwether Fixtures` workflow when a PR touches the code th
 
 To reproduce the lane locally, check out bellwether at the pinned commit and unpack the fixture tree with [uv](https://docs.astral.sh/uv/); bellwether is public, so no token is needed. The unpack step fetches the compressed sets through [Git LFS](https://git-lfs.com/), so install `git-lfs` and run `git lfs install` once first.
 
-CI runs the tests with the `smg/tokenizers-v1` feature (see [Cargo Features](#cargo-features)), so pass it too — without it, the BPE tokenizers the pipeline supports take a different encode path than the one CI tests:
+CI runs the tests with the `smg/tokenizers-v1` feature (see [Cargo Features](#cargo-features)), so pass it too — without it, the BPE tokenizers the feature accelerates take a different encode path than the one CI tests:
 
 ```bash
 # Check out bellwether at the commit CI pins. GIT_LFS_SKIP_SMUDGE keeps the

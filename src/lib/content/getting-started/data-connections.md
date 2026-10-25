@@ -116,9 +116,7 @@ A `--schema-config` file can set `auto_migrate` instead. See [Chat History](../c
 | `none` | none |
 | `postgres` | the PostgreSQL connection URL, via `--postgres-db-url`, `SMG_POSTGRES_DB_URL`, or a [URL file](#store-urls-from-the-environment-or-a-file) |
 | `redis` | the Redis connection URL, via `--redis-url`, `SMG_REDIS_URL`, or a [URL file](#store-urls-from-the-environment-or-a-file) |
-| `oracle` | `--oracle-user`, `--oracle-password`, and one of (`--oracle-dsn`) or (`--oracle-wallet-path` + `--oracle-tns-alias`) (omit user/password when `--oracle-external-auth` is set) |
-
-Oracle credentials can also come from the `ATP_*` [environment variables](#environment-variables).
+| `oracle` | `--oracle-user`, `--oracle-password`, and one of (`--oracle-dsn`) or (`--oracle-wallet-path` + `--oracle-tns-alias`), each flag settable by its [`ATP_*` environment variable](#environment-variables) instead (omit user/password when `--oracle-external-auth` is set) |
 
 ---
 

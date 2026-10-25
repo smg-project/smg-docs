@@ -74,7 +74,7 @@ smg \
 
 Set `--redis-retention-days -1` for persistent retention.
 
-The Redis URL can likewise come from `SMG_REDIS_URL` or a `--redis-url-file`; see [Store URLs from the environment or a file](#store-urls-from-the-environment-or-a-file).
+The Redis URL can likewise come from `SMG_REDIS_URL` or a file passed with `--redis-url-file`; see [Store URLs from the environment or a file](#store-urls-from-the-environment-or-a-file).
 
 ### Oracle
 

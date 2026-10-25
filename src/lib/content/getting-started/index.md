@@ -677,7 +677,7 @@ The chart creates these resources (names assume the release is called `smg`):
 | `Service` `smg-router` (`ClusterIP`): port 80 to the gateway's 30000, and 29000 for metrics | Always |
 | `ServiceAccount` `smg` | `serviceAccount.create` (default `true`) |
 | `Secret` `smg-hf-token`, passed to the router and workers as `HF_TOKEN` | `huggingface.token` is set |
-| `Secret` `smg-history` holding the history store's connection URL, or `smg-secrets` holding the Oracle credentials | `history.backend` is `postgres` or `redis` with `url` set, or `oracle` with a credential set, and no `existingSecret` replaces it |
+| `Secret` `smg-history` holding the history store's connection URL, or `smg-secrets` holding the Oracle credentials | `history.backend` is `postgres` or `redis` with `url` set, or `oracle` with `dsn`, `user`, or `password` set, and no `existingSecret` replaces it |
 | `Role` and `RoleBinding` allowing `get`, `list`, and `watch` on pods | `router.serviceDiscovery.enabled`, `router.mesh.enabled`, or `rbac.create`; a `ClusterRole` and `ClusterRoleBinding` with `router.serviceDiscovery.clusterWide` |
 | `ServiceMonitor` | `router.metrics.serviceMonitor.enabled` (needs the Prometheus Operator CRDs) |
 | `Ingress`, `HorizontalPodAutoscaler`, `PodDisruptionBudget`, Grafana dashboard `ConfigMap` | `router.ingress.enabled`, `router.autoscaling.enabled`, `router.podDisruptionBudget.enabled`, `grafana.dashboard.enabled` |

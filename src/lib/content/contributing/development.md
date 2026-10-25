@@ -144,7 +144,7 @@ Features of the `smg` package (`model_gateway/Cargo.toml`):
 | `mm-rdma` | no | The real NIXL transport for multimodal pixel RDMA; without it the gateway compiles a no-op stub |
 | `jemalloc-profiling` | no | Builds jemalloc with heap-profiling support |
 | `vendored-openssl` | no | Builds OpenSSL from source instead of linking the system library; `make python-build` uses it for wheels |
-| `tokenizers-v1` | no | Opt-in encode acceleration: supported BPE tokenizers encode through the `tokenizers` 1.0 release candidate's pipeline, and full ByteLevel decodes speed up too; streaming decode is unchanged. A tokenizer the pipeline declines takes the next encode path: the tokenizer crate's direct byte-level encoder, then `tokenizers` 0.23 (the only paths without the feature). The `Bellwether Fixtures` CI lane tests with this feature |
+| `tokenizers-v1` | no | Opt-in encode acceleration: supported BPE tokenizers encode through the `tokenizers` 1.0 release candidate's pipeline, and full ByteLevel decodes speed up too; streaming decode is unchanged. A tokenizer the pipeline declines takes the next encode path: the tokenizer crate's direct byte-level encoder, then `tokenizers` 0.23 — the only encode paths in a build without this feature. The `Bellwether Fixtures` CI lane tests with this feature |
 | `test-util` | no | A client-injection seam for the crate's own Kubernetes discovery tests. The crate's test targets turn it on automatically; production builds never do |
 
 The provider routers live in `crates/external_router` and are compiled per provider (smg-project/smg#2449). IGW mode registers every router the build contains. To build a gateway for self-hosted engines only:

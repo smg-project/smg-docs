@@ -59,6 +59,8 @@ smg \
 
 On a new database, also set `DB_AUTO_MIGRATE=true` for the first start; see [Schema migrations](#schema-migrations).
 
+To keep the password off the command line, set `SMG_POSTGRES_DB_URL` or pass `--postgres-db-url-file` with a file holding the URL instead; see [Store URLs from the environment or a file](#store-urls-from-the-environment-or-a-file).
+
 ### Redis
 
 ```bash
@@ -71,6 +73,8 @@ smg \
 ```
 
 Set `--redis-retention-days -1` for persistent retention.
+
+The Redis URL can likewise come from `SMG_REDIS_URL` or a `--redis-url-file`; see [Store URLs from the environment or a file](#store-urls-from-the-environment-or-a-file).
 
 ### Oracle
 
@@ -104,15 +108,17 @@ A `--schema-config` file can set `auto_migrate` instead. See [Chat History](../c
 
 ---
 
-## Required Flags by Backend
+## Required Settings by Backend
 
-| Backend | Required flags |
-|---------|----------------|
+| Backend | Required settings |
+|---------|-------------------|
 | `memory` | none |
 | `none` | none |
-| `postgres` | `--postgres-db-url` |
-| `redis` | `--redis-url` |
+| `postgres` | the PostgreSQL connection URL, via `--postgres-db-url`, `SMG_POSTGRES_DB_URL`, or a [URL file](#store-urls-from-the-environment-or-a-file) |
+| `redis` | the Redis connection URL, via `--redis-url`, `SMG_REDIS_URL`, or a [URL file](#store-urls-from-the-environment-or-a-file) |
 | `oracle` | `--oracle-user`, `--oracle-password`, and one of (`--oracle-dsn`) or (`--oracle-wallet-path` + `--oracle-tns-alias`) (omit user/password when `--oracle-external-auth` is set) |
+
+Oracle credentials can also come from the `ATP_*` [environment variables](#environment-variables).
 
 ---
 
@@ -130,7 +136,22 @@ You can provide Oracle credentials via environment variables (both the Rust bina
 - `ATP_POOL_MAX`
 - `ATP_POOL_TIMEOUT_SECS`
 
-The Rust `smg` binary reads no environment variables for PostgreSQL or Redis. Only the Python launcher reads `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `REDIS_URL`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS`, as defaults for its flags.
+`POSTGRES_POOL_MAX`, `POSTGRES_OP_TIMEOUT_SECS`, `REDIS_POOL_MAX`, `REDIS_RETENTION_DAYS`, and `REDIS_OP_TIMEOUT_SECS` are read only by the Python launcher, as defaults for its pool, timeout, and retention flags; the Rust binary takes those settings from flags alone.
+
+### Store URLs from the environment or a file
+
+A PostgreSQL or Redis connection URL carries the store's password, and a URL on the command line is readable by other processes (`/proc/<pid>/cmdline`, process listings, a Deployment's args). Both the Rust `smg` binary and the Python launcher also read each URL from an environment variable, or from a file such as a mounted Kubernetes Secret:
+
+| Setting | Flag | Environment | File flag | File environment |
+|---------|------|-------------|-----------|------------------|
+| PostgreSQL URL | `--postgres-db-url` | `SMG_POSTGRES_DB_URL` | `--postgres-db-url-file` | `SMG_POSTGRES_DB_URL_FILE` |
+| Redis URL | `--redis-url` | `SMG_REDIS_URL` | `--redis-url-file` | `SMG_REDIS_URL_FILE` |
+
+- The flag beats the environment. A URL (from the flag or the environment) together with a URL file for the same store is refused at startup rather than ranked.
+- A URL file must hold the URL alone. Surrounding whitespace — such as the trailing newline a Secret made from a file carries — is dropped, from the file's content and from an environment value alike. An empty file, or one holding more than one line, is refused.
+- A URL file is read only for the selected `--history-backend`: a `--redis-url-file` passed to a `postgres` start is ignored, not opened.
+- The Python launcher also accepts the older `POSTGRES_DB_URL` and `REDIS_URL` names when the `SMG_` names are unset; the Rust binary reads only the `SMG_` names.
+- No URL is echoed: a refusal names the sources and the file path, never the value, and the Rust binary's startup log (`CREDENTIAL SOURCES`) records whether each secret came from a flag, the environment, or a file.
 
 ---
 
@@ -140,7 +161,7 @@ The Rust `smg` binary reads no environment variables for PostgreSQL or Redis. On
 curl http://localhost:30000/health
 ```
 
-A missing or invalid required flag (for example the DB URL or Oracle credentials) fails startup with a config validation error.
+A missing or invalid required setting (for example the DB URL or Oracle credentials) fails startup with a config validation error.
 
 Every remote backend is contacted at startup, and SMG refuses to start when its store cannot be reached. For PostgreSQL and Redis, a store that is unreachable, or that accepts connections but does not answer, stops startup with an error naming the backend and the store URL (password masked). PostgreSQL and Oracle also create tables and check migrations at startup, so pending migrations stop startup too (see [Schema migrations](#schema-migrations)).
 

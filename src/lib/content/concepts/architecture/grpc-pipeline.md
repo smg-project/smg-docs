@@ -155,7 +155,7 @@ The reference tables under [Reasoning Parsers](#reasoning-parsers) and [Tool Cal
 
 ## Chat Templates and Native Renderers
 
-In gRPC mode the gateway builds the prompt text itself. Most models use a Jinja2 chat template. An explicit template always wins: a model card's `chat_template` path first, then `--chat-template`. Otherwise SMG searches the model directory in this order: a `chat_template.jinja` file, then the `chat_template` field of `tokenizer_config.json`, then the legacy `chat_template.json` file (read only when `tokenizer_config.json` carries no template), and finally any other `.jinja` file.
+In gRPC mode the gateway builds the prompt text itself. Most models use a Jinja2 chat template. An explicit template wins: a model card's `chat_template` path first, then `--chat-template`. Otherwise SMG searches the model directory in this order: a `chat_template.jinja` file, then the `chat_template` field of `tokenizer_config.json`, then the legacy `chat_template.json` file (read only when `tokenizer_config.json` carries no template), and finally any other `.jinja` file.
 
 The config's `chat_template` field may also hold a list of named templates, read the way HuggingFace Transformers reads it: the `default` entry renders a plain request, and the `tool_use` entry renders a request that declares tools. A template file replaces the config's templates, named ones included.
 
@@ -507,7 +507,7 @@ See [gRPC Workers](../../getting-started/grpc-workers.md) for the launch command
 | `--parser` | `legacy` | Which parser reads a Chat Completions, Messages or Responses API response: `legacy` (the per-model parsers on this page) or `symphony` ([Symphony tables](#symphony-parsing)). A request's `X-SMG-Parser` header overrides it for that request |
 | `--reasoning-parser` | Auto | Reasoning parser for every model without a per-model override. Under `--parser symphony`, may name a Symphony table or `hf`, and reads only the models [Symphony's registry](#which-table-reads-a-model) does not know |
 | `--tool-call-parser` | Auto | Tool-call parser for every model without a per-model override. Also opts the parser into structural-tag constraints. Under `--parser symphony`, may name a Symphony table or `hf`, and reads only the models [Symphony's registry](#which-table-reads-a-model) does not know |
-| `--chat-template` | None | Jinja chat template file. Without it, SMG looks in the model directory. The DeepSeek and Kimi-K3 native renderers ignore it |
+| `--chat-template` | None | Jinja chat template file. A model card's `chat_template` path wins over it; without either, SMG searches the model directory ([lookup order](#chat-templates-and-native-renderers)). The DeepSeek and Kimi-K3 native renderers ignore it |
 | `--mcp-config-path` | None | Path to MCP server configuration file |
 
 ### MCP Integration

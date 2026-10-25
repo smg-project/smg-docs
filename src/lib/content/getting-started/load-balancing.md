@@ -75,7 +75,7 @@ smg --policy power_of_two --worker-urls http://w1:8000 http://w2:8000
 |-----------|---------|-------------|
 | `--power-of-two-load-metric` | `expected_wait` | What candidates are compared by: `expected_wait` (lower expected wait of the sampled pair), `requests` (the pair's in-flight request counts, the expected wait breaking ties), or `least_requests` (no pair — the fewest in-flight requests across every available worker, then the expected wait) |
 
-The in-flight metrics compare the gateway's own request counts without reading load reports; see [Comparison Metric](../concepts/routing/load-balancing.md#comparison-metric) for how each value selects, and for the versions that support the flag.
+The in-flight metrics compare the gateway's own request counts without reading load reports; see [Comparison Metric](../concepts/routing/load-balancing.md#comparison-metric) for how each value selects.
 
 Best for large or heterogeneous fleets where cache locality doesn't matter.
 

@@ -62,10 +62,12 @@ Because of `-D warnings`, a lint set to `warn` in `[workspace.lints]` fails CI j
 | `clippy::dbg_macro`, `todo`, `unimplemented`, `unreachable` | deny | No debug or placeholder macros |
 | `clippy::print_stdout`, `clippy::print_stderr` | warn | Log with `tracing`, not `println!` or `eprintln!` |
 | `clippy::allow_attributes` | warn | Silence a lint with `#[expect(...)]`, not `#[allow(...)]` |
-| `clippy::disallowed_methods` | warn | `tokio::spawn` (confirm the gateway may shut down without waiting for the task), `std::process::exit` (skips the normal shutdown logic), and `Uuid::new_v4` (use the time-sortable `Uuid::now_v7`) |
+| `clippy::disallowed_methods` | warn | `tokio::spawn` (confirm the gateway may shut down without waiting for the task), `std::process::exit` (skips the normal shutdown logic), `Uuid::new_v4` (use the time-sortable `Uuid::now_v7`), and direct reqwest client construction (use the crate's client factory) |
 | `clippy::absolute_paths` | warn | Import paths of four or more segments with `use` (`absolute-paths-max-segments = 3`) |
 | `clippy::uninlined_format_args` | warn | Write `format!("{name}")`, not `format!("{}", name)` |
 | `unused_qualifications` | warn | No redundant path prefixes |
+
+The reqwest rule disallows `reqwest::Client::new`, `reqwest::Client::builder`, `reqwest::ClientBuilder::new`, `reqwest::get`, and their `reqwest::blocking` counterparts. Build HTTP clients through the crate's client factory instead: the gateway's `clients` module, the auth and MCP crates' own factories, or a test binary's common helper. The factory installs the process TLS crypto provider first; reqwest's `rustls-no-provider` client panics at build time without one.
 
 `[workspace.lints.clippy]` enables 23 more lints, such as `unused_async`, `unnecessary_wraps`, `or_fun_call`, and `large_futures`. `clippy.toml` raises the `large_futures` threshold to 20480 bytes and exempts `http::Request` and `http::Response` from `result_large_err`.
 

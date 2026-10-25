@@ -230,7 +230,7 @@ In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servic
 What the scheduler's msgpack wire does not carry, the Rust path reports rather than emulates:
 
 - Three launches refuse to start on the Rust path: an encoder-only worker (SGLang runs that role on its own encoder server, not on a servicer), a language-only worker on the `zmq_to_tokenizer` encoder transfer backend (the frontend itself receives and processes the embeddings there, which neither servicer runs), and a prefill leg of several plain data-parallel replicas — `--dp-size N` without attention DP — where every replica reports attention-DP rank 0 to the engine's KV sender, so the decode side cannot bootstrap against the requests the other replicas ran; run attention DP (`--tp-size N --attn-dp-size N`) or one rank per leg. Any other prefill or decode leg, and a language-only worker on the backends whose scheduler ranks receive the embeddings, is served as on the Python servicer.
-- Multimodal inputs are refused per request on every worker but a language-only one, whose encode dispatch hands a request's image references to the encoders; hidden states are refused per request, and LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
+- Multimodal inputs are refused per request on every worker but a language-only one, whose encode dispatch hands a request's image references to the encoders; LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
 - SGLang's HTTP sidecar (profiling, `/metrics`) is not started.
 
 `Embed`, `FlushCache` and profiling answer as on the Python servicer, and `SubscribeKvEvents` relays the ZMQ publisher SGLang was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).

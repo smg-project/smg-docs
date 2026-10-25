@@ -144,7 +144,7 @@ Features of the `smg` package (`model_gateway/Cargo.toml`):
 | `mm-rdma` | no | The real NIXL transport for multimodal pixel RDMA; without it the gateway compiles a no-op stub |
 | `jemalloc-profiling` | no | Builds jemalloc with heap-profiling support |
 | `vendored-openssl` | no | Builds OpenSSL from source instead of linking the system library; `make python-build` uses it for wheels |
-| `tokenizers-v1` | no | Opt-in encode acceleration: supported BPE tokenizers encode through the `tokenizers` 1.0 release candidate's pipeline, and full ByteLevel decodes speed up too. A tokenizer the pipeline declines takes the next encode path (the tokenizer crate's direct byte-level encoder, then `tokenizers` 0.23, the only paths without the feature), and streaming decode is unchanged. The `Bellwether Fixtures` CI lane tests with this feature |
+| `tokenizers-v1` | no | Opt-in encode acceleration: supported BPE tokenizers encode through the `tokenizers` 1.0 release candidate's pipeline, and full ByteLevel decodes speed up too; streaming decode is unchanged. A tokenizer the pipeline declines takes the next encode path: the tokenizer crate's direct byte-level encoder, then `tokenizers` 0.23 (the only paths without the feature). The `Bellwether Fixtures` CI lane tests with this feature |
 | `test-util` | no | A client-injection seam for the crate's own Kubernetes discovery tests. The crate's test targets turn it on automatically; production builds never do |
 
 The provider routers live in `crates/external_router` and are compiled per provider (smg-project/smg#2449). IGW mode registers every router the build contains. To build a gateway for self-hosted engines only:
@@ -435,7 +435,7 @@ CI runs them in the `Bellwether Fixtures` workflow when a PR touches the code th
 
 To reproduce the lane locally, check out bellwether at the pinned commit and unpack the fixture tree with [uv](https://docs.astral.sh/uv/). bellwether is public, so no token is needed, but the unpack step fetches the compressed sets through [Git LFS](https://git-lfs.com/): install `git-lfs` and run `git lfs install` once first.
 
-CI runs the tests with the `smg/tokenizers-v1` feature (see [Cargo Features](#cargo-features)), so pass it too — without it the tests encode through a different pipeline than the one CI checks:
+CI runs the tests with the `smg/tokenizers-v1` feature (see [Cargo Features](#cargo-features)), so pass it too — without it the BPE tokenizers the pipeline supports encode through a different path than the one CI checks:
 
 ```bash
 # Check out bellwether at the commit CI pins. GIT_LFS_SKIP_SMUDGE keeps the
@@ -447,8 +447,8 @@ git -C .bellwether checkout "$(cat .github/versions/bellwether.ref)"
 
 # Unpack the fixture tree into the plain JSON Lines the tests read. CI's
 # sampling flags write the hand-written sets whole plus every 5,000th
-# benchmark set, the same ones on every run of a pin; without them the
-# whole tree unpacks: hundreds of GB of benchmark sets
+# benchmark set, the same ones on every run of the same pin; without them
+# the whole tree unpacks: hundreds of GB of benchmark sets
 uv run --locked --project .bellwether bellwether unpack \
   --fixtures .bellwether/fixtures --out .bellwether/fixtures-plain \
   --plain --sample-sets 5000

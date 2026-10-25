@@ -138,7 +138,7 @@ You can provide Oracle credentials via environment variables (both the Rust bina
 
 ### Store URLs from the environment or a file
 
-A PostgreSQL or Redis connection URL carries the store's password, and a URL on the command line is readable by other processes (`/proc/<pid>/cmdline`, process listings, a Deployment's args). Both the Rust `smg` binary and the Python launcher also read each URL from an environment variable, or from a file such as a mounted Kubernetes Secret:
+A PostgreSQL or Redis connection URL can carry the store's password, and a URL on the command line is readable by other processes (`/proc/<pid>/cmdline`, process listings, a Deployment's args). Both the Rust `smg` binary and the Python launcher also read each URL from an environment variable, or from a file such as a mounted Kubernetes Secret:
 
 | Setting | Flag | Environment | File flag | File environment |
 |---------|------|-------------|-----------|------------------|
@@ -149,7 +149,7 @@ A PostgreSQL or Redis connection URL carries the store's password, and a URL on 
 - A URL file must hold the URL alone. Surrounding whitespace is dropped from the file's content and from a URL set in the environment, including the trailing newline a Secret made from a file carries. An empty file, or one holding more than one line, is refused.
 - A URL file is read only for the selected `--history-backend`: a `--redis-url-file` passed to a `postgres` start is ignored, not opened.
 - The Python launcher also accepts the older `POSTGRES_DB_URL` and `REDIS_URL` names when the `SMG_` names are unset; the Rust binary reads only the `SMG_` names.
-- No URL is echoed: a refusal names the sources and the file path, never the value, and the Rust binary's startup log (`CREDENTIAL SOURCES`) records whether each secret came from a flag, the environment, or a file.
+- No URL is echoed: a refusal names the sources and the file path, never the value, and the Rust binary's startup log (`CREDENTIAL SOURCES`) records whether each URL came from a flag, the environment, or a file.
 
 ---
 

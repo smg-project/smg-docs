@@ -67,7 +67,7 @@ Because of `-D warnings`, a lint set to `warn` in `[workspace.lints]` fails CI j
 | `clippy::uninlined_format_args` | warn | Write `format!("{name}")`, not `format!("{}", name)` |
 | `unused_qualifications` | warn | No redundant path prefixes |
 
-The reqwest rule disallows `reqwest::Client::new`, `reqwest::Client::builder`, `reqwest::ClientBuilder::new`, `reqwest::get`, and their `reqwest::blocking` counterparts. Build HTTP clients through the crate's client factory instead: the gateway's `clients` module, the auth and MCP crates' own factories, or a test binary's common helper. The factory installs the process TLS crypto provider first; reqwest's `rustls-no-provider` client panics at build time without one.
+The reqwest rule disallows `reqwest::Client::new`, `reqwest::Client::builder`, `reqwest::ClientBuilder::new`, `reqwest::get`, and their `reqwest::blocking` counterparts. Build HTTP clients through the crate's client factory instead: the gateway's `clients` module, the auth and MCP crates' own factories, or a test binary's common helper. Each factory installs the process-level TLS crypto provider before building the client; reqwest is compiled with the `rustls-no-provider` feature, so a client built without a provider panics.
 
 `[workspace.lints.clippy]` enables 23 more lints, such as `unused_async`, `unnecessary_wraps`, `or_fun_call`, and `large_futures`. `clippy.toml` raises the `large_futures` threshold to 20480 bytes and exempts `http::Request` and `http::Response` from `result_large_err`.
 

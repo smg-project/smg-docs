@@ -225,10 +225,12 @@ PD mode needs at least one of `--prefill-selector` and `--decode-selector`. EPD 
 | Annotation | Pods | Value |
 |------------|------|-------|
 | `sglang.ai/bootstrap-port` | Prefill, encode | The worker's bootstrap port: SGLang and TokenSpeed `--disaggregation-bootstrap-port`, or vLLM Mooncake `VLLM_MOONCAKE_BOOTSTRAP_PORT`. A single value applies to every worker port of the pod; a comma-separated list needs one port per worker port, or it is ignored |
-| `smg.ai/kv-connector` | vLLM prefill and decode | `NixlConnector` or `MooncakeConnector`, shared by every worker in the pod. Any other value is kept but handled as passthrough, with a warning |
+| `smg.ai/kv-connector` | vLLM prefill and decode | The engine's KV connector, shared by every worker in the pod: `NixlConnector`, `MooncakeConnector`, or a KV-store connector (`MooncakeStoreConnector`, `SharedStorageConnector`, or a name starting with `FlexKV` or `HF3FS`). Any other value is kept but handled as passthrough, with a warning — except `MoRIIOConnector`, which is dispatched as MoRI-IO and cannot be configured through discovery (see below) |
 | `smg.ai/kv-engine-id` | vLLM Mooncake prefill | The engine's `kv_transfer_config.engine_id`. One id for a single-port pod, or a comma-separated list of distinct ids in the order of `smg.ai/worker-ports`. A list of the wrong length, or with an empty or duplicate id, is ignored with a warning |
 
 SGLang and TokenSpeed pods need only their role labels and, on prefill (and encode) pods, the bootstrap-port annotation. vLLM workers served over HTTP need `smg.ai/kv-connector` for a KV handoff, because the vLLM HTTP server does not report its connector. vLLM gRPC workers report their connector and engine id themselves, and the annotations override what they report. To pin a [pairing protocol](../routing/pd-disaggregation.md#explicit-pairing-protocol), set `SMG_PAIRING_PROTOCOL` in the engine container of gRPC workers; there is no annotation for it.
+
+Do not register MoRI-IO legs through discovery. A pod annotated `MoRIIOConnector` draws the passthrough warning but is not passthrough: its workers are dispatched on the MoRI-IO path, which requires the `moriio_mode` worker label, and no annotation sets worker labels, so every request routed to such a pair of HTTP workers fails with 503 `moriio_pair_misconfigured`. Register MoRI-IO legs through the [worker API](../../reference/api/admin.md) with their `moriio_*` labels instead; see [MoRI-IO (HTTP)](../routing/pd-disaggregation.md#mori-io-http).
 
 SMG reads these annotations on every reconcile pass. Editing one on a live pod updates its registered workers in place on a later pass, without removing or draining them; the pod does not need to be replaced.
 

@@ -107,7 +107,7 @@ metadata:
     role: prefill
   annotations:
     sglang.ai/bootstrap-port: "8998"         # SGLang, TokenSpeed, vLLM Mooncake
-    smg.ai/kv-connector: MooncakeConnector   # vLLM: NixlConnector or MooncakeConnector
+    smg.ai/kv-connector: MooncakeConnector   # vLLM: NixlConnector, MooncakeConnector, or a KV-store connector
     smg.ai/kv-engine-id: prefill-0           # vLLM Mooncake: engine_id from --kv-transfer-config
 
 # Decode worker pod

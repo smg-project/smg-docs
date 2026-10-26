@@ -459,7 +459,9 @@ BELLWETHER_FIXTURES=$PWD/.bellwether/fixtures-plain \
   --features smg/tokenizers-v1 --test 'bellwether_*' -- --nocapture
 ```
 
-Keep the three packages in one `cargo test` invocation, as CI does, so every `bellwether_*` target builds with the same features (the `smg/tokenizers-v1` spelling also needs `smg` among the selected packages). On the first run the tests download each model's tokenizer files from Hugging Face into the gitignored `.tokenizer_cache/bellwether/`.
+Keep the three packages in one `cargo test` invocation, as CI does, so every `bellwether_*` target builds with the same features (the `smg/tokenizers-v1` spelling also needs `smg` among the selected packages).
+
+On the first run the tests download each model's tokenizer files from Hugging Face into the gitignored `.tokenizer_cache/bellwether/`.
 
 Pointing `BELLWETHER_FIXTURES` at bellwether's raw `fixtures/` directory fails the run: its benchmark sets are compressed, and the tests read the unpacked tree only.
 

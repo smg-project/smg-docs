@@ -97,7 +97,7 @@ curl http://localhost:30000/v1/detokenize \
 {"text": "Hello world"}
 ```
 
-A batch request returns `text` as an array of strings. For tiktoken-based tokenizers such as Kimi's, `skip_special_tokens` drops only the tokens marked `"special": true` in `tokenizer_config.json`. Control markers without that flag stay in the text (smg-project/smg#2421).
+A batch request returns `text` as an array of strings. For tiktoken-based tokenizers such as Kimi's, `skip_special_tokens` drops only the tokens marked `"special": true` in `tokenizer_config.json`. Control markers without that flag stay in the text.
 
 ### Errors
 

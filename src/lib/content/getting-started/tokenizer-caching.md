@@ -144,7 +144,7 @@ On a miss, L1 stores an entry for every special-token boundary of the input, hol
 
 ## Monitor Cache Activity
 
-SMG exports cache counters on its Prometheus endpoint (smg-project/smg#2603): `smg_tokenizer_cache_lookups_total` (labels `layer` and `result`), `smg_tokenizer_cache_evictions_total`, and `smg_tokenizer_cache_reused_bytes_total` (label `layer`). `layer` is `l0` or `l1`; `result` is `hit` or `miss`. Check each layer's hit ratio:
+SMG exports cache counters on its Prometheus endpoint, each labeled by `layer` (`l0` or `l1`): `smg_tokenizer_cache_lookups_total` (with a `result` label, `hit` or `miss`), `smg_tokenizer_cache_evictions_total`, and `smg_tokenizer_cache_reused_bytes_total`. Check each layer's hit ratio:
 
 ```promql
 sum by (layer) (rate(smg_tokenizer_cache_lookups_total{result="hit"}[5m]))

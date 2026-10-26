@@ -445,10 +445,10 @@ export GIT_LFS_SKIP_SMUDGE=1
 git clone https://github.com/smg-project/bellwether.git .bellwether
 git -C .bellwether checkout "$(cat .github/versions/bellwether.ref)"
 
-# Unpack the fixture tree into the plain JSON Lines the tests read. CI's
-# sampling flags write the hand-written sets whole plus every 5,000th
-# benchmark set, the same ones on every run of the same pin; without them
-# the whole tree unpacks: hundreds of GB of benchmark sets
+# Unpack the fixture tree into the plain JSON Lines the tests read, with
+# CI's flags: --plain writes the hand-written sets and --sample-sets 5000
+# every 5,000th benchmark set, the same ones on every run of the same pin.
+# Without the flags the whole tree unpacks: hundreds of GB of benchmark sets
 uv run --locked --project .bellwether bellwether unpack \
   --fixtures .bellwether/fixtures --out .bellwether/fixtures-plain \
   --plain --sample-sets 5000

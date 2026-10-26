@@ -118,7 +118,7 @@ vLLM, SGLang and TokenSpeed gRPC workers run a planned warm-up over the engine b
 
 TokenSpeed workers skip the pass on a disaggregation role. An encoder-only SGLang worker skips it too: the engine runs that role on its own encoder server, never on a servicer. A language-only SGLang worker runs the pass as on a single engine — its text requests carry no media, so the encoders see nothing of them — and on the Rust path the plan also ends with one image through the encoders (the media leg below). On an SGLang prefill or decode leg the Python servicer skips the pass, while the Rust path runs it as on a single engine: each request carries a stand-in transfer to nobody, so the leg warms up without its peer.
 
-A worker whose health stays `NOT_SERVING` for a while after the engine loaded is warming up, not wedged. The pass logs `Planned warm-up starts (...): readiness is held until it ran`, one INFO line per shape with its time (TokenSpeed's chunk remainders log at DEBUG, with an INFO progress line every 500 remainders), and `Planned warm-up over: N of M steps covered ...` at the end.
+A worker whose health stays `NOT_SERVING` for a while after the engine loaded is warming up, not stuck. The pass logs `Planned warm-up starts (...): readiness is held until it ran`, one INFO line per shape with its time (TokenSpeed's chunk remainders log at DEBUG, with an INFO progress line every 500 remainders), and `Planned warm-up over: N of M steps covered ...` at the end.
 
 Engines select and compile kernels lazily: the first scheduler step at a token count the engine has not seen pays a kernel search or a compile of up to several seconds, and every request in flight during that step waits with it. The warm-up visits those token counts before the worker reports `SERVING`; without it, the first traffic ramp pays them — on every worker of a fleet at once when the workers start together. The pass covers, in order:
 
@@ -139,7 +139,7 @@ A Python servicer answers that RPC healthy throughout (vLLM answers from engine 
 | Value | Effect |
 |-------|--------|
 | `full` | The default: the whole pass above, every 128-token length class included — about a minute at a 16,384-token step. On a multi-process TokenSpeed engine, also the chunk remainders — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
-| `fast` | Skips the 128-token length classes and keeps the rest of the pass (the staircase, the bucket grid with its one-above lengths and second pass, the capture sizes): seconds. On a multi-process TokenSpeed engine it also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
+| `fast` | Skips the 128-token length classes and keeps the rest of the pass (the staircase, the bucket grid with its one-above lengths and second pass, the capture sizes), finishing in seconds. On a multi-process TokenSpeed engine it also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
 | `off` | No planned warm-up: the worker reports `SERVING` once the engine is up and answering |
 | A number (`120`) | The pass's time budget in seconds, at the `full` level |
 | `<level>:<seconds>` (`fast:30`) | Level and budget together |

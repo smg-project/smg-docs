@@ -52,6 +52,8 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     This starts the default Python servicer. Setting `SMG_VLLM_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust vLLM Servicer](#rust-vllm-servicer).
 
+    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — about a minute by default; `SMG_VLLM_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
+
 === "SGLang"
 
     ```bash
@@ -65,6 +67,8 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
     `--grpc-mode` serves the worker through `smg-grpc-servicer`, which needs SGLang 0.5.21 or later. In this mode SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`).
 
     This starts the default Python servicer. Adding `--servicer-impl rust` — or setting `SMG_SGLANG_SERVICER_IMPL=rust` in the worker's environment — serves the same contract from Rust instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
+
+    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — about a minute by default; `SMG_SGLANG_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 
 === "TensorRT-LLM"
 
@@ -95,6 +99,8 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     This starts the default Python servicer. Setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
 
+    After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine. A one-process engine takes about a minute, as on the other engines; an engine of more than one process takes ten minutes or more, since the pass then also warms every prompt length up to the chunk size. `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
+
 === "MLX"
 
     ```bash
@@ -105,6 +111,44 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
     ```
 
     MLX workers are gRPC-only and run on Apple Silicon. They don't support constrained decoding: chat requests with a forced `tool_choice` or a `response_format` get a 400, as do requests with `n` greater than 1 or string `stop` sequences.
+
+### Planned Warm-Up Before Serving
+
+vLLM, SGLang and TokenSpeed gRPC workers run a planned warm-up over the engine before they report `SERVING` on the standard gRPC health service (`grpc.health.v1`) — the signal Kubernetes gRPC startup and readiness probes read. Both the Python and Rust servicer implementations run the pass; MLX and TensorRT-LLM workers have no such pass, and a model that generates nothing (a pooling or embedding model) takes none.
+
+TokenSpeed workers skip the pass on a disaggregation role. An encoder-only SGLang worker skips it too: the engine runs that role on its own encoder server, never on a servicer. A language-only SGLang worker runs the pass as on a single engine — its text requests carry no media, so the encoders see nothing of them — and on the Rust path the plan also ends with one image through the encoders (the media leg below). On an SGLang prefill or decode leg the Python servicer skips the pass, while the Rust path runs it as on a single engine: each request carries a stand-in transfer to nobody, so the leg warms up without its peer.
+
+A worker whose health stays `NOT_SERVING` for a while after the engine loaded is warming up, not stuck. The pass logs `Planned warm-up starts (...): readiness is held until it ran`, one INFO line per shape with its time (TokenSpeed's chunk remainders log at DEBUG, with an INFO progress line every 500 remainders), and `Planned warm-up over: N of M steps covered ...` at the end.
+
+Engines select and compile kernels lazily: the first scheduler step at a token count the engine has not seen pays a kernel search or a compile of up to several seconds, and every request in flight during that step waits with it. The warm-up visits those token counts before the worker reports `SERVING`; without it, the first traffic ramp pays them — on every worker of a fleet at once when the workers start together. The pass covers, in order:
+
+- a **decode staircase**: as many concurrent requests as the running window holds, each asking for one more output token than the last, so every running-batch size runs once;
+- a **prefill ladder**: one request per 128-token prompt-length class up to the engine's admission step (its chunk size or prefill token budget), plus the kernel tuners' bucket grid, the engine's graph-capture sizes, and lengths one above each bucket;
+- a **second pass** over the bucket grid, whose logged timings show what the first pass paid;
+- on a language-only SGLang worker on the Rust path, the **media leg**: one request carrying one image through the encoders — the engine's own minimal warm-up image, sent as a data URL with the prompt the model's chat template renders around it — because no text request reaches the scheduler's media path, whose first use costs a fresh worker a few seconds. A chat template that renders no image placeholder leaves the leg out (a logged line says why), and the leg runs at the `fast` level too;
+- on a TokenSpeed engine of more than one process, the **chunk remainders**: every remaining prompt length up to the chunk size, because on this engine a prompt length's first use during serving can deadlock the forward pass under a collective still in flight. A one-process engine has no peer to wait on and keeps to the length classes, like the other engines. The remainders run last, in an order whose every prefix spreads evenly over the range, so a budget cut leaves even coverage rather than a missing tail.
+
+Every request carries its own token IDs, so prefix caching never hides a prefill, and the pass flushes the engine's prefix cache at the end. A servicer that cannot carry that flush to its engine (the Rust TokenSpeed servicer, on a TokenSpeed whose handshake declares no control reply) refuses it, and the end line then says the warm-up's blocks stay cached.
+
+The gateway's [health checks](../concepts/reliability/health-checks.md) read a different signal: each engine's own `HealthCheck` RPC, not the standard health service. While the pass runs, a Rust servicer mirrors the hold there — not healthy, with the message `Warming up`, distinct from `Draining` — and admits only the warm-up's own requests, refusing anything else with gRPC `UNAVAILABLE` ("servicer is warming up"), so the gateway neither finishes registering a warming worker nor routes traffic to it.
+
+A Python servicer answers that RPC healthy throughout (vLLM answers from engine liveness; SGLang and TokenSpeed serve the check's one-token probe like any other request) and refuses nothing, so it registers and passes the gateway's health checks while it warms: a request routed to it in that window is served, sharing the engine with the warm-up. On both implementations the hold is released when the pass ends, whatever its outcome — health flips to `SERVING`, and a failed warm-up request is a logged line, never a worker kept out of rotation.
+
+`SMG_VLLM_SERVICER_WARMUP`, `SMG_SGLANG_SERVICER_WARMUP` and `SMG_TOKENSPEED_SERVICER_WARMUP` tune the pass per engine:
+
+| Value | Effect |
+|-------|--------|
+| `full` | The default: the whole pass above, every 128-token length class included — about a minute at a 16,384-token step. On a multi-process TokenSpeed engine, also the chunk remainders — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
+| `fast` | Skips the 128-token length classes and keeps the rest of the pass (the staircase, the bucket grid with its one-above lengths and second pass, the capture sizes), finishing in seconds. On a multi-process TokenSpeed engine it also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
+| `off` | No planned warm-up: the worker reports `SERVING` once the engine is up and answering |
+| A number (`120`) | The pass's time budget in seconds, at the `full` level |
+| `<level>:<seconds>` (`fast:30`) | Level and budget together |
+
+The budget defaults to 300 seconds — 900 for TokenSpeed, whose plan can include the chunk remainders. When it runs out, the pass ends between shapes (the end line names the shape it stopped before), and each request's timeout is clamped to what is left of the budget (never below one second), so a shape that hangs cannot hold readiness past it. A multi-process TokenSpeed worker with no chunk size set plans about 23 minutes of remainders at its default 8,192-token step, and the budget then cuts the pass about halfway through them (evenly, thanks to the spread order): set a chunk size or a larger budget to cover every length.
+
+A value the knob does not take fails a Rust-path worker at startup with an error naming the variable; a Python servicer logs a warning and serves without the warm-up.
+
+Under data parallelism, a vLLM worker — and, on the Rust path, an SGLang worker — runs the staircase once per rank and every prefill shape on every rank at once, each request pinned to its rank, so the log's step count is per rank. The Python SGLang servicer sends no rank pin (the engine's own load balancing places each request), and a TokenSpeed worker routes each warm-up request to the least-loaded rank on both paths; either way each prefill shape warms one rank, the other ranks pay its first-time cost on their first request of that shape, and a logged warning says so.
 
 ### Rust vLLM Servicer
 
@@ -185,8 +229,8 @@ In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servic
 
 What the scheduler's msgpack wire does not carry, the Rust path reports rather than emulates:
 
-- PD and EPD disaggregation stay with the Python servicer: a worker with a `disaggregation_mode` set, or with `language_only` or `encoder_only`, refuses to start on the Rust path.
-- Multimodal inputs and hidden states are refused per request, and LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
+- Three launches refuse to start on the Rust path: an encoder-only worker (SGLang runs that role on its own encoder server, not on a servicer), a language-only worker on the `zmq_to_tokenizer` encoder transfer backend (the frontend itself receives and processes the embeddings there, which neither servicer runs), and a prefill leg of several plain data-parallel replicas — `--dp-size N` without attention DP — where every replica reports attention-DP rank 0 to the engine's KV sender, so the decode side cannot bootstrap against the requests the other replicas ran; run attention DP (`--tp-size N --attn-dp-size N`) or one rank per leg. Any other prefill or decode leg, and a language-only worker on the backends whose scheduler ranks receive the embeddings, is served as on the Python servicer.
+- A multimodal payload of image references without preprocessed tensors — the encoders' input in encode/prefill disaggregation — is refused per request on every worker but a language-only one, whose encode dispatch hands the references to the encoders; the tensors the gateway preprocesses in gRPC mode reach the scheduler as its own processor's output on every worker. LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
 - SGLang's HTTP sidecar (profiling, `/metrics`) is not started.
 
 `Embed`, `FlushCache` and profiling answer as on the Python servicer, and `SubscribeKvEvents` relays the ZMQ publisher SGLang was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
@@ -212,7 +256,7 @@ In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servic
 
 What the scheduler's msgpack wire does not carry, the Rust path reports rather than emulates:
 
-- `FlushCache` and profiling answer UNIMPLEMENTED.
+- `FlushCache` and profiling answer UNIMPLEMENTED on a TokenSpeed whose handshake declares no control reply; one that declares it gets them as control calls, each scheduler rank's own handler answering.
 - Ranked `top_logprobs` and prompt logprobs are refused per request.
 - PD and EPD disaggregation stay with the Python servicer.
 - The [RL control plane](rl-control-plane.md) extras stay with the Python servicer: the `rl.*` capability advertisement, the live `weight_version` on generate responses, and `is_paused`.
@@ -220,6 +264,8 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer. `SubscribeKvEvents` relays the ZMQ KV-event publisher TokenSpeed was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
 
 Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake. Model load and kernel JIT compilation count against that bound, so raise it when a first start on a cold cache needs longer; a scheduler process that died is noticed on the supervisor's poll rather than waiting out the bound.
+
+After the handshake, the [planned warm-up](#planned-warm-up-before-serving) runs before the worker reports `SERVING`; `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it.
 
 ---
 
@@ -426,6 +472,7 @@ export TIKTOKEN_ENCODINGS_BASE=/opt/tiktoken   # contains o200k_base.tiktoken
 | 404 `model_not_found` | No registered worker serves the requested model name | Check `GET /v1/models` and send a served model name or alias |
 | 503 `no_available_workers` | Every worker for the model is unhealthy or has an open circuit breaker | Check worker health and logs |
 | A `grpcs://` worker never registers; the log repeats `grpc health check failed ... gRPC connection failed: transport error` | The gateway's gRPC channel has no TLS | Use `grpc://`, and a service mesh when the hop must be encrypted ([Gateway to gRPC Workers](tls.md#gateway-to-grpc-workers)) |
+| A worker's gRPC health stays `NOT_SERVING` after the engine loaded; on the Rust path requests get `UNAVAILABLE` `servicer is warming up` | The [planned warm-up](#planned-warm-up-before-serving) is still running — about a minute by default, ten minutes or more on a multi-process TokenSpeed engine | Wait for the worker's `Planned warm-up over` log line, or set its warm-up variable to `fast` or `off` |
 | 503 `tokenizer_not_ready` | The model's tokenizer is still loading (the gateway loads it after the worker registers) | Retry; the response carries `Retry-After: 1`, and `/readiness` reports the same state |
 | 503 `tokenizer_load_failed` | The model's tokenizer won't load on its own — no `tokenizer_path` or `model_path` to load from, the load failed, or the tokenizer was removed; the message names the reason, and the gateway log has the details | Pass `--model-path` or set a `tokenizer_path` label and re-register the worker, or register a tokenizer with `POST /v1/tokenizers`; retrying the request changes nothing until a tokenizer registers |
 | 500 `tokenizer_not_found` | The model has no tokenizer and `--disable-tokenizer-autoload` is set, so the gateway won't load one itself | Register a tokenizer with `POST /v1/tokenizers` |

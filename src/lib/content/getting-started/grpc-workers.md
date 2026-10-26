@@ -132,7 +132,7 @@ Every request carries its own token IDs, so prefix caching never hides a prefill
 
 The gateway's [health checks](../concepts/reliability/health-checks.md) read a different signal: each engine's own `HealthCheck` RPC, not the standard health service. While the pass runs, a Rust servicer mirrors the hold there — not healthy, with the message `Warming up`, distinct from `Draining` — and admits only the warm-up's own requests, refusing anything else with gRPC `UNAVAILABLE` ("servicer is warming up"), so the gateway neither finishes registering a warming worker nor routes traffic to it.
 
-A Python servicer answers that RPC healthy throughout (vLLM's answer reflects engine liveness; SGLang's and TokenSpeed's one-token probe is served like any other request) and refuses nothing, so it registers and passes the gateway's health checks while it warms: a request routed to it in that window is served, sharing the engine with the warm-up. On both implementations the hold is released when the pass ends, whatever it returned — health flips to `SERVING`, and a failed warm-up request is a logged line, never a worker kept out of rotation.
+A Python servicer answers that RPC healthy throughout (vLLM's answer reflects engine liveness; SGLang's and TokenSpeed's one-token probe is served like any other request) and refuses nothing, so it registers and passes the gateway's health checks while it warms: a request routed to it in that window is served, sharing the engine with the warm-up. On both implementations the hold is released when the pass ends, whatever its outcome — health flips to `SERVING`, and a failed warm-up request is a logged line, never a worker kept out of rotation.
 
 `SMG_VLLM_SERVICER_WARMUP`, `SMG_SGLANG_SERVICER_WARMUP` and `SMG_TOKENSPEED_SERVICER_WARMUP` tune the pass per engine:
 
@@ -144,7 +144,7 @@ A Python servicer answers that RPC healthy throughout (vLLM's answer reflects en
 | A number (`120`) | The pass's time budget in seconds, at the `full` level |
 | `<level>:<seconds>` (`fast:30`) | Level and budget together |
 
-The budget defaults to 300 seconds — 900 for TokenSpeed, whose plan can hold the chunk remainders. When it runs out, the pass ends between shapes (the end line names the shape it stopped before), and each request's timeout is clamped to what is left of the budget (never below one second), so a shape that hangs cannot hold readiness past it. A multi-process TokenSpeed worker with no chunk size set plans about 23 minutes of remainders at its default 8,192-token step, and the budget then cuts the pass about halfway through them (evenly, thanks to the spread order): set a chunk size or a larger budget to cover every length.
+The budget defaults to 300 seconds — 900 for TokenSpeed, whose plan can include the chunk remainders. When it runs out, the pass ends between shapes (the end line names the shape it stopped before), and each request's timeout is clamped to what is left of the budget (never below one second), so a shape that hangs cannot hold readiness past it. A multi-process TokenSpeed worker with no chunk size set plans about 23 minutes of remainders at its default 8,192-token step, and the budget then cuts the pass about halfway through them (evenly, thanks to the spread order): set a chunk size or a larger budget to cover every length.
 
 A value the knob does not take fails a Rust-path worker at startup with an error naming the variable; a Python servicer logs a warning and serves without the warm-up.
 

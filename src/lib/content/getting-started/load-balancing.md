@@ -105,7 +105,7 @@ When every worker is at the waiting-queue cap, the request fails with `503` inst
 
 ## Consistent Hashing
 
-Header-based routing with minimal redistribution on scaling. Routes based on `X-SMG-Routing-Key` header or implicit keys (`Authorization`, `X-Forwarded-For`, `Cookie`).
+Header-based routing with minimal redistribution on scaling. Routes based on `X-SMG-Routing-Key` header or implicit keys (`X-Forwarded-For`, `Cookie`).
 
 ```bash
 smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
@@ -118,7 +118,7 @@ smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
 | `X-SMG-Target-Worker` | Route to a worker by 0-based index into the model's available workers; `503` if that index has no available worker |
 | `X-SMG-Routing-Key` | Consistent hash routing for session affinity. Non-empty UTF-8, at most 128 bytes; add names with `--routing-key-headers` |
 
-**Priority:** `X-SMG-Target-Worker` > body `rid` (with `--routing-key-override`) > routing-key header > implicit keys > random fallback
+**Priority:** `X-SMG-Target-Worker` > routing-key header > body `rid` (with `--routing-key-override`) > implicit keys > random fallback
 
 Best for session affinity and user-to-worker pinning.
 

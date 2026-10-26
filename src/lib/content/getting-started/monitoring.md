@@ -206,7 +206,7 @@ If you deploy with the SMG Helm chart, set `router.metrics.serviceMonitor.enable
 | `smg_mcp_tool_duration_seconds` | Histogram | Tool execution time by model, tool_name |
 | `smg_mcp_servers_active` | Gauge | Connected MCP servers |
 
-Several of these exist only when their feature is on: admission metrics need `--max-concurrent-requests` (the multimodal rejection reasons need `--multimodal-max-inflight-bytes` instead), the `smg_workers_overloaded` gauge needs worker overload protection, and PD metrics need PD mode.
+Several of these exist only when their feature is on: admission metrics are present unless `--max-concurrent-requests` is `0` (the multimodal rejection reasons need `--multimodal-max-inflight-bytes`), the `smg_workers_overloaded` gauge needs worker overload protection, and PD metrics need PD mode.
 
 SMG publishes `smg_worker_overload_shed_total` at zero for every stage from start-up, whether or not overload protection is enabled, so the per-stage series exist before any shed; only the `smg_workers_overloaded` gauge waits for protection to flag a worker. See [Overload Protection Metrics](../reference/metrics.md#overload-protection-metrics).
 
@@ -511,7 +511,7 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
     1. Most series appear only after the first event that records them, so a metric can be absent on an idle gateway. The overload-shed, retry, and circuit-breaker transition families are exceptions, published at zero before any event (details below).
 
-    2. Some groups need their feature enabled: admission metrics need `--max-concurrent-requests`, the `smg_workers_overloaded` gauge needs worker overload protection, and PD, discovery, RL, and mesh metrics need their modes. Allocator metrics are absent on musl and MSVC builds.
+    2. Some groups need their feature enabled: admission metrics are present unless `--max-concurrent-requests` is `0`, the `smg_workers_overloaded` gauge needs worker overload protection, and PD, discovery, RL, and mesh metrics need their modes. Allocator metrics are absent on musl and MSVC builds.
 
     3. Some metrics only appear for specific paths (for example, TTFT is recorded for streaming responses on the gRPC router).
 

@@ -222,7 +222,7 @@ Admission decisions of the concurrency limiter.
 
 Values: `allowed`, `rejected`
 
-Recorded when `--max-concurrent-requests` is set. With the priority scheduler enabled, only rejections by the `--rate-limit-tokens-per-second` limiter are counted here; the scheduler's own outcomes are in `smg_scheduler_admit_total`.
+Recorded unless `--max-concurrent-requests` is `0`. With the priority scheduler enabled, only rejections by the `--rate-limit-tokens-per-second` limiter are counted here; the scheduler's own outcomes are in `smg_scheduler_admit_total`.
 
 ```promql
 # Rejection ratio
@@ -233,7 +233,7 @@ sum(rate(smg_http_rate_limit_total{result="rejected"}[5m])) / sum(rate(smg_http_
 
 ### Admission Queue Metrics
 
-When `--max-concurrent-requests` is set and the priority scheduler is off, every request to an inference route holds an admission token for its full lifetime, streaming body included. A request that finds no free token waits in a FIFO queue of `--queue-size` slots (default `100`) for up to `--queue-timeout-secs` (default `60`). These metrics expose that queue.
+Unless `--max-concurrent-requests` is `0` or the priority scheduler is on, every request to an inference route holds an admission token for its full lifetime, streaming body included. A request that finds no free token waits in a FIFO queue of `--queue-size` slots (default `100`) for up to `--queue-timeout-secs` (default `60`). These metrics expose that queue.
 
 #### `smg_admission_inflight`
 

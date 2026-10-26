@@ -281,7 +281,7 @@ curl -X POST http://localhost:30000/workers \
     }
     ```
 
-    This worker leaves routing while 32 or more requests wait in its queue or its KV cache is at least 85% used, even if gateway-wide overload protection is off. The gateway always speaks HTTP/2 (h2c) to it instead of negotiating the version, so registration fails if the worker only speaks HTTP/1.1. When deleted while `ready`, it drains for 30 seconds.
+    This worker leaves routing while 32 or more requests wait in its queue or its KV cache is at least 85% used, instead of at the gateway's 8 requests and 80%, and even under `--disable-worker-overload-protection`. The gateway always speaks HTTP/2 (h2c) to it instead of negotiating the version, so registration fails if the worker only speaks HTTP/1.1. When deleted while `ready`, it drains for 30 seconds.
 
 **Response:** `202 Accepted`, with a `Location` header equal to `location`.
 ```json
@@ -365,10 +365,10 @@ Labels with built-in meaning:
 
 | Field | Type | Gateway default | Description |
 |-------|------|-----------------|-------------|
-| `waiting_requests` | integer, at least 1 | `--worker-overload-waiting-requests` | Waiting requests, summed across DP ranks, at or above which the worker leaves routing. |
-| `token_usage` | number in (0.0, 1.0] | `--worker-overload-token-usage` (0.9 under `--worker-overload-protection`) | Mean KV-cache usage across DP ranks at or above which the worker leaves routing. |
+| `waiting_requests` | integer, at least 1 | `--worker-overload-waiting-requests` (8) | Waiting requests, summed across DP ranks, at or above which the worker leaves routing. |
+| `token_usage` | number in (0.0, 1.0] | `--worker-overload-token-usage` (0.8) | Mean KV-cache usage across DP ranks at or above which the worker leaves routing. |
 
-Either field turns overload protection on for this worker, even when the gateway flags leave it off; a field you leave out uses the gateway value. The worker returns to routing once a load report is below both thresholds. An out-of-range value fails registration. `PATCH` cannot change this block; use `PUT`.
+Either field keeps overload protection on for this worker, even under `--disable-worker-overload-protection`; a field you leave out uses the gateway value. The worker returns to routing once a load report is below both thresholds. An out-of-range value fails registration. `PATCH` cannot change this block; use `PUT`.
 
 **HTTP client (`http_pool`)**: applies to HTTP workers, including external providers. See [Request Streaming](../../concepts/performance/request-streaming.md).
 

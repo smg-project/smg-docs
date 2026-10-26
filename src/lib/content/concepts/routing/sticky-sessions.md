@@ -27,9 +27,9 @@ The key comes from the body `rid` with turn and retry suffixes stripped, so `con
 
 <div class="card" markdown>
 
-### :material-tag-outline: Header Fallback
+### :material-tag-outline: Routing-Key Headers
 
-Without a `rid`, SMG reads the first valid value from an ordered list of headers, `x-smg-routing-key` by default.
+SMG reads the first valid value from an ordered list of headers, `x-smg-routing-key` by default; the body `rid` is the fallback when no header carries one.
 
 </div>
 
@@ -53,17 +53,52 @@ Idle pins expire, a key's requests beyond two in flight are placed again instead
 
 ---
 
+## What a Routing Key Guarantees
+
+A routing key is a promise with bounds. While the key's pinned worker is available, a request that carries the key goes to it, up to the override's in-flight threshold described below; the moment the worker is not available, the request is placed elsewhere, with one bound: when every worker the request could use is vetoed at once, the gateway places it on the least-loaded of them (the pin included) rather than refuse it, and counts the fallback; under `--worker-overload-shed` an all-overloaded pool is refused with `503 worker_overload_protection_shed` instead, while a liveness veto still steers. In full:
+
+- **Same key, same worker.** Every request that resolves to the key (the first valid routing-key header, `x-smg-routing-key` by default, or, under the override, the body `rid`; see [Key Precedence](#key-precedence)) goes to the key's pinned worker, on every policy, with one exception: `consistent_hashing` honours a valid `X-SMG-Target-Worker` header (a healthy worker's index) over the key, as the policy table below states. Under `manual` and the override, each key remembers a primary worker and one failover candidate ([Reuse and Failover](#reuse-and-failover)); `consistent_hashing` keeps no map and recomputes the key's place on its ring, which moves about one key in N when a worker joins or leaves.
+- **Available means routable.** A pinned worker takes the request only while it is healthy (`Ready`), its circuit breaker is not open, and no veto excludes it. Two vetoes are on by default: [overload protection](../reliability/overload-protection.md) takes a worker out of routing while its last load report shows `8` or more waiting requests or KV-cache usage at or above `0.8` (`--worker-overload-waiting-requests`, `--worker-overload-token-usage`; `--disable-worker-overload-protection` switches it off), and the [liveness vetoes](../reliability/overload-protection.md#when-a-worker-dies-or-loses-its-link) exclude a worker whose transport failed and has gone silent, or whose engine has stopped producing. When none of a key's remembered workers is available, the request is placed again: in the override's default `delegate` mode the new worker becomes the primary and the old one its failover candidate; in the other modes the earlier worker stays first and the key returns to it once it is available (`occupied_miss` in the [metrics](#metrics)). When every candidate is vetoed at once there is no elsewhere: the request goes to the least-loaded worker that is routable but for its veto, overloaded ones before stalled ones, counted in `smg_worker_overload_fallback_total` or `smg_worker_liveness_fallback_total` (`stage="selection"`); under `--worker-overload-shed` an all-overloaded pool is refused with `503 worker_overload_protection_shed` instead, while a liveness veto still steers.
+- **The spill is bounded.** Under the override, once a key has `2` of its requests in flight on its pinned worker, the next concurrent request for the key is placed again (`cap_respill`) rather than queued behind the pin, so one busy conversation cannot stack every turn on one worker ([In-Flight Threshold](#in-flight-threshold)). The threshold triggers a new placement; it is not a cap on the worker: the placement may choose the pinned worker again when the policy prefers it, for example because it holds the conversation's prefix, so more than `2` of a key's requests can run there.
+- **A failure does not stay put.** A request that fails on the pinned worker with a retryable answer is retried on another worker, never replayed on the one that just failed ([Retries](../reliability/retries.md)).
+- **Pins expire.** Under `manual` and the override, when eviction is enabled (`--max-idle-secs` and `--eviction-interval` both above zero), a key idle for longer than `--max-idle-secs` (default `14400`, four hours) is dropped by the next eviction sweep, and its next request starts over as a new key; `0` on either flag disables eviction ([Idle Eviction](#idle-eviction)). `consistent_hashing` keeps no pins to evict.
+
+What a routing key does not guarantee:
+
+- **One pin across gateway replicas.** Each replica keeps its own map ([Scoping](#scoping)). Send a conversation to one replica, or use `consistent_hashing`, which computes the same placement on every replica that sees the same workers.
+- **A warm cache.** The pin keeps a conversation on the worker that served it; whether that worker still holds the conversation's prefix is the engine's cache policy. For requests without a key, cache-aware routing follows the prefix instead.
+- **Order between concurrent turns.** Two requests for one key in flight at once are served in whichever order the worker schedules them, and, under the override, a third may run elsewhere (the bounded spill above).
+
+A minimal configuration, and what each flag changes:
+
+```bash
+# Keyed requests stick on top of cache-aware placement; a new key starts where
+# cache-aware puts it, and the default overload veto and the two-in-flight spill stay on
+smg launch --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 \
+  --policy cache_aware --routing-key-override
+```
+
+| What you set | What you get |
+|--------------|--------------|
+| `--routing-key-override` alone | Keys from `x-smg-routing-key` or, when no header carries a valid value, the body `rid` (lineage stripped, at most 128 bytes); the first request of a key is placed by the configured policy, then pinned |
+| `--routing-key-headers a b` | The first of `a`, `b` carrying a valid value (non-empty UTF-8, at most 128 bytes) is the key; under the override, a body `rid` that yields a key (at most 128 bytes after suffix removal) is the fallback when none does |
+| `--disable-worker-overload-protection` | A pinned worker stays the pin however deep its queue; the two-in-flight spill still applies |
+| `--max-idle-secs N` | A key idle for `N` seconds is dropped by the next eviction sweep, which runs every `--eviction-interval` seconds; `0` on either flag disables eviction |
+
+---
+
 ## Deriving the Routing Key
 
 ### Key Precedence
 
 For each request, SMG uses the first of these that yields a key:
 
-1. **Body `rid`** (override enabled only): the `rid` with its lineage suffixes stripped.
-2. **Routing-key headers**: the first header named in `--routing-key-headers` that carries a valid value.
+1. **Routing-key headers**: the first header named in `--routing-key-headers` that carries a valid value (non-empty UTF-8, at most 128 bytes); the override's pin key is that value with its lineage suffixes stripped (`manual` and `consistent_hashing` place on the raw value, see the warning below).
+   `manual` and `consistent_hashing` also try `X-SMG-Routing-Key` when no configured header carries a valid value; the override map reads the configured names only.
+2. **Body `rid`** (override enabled only): the `rid` with its lineage suffixes stripped, when the result is at most 128 bytes.
 3. **No key**: the configured policy places the request, and nothing is pinned.
 
-A body `rid` wins even when a routing-key header is also present, so a proxy that stamps a unique header value on every request cannot split a conversation. This holds on every policy, including `manual` and `consistent_hashing`.
+A valid routing-key header wins even when the body carries a `rid`: an explicit key outranks request-ID lineage, so the client or proxy that sets the header chooses the pin, and a proxy must not stamp a per-request value into a routing-key header. `manual` and `consistent_hashing` apply this order themselves, with the same validity rules and the extra `X-SMG-Routing-Key` step.
 
 !!! note "Request IDs are not routing keys"
     `X-Request-ID` and the other request-ID headers identify a request in logs, traces, and backend request IDs, but never route it. Only the body `rid` field and the configured routing-key headers feed sticky routing.
@@ -82,7 +117,7 @@ SMG removes one trailing retry suffix, then one trailing turn suffix:
 - The retry suffix is removed first, so it has to come last: `conv_t2_r1` becomes `conv`, while `conv_r1_t2` becomes `conv_r1`.
 - Each suffix is removed at most once.
 - If nothing would be left, the whole `rid` is the key.
-- If the resulting key is longer than 128 bytes, SMG ignores the `rid` and falls back to the headers.
+- If the resulting key is longer than 128 bytes, SMG ignores the `rid`; a request whose headers carried no valid key is then placed without a key.
 
 | `rid` | Routing key |
 |-------|-------------|
@@ -116,7 +151,7 @@ smg launch --worker-urls http://w1:8000 http://w2:8000 \
 ```
 
 !!! warning "`manual` and `consistent_hashing` read headers their own way"
-    These two policies handle routing keys themselves, even with the override enabled. `manual` reads only `X-SMG-Routing-Key`, requires a non-empty ASCII value but applies no 128-byte cap, and ignores `--routing-key-headers`. `consistent_hashing` tries the `--routing-key-headers` list, then `X-SMG-Routing-Key`. Neither strips lineage suffixes from header values. A body `rid` is still stripped and still wins on both.
+    These two policies apply the header-first order themselves, even with the override enabled, with the same validity rules as every policy (non-empty UTF-8, at most 128 bytes): the first valid header of the `--routing-key-headers` list, then `X-SMG-Routing-Key`, then the body `rid`. Their own placement key is the raw header value: neither strips lineage suffixes from a header (under the override, the pin map's key is the stripped value). A body `rid` is stripped and is the fallback on both when no header carries a key and the stripped result is at most 128 bytes.
 
 ---
 
@@ -160,7 +195,7 @@ The next turn sends `"rid": "chat-7f3a_t2"`, and a retry of that turn sends `"ri
 |--------|-------------------|--------------------------|
 | First worker for a new key | `--assignment-mode` (default `random`) | The configured policy (`delegate`, the default) |
 | Requests without a key | Placed by `--assignment-mode`, not pinned | Placed by the configured policy, unchanged |
-| Key sources | `X-SMG-Routing-Key`; the body `rid` first only when the override is also enabled | Body `rid`, then `--routing-key-headers` |
+| Key sources | The first valid header of `--routing-key-headers`, then `X-SMG-Routing-Key`, then the body `rid` when the override is also enabled (lineage stripped, at most 128 bytes) | `--routing-key-headers`, then the body `rid` (lineage stripped, at most 128 bytes) |
 | Lineage stripping of header keys | No | Yes |
 | Pins scoped by model | No (by PD leg only) | Yes (by model and PD leg) |
 | Per-key in-flight threshold | No | Yes |
@@ -175,8 +210,8 @@ Choose the override to keep another policy, usually `cache_aware`, in charge of 
 |-------------------|---------------------------------------------------|----------------------------------------|
 | `cache_aware`, `round_robin`, `random`, `power_of_two`, `least_load`, `bucket`, `passthrough` | Pinned in the override's sticky map; under `delegate`, the policy chooses a new key's first worker | Ignored |
 | `prefix_hash` | Pinned in the override's sticky map; under `delegate`, the policy chooses a new key's first worker | Hashed onto the ring in place of the prompt's token IDs or text, which `prefix_hash` otherwise hashes |
-| `manual` | Pinned in the manual policy's own map, with the body `rid` taking precedence | Pinned from `X-SMG-Routing-Key` |
-| `consistent_hashing` | Hashed onto the ring, with the body `rid` taking precedence; `X-SMG-Target-Worker` still wins | Hashed onto the ring |
+| `manual` | Pinned in the manual policy's own map, from the first valid routing-key header (`--routing-key-headers`, then `X-SMG-Routing-Key`) and the body `rid` as the fallback (at most 128 bytes after stripping) | Pinned from the first valid routing-key header |
+| `consistent_hashing` | Hashed onto the ring, from the routing-key header first and the body `rid` as the fallback (at most 128 bytes after stripping); `X-SMG-Target-Worker` still wins | Hashed onto the ring |
 
 Requests without a key go to the configured policy unchanged. Under `delegate` assignment, the override's default, the first request of a conversation is placed exactly as it would be without the override (by prefix match under `cache_aware`, for example), and later turns follow it. Pinning keeps the worker's cached prefix reachable on every turn; it does not make the engine keep that cache any longer.
 
@@ -285,8 +320,8 @@ At `--log-level debug`, every decision the override makes logs one `Sticky routi
 
     - **The override is off.** Without `--routing-key-override`, SMG ignores the body `rid`, and every policy except `manual`, `consistent_hashing`, and `prefix_hash` ignores routing-key headers.
     - **The `rid` does not match the suffix grammar.** `conv-t2`, `conv_turn2`, and `conv_T2` are each a key of their own. A high `vacant` rate in `smg_manual_policy_branch_total` under steady traffic points here.
-    - **The key is invalid.** A key longer than 128 bytes, or an empty or non-UTF-8 header value, is ignored. `manual` instead ignores an `X-SMG-Routing-Key` value that is empty or not ASCII.
-    - **The header name is not configured.** The override reads only the names in `--routing-key-headers`; `manual` reads only `X-SMG-Routing-Key`.
+    - **The key is invalid.** A key longer than 128 bytes, or an empty or non-UTF-8 header value, is ignored, on every policy.
+    - **The header name is not configured.** The routing-key headers are the names in `--routing-key-headers` (`x-smg-routing-key` by default) on every policy; `manual` and `consistent_hashing` also read `X-SMG-Routing-Key` when none of the configured names carries a valid value.
     - **The pinned worker became unavailable.** Look for `occupied_miss`, then check worker health, circuit breakers, and overload vetoes.
     - **A key has more than two requests in flight.** The extra requests are placed again; look for `cap_respill`.
     - **The pin expired.** A key idle for longer than `--max-idle-secs` starts over.

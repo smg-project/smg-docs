@@ -234,7 +234,9 @@ smg launch \
   --port 30000
 ```
 
-Use `--backend tokenspeed` or `--backend sglang` to match the engine. `--model-path` is required: it names the model and loads the tokenizer. SMG binds the sockets as soon as it registers the worker, then waits up to 600 seconds for each handshake message, which gives the engine time to load the model and profile its KV cache. If the handshake fails, the next health probe starts a new attempt.
+Use `--backend tokenspeed` or `--backend sglang` to match the engine. `--model-path` is required: it names the model and loads the tokenizer.
+
+SMG binds the sockets as soon as it registers the worker, then waits up to `--zmq-startup-timeout-secs` (default 3600 seconds; with `smg serve`, `--router-zmq-startup-timeout-secs`) for each handshake message. SMG sees nothing from the engine except those messages, so this one bound must cover everything the engine does between its HELLO and its READY — loading weights, profiling the KV cache, capturing graphs. `--worker-startup-timeout-secs` bounds registration, not the handshake. If the handshake fails, the next health probe starts a new attempt, and an engine that dialed in during an earlier attempt still connects: the new attempt accepts its READY.
 
 To serve several engines, list one `ipc://` URL per engine. They are independent workers balanced by `--policy`.
 
@@ -457,7 +459,7 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
 
     **Solutions:**
 
-    1. Check that the engine dials the address SMG bound: compare the engine's `--data-parallel-rpc-port` and `--data-parallel-address` with the `handshake=` value in SMG's `Binding ZMQ client for worker ...` log line. With no engine, SMG logs `ZMQ backend handshake failed for ...: ... startup handshake timed out while waiting for HELLO after 600s; will retry on the next health probe`.
+    1. Check that the engine dials the address SMG bound: compare the engine's `--data-parallel-rpc-port` and `--data-parallel-address` with the `handshake=` value in SMG's `Binding ZMQ client for worker ...` log line. With no engine, once `--zmq-startup-timeout-secs` expires, SMG logs `ZMQ backend handshake failed for ...: ... startup handshake timed out while waiting for HELLO after 3600s; will retry on the next health probe`.
     2. For a grouped worker, check that `--zmq-engine-count` (or `dp_size`) matches the engine's `--data-parallel-size`.
     3. A worker added through the API to a gateway started with `--disable-health-check` and no ZMQ workers at startup is never promoted. Restart the gateway without that flag.
 

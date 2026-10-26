@@ -515,6 +515,11 @@ print(info.status, info.body)
 
 The full example then sends a `/generate` request through SMG and checks that `meta_info.weight_version` reports the new version, because discovery's `weight_version` is not refreshed after a refit. The same check works for a TokenSpeed gRPC worker; see [Troubleshooting](#troubleshooting). See [`examples/rl`](https://github.com/smg-project/smg/tree/main/examples/rl).
 
+Two `/generate` behaviors matter for this check and for RL rollout frameworks (slime, verl) that post SGLang-native `/generate` requests through SMG:
+
+- **A request without a `model` field is served.** On gRPC and ZMQ workers, SMG serves a model-less `/generate` request on the single served model, and answers `404` `model_not_found` when zero or several models are served. A worker registered without a model identity does not count as a served model here. On HTTP workers, the routing policy picks a worker, and the forwarded body carries no `model` key — SMG never inserts a placeholder, so a model-aware engine or sidecar behind the worker URL sees the request exactly as the client sent it.
+- **A single prompt is answered with one JSON object, not a one-element list.** On gRPC and ZMQ workers, where SMG builds the `/generate` response itself, a non-streaming request with one prompt (`text`, or a single `input_ids` sequence) and `sampling_params.n` unset or `1` gets a single object, matching SGLang, so `meta_info` can be read off the response directly. `n > 1` gets a list with one object per sample, and a batch of `input_ids` sequences is rejected with `400`. An HTTP worker's response body is relayed as the engine answered it.
+
 ---
 
 ## Metrics

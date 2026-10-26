@@ -89,7 +89,7 @@ Routing flags configure the default policy (`--policy`). In PD mode, `--prefill-
 | `power_of_two` | Samples two healthy workers and takes the one with the lower least-load expected wait. Needs at least two workers unless service discovery or IGW mode is on. |
 | `least_load` | The worker with the lowest expected wait: queued plus in-flight token work divided by throughput, plus a KV-pressure term. See [Least Load Policy Options](#least-load-policy-options). |
 | `prefix_hash` | Hashes the request's leading tokens onto a consistent-hash ring and walks away from overloaded workers. |
-| `consistent_hashing` | Consistent-hash ring keyed on the request's routing key or, without one, on its `Authorization`, `X-Forwarded-For`, or `Cookie` header. `X-SMG-Target-Worker` picks a worker by index; a request with none of these goes to a random worker. |
+| `consistent_hashing` | Consistent-hash ring keyed on the request's routing key or, without one, on its `X-Forwarded-For` or `Cookie` header. `X-SMG-Target-Worker` picks a worker by index; a request with none of these goes to a random worker. |
 | `manual` | A sticky map from routing key to worker with idle eviction. First-seen keys are placed by `--assignment-mode`. |
 | `bucket` | Maps request length (tokens, or characters when untokenized) to per-worker length buckets whose boundaries adapt every 5 seconds; picks the least-loaded worker when the `--balance-*` imbalance check fires. |
 
@@ -138,12 +138,12 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 
 ### Manual Policy and Sticky Sessions
 
-`--policy manual` pins each routing key to a worker. `--routing-key-override` applies the same sticky map on top of any other policy. `manual` and `consistent_hashing` already key on the routing key themselves, so the override adds no second map to them; they read its `rid`-derived key directly. Both share the options below, and both sweep their map every `--eviction-interval` seconds. See [Sticky Sessions](../concepts/routing/sticky-sessions.md).
+`--policy manual` pins each routing key to a worker. `--routing-key-override` applies the same sticky map on top of any other policy. `manual` and `consistent_hashing` already key on the routing key themselves, so the override adds no second map to them; they read the same key in the same order: the first valid routing-key header, then `X-SMG-Routing-Key` when no configured header carries a valid value (a step the override map does not take: it reads the configured names only), then, under the override, the body `rid`. `manual` and the override map share the options below and sweep their map every `--eviction-interval` seconds; `consistent_hashing` keeps no map (a key's place on its ring is recomputed when a worker joins or leaves), so the eviction options do not apply to it. See [Sticky Sessions](../concepts/routing/sticky-sessions.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--routing-key-override` | `false` | Sticky sessions on any policy: every request of a conversation goes to the same worker. The key comes from the request body's `rid` with per-turn and per-retry suffixes stripped (`conv_t2_r1` becomes `conv`), falling back to the routing-key headers when there is no `rid`. Keeps automatic body forwarding buffered so the body `rid` takes precedence. Alias: `--sticky-sessions`. |
-| `--routing-key-headers` | `x-smg-routing-key` | Ordered header names checked for the routing key; the first header present with a valid value wins. Names are lowercased, and invalid names fail at parse time. Passing the flag replaces the default, so list `x-smg-routing-key` again to keep it. With the override on, header keys get the same suffix stripping as `rid` keys. |
+| `--routing-key-override` | `false` | Sticky sessions on any policy: a conversation's requests prefer the same worker while it is routable; failover, retries, the in-flight respill, eviction and `X-SMG-Target-Worker` can place a request elsewhere (see the guide's guarantees). The key is the first valid routing-key header (`--routing-key-headers`; non-empty UTF-8, at most 128 bytes) with its per-turn and per-retry suffixes stripped, or, when no header carries one, the request body's `rid` stripped the same way (`conv_t2_r1` becomes `conv`) when the result is at most 128 bytes. Keeps automatic body forwarding buffered so the body `rid` can be read. Alias: `--sticky-sessions`. |
+| `--routing-key-headers` | `x-smg-routing-key` | Ordered header names checked for the routing key; the first header present with a valid value wins, and a valid header outranks the body `rid`. Names are lowercased, and invalid names fail at parse time. Passing the flag replaces the default for the override map, so list `x-smg-routing-key` again to keep it there; `manual` and `consistent_hashing` still try `X-SMG-Routing-Key` after the configured names. With the override on, header keys get the same suffix stripping as `rid` keys. |
 | `--max-idle-secs` | `14400` (4 hours) | Seconds an unused routing key stays pinned before it is evicted from the manual-policy or sticky-session map. Alias: `--sticky-key-idle-secs`. |
 | `--assignment-mode` | `random` for `--policy manual`, `delegate` for the sticky-session map | How a first-seen key picks its worker: `random`, `min_load` (fewest requests), `min_group` (fewest keys), or `delegate` (route through the underlying policy, then pin). With `--policy manual` there is no underlying policy, so `delegate` falls back to `min_load`. |
 
@@ -159,21 +159,23 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 
 ## Worker Overload Protection
 
-Absolute per-worker ceilings, evaluated once per load report rather than per request. A worker at or above a ceiling leaves routing until its load report drops below it. When every candidate worker is overloaded, the request is shed immediately with `503` and error code `worker_overload_protection_shed` instead of queueing. The shed carries `Retry-After` set to `--load-monitor-interval` (at least 1 second), and the gateway does not retry it. See [Overload Protection](../concepts/reliability/overload-protection.md).
+Absolute per-worker ceilings, evaluated once per load report rather than per request, on by default since v1.12.0. A worker at or above a ceiling leaves routing, while another candidate is under the ceilings, until its load report drops below it. When every candidate worker is overloaded, the request goes to the least-loaded of them; with `--worker-overload-shed` it is shed immediately with `503` and error code `worker_overload_protection_shed` instead of queueing. The shed carries `Retry-After` set to `--load-monitor-interval` (at least 1 second), and the gateway does not retry it. See [Overload Protection](../concepts/reliability/overload-protection.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--worker-overload-protection` | `false` | Turn protection on with the gateway defaults: `--worker-overload-token-usage 0.9` and no waiting-requests ceiling (a sensible queue ceiling depends on the workload). Explicit thresholds override the default, and either threshold set alone turns protection on without this flag. |
-| `--worker-overload-waiting-requests` | unset | Queued (waiting) requests, summed across DP ranks, at or above which a worker is overloaded. Must be at least `1`, because `0` would veto every worker. |
-| `--worker-overload-token-usage` | unset | Mean KV-cache token usage across DP ranks, in `(0.0, 1.0]`, at or above which a worker is overloaded. The backend must report `token_usage`. `0.0` is rejected because it would veto every worker. |
+| `--worker-overload-protection` | `true` | The default since v1.12.0; the flag is still accepted so that command lines written for earlier releases parse unchanged. |
+| `--disable-worker-overload-protection` | `false` | Switch protection off: no worker is left out of routing for its waiting queue or KV usage. Per-worker `overload` blocks still apply. |
+| `--worker-overload-waiting-requests` | `8` | Queued (waiting) requests, summed across DP ranks, at or above which a worker is overloaded. Must be at least `1`, because `0` would veto every worker. |
+| `--worker-overload-token-usage` | `0.8` | Mean KV-cache token usage across DP ranks, in `(0.0, 1.0]`, at or above which a worker is overloaded. The backend must report `token_usage`. `0.0` is rejected because it would veto every worker. |
+| `--worker-overload-shed` | `false` | Refuse a request with `503 worker_overload_protection_shed` (`Retry-After` the load poll interval) when every worker it could use is overloaded, instead of routing it to the least-loaded one; also refuses it the same way when the worker chosen for it crossed a threshold between selection and dispatch. |
 
-An `overload` block on a worker spec overrides these values per signal, and turns protection on for that worker even when all three flags are unset. Protection needs load reports, so the load monitor keeps polling workers that have it on (see [Load Monitoring Configuration](#load-monitoring-configuration)).
+An `overload` block on a worker spec overrides these values per signal, and keeps protection on for that worker even under `--disable-worker-overload-protection`. Protection needs load reports, so the load monitor keeps polling workers that have it on (see [Load Monitoring Configuration](#load-monitoring-configuration)).
 
 How the overload settings differ from the other load thresholds:
 
 | Setting | Scope | At the threshold |
 |---------|-------|------------------|
-| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing. If every candidate is overloaded, the request gets an immediate `503` shed. |
+| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing while another candidate is under the thresholds. If every candidate is overloaded, the request goes to the least-loaded one, or gets an immediate `503` shed under `--worker-overload-shed`. |
 | `--overload-token-usage-threshold` | `cache_aware` only | The hottest backend is de-ranked within cache-aware selection but stays routable. |
 | `--least-load-max-waiting-requests` | `least_load` only | The worker is skipped while at the cap. With every worker at the cap, the policy selects no worker. |
 
@@ -514,7 +516,7 @@ Gateway-wide admission control for the inference routes. For behavior and sizing
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--max-concurrent-requests` | `-1` (unlimited) | Maximum standing concurrent requests. Each admission permit is held for the full response, including streaming bodies. `-1` (any value of 0 or less) disables the limit. |
+| `--max-concurrent-requests` | `-1`: 1024 per available core, at least 4096 | Maximum standing concurrent requests. Each admission permit is held for the full response, including streaming bodies. `-1` (the default) derives the cap from the host; `0` disables the limit. |
 | `--queue-size` | `100` | Requests that may wait for a permit when the limit is reached. A request that finds the queue full, or no queue (`0`), gets `429` (`admission_queue_full`). |
 | `--queue-timeout-secs` | `60` | Maximum time a request waits in the queue before it gets `503` (`admission_queue_timeout`). Must be greater than 0 when `--queue-size` is greater than 0. |
 | `--rate-limit-tokens-per-second` | unset | Refill rate of the admission token bucket, whose capacity is `--max-concurrent-requests`. It has no effect while that limit is off. Unset or `0` means no refill: `--max-concurrent-requests` bounds standing concurrency alone. A positive value also refills the bucket over time, on top of the permits that finished requests return, so more than `--max-concurrent-requests` requests can be in flight. With `--priority-scheduler-enabled`, a positive value instead caps admissions at this many requests per second, in bursts of up to `--max-concurrent-requests`; excess requests get `429` (`scheduler_queue_full`). Must be 0 or more. |
@@ -902,12 +904,12 @@ smg launch \
   --worker-urls http://w1:8000 http://w2:8000 http://w3:8000 \
   --policy least_load \
   --least-load-max-waiting-requests 32 \
-  --worker-overload-protection \
   --worker-overload-waiting-requests 64 \
+  --worker-overload-shed \
   --load-monitor-interval 5
 ```
 
-`least_load` skips a worker once its reported queue, plus requests dispatched since its last load report, reaches 32. Overload protection removes a worker from routing at 90% KV-cache usage (the `--worker-overload-protection` default) or at 64 queued requests. When all three workers are over a ceiling, requests get an immediate `503` with `Retry-After: 5`.
+`least_load` skips a worker once its reported queue, plus requests dispatched since its last load report, reaches 32. Overload protection removes a worker from routing at 80% KV-cache usage (the default) or at 64 queued requests. With `--worker-overload-shed`, when all three workers are over a ceiling, requests get an immediate `503` with `Retry-After: 5`; without it they would go to the least-loaded of the three.
 
 ### Sticky Sessions on Cache-Aware Routing
 

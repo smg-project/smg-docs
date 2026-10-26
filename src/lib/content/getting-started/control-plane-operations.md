@@ -4,7 +4,7 @@ title: Control Plane Operations
 
 # Control Plane Operations
 
-This guide covers day-2 admin workflows backed by control-plane endpoints in `model_gateway/src/server.rs`: workers, tokenizers, WASM modules, parser utilities, and cache/load operations.
+This guide covers day-2 admin workflows backed by control-plane endpoints: workers, tokenizers, WASM modules, parser utilities, and cache/load operations.
 
 <div class="prerequisites" markdown>
 

@@ -356,7 +356,7 @@ smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
 | `X-SMG-Target-Worker` | Route to a worker by 0-based index into the model's currently available workers, so indices shift when a worker becomes unavailable. An index past the end of that list, or a value that is not a number, fails the request with `503` instead of falling back |
 | `X-SMG-Routing-Key` | Hash this key onto the ring for session affinity. Names listed in `--routing-key-headers` are read first. Values must be non-empty UTF-8 of at most 128 bytes |
 
-**Priority order:** `X-SMG-Target-Worker` → body `rid` (with `--routing-key-override`) → routing-key header → implicit keys (`Authorization`, `X-Forwarded-For`, `Cookie`) → random fallback
+**Priority order:** `X-SMG-Target-Worker` → routing-key header → body `rid` (with `--routing-key-override`) → implicit keys (`X-Forwarded-For`, `Cookie`) → random fallback
 
 See [Sticky Sessions and Routing Keys](sticky-sessions.md) for how routing keys are derived and validated.
 

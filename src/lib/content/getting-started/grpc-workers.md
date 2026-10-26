@@ -132,14 +132,14 @@ Every request carries its own token IDs, so prefix caching never hides a prefill
 
 The gateway's [health checks](../concepts/reliability/health-checks.md) read a different signal: each engine's own `HealthCheck` RPC, not the standard health service. While the pass runs, a Rust servicer mirrors the hold there — not healthy, with the message `Warming up`, distinct from `Draining` — and admits only the warm-up's own requests, refusing anything else with gRPC `UNAVAILABLE` ("servicer is warming up"), so the gateway neither finishes registering a warming worker nor routes traffic to it.
 
-A Python servicer answers that RPC healthy throughout (vLLM's answer reflects engine liveness; SGLang's and TokenSpeed's one-token probe is served like any other request) and refuses nothing, so it registers and passes the gateway's health checks while it warms: a request routed to it in that window is served, sharing the engine with the warm-up. On both implementations the hold is released when the pass ends, whatever its outcome — health flips to `SERVING`, and a failed warm-up request is a logged line, never a worker kept out of rotation.
+A Python servicer answers that RPC healthy throughout (vLLM answers from engine liveness; SGLang and TokenSpeed serve the check's one-token probe like any other request) and refuses nothing, so it registers and passes the gateway's health checks while it warms: a request routed to it in that window is served, sharing the engine with the warm-up. On both implementations the hold is released when the pass ends, whatever its outcome — health flips to `SERVING`, and a failed warm-up request is a logged line, never a worker kept out of rotation.
 
 `SMG_VLLM_SERVICER_WARMUP`, `SMG_SGLANG_SERVICER_WARMUP` and `SMG_TOKENSPEED_SERVICER_WARMUP` tune the pass per engine:
 
 | Value | Effect |
 |-------|--------|
 | `full` | The default: the whole pass above, every 128-token length class included — about a minute at a 16,384-token step. On a multi-process TokenSpeed engine, also the chunk remainders — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
-| `fast` | The decode staircase, the graph-capture sizes and the tuners' bucket grid of prefill lengths, skipping the 128-token classes: seconds. On a multi-process TokenSpeed engine this also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
+| `fast` | Skips the 128-token length classes and keeps the rest of the pass (the staircase, the bucket grid with its one-above lengths and second pass, the capture sizes): seconds. On a multi-process TokenSpeed engine it also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
 | `off` | No planned warm-up: the worker reports `SERVING` once the engine is up and answering |
 | A number (`120`) | The pass's time budget in seconds, at the `full` level |
 | `<level>:<seconds>` (`fast:30`) | Level and budget together |

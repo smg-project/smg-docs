@@ -236,7 +236,7 @@ smg launch \
 
 Use `--backend tokenspeed` or `--backend sglang` to match the engine. `--model-path` is required: it names the model and loads the tokenizer.
 
-SMG binds the sockets as soon as it registers the worker, then waits up to `--zmq-startup-timeout-secs` (default 3600 seconds; with `smg serve`, `--router-zmq-startup-timeout-secs`) for each handshake message. SMG sees nothing from the engine except those messages, so this one bound must cover everything the engine does between its HELLO and its READY — loading weights, profiling the KV cache, capturing graphs. `--worker-startup-timeout-secs` bounds registration, not the handshake. If the handshake fails, the next health probe starts a new attempt, and an engine that dialed in during an earlier attempt still connects: the new attempt accepts its READY.
+SMG binds the sockets as soon as it registers the worker, then waits up to `--zmq-startup-timeout-secs` (default 3600 seconds; with `smg serve`, `--router-zmq-startup-timeout-secs`) for each handshake message. SMG sees nothing from the engine except those messages, so this one bound must cover everything the engine does between its HELLO and its READY — loading weights, profiling the KV cache, capturing graphs. `--worker-startup-timeout-secs` bounds registration, not the handshake. If the handshake fails, the next health probe starts a new attempt. An engine that dialed in during an earlier attempt still connects: the new attempt accepts its READY.
 
 To serve several engines, list one `ipc://` URL per engine. They are independent workers balanced by `--policy`.
 

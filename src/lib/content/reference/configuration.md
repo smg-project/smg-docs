@@ -774,7 +774,7 @@ The connection uses `--oracle-dsn` when it is set; otherwise `--oracle-wallet-pa
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--postgres-db-url` | unset | Connection URL (`postgres://` or `postgresql://`, with a host and a database name). Required with `--history-backend postgres`. |
+| `--postgres-db-url` | unset | Connection URL (`postgres://` or `postgresql://`, with a host and a database name). Required with `--history-backend postgres`. Env: `SMG_POSTGRES_DB_URL`. |
 | `--postgres-pool-max-size` | `16` | Maximum connection pool size. Must be greater than 0. |
 | `--postgres-db-url-file` | unset | File holding the connection URL alone, such as a mounted secret; surrounding whitespace is dropped. Read when the history backend is `postgres`. Env: `SMG_POSTGRES_DB_URL_FILE`. |
 | `--postgres-op-timeout-secs` | `5` | Bound in seconds on each call to the PostgreSQL store (pool wait, connect and the statement); a call past it is answered `503 storage_unavailable`. |
@@ -783,13 +783,13 @@ The connection uses `--oracle-dsn` when it is set; otherwise `--oracle-wallet-pa
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--redis-url` | unset | Connection URL (`redis://`, with a host). Required with `--history-backend redis`. A `rediss://` URL passes validation, but v1.11.0 is built without Redis TLS support, so startup fails. |
+| `--redis-url` | unset | Connection URL (`redis://`, with a host). Required with `--history-backend redis`. Env: `SMG_REDIS_URL`. A `rediss://` URL passes validation, but the gateway is built without Redis TLS support, so startup fails. |
 | `--redis-pool-max-size` | `16` | Maximum connection pool size. Must be greater than 0. |
 | `--redis-retention-days` | `30` | Data retention in days. `-1` (any negative value) keeps data persistently. |
 | `--redis-url-file` | unset | File holding the connection URL alone, such as a mounted secret; surrounding whitespace is dropped. Read when the history backend is `redis`. Env: `SMG_REDIS_URL_FILE`. |
 | `--redis-op-timeout-secs` | `5` | Bound in seconds on each call to the Redis store (pool wait, connect and the command; it replaces the client library's 500 ms and 1 s defaults); a call past it is answered `503 storage_unavailable`. |
 
-The Rust CLI declares no environment variables for the PostgreSQL or Redis URLs themselves (the `*-url-file` flags above read `SMG_POSTGRES_DB_URL_FILE` and `SMG_REDIS_URL_FILE`). `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `REDIS_URL`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS` are read only by the [Python launcher](#python-launcher-differences).
+When its flag is unset, each URL is read from its environment variable (`SMG_POSTGRES_DB_URL`, `SMG_REDIS_URL`), or from a file named by the `*-url-file` flag or its variable (`SMG_POSTGRES_DB_URL_FILE`, `SMG_REDIS_URL_FILE`); a URL together with a URL file is refused at startup rather than ranked. See [Store URLs from the environment or a file](../getting-started/data-connections.md#store-urls-from-the-environment-or-a-file). `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `POSTGRES_OP_TIMEOUT_SECS`, `REDIS_URL`, `REDIS_POOL_MAX`, `REDIS_RETENTION_DAYS`, and `REDIS_OP_TIMEOUT_SECS` are read only by the [Python launcher](#python-launcher-differences).
 
 ### Memory Backend
 
@@ -1022,7 +1022,7 @@ smg launch \
 - **Python-only flags:** `--control-plane-audit-enabled` (audit logging is off unless set, while the Rust CLI enables it and offers `--disable-audit-logging`), and the `--no-remove-unhealthy-workers` / `--no-worker-auto-recovery` forms in place of `=false`. The mTLS flags toward workers (`--client-cert-path`, `--client-key-path`, `--ca-cert-paths`) and `--bucket-adjust-interval-secs` (default `5`) are in both.
 - **Flags with a second spelling:** the Python parser accepts the Rust names and, beside them, `--eviction-interval-secs`, `--oracle-connect-descriptor`, `--oracle-username`, `--postgres-pool-max` and `--redis-pool-max`. `--eviction-interval` defaults to `60` in Python and `120` in the Rust CLI. When both a TNS alias and a DSN are given, Python uses the alias, while the Rust CLI uses the DSN.
 - **Different values:** `--policy` and `--decode-policy` do not accept `bucket` (`--prefill-policy` does). `--backend` accepts only `sglang`, `vllm`, `tokenspeed`, `openai`, and `anthropic`, and defaults to `sglang`, which behaves like leaving the Rust flag unset. `--reasoning-parser` and `--tool-call-parser` are checked against the registered names at parse time.
-- **Environment variables:** Python reads `SMG_POSTGRES_DB_URL` (or the older `POSTGRES_DB_URL`), `SMG_REDIS_URL` (or the older `REDIS_URL`), `POSTGRES_POOL_MAX`, `REDIS_POOL_MAX`, and `REDIS_RETENTION_DAYS` as defaults for its storage flags; the Rust CLI reads none of them, only the two file fallbacks `SMG_POSTGRES_DB_URL_FILE` and `SMG_REDIS_URL_FILE`. Both read the Oracle `ATP_*` variables. `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_JWKS_URI`, and `CONTROL_PLANE_API_KEYS` are Rust-only.
+- **Environment variables:** both read `SMG_POSTGRES_DB_URL` and `SMG_REDIS_URL` for the store URLs, and the file fallbacks `SMG_POSTGRES_DB_URL_FILE` and `SMG_REDIS_URL_FILE`; Python also accepts the older `POSTGRES_DB_URL` and `REDIS_URL` names when the `SMG_` names are unset. Only Python reads `POSTGRES_POOL_MAX`, `POSTGRES_OP_TIMEOUT_SECS`, `REDIS_POOL_MAX`, `REDIS_RETENTION_DAYS`, and `REDIS_OP_TIMEOUT_SECS` as defaults for its storage flags; the Rust CLI takes those settings from flags alone. Both read the Oracle `ATP_*` variables. `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_JWKS_URI`, and `CONTROL_PLANE_API_KEYS` are Rust-only.
 - **Multiple values:** `--control-plane-api-keys` and `--jwt-role-mapping` accept several values after one flag in Python; the Rust CLI takes one value per flag.
 - **Not available in Python:** `--disable-audit-logging`, `--kv-indexer-ttl-secs`, `--kv-indexer-max-entries`, and the hidden `--runtime` alias of `--backend`. The drain, engine-metrics, JWT role claim, PD pairing, priority-scheduler, runtime-thread, tenant-key, tenant-header, tenant-rate-limit and WebRTC flags, once Python gaps, are in both.
 
@@ -1267,6 +1267,8 @@ Read only by the Python launcher (see [Python Launcher Differences](#python-laun
 |---------------------|---------------|
 | `POSTGRES_DB_URL` | `--postgres-db-url` |
 | `POSTGRES_POOL_MAX` | `--postgres-pool-max` |
+| `POSTGRES_OP_TIMEOUT_SECS` | `--postgres-op-timeout-secs` |
 | `REDIS_URL` | `--redis-url` |
 | `REDIS_POOL_MAX` | `--redis-pool-max` |
 | `REDIS_RETENTION_DAYS` | `--redis-retention-days` |
+| `REDIS_OP_TIMEOUT_SECS` | `--redis-op-timeout-secs` |

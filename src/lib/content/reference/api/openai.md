@@ -909,13 +909,13 @@ response header:
 (the detail is in `code`; a 403 is `permission_error` and a 429 `rate_limit_error`) and `server_error`
 for a 5xx. Request parsing and validation failures use the same envelope but carry no
 `X-SMG-Error-Code` header. Their `code` names the failure, and `param` names the offending
-field when one is known (`messages[0].content`), null for a syntax error or a rule over
-the whole request:
+field when one is known (for example `messages[0].content`); it is null for a syntax error
+or a rule over the whole request:
 
 | Failure | `code` |
 |---------|--------|
 | The body is not valid JSON | `invalid_json` |
-| The body does not match the request schema | `missing_required_parameter`, `unknown_parameter`, `invalid_type` (a value of the wrong shape, a non-object body included), `invalid_value` (a value outside an enumeration), or `integer_below_min_value` (a negative integer where the field cannot be negative) |
+| The body does not match the request schema | `missing_required_parameter`, `unknown_parameter`, `invalid_type` (a value of the wrong shape, including a non-object body), `invalid_value` (a value outside an enumeration), or `integer_below_min_value` (a negative integer where the field cannot be negative) |
 | A field crosses a documented bound | The kind of value and the bound crossed: `integer_above_max_value`, `decimal_below_min_value`, `string_above_max_length`, `empty_array`, ... |
 | A cross-field or [provider-profile](#provider-profiles) rule fails | The rule's own code: `stream_options_requires_stream`, `tool_choice_requires_tools`, `mutually_exclusive_parameters`, ... |
 | The `Content-Type: application/json` header is missing, or the body fails to parse for any other reason | `json_parse_error` |

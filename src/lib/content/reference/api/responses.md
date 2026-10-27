@@ -326,8 +326,9 @@ fills it with the reasoning text in version-tagged base64: opaque, not encrypted
 ```
 
 `format.type` is `text`, `json_object`, or `json_schema`. For `json_schema`, `name` must
-not be empty and `schema` must be a JSON object; anything else is rejected with `400`
-before the request reaches a worker.
+not be empty and `schema` must be a JSON object; a violation is rejected with `400`
+(`json_schema_name_empty` or `json_schema_schema_not_object`) before the request reaches
+a worker.
 
 For model IDs that name one of OpenAI's own hosted models — `gpt-*` (not the open-weight
 `gpt-oss` family), `chatgpt-*`, `codex-*`, the `o1`/`o3`/`o4` reasoning series,

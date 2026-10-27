@@ -29,7 +29,7 @@ Without events, `cache_aware` predicts cache contents from its own routing histo
 | Approximate token tree | `TokenTree`, built from routing decisions | Token IDs | The request has token IDs and the model has no event data |
 | Approximate string tree | `Tree`, built from routing decisions | Raw text | HTTP requests without token IDs |
 
-The choice is made **per model**, not per worker. Once any worker of a model has streamed events into the index, every token-bearing request for that model is scored against the event index, and workers that do not stream events can then receive that model's requests only through the load-based fallback. Enable events on every worker of a model.
+The choice is made **per model**, not per worker. Once any worker of a model has streamed events into the index, every token-bearing request for that model is scored against the event index, and workers that do not stream events can then receive that model's requests only through the load-based fallback. Keep events on for every worker of a model.
 
 Event-driven routing also needs the default `--cache-index tree`: with `--cache-index hash`, the gateway never consults the event index.
 
@@ -47,11 +47,11 @@ SMG gateway: cache_aware policy ◀── chain index (one per model)
   ▼                                        │ (SubscribeKvEvents stream)
 worker: smg-grpc-servicer ─────────────────┘
   ▲
-  │ ZMQ PUB → SUB, on the worker host (--kv-events-config)
+  │ ZMQ PUB → SUB, on the worker host
 engine scheduler (SGLang, vLLM or TokenSpeed)
 ```
 
-1. The engine's scheduler publishes block-stored, block-removed and all-blocks-cleared events on a ZMQ `PUB` socket configured by `--kv-events-config`.
+1. The engine's scheduler publishes block-stored, block-removed and all-blocks-cleared events on a ZMQ `PUB` socket. The servicer configures the publisher itself when the worker is launched without `--kv-events-config`; an explicit config replaces that default.
 2. `smg-grpc-servicer`, which serves the worker's gRPC API, subscribes to the engine's publishers locally and re-publishes the events as the server-streaming RPC `SubscribeKvEvents`.
 3. SMG's `KvEventMonitor` opens one subscription per gRPC worker and feeds the events into a per-model chain index; `cache_aware` scores token-bearing requests against that index. If a stream breaks, the monitor reconnects and either resumes or rebuilds the worker's entries (see [Recovery after gaps](#recovery-after-gaps)).
 
@@ -59,7 +59,11 @@ engine scheduler (SGLang, vLLM or TokenSpeed)
 
 ## Step 1 — Launch the SGLang worker
 
-Install the SGLang extra of the servicer, then launch the SGLang server with both `--grpc-mode` and `--kv-events-config`:
+A worker launched with `--grpc-mode` and no `--kv-events-config` already publishes: the servicer turns SGLang's ZMQ KV-event publisher on by itself, at a port found free on the host rather than SGLang's fixed default (with data parallelism, a block of free ports, one per rank), so workers that share a host do not collide. The start log says so: `KV event publishing enabled: no --kv-events-config was given, ...`. Setting `SMG_SGLANG_SERVICER_KV_EVENTS=0` in the worker's environment leaves the publisher off.
+
+That default supplies no `replay_endpoint`, so a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). Pass `--kv-events-config` to pin the endpoint and enable gap replay. An explicit config is kept exactly as given — include `"publisher":"zmq"`, since one that leaves it out publishes nothing.
+
+Install the SGLang extra of the servicer, then launch the SGLang server:
 
 ```bash
 pip install "smg-grpc-servicer[sglang]"
@@ -79,7 +83,7 @@ What each flag does:
 |---|---|
 | `--grpc-mode` | Serves SMG's gRPC `SglangScheduler` service from `smg-grpc-servicer` (needs SGLang 0.5.21 or later) instead of SGLang's HTTP server. Required for SMG to talk to this worker over gRPC. |
 | `--page-size 16` | The KV cache page size, in tokens. Use the same value for SMG's `--block-size` (see [Block size alignment](#block-size-alignment)). |
-| `--kv-events-config` | A JSON object parsed by SGLang's `KVEventsConfig.from_cli`. `"publisher":"zmq"` turns publishing on (the default `"null"` publishes nothing), and `replay_endpoint` lets the servicer fill gaps in the stream from SGLang's replay buffer. |
+| `--kv-events-config` | Optional: without it the servicer publishes at a free port, with no gap replay. An explicit JSON object, parsed by SGLang's `KVEventsConfig.from_cli`, replaces that default exactly as given: `"publisher":"zmq"` turns publishing on (leaving it out means the default `"null"`, which publishes nothing), and `replay_endpoint` lets the servicer fill gaps in the stream from SGLang's replay buffer. |
 
 ### `--kv-events-config` field reference
 
@@ -87,7 +91,7 @@ All fields and defaults match SGLang's `KVEventsConfig` (see `python/sglang/srt/
 
 | Field | Default | Notes |
 |---|---|---|
-| `publisher` | `"null"` | Set to `"zmq"` to publish. With any other value the servicer answers `SubscribeKvEvents` with `UNIMPLEMENTED`, and SMG stops subscribing to that worker. |
+| `publisher` | `"null"` | Set to `"zmq"` to publish. An explicit config is kept as given even when it turns publishing off: with any other value the servicer answers `SubscribeKvEvents` with `UNIMPLEMENTED`, and SMG stops subscribing to that worker. |
 | `endpoint` | `"tcp://*:5557"` | ZMQ `PUB` address. The publisher binds wildcard endpoints such as `tcp://*:PORT` (and `ipc://` or `inproc://` ones) and connects to any other address, which leaves nothing listening, so keep the wildcard form. The servicer connects to it locally, rewriting `*` and `0.0.0.0` to `127.0.0.1`. |
 | `topic` | `""` | ZMQ topic. The servicer reads the same config and subscribes to this topic, so any value works. |
 | `replay_endpoint` | `null` | ZMQ `ROUTER` address that serves recent batches for replay. When set, the servicer fills gaps in each rank's events from it before forwarding later batches; without it, a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). |
@@ -99,13 +103,13 @@ With data parallelism, each rank publishes on `endpoint` port + `dp_rank` and se
 
 ### Alternative: launch a vLLM worker
 
-vLLM publishes KV cache events on a ZMQ socket; enable them with `--kv-events-config` and run the worker in SMG gRPC mode:
+vLLM works the same way: in SMG gRPC mode, a worker launched without `--kv-events-config` already publishes — the servicer turns vLLM's ZMQ publisher on at a port found free on the host, and `SMG_VLLM_SERVICER_KV_EVENTS=0` leaves it off. Pass `--kv-events-config` to pin the endpoint and enable gap replay:
 
 ```bash
 pip install "smg-grpc-servicer[vllm]"
 
 # --grpc serves vLLM through smg-grpc-servicer instead of the OpenAI HTTP server;
-# --kv-events-config turns on KV-event publishing:
+# --kv-events-config pins the event endpoint and adds gap replay:
 vllm serve meta-llama/Llama-3.1-8B-Instruct \
   --grpc \
   --host 0.0.0.0 \
@@ -117,7 +121,7 @@ Event-driven routing needs the worker in SMG gRPC mode (`--grpc`; `pip install "
 
 | Field | Why |
 |---|---|
-| `enable_kv_cache_events: true` | vLLM's master switch. Without it no events are published, and SMG stops subscribing to the worker. |
+| `enable_kv_cache_events: true` | vLLM's master switch. An explicit config is kept as given, so one without it publishes nothing, and SMG stops subscribing to the worker. |
 | `publisher: "zmq"` | Selects the ZMQ publisher the servicer reads. Recent vLLM versions default to it once events are enabled. |
 | `endpoint` / `topic` | As for SGLang; keep the wildcard `tcp://*:PORT` form. With data parallelism the port is `endpoint` port + `dp_rank`, and the servicer subscribes to every rank. |
 | `replay_endpoint` | As for SGLang: the servicer fills gaps in each rank's events from it before forwarding later batches; without it, a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). Each rank serves replay on `replay_endpoint` port + `dp_rank`. |
@@ -126,14 +130,18 @@ SMG learns the block size from the `BlockStored` events themselves; set SMG's `-
 
 ### Alternative: launch a TokenSpeed worker
 
-TokenSpeed's scheduler publishes KV cache events on a ZMQ socket; enable them with `--kv-events-config`. The TokenSpeed gRPC server *is* the SMG gRPC entrypoint, so there is no separate `--grpc` flag:
+TokenSpeed works the same way, and the TokenSpeed gRPC server *is* the SMG gRPC entrypoint, so there is no separate `--grpc` flag. A worker launched without `--kv-events-config` already publishes — the servicer turns the scheduler's ZMQ publisher on at a port found free on the host, and `SMG_TOKENSPEED_SERVICER_KV_EVENTS=0` leaves it off.
+
+Two launches get no automatic publisher. An encode worker (`--disaggregation-mode encode`) has no KV cache and is left as given. On a hybrid model (Gated DeltaNet, Mamba or KDA layers) the servicer leaves the publisher off and logs why once (`KV event publishing left off: ...`): such a model keeps its recurrent state in State groups of TokenSpeed's cache, and TokenSpeed's KV-event drain aborts the engine on such a group. An explicit `--kv-events-config` turns the publisher on anyway.
+
+Pass `--kv-events-config` to pin the endpoint and enable gap replay:
 
 ```bash
 # TokenSpeed is installed from source (engine + kernel + scheduler); see
 # scripts/ci_install_tokenspeed.sh in the smg repository. Install the servicer's extra deps:
 pip install "smg-grpc-servicer[tokenspeed]"
 
-# --kv-events-config turns on KV-event publishing in the scheduler:
+# --kv-events-config pins the event endpoint and adds gap replay:
 python -m smg_grpc_servicer.tokenspeed \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
@@ -143,7 +151,7 @@ python -m smg_grpc_servicer.tokenspeed \
 
 | Field | Why |
 |---|---|
-| `enable_kv_cache_events: true` | TokenSpeed master switch. Without it the scheduler records no events even if a publisher is set. |
+| `enable_kv_cache_events: true` | TokenSpeed master switch. An explicit config is kept as given, so one without it records no events even if a publisher is set. |
 | `publisher: "zmq"` | Selects the ZMQ publisher the servicer reads. Unset defaults to `"zmq"` when events are enabled; `"null"` (or any other value) disables event streaming. |
 | `endpoint` / `topic` | ZMQ `PUB` address and topic. Use a **bind-style** endpoint (`tcp://*:PORT`): TokenSpeed binds only when the endpoint contains `*` or `::` or starts with `ipc://` or `inproc://`, so a concrete address like `tcp://127.0.0.1:PORT` makes it *connect* instead, leaving nothing bound and the stream idle. With attention data parallelism each rank publishes on `endpoint` port + rank, and the servicer subscribes to every rank, so the index sees every rank's cache. |
 | `replay_endpoint` | As for SGLang and vLLM: the servicer fills gaps in each rank's events from it before forwarding later batches; without it, a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). Each rank serves replay on `replay_endpoint` port + rank. |
@@ -223,7 +231,7 @@ INFO Starting KV event subscription worker_url=grpc://worker-1:50051 model_id=me
 INFO KV event stream connected worker_url=grpc://worker-1:50051 start_seq=0
 ```
 
-If you do not see the first line for a worker, the worker is not a gRPC worker, the gateway's `--policy` is not `cache_aware` (a `policy` worker label alone does not start subscriptions), or the worker's model is routed by another policy. If events are disabled on the worker, the servicer rejects the stream and SMG stops trying:
+If you do not see the first line for a worker, the worker is not a gRPC worker, the gateway's `--policy` is not `cache_aware` (a `policy` worker label alone does not start subscriptions), or the worker's model is routed by another policy. If events are disabled on the worker — an explicit `--kv-events-config` without a ZMQ publisher, the worker's `SMG_<ENGINE>_SERVICER_KV_EVENTS=0`, or a TokenSpeed hybrid model — the servicer rejects the stream and SMG stops trying:
 
 ```text
 WARN Backend does not implement SubscribeKvEvents, disabling KV event subscription for this worker worker_url=grpc://worker-1:50051

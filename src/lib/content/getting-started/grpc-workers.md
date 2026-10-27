@@ -195,6 +195,8 @@ For the selection to take effect, the worker's environment needs:
 
 Misconfiguration fails loudly instead of silently serving Python: `smg serve --servicer-impl rust` refuses to start when `smg-grpc-servicer` is not importable or the installed vLLM's launcher would not be switched, and when `SMG_VLLM_SERVICER_IMPL=rust` reaches a worker where the switch never ran (a launcher file executed directly as `__main__`, or one that didn't import the package's servicer before defining `serve_grpc`), the Python servicer itself refuses to start.
 
+`SubscribeKvEvents` relays vLLM's ZMQ KV-event publisher, which the servicer turns on by itself — on this path as on the Python one — when the launcher is given no `--kv-events-config`, at a port found free on the host rather than vLLM's fixed default, so two engines on one host do not collide. An explicit `--kv-events-config` is kept exactly as given, whether it names an endpoint or turns publishing off; without one, `SMG_VLLM_SERVICER_KV_EVENTS=0` in the worker's environment leaves the publisher off. With the publisher off, `SubscribeKvEvents` answers `UNIMPLEMENTED`. See [KV Events Cache-Aware Routing](kv-events-cache-aware.md).
+
 ### Rust SGLang Servicer
 
 SGLang gRPC workers have the same choice: a Rust implementation serving the same gRPC contract as the default Python servicer.
@@ -233,7 +235,9 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 - A multimodal payload of image references without preprocessed tensors — the encoders' input in encode/prefill disaggregation — is refused per request on every worker but a language-only one, whose encode dispatch hands the references to the encoders; the tensors the gateway preprocesses in gRPC mode reach the scheduler as its own processor's output on every worker. LoRA loading answers UNIMPLEMENTED (the Python servicer does not serve it either).
 - SGLang's HTTP sidecar (profiling, `/metrics`) is not started.
 
-`Embed`, `FlushCache` and profiling answer as on the Python servicer, and `SubscribeKvEvents` relays the ZMQ publisher SGLang was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
+`Embed`, `FlushCache` and profiling answer as on the Python servicer.
+
+`SubscribeKvEvents` relays SGLang's ZMQ KV-event publisher, which the servicer turns on by itself — on this path as on the Python one — when the launcher is given no `--kv-events-config`, at a port found free on the host rather than SGLang's fixed default. An explicit configuration is kept exactly as given, whether it names an endpoint or turns publishing off; without one, `SMG_SGLANG_SERVICER_KV_EVENTS=0` leaves the publisher off. With the publisher off, `SubscribeKvEvents` answers `UNIMPLEMENTED`.
 
 ### Rust TokenSpeed Servicer
 
@@ -261,7 +265,11 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 - PD and EPD disaggregation stay with the Python servicer.
 - The [RL control plane](rl-control-plane.md) extras stay with the Python servicer: the `rl.*` capability advertisement, the live `weight_version` on generate responses, and `is_paused`.
 
-Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer. `SubscribeKvEvents` relays the ZMQ KV-event publisher TokenSpeed was told to run with `--kv-events-config` (UNIMPLEMENTED when events are off).
+Credentials are redacted from the `server_args` the worker reports exactly as on the Python servicer.
+
+`SubscribeKvEvents` relays TokenSpeed's ZMQ KV-event publisher, which the servicer turns on by itself — on this path as on the Python one — when the launcher is given no `--kv-events-config`, at a port found free on the host rather than TokenSpeed's fixed default. An explicit configuration is kept exactly as given, whether it names an endpoint or turns publishing off; without one, `SMG_TOKENSPEED_SERVICER_KV_EVENTS=0` leaves the publisher off. With the publisher off, `SubscribeKvEvents` answers `UNIMPLEMENTED`.
+
+On a hybrid model (Gated DeltaNet, Mamba or KDA layers) the servicer leaves the publisher off and logs why once: such a model keeps its recurrent state in State groups of TokenSpeed's cache, and TokenSpeed's KV-event drain aborts the engine on such a group. An explicit `--kv-events-config` turns the publisher on anyway.
 
 Tuning environment variables: `SMG_TOKENSPEED_SERVICER_HANDSHAKE_PORT` (default: a free port) pins the port the headless scheduler dials, `SMG_TOKENSPEED_SERVICER_DRAIN_SECS` (default `5`) is how long in-flight streams get to finish after a shutdown signal, and `SMG_TOKENSPEED_SERVICER_STARTUP_TIMEOUT_SECS` (default `1800`) bounds the wait for the scheduler's handshake. Model load and kernel JIT compilation count against that bound, so raise it when a first start on a cold cache needs longer; a scheduler process that died is noticed on the supervisor's poll rather than waiting out the bound.
 

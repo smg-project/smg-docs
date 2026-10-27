@@ -61,7 +61,7 @@ engine scheduler (SGLang, vLLM or TokenSpeed)
 
 A worker launched with `--grpc-mode` and no `--kv-events-config` already publishes: the servicer turns SGLang's ZMQ KV-event publisher on by itself, at a port found free on the host rather than SGLang's fixed default (with data parallelism, a block of free ports, one per rank), so workers that share a host do not collide. The start log says so: `KV event publishing enabled: no --kv-events-config was given, ...`. Setting `SMG_SGLANG_SERVICER_KV_EVENTS=0` in the worker's environment leaves the publisher off.
 
-That default supplies no `replay_endpoint`, so a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). Pass `--kv-events-config` to pin the endpoint and enable gap replay. It is kept exactly as given — include `"publisher":"zmq"`, since an explicit config that leaves it out publishes nothing.
+That default supplies no `replay_endpoint`, so a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). Pass `--kv-events-config` to pin the endpoint and enable gap replay. An explicit config is kept exactly as given — include `"publisher":"zmq"`, since one that leaves it out publishes nothing.
 
 Install the SGLang extra of the servicer, then launch the SGLang server:
 
@@ -83,7 +83,7 @@ What each flag does:
 |---|---|
 | `--grpc-mode` | Serves SMG's gRPC `SglangScheduler` service from `smg-grpc-servicer` (needs SGLang 0.5.21 or later) instead of SGLang's HTTP server. Required for SMG to talk to this worker over gRPC. |
 | `--page-size 16` | The KV cache page size, in tokens. Use the same value for SMG's `--block-size` (see [Block size alignment](#block-size-alignment)). |
-| `--kv-events-config` | Optional: without it the servicer publishes at a free port, with no gap replay. The JSON object, parsed by SGLang's `KVEventsConfig.from_cli`, replaces that default as given: `"publisher":"zmq"` keeps publishing on (left out, the default `"null"` publishes nothing), and `replay_endpoint` lets the servicer fill gaps in the stream from SGLang's replay buffer. |
+| `--kv-events-config` | Optional: without it the servicer publishes at a free port, with no gap replay. The JSON object, parsed by SGLang's `KVEventsConfig.from_cli`, replaces that default as given: `"publisher":"zmq"` keeps publishing on (leaving it out means the default `"null"`, which publishes nothing), and `replay_endpoint` lets the servicer fill gaps in the stream from SGLang's replay buffer. |
 
 ### `--kv-events-config` field reference
 
@@ -91,7 +91,7 @@ All fields and defaults match SGLang's `KVEventsConfig` (see `python/sglang/srt/
 
 | Field | Default | Notes |
 |---|---|---|
-| `publisher` | `"null"` | Set to `"zmq"` to publish. An explicit config is kept as given, off included: with any other value the servicer answers `SubscribeKvEvents` with `UNIMPLEMENTED`, and SMG stops subscribing to that worker. |
+| `publisher` | `"null"` | Set to `"zmq"` to publish. An explicit config is kept as given even when it turns publishing off: with any other value the servicer answers `SubscribeKvEvents` with `UNIMPLEMENTED`, and SMG stops subscribing to that worker. |
 | `endpoint` | `"tcp://*:5557"` | ZMQ `PUB` address. The publisher binds wildcard endpoints such as `tcp://*:PORT` (and `ipc://` or `inproc://` ones) and connects to any other address, which leaves nothing listening, so keep the wildcard form. The servicer connects to it locally, rewriting `*` and `0.0.0.0` to `127.0.0.1`. |
 | `topic` | `""` | ZMQ topic. The servicer reads the same config and subscribes to this topic, so any value works. |
 | `replay_endpoint` | `null` | ZMQ `ROUTER` address that serves recent batches for replay. When set, the servicer fills gaps in each rank's events from it before forwarding later batches; without it, a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). |

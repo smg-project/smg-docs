@@ -1376,8 +1376,8 @@ Errors that SMG generates use the gateway envelope, with the public API's error 
 
 Request parsing and validation failures use the same envelope without the header. Their
 `code` names the failure: `invalid_json` for a syntax error, a schema code such as
-`unknown_parameter` or `invalid_type` for a body that does not match the request type, the
-bound crossed such as `integer_above_max_value` for a field outside its range, or the
+`unknown_parameter` or `invalid_type` for a body that does not match the request type, a
+bound code such as `integer_above_max_value` for a field outside its range, or the
 violated rule's own code such as `invalid_conversation_id`. `param` names the offending
 field when one is known. See [Error Responses](openai.md#error-responses) for the full
 vocabulary.

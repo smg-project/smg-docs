@@ -931,7 +931,7 @@ itself produced the error.
 | Status | `code` | Returned when |
 |--------|--------|---------------|
 | 400 | `invalid_json` | The body is not valid JSON |
-| 400 | `missing_required_parameter`, `unknown_parameter`, `invalid_type`, `invalid_value`, `integer_below_min_value` | The body does not match the request schema; `param` names the field |
+| 400 | `missing_required_parameter`, `unknown_parameter`, `invalid_type`, `invalid_value`, `integer_below_min_value` | The body does not match the request schema; `param` names the field when one is known |
 | 400 | `integer_above_max_value`, `decimal_below_min_value`, `string_above_max_length`, `empty_array`, ... | A field is outside its documented bounds; the code names the kind of value and the bound crossed, `param` the field |
 | 400 | The rule's code | A cross-field rule (`stream_options_requires_stream` for `stream_options` without `stream`, `top_logprobs_requires_logprobs`, `tool_choice_function_not_found` for a `tool_choice` naming a missing tool, `json_schema_schema_not_object` for a non-object `json_schema`, ...) or a [provider-profile](#provider-profiles) rule failed |
 | 400 | `json_parse_error` | The `Content-Type: application/json` header is missing, or the body failed to parse for a reason outside the set above |

@@ -475,7 +475,7 @@ Python code (the e2e tests, the bindings, the gRPC servicers, and scripts) follo
 - The target is Python 3.12 (`target-version = "py312"`). `grpc_servicer/` still supports Python 3.10, so rule `UP017` is ignored there to keep 3.11+ syntax such as `datetime.UTC` out.
 - The formatter wraps lines at 100 columns. The line-length lint (`E501`) only flags lines over 120 characters, which leaves room for comments, docstrings, and help strings the formatter cannot wrap.
 - The lint rules are `E`, `F`, `I` (import sorting), `W`, and `UP` (pyupgrade).
-- Type checking uses mypy with `mypy.ini`.
+- The e2e tests and the Python bindings are type-checked with mypy, configured by `mypy.ini`.
 
 ---
 

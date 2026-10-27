@@ -789,7 +789,9 @@ The connection uses `--oracle-dsn` when it is set; otherwise `--oracle-wallet-pa
 | `--redis-url-file` | unset | File holding the connection URL alone, such as a mounted secret; surrounding whitespace is dropped. Read when the history backend is `redis`. Env: `SMG_REDIS_URL_FILE`. |
 | `--redis-op-timeout-secs` | `5` | Bound in seconds on each call to the Redis store (pool wait, connect and the command; it replaces the client library's 500 ms and 1 s defaults); a call past it is answered `503 storage_unavailable`. |
 
-When its flag is unset, each URL is read from its environment variable (`SMG_POSTGRES_DB_URL`, `SMG_REDIS_URL`), or from a file named by the `*-url-file` flag or its variable (`SMG_POSTGRES_DB_URL_FILE`, `SMG_REDIS_URL_FILE`); a URL together with a URL file is refused at startup rather than ranked. See [Store URLs from the environment or a file](../getting-started/data-connections.md#store-urls-from-the-environment-or-a-file). `POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `POSTGRES_OP_TIMEOUT_SECS`, `REDIS_URL`, `REDIS_POOL_MAX`, `REDIS_RETENTION_DAYS`, and `REDIS_OP_TIMEOUT_SECS` are read only by the [Python launcher](#python-launcher-differences).
+When its flag is unset, each URL is read from its environment variable (`SMG_POSTGRES_DB_URL`, `SMG_REDIS_URL`), or from a file named by the `*-url-file` flag or its variable (`SMG_POSTGRES_DB_URL_FILE`, `SMG_REDIS_URL_FILE`); a URL together with a URL file is refused at startup rather than ranked. See [Store URLs from the environment or a file](../getting-started/data-connections.md#store-urls-from-the-environment-or-a-file).
+
+`POSTGRES_DB_URL`, `POSTGRES_POOL_MAX`, `POSTGRES_OP_TIMEOUT_SECS`, `REDIS_URL`, `REDIS_POOL_MAX`, `REDIS_RETENTION_DAYS`, and `REDIS_OP_TIMEOUT_SECS` are read only by the [Python launcher](#python-launcher-differences).
 
 ### Memory Backend
 
@@ -1190,7 +1192,7 @@ smg launch \
 
 ### Flag Variables
 
-These variables back a flag; the flag wins when both are set.
+These variables back a flag; the flag wins when both are set. A store URL variable together with a URL file source is refused at startup rather than ranked; see [Storage Configuration](#storage-configuration).
 
 | Environment Variable | CLI Option | Description |
 |---------------------|------------|-------------|
@@ -1203,6 +1205,10 @@ These variables back a flag; the flag wins when both are set.
 | `ATP_POOL_MIN` | `--oracle-pool-min` | Oracle min pool size |
 | `ATP_POOL_MAX` | `--oracle-pool-max` | Oracle max pool size |
 | `ATP_POOL_TIMEOUT_SECS` | `--oracle-pool-timeout-secs` | Oracle pool timeout |
+| `SMG_POSTGRES_DB_URL` | `--postgres-db-url` | PostgreSQL connection URL |
+| `SMG_POSTGRES_DB_URL_FILE` | `--postgres-db-url-file` | File holding the PostgreSQL connection URL |
+| `SMG_REDIS_URL` | `--redis-url` | Redis connection URL |
+| `SMG_REDIS_URL_FILE` | `--redis-url-file` | File holding the Redis connection URL |
 | `JWT_ISSUER` | `--jwt-issuer` | JWT issuer URL |
 | `JWT_AUDIENCE` | `--jwt-audience` | JWT audience |
 | `JWT_JWKS_URI` | `--jwt-jwks-uri` | JWKS URI |

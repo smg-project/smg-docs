@@ -208,7 +208,7 @@ Registers a worker. The body is a [worker spec](#worker-spec); only `url` is req
 |--------|-----------|----------|
 | `http://`, `https://` | HTTP | SGLang, vLLM, or other OpenAI-compatible HTTP servers, and external providers. Hosts ending in `openai.com`, `anthropic.com`, `x.ai`, or `googleapis.com` register as external automatically. |
 | `grpc://`, `grpcs://` | gRPC | SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX gRPC servers. See [gRPC Workers](../../getting-started/grpc-workers.md). |
-| `ipc://<path>` | ZMQ | A vLLM, TokenSpeed, or SGLang engine core on the same host (SGLang over ZMQ since v1.12.0). See [ZMQ Workers](../../getting-started/zmq-workers.md). |
+| `ipc://<path>` | ZMQ | A vLLM, TokenSpeed, or SGLang engine core on the same host. See [ZMQ Workers](../../getting-started/zmq-workers.md). |
 
 The scheme must be lowercase. Send the spec as JSON:
 
@@ -347,8 +347,8 @@ Labels with built-in meaning:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `priority` | integer | `50` | Stored and returned in responses. No built-in routing policy reads it in v1.11.0. |
-| `cost` | number | `1.0` | Stored and returned in responses. No built-in routing policy reads it in v1.11.0. |
+| `priority` | integer | `50` | Stored and returned in responses. No built-in routing policy reads it. |
+| `cost` | number | `1.0` | Stored and returned in responses. No built-in routing policy reads it. |
 
 **Health checks (`health`)**: per-worker overrides of the gateway health-check flags. See [Health Checks](../../concepts/reliability/health-checks.md).
 
@@ -398,7 +398,7 @@ Either field keeps overload protection on for this worker, even under `--disable
 | `dp_size` | integer | none | On an `ipc://` worker, the number of data-parallel engines that dial into its one socket set. A value above 1 makes a grouped worker, and the gateway spreads requests across the group's engines. On other workers the gateway sets this field itself during data-parallel discovery. |
 | `zmq_handshake_address` | string | derived | `tcp://` address the gateway binds for the engine handshake. The default is `tcp://127.0.0.1:<port>`, with the port (20000 to 29999) derived from the `ipc://` path. Set it for an engine that dials a fixed address, such as `tcp://127.0.0.1:30500`, TokenSpeed's default. |
 
-Registration of a ZMQ worker fails when the runtime is not `vllm`, `tokenspeed`, or `sglang` (`sglang` over ZMQ since v1.12.0; v1.11.0 accepts only the first two), when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, when `dp_size` is above 1 on a gateway running with `--dp-aware`, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
+Registration of a ZMQ worker fails when the runtime is not `vllm`, `tokenspeed`, or `sglang`, when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, when `dp_size` is above 1 on a gateway running with `--dp-aware`, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
 
 **PD disaggregation and KV transfer**: see [PD Disaggregation](../../concepts/routing/pd-disaggregation.md).
 
@@ -602,7 +602,7 @@ Changes a few fields in place. Omitted fields keep their current values. The wor
 
 Any other field, such as `overload`, `http_pool`, `resilience`, or `models`, is ignored. Use `PUT` to change those.
 
-Since v1.12.0 a `PATCH` keeps the worker's circuit breaker and its configuration. In v1.11.0 it rebuilt the breaker with built-in thresholds (5 failures, 2 successes, 30 seconds), ignoring the gateway's circuit-breaker flags and any `resilience` overrides until a `PUT` re-registered the worker.
+A `PATCH` keeps the worker's circuit-breaker configuration and state: an open circuit stays open.
 
 **Response:** `202 Accepted`
 ```json
@@ -664,7 +664,7 @@ Asks every registered HTTP and gRPC worker to drop its KV prefix cache. The call
 |--------|-------------------|
 | HTTP | `POST {worker_url}/flush_cache`, with the worker's API key (if it has one) as a bearer token and a 45-second timeout. Any non-2xx answer counts as a failure, so the engine must serve this route (SGLang's HTTP server does). |
 | gRPC SGLang, TokenSpeed | `FlushCache` RPC. |
-| gRPC vLLM | `FlushCache` RPC, new in v1.11.0. Needs `smg-grpc-servicer` 0.12.0 or later; older servicers answer `UNIMPLEMENTED`. Resets vLLM's local prefix cache without preempting running requests or clearing connector caches. The gateway makes a single attempt, so a reset that vLLM refuses while requests are in flight is reported under `failed`. |
+| gRPC vLLM | `FlushCache` RPC. Needs `smg-grpc-servicer` 0.12.0 or later; older servicers answer `UNIMPLEMENTED`. Resets vLLM's local prefix cache without preempting running requests or clearing connector caches. The gateway makes a single attempt, so a reset that vLLM refuses while requests are in flight is reported under `failed`. |
 | gRPC TRT-LLM, MLX | Not supported: reported under `failed` (`UNIMPLEMENTED`). |
 | ZMQ (`ipc://`) | Skipped, because the transport has no cache-flush RPC. Counted in `total_zmq_workers_skipped`. |
 
@@ -801,9 +801,6 @@ The response is built from the monitor's cached snapshot, the same numbers the r
 
 The same per-worker report appears as `engine_load` on `GET /workers` and `GET /workers/{worker_id}`. It is unrelated to their `load` field, which counts requests the gateway has in flight to the worker. [Overload Protection](../../concepts/reliability/overload-protection.md) explains where each backend's report comes from.
 
-!!! warning "Changed in v1.11.0"
-    `GET /get_loads` used to call every worker on each request and return `{"workers": [{"worker", "load", "details"}]}`. It now returns the `/loads` body above. Callers that read `.workers[].load` must switch to `.loads[]` or `.aggregate`.
-
 ---
 
 ## Model Information
@@ -919,7 +916,7 @@ Registers one or more WASM modules.
 }
 ```
 
-The only supported `module_type` today is `Middleware`. Valid `Middleware` attach points are `OnRequest`, `OnResponse`, and `OnError`, but `OnError` modules never run in v1.11.0: the middleware calls only `OnRequest` and `OnResponse` modules, and skips `OnResponse` for streaming responses.
+The only supported `module_type` is `Middleware`. Valid `Middleware` attach points are `OnRequest`, `OnResponse`, and `OnError`, but `OnError` modules never run: the middleware calls only `OnRequest` and `OnResponse` modules, and skips `OnResponse` for streaming responses.
 
 **Response:** `200 OK` on full success, `400 Bad Request` if any module failed to register. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message).
 

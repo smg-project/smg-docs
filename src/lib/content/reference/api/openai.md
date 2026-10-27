@@ -214,9 +214,10 @@ restrict the accepted values per model family.
 - `{"type": "json_schema", "json_schema": {"name": "...", "schema": {...}, "strict": true}}`
 
 For `json_schema`, `name` must not be empty and `schema` must be a JSON object (`{}` is
-allowed). A string, array, boolean, number, or `null` schema is rejected with `400` before
-the request reaches any worker, on every backend, unless the HTTP router streams the request
-to the worker unparsed (see [Request Streaming](../../concepts/performance/request-streaming.md)).
+allowed). A string, array, boolean, number, or `null` schema is rejected with `400`
+`json_schema_schema_not_object` before the request reaches any worker, on every backend,
+unless the HTTP router streams the request to the worker unparsed (see
+[Request Streaming](../../concepts/performance/request-streaming.md)).
 
 #### Example Request
 

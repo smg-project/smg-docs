@@ -83,7 +83,7 @@ What each flag does:
 |---|---|
 | `--grpc-mode` | Serves SMG's gRPC `SglangScheduler` service from `smg-grpc-servicer` (needs SGLang 0.5.21 or later) instead of SGLang's HTTP server. Required for SMG to talk to this worker over gRPC. |
 | `--page-size 16` | The KV cache page size, in tokens. Use the same value for SMG's `--block-size` (see [Block size alignment](#block-size-alignment)). |
-| `--kv-events-config` | Optional: without it the servicer publishes at a free port, with no gap replay. The JSON object, parsed by SGLang's `KVEventsConfig.from_cli`, replaces that default as given: `"publisher":"zmq"` keeps publishing on (leaving it out means the default `"null"`, which publishes nothing), and `replay_endpoint` lets the servicer fill gaps in the stream from SGLang's replay buffer. |
+| `--kv-events-config` | Optional: without it the servicer publishes at a free port, with no gap replay. An explicit JSON object, parsed by SGLang's `KVEventsConfig.from_cli`, replaces that default exactly as given: `"publisher":"zmq"` keeps publishing on (leaving it out means the default `"null"`, which publishes nothing), and `replay_endpoint` lets the servicer fill gaps in the stream from SGLang's replay buffer. |
 
 ### `--kv-events-config` field reference
 

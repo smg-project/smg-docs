@@ -132,7 +132,7 @@ SMG learns the block size from the `BlockStored` events themselves; set SMG's `-
 
 TokenSpeed works the same way, and the TokenSpeed gRPC server *is* the SMG gRPC entrypoint, so there is no separate `--grpc` flag. A worker launched without `--kv-events-config` already publishes — the servicer turns the scheduler's ZMQ publisher on at a port found free on the host, and `SMG_TOKENSPEED_SERVICER_KV_EVENTS=0` leaves it off.
 
-Two launches get no default: an encode worker (`--disaggregation-mode encode`) has no KV cache and is left as given, and on a hybrid model (Gated DeltaNet, Mamba or KDA layers) the servicer leaves the publisher off and logs why once (`KV event publishing left off: ...`) — such a model keeps its recurrent state in State groups of TokenSpeed's cache, and TokenSpeed's KV-event drain aborts the engine on such a group; `--kv-events-config` turns it on anyway.
+Two launches get no default. An encode worker (`--disaggregation-mode encode`) has no KV cache and is left as given. On a hybrid model (Gated DeltaNet, Mamba or KDA layers) the servicer leaves the publisher off and logs why once (`KV event publishing left off: ...`): such a model keeps its recurrent state in State groups of TokenSpeed's cache, and TokenSpeed's KV-event drain aborts the engine on such a group. An explicit `--kv-events-config` turns the publisher on anyway.
 
 Pass `--kv-events-config` to pin the endpoint and enable gap replay:
 

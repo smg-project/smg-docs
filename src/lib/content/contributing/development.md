@@ -200,6 +200,8 @@ smg/
 ├── crates/                     # Library crates (directory: package name)
 │   ├── auth/                   # smg-auth: control-plane authentication and authorization
 │   ├── data_connector/         # data-connector: conversation and response storage backends
+│   ├── engine_servicer/        # engine-servicer: Rust gRPC servicers for each engine's own proto, reaching the engine over same-host ZMQ
+│   ├── engine_zmq_adapter/     # engine-zmq-adapter: translates each engine's gRPC proto to the same-host ZMQ engine wire
 │   ├── engine_zmq_client/      # engine-zmq-client: ZMQ transport for same-host engine connections
 │   ├── external_router/        # smg-external-router: third-party provider routers
 │   ├── grpc_client/            # smg-grpc-client: engine gRPC clients, .proto files, Python and Go packages
@@ -212,6 +214,7 @@ smg/
 │   ├── protocols/              # openai-protocol: OpenAI-compatible API types
 │   ├── radix_tree/             # smg-radix-tree: prefix-membership radix tree
 │   ├── reasoning_parser/       # reasoning-parser: reasoning output extraction
+│   ├── response_template/      # smg-response-template: Rust port of the transformers response-template parser
 │   ├── rl/                     # smg-rl: RL control plane
 │   ├── symphony/               # smg-symphony: parses model output into content, reasoning, and tool-call events
 │   ├── tokenizer/              # llm-tokenizer: tokenizers, caching, and chat templates
@@ -234,6 +237,7 @@ smg/
 ├── scripts/                    # Dev and CI scripts (e2e-test.sh, install_opencv.sh, ci_*.sh, ...)
 ├── Cargo.toml                  # Workspace manifest and shared lints
 ├── Cargo.lock                  # Committed lockfile
+├── rust-toolchain.toml         # Pinned Rust toolchain and components
 ├── clippy.toml, rustfmt.toml   # Rust lint and format configuration
 ├── ruff.toml, mypy.ini         # Python lint configuration
 └── Makefile                    # Development shortcuts (make help)

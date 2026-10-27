@@ -83,7 +83,8 @@ Spans are batched and exported over OTLP gRPC with the service name `smg`. The g
 With `--enable-trace`, SMG uses W3C TraceContext headers:
 
 - `traceparent` and `tracestate` on an incoming client request make the gateway's spans part of the caller's trace.
-- Requests the HTTP routers (regular and PD) send to workers carry the current `traceparent` and `tracestate`. Requests to gRPC workers do not carry trace context in v1.11.0.
+- Requests the HTTP routers (regular and PD) send to workers carry the current `traceparent` and `tracestate`, and requests to gRPC workers carry the same context in their request metadata. Requests to [ZMQ direct workers](zmq-workers.md) carry no trace context.
+- The response to the client carries `traceparent` (plus `tracestate` when the request carried one), so a client holding a reply can look up its trace.
 
 Without `--enable-trace`, SMG neither reads nor adds these headers.
 
@@ -503,7 +504,7 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
     2. Check SMG was started with `--enable-trace`
 
-    3. Verify the collector is receiving spans. Requests to gRPC workers do not carry trace context, so engine-side spans join the trace only for HTTP workers.
+    3. Verify the collector is receiving spans. Requests to HTTP and gRPC workers carry trace context; requests to ZMQ direct workers do not, so their engine-side spans cannot join the trace.
 
     4. Keep SMG's log level at `info` or more verbose. The log filter also applies to spans, and the request spans are INFO-level, so `--log-level warn` (or a `RUST_LOG` that drops INFO for `smg`) filters them out before they are exported.
 

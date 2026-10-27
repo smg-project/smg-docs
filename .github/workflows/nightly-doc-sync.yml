@@ -188,6 +188,9 @@ jobs:
 
   discover:
     needs: prepare
+    # An optional release-snapshot ancestor may be skipped; only preparation's
+    # result determines whether discovery has a valid context to inspect.
+    if: always() && !cancelled() && needs.prepare.result == 'success'
     runs-on: smg-org-runner-cpu
     timeout-minutes: 45
     strategy:

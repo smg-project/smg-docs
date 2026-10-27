@@ -1,6 +1,7 @@
 """Resolve published stable SMG releases and prove source-change inclusion."""
 
 from functools import lru_cache
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -57,11 +58,13 @@ def main_source():
 if __name__ == '__main__':
     import sys
     if '--main' in sys.argv:
+        captured_at = datetime.now(timezone.utc).isoformat()
         target = main_source()
         with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
             out.write(f'sha={target["sha"]}\n')
         with open(os.environ['GITHUB_ENV'], 'a') as out:
             out.write('SMG_SOURCE_JSON=' + json.dumps(target) + '\n')
+            out.write('SMG_SOURCE_CAPTURED_AT=' + captured_at + '\n')
         print(f'Pinned SMG main: {target["sha"]}')
         sys.exit(0)
     release = latest_stable()

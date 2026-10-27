@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 
 import nightly_docs as docs
 import release_handoff
+import daily_coverage
 
 
 # Ownership is about the user question, not where a shared API type happens to
@@ -70,6 +71,9 @@ def resolve_scan(raw, history):
         concerns.append(item)
     return json.dumps({"concerns": concerns,
                        "inspected_commits": [resolve(number) for number in result["inspected_commits"]],
+                       "daily_commit_checks": [{**{k: v for k, v in check.items() if k != 'source_commit'},
+                                                'source_sha': resolve(check['source_commit'])}
+                                               for check in result.get('daily_commit_checks', [])],
                        "release_audit_checks": result.get("release_audit_checks", []),
                        "remaining_work": result["remaining_work"]})
 
@@ -95,6 +99,7 @@ def validate_scan(raw, context, slug, history):
         raise ValueError("Scan exceeds proposal limit")
     checks = release_handoff.validate_checks({**result, 'concerns': concerns}, context, slug)
     return {"shard": slug, "base_sha": context["base_sha"], "concerns": concerns,
+            "daily_commit_checks": daily_coverage.validate(result, context, slug),
             "release_audit_checks": checks,
             "inspected_commits": inspected, "remaining_work": result["remaining_work"]}
 
@@ -115,7 +120,6 @@ def combine(scans, context, allow_partial=False):
         raise ValueError("Unknown or duplicate discovery scans")
     if not allow_partial and set(by_slug) != set(expected):
         raise ValueError("Missing or duplicate discovery scans")
-    assignments = partition(context)
     for slug, scan in by_slug.items():
         if scan["base_sha"] != context["base_sha"]:
             raise ValueError("Discovery baseline mismatch")
@@ -176,11 +180,12 @@ def build_report(scans, context):
     expected = scan_names(context)
     received = {scan['shard'] for scan in scans}
     missing = [name for name in expected if name not in received]
+    daily = daily_coverage.report(context, scans, expected)
     queued = deferred_queue(scans, deferred, context['existing_prs'])
     # Daily quota can reduce each scan's proposal budget even when every scan
     # succeeds. Such a run cannot retire prior work merely by omitting it.
     quota_limited = context.get('max_prs', docs.MAX_PRS) < context.get('requested_max_prs', docs.MAX_PRS)
-    if missing or quota_limited:
+    if missing or not daily['complete'] or quota_limited:
         selected_ids = {(item['area'], item['concern']) for item in selected}
         prior = [item for item in context.get('pending_concerns', [])
                  if (item['area'], item['concern']) not in selected_ids]
@@ -195,9 +200,11 @@ def build_report(scans, context):
             'discovery_shard': context.get('discovery_shard', ''),
             'scans': scans, 'selected': selected,
             'release_audit_checks': release_handoff.report(context, scans),
+            'daily_coverage': daily,
             'deferred': deferred, 'queued_concerns': queued[:docs.MAX_PRS],
             'queue_overflow': [item['key'] for item in queued[docs.MAX_PRS:]],
-            'expected_shards': expected, 'missing_shards': missing, 'complete': not missing,
+            'expected_shards': expected, 'missing_shards': missing,
+            'complete': not missing and daily['complete'],
             'doc_inventory': context.get('doc_inventory', []),
             'dry_run': context.get('dry_run', False), 'max_prs': context.get('max_prs', docs.MAX_PRS)}
 
@@ -265,8 +272,17 @@ def scan_context(context, slug, assignments):
     focus = next(focus for name, focus, _ in SHARDS if name == slug)
     primary = {line.split()[0] for line in assignments[slug]}
     history = context["code_history"]
+    audit_candidates = release_handoff.assigned(context, slug)
+    # A queued audit identity can only be re-proposed by its owning scan, which
+    # receives the candidate evidence required by validate_checks.
+    pending = [p for p in context.get('pending_concerns', [])
+               if not p['concern'].startswith('release-audit-') or any(
+                   p['concern'].startswith('release-audit-' + c['id'] + '-') for c in audit_candidates)]
     return {**context, "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
-            "release_audit_candidates": release_handoff.assigned(context, slug),
+            "release_audit_candidates": audit_candidates,
+            "pending_concerns": pending,
+            "required_commit_ids": [i for i, line in enumerate(history, 1)
+                                    if line.split()[0] in context.get('daily_assignments', {}).get(slug, [])],
             "focus_commit_ids": [i for i, line in enumerate(history, 1) if line.split()[0] in primary],
             "shard": slug, "focus": focus,
             "scan_responsibilities": {name: focus for name, focus, _ in SHARDS}}
@@ -284,6 +300,8 @@ def main():
         prior = previous_report(
             os.environ['GITHUB_REPOSITORY'], os.environ['DEFAULT_BRANCH'], context)
         context['pending_concerns'] = pending_from_report(prior, context)
+        assignments = partition(context)
+        context['daily_assignments'] = daily_coverage.assign(context, prior, assignments)
         candidates = release_handoff.collect(context, root / 'release-audits')
         checked = {c['candidate_id']: c['status'] for c in prior.get('release_audit_checks', [])}
         # Unfinished and newly discovered corrections get attention first. Never
@@ -291,7 +309,6 @@ def main():
         context['release_audit_candidates'] = sorted(candidates, key=lambda c: (
             checked.get(c['id']) not in (None, 'deferred', 'proposed'), c['release'], c['doc_path']))
         (root / 'context.json').write_text(json.dumps(context, indent=2))
-        assignments = partition(context)
         (root / "assignments.json").write_text(json.dumps(assignments))
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
             output.write("matrix=" + json.dumps({"include": [{"shard": slug} for slug in scan_names(context)]}) + "\n")
@@ -303,7 +320,7 @@ def main():
     elif command == "scan":
         slug = os.environ["SHARD"]
         assignments = json.loads((root / "assignments.json").read_text())
-        raw = resolve_scan(os.environ["PLAN_JSON"], context["code_history"])
+        raw = resolve_scan(read_scan_output(os.environ['SCAN_EXECUTION_FILE']), context["code_history"])
         scan = validate_scan(raw, context, slug, context["code_history"])
         Path(os.environ["SCAN_OUTPUT"]).write_text(json.dumps(scan))
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
@@ -320,12 +337,25 @@ def main():
             output.write(f"count={len(selected)}\n")
             output.write(f"complete={str(report['complete']).lower()}\n")
             output.write("missing=" + ", ".join(report['missing_shards']) + "\n")
+            output.write(f"uncovered={sum(c['status'] not in daily_coverage.COMPLETE for c in report['daily_coverage']['checks'])}\n")
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write(f"Selected {len(selected)} independent concerns; deferred {len(deferred)}.\n\n")
             if report['missing_shards']:
                 summary.write("**Incomplete discovery**: missing validated scans from "
                               + ", ".join(report['missing_shards']) + ".\n\n")
             summary.write(f"Retained {len(report['queued_concerns'])} pending concerns.\n\n")
+            daily = report['daily_coverage']
+            if daily['window']:
+                window = daily['window']
+                summary.write(f"Daily source window: {window['start']} to {window['end']} "
+                              f"at `{context['source_sha']}`; {len(window['commits'])} recent mainline commits.\n\n")
+            summary.write(f"Required commit/subsystem checks: {len(daily['checks'])}; "
+                          + ', '.join(f"{sum(c['status'] == status for c in daily['checks'])} {status}"
+                                      for status in ('proposed', 'covered', 'not_applicable', 'deferred', 'uninspected'))
+                          + '. Includes unfinished checks and changes between runs.\n\n')
+            for check in daily['checks']:
+                if check['status'] not in daily_coverage.COMPLETE:
+                    summary.write(f"- Unfinished: `{check['source_sha']}` ({check['shard']}, {check['status']})\n")
             checks = report['release_audit_checks']
             summary.write(f"Release-audit handoff: {len(checks)} candidate pages; "
                           + ', '.join(f"{sum(c['status'] == status for c in checks)} {status}"
@@ -341,6 +371,19 @@ def main():
                               f"{len(scan['inspected_commits'])} | {len(scan['concerns'])} |\n")
     else:
         raise ValueError("Unknown discovery command")
+
+
+def read_scan_output(path):
+    """Read the action's result file; large plans exceed Linux env limits."""
+    messages = json.loads(Path(path).read_text())
+    if not isinstance(messages, list) or not messages:
+        raise ValueError('Missing discovery execution result')
+    result = messages[-1]
+    if (result.get('type') != 'result' or result.get('subtype') != 'success'
+            or result.get('is_error') is not False
+            or not isinstance(result.get('structured_output'), dict)):
+        raise ValueError('Discovery did not finish with successful structured output')
+    return json.dumps(result['structured_output'])
 
 
 if __name__ == "__main__":

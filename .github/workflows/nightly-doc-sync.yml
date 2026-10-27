@@ -107,12 +107,14 @@ jobs:
     secrets: inherit
 
   prepare:
-    needs: release-check
+    # Run main discovery on release days too, after the release publisher so
+    # both paths observe the same shared daily PR quota without racing.
+    needs: [release-check, release-snapshot]
     permissions:
       actions: read
       contents: read
       pull-requests: read
-    if: inputs.release_publish_run == '' && inputs.release_diagnostic_run == '' && inputs.release_resume_run == '' && needs.release-check.outputs.needed != 'true' && github.repository == 'smg-project/smg-docs' && (github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    if: always() && !cancelled() && needs.release-check.result == 'success' && inputs.release_publish_run == '' && inputs.release_diagnostic_run == '' && inputs.release_resume_run == '' && github.repository == 'smg-project/smg-docs' && (github.event_name == 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: smg-org-runner-cpu
     timeout-minutes: 45
     outputs:
@@ -234,10 +236,10 @@ jobs:
             --max-turns 200
             --tools "Read,Glob,Grep"
             --allowedTools "Read,Glob,Grep"
-            --json-schema '{"type":"object","additionalProperties":false,"properties":{"concerns":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"properties":{"area":{"type":"string"},"concern":{"type":"string"},"source_commit":{"type":"integer","minimum":1},"title":{"type":"string"},"question":{"type":"string"},"evidence":{"type":"string"},"doc_paths":{"type":"array","minItems":1,"items":{"type":"string"}},"placement":{"type":"object","additionalProperties":false,"properties":{"examined_pages":{"type":"array","minItems":1,"items":{"type":"string"}},"canonical_pages":{"type":"array","items":{"type":"string"}},"new_page_reason":{"type":"string"}},"required":["examined_pages","canonical_pages","new_page_reason"]}},"required":["area","concern","source_commit","title","question","evidence","doc_paths","placement"]}},"inspected_commits":{"type":"array","items":{"type":"integer","minimum":1}},"remaining_work":{"type":"string"},"release_audit_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"candidate_id":{"type":"string"},"status":{"type":"string","enum":["proposed","covered","not_applicable","deferred"]},"concerns":{"type":"array","items":{"type":"string"}},"evidence":{"type":"string"}},"required":["candidate_id","status","concerns","evidence"]}}},"required":["concerns","inspected_commits","remaining_work","release_audit_checks"]}'
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"concerns":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"properties":{"area":{"type":"string"},"concern":{"type":"string"},"source_commit":{"type":"integer","minimum":1},"title":{"type":"string"},"question":{"type":"string"},"evidence":{"type":"string"},"doc_paths":{"type":"array","minItems":1,"items":{"type":"string"}},"placement":{"type":"object","additionalProperties":false,"properties":{"examined_pages":{"type":"array","minItems":1,"items":{"type":"string"}},"canonical_pages":{"type":"array","items":{"type":"string"}},"new_page_reason":{"type":"string"}},"required":["examined_pages","canonical_pages","new_page_reason"]}},"required":["area","concern","source_commit","title","question","evidence","doc_paths","placement"]}},"inspected_commits":{"type":"array","items":{"type":"integer","minimum":1}},"remaining_work":{"type":"string"},"release_audit_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"candidate_id":{"type":"string"},"status":{"type":"string","enum":["proposed","covered","not_applicable","deferred"]},"concerns":{"type":"array","items":{"type":"string"}},"evidence":{"type":"string"}},"required":["candidate_id","status","concerns","evidence"]}},"daily_commit_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"source_commit":{"type":"integer","minimum":1},"status":{"type":"string","enum":["proposed","covered","not_applicable","deferred"]},"concerns":{"type":"array","items":{"type":"string"}},"evidence":{"type":"string"}},"required":["source_commit","status","concerns","evidence"]}}},"required":["concerns","inspected_commits","remaining_work","release_audit_checks","daily_commit_checks"]}'
       - name: Validate and record scan coverage
         env:
-          PLAN_JSON: ${{ steps.discover.outputs.structured_output }}
+          SCAN_EXECUTION_FILE: ${{ steps.discover.outputs.execution_file }}
           SCAN_OUTPUT: ${{ runner.temp }}/nightly-docs-scan-${{ matrix.shard }}.json
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/discovery.py" scan
       - uses: actions/upload-artifact@v4
@@ -259,6 +261,7 @@ jobs:
       count: ${{ steps.plan.outputs.count }}
       complete: ${{ steps.plan.outputs.complete }}
       missing: ${{ steps.plan.outputs.missing }}
+      uncovered: ${{ steps.plan.outputs.uncovered }}
       base_sha: ${{ needs.prepare.outputs.base_sha }}
       source_sha: ${{ needs.prepare.outputs.source_sha }}
     env:
@@ -553,12 +556,13 @@ jobs:
     env:
       COMPLETE: ${{ needs.plan.outputs.complete }}
       MISSING_SHARDS: ${{ needs.plan.outputs.missing }}
+      UNCOVERED: ${{ needs.plan.outputs.uncovered }}
     steps:
       - name: Report incomplete discovery without blocking successful concerns
         run: |
           if [ "$COMPLETE" != 'true' ]; then
-            echo "::error::Missing validated discovery scans: $MISSING_SHARDS"
+            echo "::error::Incomplete discovery: missing scans [$MISSING_SHARDS]; unfinished required commit checks: $UNCOVERED"
             echo "Successful scans continue through normal review and publication guards."
             exit 1
           fi
-          echo "All requested discovery scans supplied validated results."
+          echo "All requested scans and required commit checks are complete."

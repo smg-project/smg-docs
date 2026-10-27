@@ -6,12 +6,37 @@ other scans own scan_responsibilities. The deploy-config scan owns CLI syntax;
 subsystem scans own runtime behavior.
 
 Use code_history and source_diffs/<sha>.patch to discover concrete user gaps.
-Compare implementation/tests with current docs, including older changes since
-the fixed cutoff. Consider pending_concerns. Survey broadly before investigating;
+First inspect EVERY required_commit_id for your subsystem, reading its patch,
+current implementation/tests, and related documentation. These include the past
+24 hours at the pinned source snapshot, changes missed between runs, and unfinished
+checks from prior runs. A cross-cutting commit can be assigned to several scans;
+each checks its own responsibility. A merge's first-parent patch includes the
+merged changes. Never mark a commit inspected from its title alone.
+
+Return one daily_commit_checks entry per required_commit_id, with source_commit,
+status, concerns, and concise source/documentation evidence:
+
+- proposed: all applicable gaps have proposals in THIS scan; reference their
+  concern slugs. Explain any already-covered or inapplicable parts as well.
+- covered: existing documentation or an existing PR covers the relevant behavior;
+  name page sections or PR numbers; concerns is empty.
+- not_applicable: no documentation change is needed for your subsystem; explain
+  why from the patch/current source (for example, an internal refactor with no
+  user-visible behavior change); concerns is empty.
+- deferred: any relevant change remains unverified or a limit prevents a complete
+  proposal; explain what remains. Reference any completed partial proposals.
+  Missing/deferred checks keep coverage incomplete and carry forward. Do not label
+  unfinished work covered to satisfy the check. One commit can need several
+  separate concerns; one proposal may address related changes in several commits.
+  Keep the one-concern rule and the usual independent review for every proposal.
+
+Then compare implementation/tests with current docs for older changes since
+the fixed cutoff, pending_concerns and release audits. Survey broadly before investigating;
 return remaining_work for unfinished candidates rather than claiming exhaustion.
 Select source_commit using the supplied numeric IDs, never invent a SHA. Record
-IDs actually inspected in inspected_commits. Target 80 investigative turns,
-reserving the rest of 200 for the structured result. Do not chase a PR quota.
+IDs actually inspected in inspected_commits. Budget the 80 investigative turns
+for required commits first, then older work, reserving the rest of 200 for the
+structured result. Do not chase a PR quota.
 
 In evidence, separate the verification snapshot from the changes that introduced
 the behavior. When those changes are known from inspected source history, begin

@@ -181,11 +181,13 @@ sum(rate(smg_http_request_duration_seconds_sum[5m])) / sum(rate(smg_http_request
 
 HTTP responses by path, status code, and gateway error code.
 
+A request is counted once, when its outcome is known: the response's status once the body has gone out in full (at its last frame, or once its bytes add up to the length the response declared), or `499` — nginx's "client closed request" — when the client disconnected first, before the response was produced or while its body was still streaming. The rare request the server itself dropped unanswered, such as on a handler panic or a forced shutdown, is counted as a `499` too.
+
 | Type | Labels |
 |------|--------|
 | Counter | `path`, `status_code`, `error_code` |
 
-`error_code` is the code carried by error responses the gateway generates (for example `admission_queue_full` or `worker_overload_protection_shed`); it is empty for other responses.
+`error_code` is the code carried by error responses the gateway generates (for example `admission_queue_full` or `worker_overload_protection_shed`); it is empty for other responses. The `499` samples carry `client_closed_request`. A response whose body failed after its head went out is counted with the head's status and `stream_error`, unless the head already carried a gateway error code, which is kept.
 
 ```promql
 # Error rate (5xx responses)
@@ -201,6 +203,9 @@ sum(rate(smg_http_responses_total{path="/v1/responses"}[5m]))
 
 # Gateway-generated errors by code
 sum by (error_code) (rate(smg_http_responses_total{error_code!=""}[5m]))
+
+# Clients disconnecting before their response completed
+sum by (path) (rate(smg_http_responses_total{error_code="client_closed_request"}[5m]))
 ```
 
 ---

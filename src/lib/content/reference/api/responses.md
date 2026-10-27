@@ -96,8 +96,8 @@ POST /v1/responses
 | `metadata` | object | No | Custom metadata, echoed in the response; at most 16 pairs, keys up to 64 characters, string values up to 512 characters |
 | `user` | string | No | End-user identifier |
 
-An unknown top-level parameter is rejected with `400` `json_parse_error`: every parameter
-SMG accepts is declared. Besides the fields above and the
+An unknown top-level parameter is rejected with `400` `unknown_parameter`, with `param`
+naming it: every parameter SMG accepts is declared. Besides the fields above and the
 [SGLang extensions](#sglang-extensions), the declared set covers the public API's
 `service_tier`, `truncation`, `prompt`, `prompt_cache_key`, `prompt_cache_retention`,
 `safety_identifier`, and `context_management`, plus SMG's own `request_id` and
@@ -298,7 +298,7 @@ a request that declares it is rejected with `400` (`tool_not_supported`).
 
 Effort tiers, lowest to highest: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`,
 `max`. `none` turns reasoning off; a `reasoning` object without `effort` defaults to
-`medium`. Any other value is rejected with `400` `json_parse_error`. `summary` accepts
+`medium`. Any other value is rejected with `400` `invalid_value`. `summary` accepts
 `auto`, `concise`, or `detailed`.
 
 On gRPC workers the tier reaches the chat pipeline as the same `reasoning_effort` string,
@@ -1359,8 +1359,9 @@ items, the next request's `input` can be only their `function_call_output` items
 ### Error Format
 
 Errors that SMG generates use the gateway envelope, with the public API's error type as `type`
-(`invalid_request_error` for a 4xx, the detail in `code`; `rate_limit_error` for a 429; `server_error`
-for a 5xx) and the code repeated in the `X-SMG-Error-Code` header:
+(`invalid_request_error` for a 4xx, the detail in `code`; `permission_error` for a 403;
+`rate_limit_error` for a 429; `server_error` for a 5xx) and the code repeated in the
+`X-SMG-Error-Code` header:
 
 ```json
 {
@@ -1373,16 +1374,19 @@ for a 5xx) and the code repeated in the `X-SMG-Error-Code` header:
 }
 ```
 
-Request parsing and validation failures use `type: invalid_request_error` instead: a body
-that cannot be parsed has `code` `json_parse_error`, and a failed validation rule has
-`code` `400` with the rule's message in `message`. See
-[Error Responses](openai.md#error-responses) for the full envelope description.
+Request parsing and validation failures use the same envelope without the header. Their
+`code` names the failure: `invalid_json` for a syntax error, a schema code such as
+`unknown_parameter` or `invalid_type` for a body that does not match the request type, the
+bound crossed such as `integer_above_max_value` for a field outside its range, or the
+violated rule's own code such as `invalid_conversation_id`. `param` names the offending
+field when one is known. See [Error Responses](openai.md#error-responses) for the full
+vocabulary.
 
 ### Common Errors
 
 | HTTP Status | `code` | Description |
 |-------------|--------|-------------|
-| 400 | `400`, `json_parse_error` | Malformed request or validation failure |
+| 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), or the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...) |
 | 400 | `previous_response_not_found` | `previous_response_id` is not in SMG's storage, or is another tenant's response |
 | 400 | `convert_request_failed` | gRPC: an input item the chat pipeline cannot represent, such as media in a `function_call_output` |
 | 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |
@@ -1404,7 +1408,8 @@ that cannot be parsed has `code` `json_parse_error`, and a failed validation rul
   "error": {
     "message": "conversation: Invalid 'conversation': 'invalid-id'. Expected an ID that begins with 'conv_'.",
     "type": "invalid_request_error",
-    "code": 400
+    "param": "conversation",
+    "code": "invalid_conversation_id"
   }
 }
 ```
@@ -1414,7 +1419,8 @@ that cannot be parsed has `code` `json_parse_error`, and a failed validation rul
   "error": {
     "message": "__all__: Mutually exclusive parameters. Ensure you are only providing one of: 'previous_response_id' or 'conversation'.",
     "type": "invalid_request_error",
-    "code": 400
+    "param": null,
+    "code": "mutually_exclusive_parameters"
   }
 }
 ```

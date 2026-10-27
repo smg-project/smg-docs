@@ -105,13 +105,6 @@ naming it: every parameter SMG accepts is declared. Besides the fields above and
 Codex, is also accepted but not forwarded: SMG leaves it out of the request bodies it
 sends to workers and providers.
 
-These rules match the public API's request contract and apply since v1.13.0. In
-v1.12.0 and earlier, unknown top-level parameters are ignored, `metadata` is not
-size-checked, and
-`top_logprobs` without `message.output_text.logprobs` in `include` is rejected with
-`400` — on main that combination is accepted. The input-role, tool, and structured-output
-rules below likewise apply since v1.13.0 and are not enforced in v1.12.0 and earlier.
-
 ### Input Formats
 
 **Simple text input:**

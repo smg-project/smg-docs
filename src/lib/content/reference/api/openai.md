@@ -214,9 +214,10 @@ restrict the accepted values per model family.
 - `{"type": "json_schema", "json_schema": {"name": "...", "schema": {...}, "strict": true}}`
 
 For `json_schema`, `name` must not be empty and `schema` must be a JSON object (`{}` is
-allowed). A string, array, boolean, number, or `null` schema is rejected with `400` before
-the request reaches any worker, on every backend, unless the HTTP router streams the request
-to the worker unparsed (see [Request Streaming](../../concepts/performance/request-streaming.md)).
+allowed). A string, array, boolean, number, or `null` schema is rejected with `400`
+`json_schema_schema_not_object` before the request reaches any worker, on every backend,
+unless the HTTP router streams the request to the worker unparsed (see
+[Request Streaming](../../concepts/performance/request-streaming.md)).
 
 #### Example Request
 
@@ -563,7 +564,7 @@ this answers `400`.
 
 | Status | `code` | Returned when |
 |--------|--------|---------------|
-| 400 | `400` or `json_parse_error` | A length or image limit fails, or the body does not match the schema (a non-`user` role, an unknown question `type`, a numeric choice `value`, ...) |
+| 400 | The failure's code (see [Error Format](#error-format)) | The body is not valid JSON (`invalid_json`), does not match the schema (`invalid_value` for a non-`user` role or an unknown question `type`, `invalid_type` for a numeric choice `value`, ...), or fails a limit (`invalid_value` for a length limit, `too_many_images`, `invalid_image_url`); `param` names the offending field when one is known |
 | 400 | `unsupported_decisions_request` | An SGLang worker was selected and the request needs something SGLang Decisions does not support (see [Decision Workers](#decision-workers)) |
 | 404 | `model_not_found` | No worker serves the model |
 | 501 | `decisions_not_supported` | No regular HTTP worker and no regular SGLang gRPC worker serves the model |
@@ -825,22 +826,21 @@ the HTTP router streams to the worker unparsed skips them (see
 
 ### Validation Rules
 
-A violation is rejected with `400`. The response has `error.type` set to
-`invalid_request_error` and `error.code` set to `400` (as for every validation failure),
-and `error.message` carries the rule's message:
+A violation is rejected with `400` in the validation envelope (see
+[Error Format](#error-format)): `error.type` is `invalid_request_error`, `error.code` is
+the rule code from the last column, and `error.message` carries the rule's message.
+Profile rules judge the request as a whole, so `error.param` is null:
 
 ```json
 {
   "error": {
     "message": "__all__: invalid thinking.type: only enabled or disabled is allowed for this model",
     "type": "invalid_request_error",
-    "code": 400
+    "param": null,
+    "code": "thinking_type_not_supported"
   }
 }
 ```
-
-The rule code in the last column names the rule in SMG's source and tests; only
-`context_length_exceeded` is returned as `error.code`.
 
 | Profile | Rejected | Rule code |
 |---------|----------|-----------|
@@ -870,6 +870,10 @@ The rule code in the last column names the rule in SMG's source and tests; only
 
 z.ai and DeepSeek V4 check both effort spellings, even the one that `thinking.effort`
 shadows.
+
+The z.ai (gRPC) context-window rule needs the selected worker's advertised window, so it
+is enforced in the gRPC pipeline rather than in request validation: alone in this table,
+its `400` carries the `X-SMG-Error-Code` header.
 
 ### Defaults and Rewrites
 
@@ -903,13 +907,18 @@ response header:
 
 `type` is the public API's vocabulary, which clients switch on: `invalid_request_error` for a 4xx
 (the detail is in `code`; a 403 is `permission_error` and a 429 `rate_limit_error`) and `server_error`
-for a 5xx. Request parsing and validation failures
-use a different shape and carry no `X-SMG-Error-Code` header:
+for a 5xx. Request parsing and validation failures use the same envelope but carry no
+`X-SMG-Error-Code` header. Their `code` names the failure, and `param` names the offending
+field when one is known (for example `messages[0].content`); it is null for a syntax error
+or a rule over the whole request:
 
-| Failure | Body |
-|---------|------|
-| Body is not valid JSON, does not match the request schema, or lacks `Content-Type: application/json` | `{"error": {"message": "...", "type": "invalid_request_error", "code": "json_parse_error"}}` |
-| A field range, a cross-field rule, or a [provider-profile](#provider-profiles) rule fails | `{"error": {"message": "...", "type": "invalid_request_error", "code": 400}}` |
+| Failure | `code` |
+|---------|--------|
+| The body is not valid JSON | `invalid_json` |
+| The body does not match the request schema | `missing_required_parameter`, `unknown_parameter`, `invalid_type` (a value of the wrong shape, including a non-object body), `invalid_value` (a value outside an enumeration), or `integer_below_min_value` (a negative integer where the field cannot be negative) |
+| A field crosses a documented bound | The kind of value and the bound crossed: `integer_above_max_value`, `decimal_below_min_value`, `string_above_max_length`, `empty_array`, ... |
+| A cross-field or [provider-profile](#provider-profiles) rule fails | The rule's own code: `stream_options_requires_stream`, `tool_choice_requires_tools`, `mutually_exclusive_parameters`, ... |
+| The `Content-Type: application/json` header is missing, or the body fails to parse for any other reason | `json_parse_error` |
 
 A `401` from API-key authentication has an empty body. Errors from HTTP workers are
 relayed with the worker's status and body. An external provider's error is relayed under
@@ -922,8 +931,11 @@ itself produced the error.
 
 | Status | `code` | Returned when |
 |--------|--------|---------------|
-| 400 | `400` | Request validation failed: a field range, a cross-field rule (`stream_options` without `stream`, `top_logprobs` without `logprobs`, a `tool_choice` naming a missing tool, ...), a non-object `json_schema`, or a [provider-profile](#provider-profiles) rule |
-| 400 | `json_parse_error` | The body could not be parsed into the request type |
+| 400 | `invalid_json` | The body is not valid JSON |
+| 400 | `missing_required_parameter`, `unknown_parameter`, `invalid_type`, `invalid_value`, `integer_below_min_value` | The body does not match the request schema; `param` names the field when one is known |
+| 400 | `integer_above_max_value`, `decimal_below_min_value`, `string_above_max_length`, `empty_array`, ... | A field is outside its documented bounds; the code names the kind of value and the bound crossed, `param` the field |
+| 400 | The rule's code | A cross-field rule (`stream_options_requires_stream` for `stream_options` without `stream`, `top_logprobs_requires_logprobs`, `tool_choice_function_not_found` for a `tool_choice` naming a missing tool, `json_schema_schema_not_object` for a non-object `json_schema`, ...) or a [provider-profile](#provider-profiles) rule failed |
+| 400 | `json_parse_error` | The `Content-Type: application/json` header is missing, or the body failed to parse for a reason outside the set above |
 | 400 | `context_length_exceeded` | gRPC: the longest prompt is longer than the context window the selected worker advertises (the tighter leg governs in PD, and each prompt of a batched completion counts on its own). Workers that advertise no window are not checked |
 | 400 | `unsupported_content_part` | gRPC: a content part SMG cannot render |
 | 400 | `audio_output_not_supported`, `unsupported_output_modality` | gRPC: `return_audio: true` or a non-`text` entry in `modalities`; gRPC workers produce text only |
@@ -1047,7 +1059,7 @@ With a valid `X-SMG-Routing-Tokens` hint, the text-routing policies (`cache_awar
 |--------|------------------|---------------|
 | `x-request-id` | On API responses: the request ID SMG used, whether received or generated | [Logging](../../getting-started/logging.md) |
 | `x-smg-routed-worker-id` | On inference responses from HTTP, gRPC, and ZMQ workers: the registered URL of the worker that served the request, with an `@<rank>` suffix for data-parallel workers. For a prefill/decode pair it names the decode worker. From gRPC and ZMQ workers, only successful responses carry it, and Responses API responses do not | [Sticky Sessions and Routing Keys](../../concepts/routing/sticky-sessions.md#routed-worker-header) |
-| `X-SMG-Error-Code` | On errors the gateway generates in its standard error envelope, with the same value as `error.code`; request-validation `400` errors do not carry it. SMG drops this header from worker responses, so it always marks a gateway decision | — |
+| `X-SMG-Error-Code` | On errors the gateway generates in its standard error envelope, with the same value as `error.code`; request-validation errors do not carry it. SMG drops this header from worker responses, so it always marks a gateway decision | — |
 | `X-SMG-Preempted` | `true` on the `503` returned to a request preempted by the priority scheduler | [Priority Scheduler](../priority-scheduler.md) |
 | `Retry-After` | On `429` and `503` responses that ask the client to back off: concurrency limits, worker overload, the priority scheduler, tenant rate limits, and the `503` answered when no worker is available (`Retry-After: 1`) | [Rate Limiting](../../concepts/reliability/rate-limiting.md) |
 

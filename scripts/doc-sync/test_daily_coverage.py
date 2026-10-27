@@ -193,7 +193,8 @@ class DailyCoverageTests(unittest.TestCase):
             path = Path(directory) / 'execution.json'
             payload = {'remaining_work': "$(exit 1) `exit 1` '" + 'x' * 200000}
             result = {'type': 'result', 'subtype': 'success', 'is_error': False, 'structured_output': payload}
-            path.write_text(json.dumps([{'type': 'assistant'}, result]))
+            assistant = {'type': 'assistant', 'message': {'id': 'msg-1'}}
+            path.write_text(json.dumps([assistant, result]))
             self.assertEqual(json.loads(discovery.read_scan_output(path)), payload)
             for messages in [[], {}, [result, {'type': 'assistant'}],
                              [{**result, 'is_error': True}], [{**result, 'subtype': 'error_max_turns'}],
@@ -201,6 +202,32 @@ class DailyCoverageTests(unittest.TestCase):
                 path.write_text(json.dumps(messages))
                 with self.subTest(messages=str(messages)[:100]), self.assertRaises(ValueError):
                     discovery.read_scan_output(path)
+
+    def test_turn_counter_recovery_requires_success_and_verifiable_bounded_rounds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'execution.json'
+            assistant = lambda identity: {'type': 'assistant', 'message': {'id': identity}}
+            result = {'type': 'result', 'subtype': 'success', 'is_error': False,
+                      'num_turns': 201, 'structured_output': {'concerns': []}}
+            # Several content blocks from one API response share its message ID.
+            trace = [assistant('a'), assistant('a'), assistant('b'), result]
+            path.write_text(json.dumps(trace))
+            self.assertEqual(json.loads(discovery.read_scan_output(path, 'failure', 200)),
+                             result['structured_output'])
+            for messages, outcome, limit in [
+                    (trace, 'failure', 1), (trace, 'success', 1),
+                    (trace, 'cancelled', 200), (trace, 'skipped', 200),
+                    (trace, 'failure', 201), (trace, 'failure', 0),
+                    ([result], 'failure', 200),
+                    ([assistant(None), result], 'failure', 200),
+                    ([assistant(''), result], 'failure', 200),
+                    ([assistant('a'), {**result, 'subtype': 'error_max_turns'}], 'failure', 200),
+                    ([assistant('a'), {**result, 'is_error': True}], 'failure', 200),
+                    ([assistant('a'), {**result, 'structured_output': None}], 'failure', 200),
+                    ([assistant('a'), {**result, 'num_turns': '201'}], 'failure', 200)]:
+                path.write_text(json.dumps(messages))
+                with self.subTest(outcome=outcome, limit=limit, messages=messages), self.assertRaises(ValueError):
+                    discovery.read_scan_output(path, outcome, limit)
 
     def test_partition_scan_and_combine_keep_daily_accounting_end_to_end(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -216,13 +243,16 @@ class DailyCoverageTests(unittest.TestCase):
                    'NIGHTLY_CONTEXT': str(root / 'scoped.json'), 'SCAN_DIR': str(scans),
                    'SCAN_OUTPUT': str(scans / 'api.json'), 'REPORT_OUTPUT': str(root / 'report.json'),
                    'SCAN_EXECUTION_FILE': str(root / 'execution.json'),
+                   'SCAN_ACTION_OUTCOME': 'failure', 'DISCOVERY_MAX_ROUNDS': '200',
                    'GITHUB_OUTPUT': str(root / 'output'), 'GITHUB_STEP_SUMMARY': str(root / 'summary')}
             result = {'concerns': [], 'inspected_commits': [1, 2], 'remaining_work': 'Old history remains.',
                       'release_audit_checks': [], 'daily_commit_checks': [
                           {'source_commit': i, 'status': 'not_applicable', 'concerns': [],
                            'evidence': 'Test-only changes, no changed user contract.'} for i in [1, 2]]}
-            Path(env['SCAN_EXECUTION_FILE']).write_text(json.dumps([{
-                'type': 'result', 'subtype': 'success', 'is_error': False, 'structured_output': result}]))
+            Path(env['SCAN_EXECUTION_FILE']).write_text(json.dumps([
+                {'type': 'assistant', 'message': {'id': 'msg-1'}}, {
+                'type': 'result', 'subtype': 'success', 'is_error': False,
+                'num_turns': 201, 'structured_output': result}]))
             prior = {'daily_coverage': {'checks': [
                 {'shard': 'api-protocols', **self.check(status='blocked',
                    blockers=[{'pr': 338, 'path': proposal()['doc_paths'][0]}])}]}}
@@ -240,6 +270,8 @@ class DailyCoverageTests(unittest.TestCase):
             self.assertEqual(len(scoped['code_history']), 3)
             self.assertTrue(report['complete'])
             self.assertEqual(len(report['daily_coverage']['checks']), 2)
+            self.assertTrue(report['scans'][0]['execution']['recovered'])
+            self.assertEqual(report['scans'][0]['execution']['assistant_rounds'], 1)
             self.assertIn('uncovered=0\n', Path(env['GITHUB_OUTPUT']).read_text())
             self.assertIn('2 not_applicable', Path(env['GITHUB_STEP_SUMMARY']).read_text())
 

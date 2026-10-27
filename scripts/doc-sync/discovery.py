@@ -327,13 +327,20 @@ def main():
     elif command == "scan":
         slug = os.environ["SHARD"]
         assignments = json.loads((root / "assignments.json").read_text())
-        raw = resolve_scan(read_scan_output(os.environ['SCAN_EXECUTION_FILE']), context["code_history"])
+        execution = {}
+        raw = resolve_scan(read_scan_output(
+            os.environ['SCAN_EXECUTION_FILE'], os.environ.get('SCAN_ACTION_OUTCOME', 'success'),
+            int(os.environ.get('DISCOVERY_MAX_ROUNDS', '200')), execution), context["code_history"])
         scan = validate_scan(raw, context, slug, context["code_history"])
+        scan['execution'] = execution
         Path(os.environ["SCAN_OUTPUT"]).write_text(json.dumps(scan))
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write(f"{slug}: {len(assignments[slug])} priority commits; "
                           f"{len(scan['inspected_commits'])} self-reported inspected; "
                           f"{len(scan['concerns'])} proposed concerns.\n")
+            summary.write(f"Verified {execution['assistant_rounds']} assistant rounds "
+                          f"within the {execution['max_rounds']}-round limit. "
+                          f"Upstream turn-counter recovery: {execution['recovered']}.\n")
     elif command == "combine":
         scans = [json.loads(path.read_text()) for path in Path(os.environ["SCAN_DIR"]).glob("*.json")]
         report = build_report(scans, context)
@@ -380,8 +387,14 @@ def main():
         raise ValueError("Unknown discovery command")
 
 
-def read_scan_output(path):
-    """Read the action's result file; large plans exceed Linux env limits."""
+def read_scan_output(path, action_outcome='success', max_rounds=200, details=None):
+    """Read a successful, bounded trace; never infer approval from step status.
+
+    The pinned action's post-hoc guard compares tool-result counts with SDK
+    API rounds (anthropics/claude-code-action#1795). Recover only that mismatch,
+    after checking distinct assistant message IDs and all ordinary result gates.
+    The workflow clears the known execution path before invoking the action.
+    """
     messages = json.loads(Path(path).read_text())
     if not isinstance(messages, list) or not messages:
         raise ValueError('Missing discovery execution result')
@@ -390,6 +403,24 @@ def read_scan_output(path):
             or result.get('is_error') is not False
             or not isinstance(result.get('structured_output'), dict)):
         raise ValueError('Discovery did not finish with successful structured output')
+    assistants = [m.get('message', {}).get('id') for m in messages if m.get('type') == 'assistant']
+    if (not assistants or any(not isinstance(i, str) or not i for i in assistants)
+            or type(max_rounds) is not int or max_rounds < 1):
+        raise ValueError('Discovery trace lacks a verifiable assistant-round count')
+    rounds = len(set(assistants))
+    if rounds > max_rounds:
+        raise ValueError(f'Discovery exceeded its API-round budget: {rounds} > {max_rounds}')
+    reported = result.get('num_turns')
+    if action_outcome != 'success':
+        if (action_outcome != 'failure' or type(reported) is not int or reported <= max_rounds):
+            raise ValueError('Discovery action failed without the known turn-counter mismatch')
+        print(f'Recovered upstream turn-counter mismatch: {reported} reported turns, '
+              f'{rounds} assistant rounds within the {max_rounds}-round limit.')
+    else:
+        print(f'Validated discovery trace: {rounds} assistant rounds within the {max_rounds}-round limit.')
+    if details is not None:
+        details.update(assistant_rounds=rounds, max_rounds=max_rounds, reported_turns=reported,
+                       action_outcome=action_outcome, recovered=action_outcome == 'failure')
     return json.dumps(result['structured_output'])
 
 

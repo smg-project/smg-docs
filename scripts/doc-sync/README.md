@@ -145,6 +145,14 @@ writer bundles are retained for two days; publication validation artifacts
 retain the item, diff, and explicit four-gate review verdict for fourteen days.
 The discovery report is also retained for fourteen days and identifies targeted
 scans and dry runs.
+Discovery retains its 200 API-round and 45-minute limits. The pinned action has
+an [upstream turn-counter mismatch](https://github.com/anthropics/claude-code-action/issues/1795):
+its reported tool-result count can exceed the API-round limit on successful runs.
+The mandatory validator counts distinct assistant message IDs in the fresh
+execution trace. It recovers only a failed action with that specific overcount,
+a successful structured result and a verified round count within the limit.
+Missing traces, real budget errors, other action failures and invalid proposals
+still fail; the execution file is cleared before each invocation.
 The old `automation/doc-sync-state` branch is retained as history and is no longer
 written. Eligibility comes from the fixed source window and live PR history, so
 legacy incomplete work remains discoverable.

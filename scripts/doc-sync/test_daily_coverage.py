@@ -188,6 +188,37 @@ class DailyCoverageTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 discovery.resolve_scan(json.dumps(raw), self.history)
 
+    def test_keyed_daily_checks_resolve_without_model_supplied_hashes(self):
+        check = {'status': 'covered', 'concerns': [], 'blockers': [],
+                 'evidence': 'The API reference already describes the field.'}
+        raw = {'concerns': [], 'inspected_commits': [1], 'remaining_work': 'Backlog',
+               'daily_commit_checks': {'1': check}}
+        resolved = json.loads(discovery.resolve_scan(json.dumps(raw), self.history))
+        self.assertEqual(resolved['daily_commit_checks'], [{**check, 'source_sha': self.latest}])
+        discovery.validate_scan(json.dumps(resolved), self.context, 'api-protocols', self.history)
+        for key, value in [('0', check), ('4', check), ('01', check), ('+1', check),
+                           ('1.0', check), (self.latest, check), ('١', check),
+                           ('1', None), ('1', {**check, 'source_commit': 2}),
+                           ('1', {**check, 'source_sha': self.recent})]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                discovery.resolve_scan(json.dumps({**raw, 'daily_commit_checks': {key: value}}),
+                                       self.history)
+
+    def test_schema_requires_every_assigned_commit_even_if_already_inspected(self):
+        # Run 40453649191 inspected global ID 81 but omitted its disposition.
+        # The output contract must require it separately from inspected_commits.
+        for ids in [[1, 81, 113], []]:
+            schema = discovery.scan_schema({'required_commit_ids': ids})
+            checks = schema['properties']['daily_commit_checks']
+            self.assertEqual(checks['type'], 'object')
+            self.assertEqual(checks['required'], [str(i) for i in ids])
+            self.assertEqual(set(checks['properties']), set(checks['required']))
+            self.assertFalse(checks['additionalProperties'])
+            for definition in checks['properties'].values():
+                self.assertEqual(definition, {'$ref': '#/definitions/daily_check'})
+            self.assertNotIn('source_commit', schema['definitions']['daily_check']['properties'])
+            self.assertIn('evidence', schema['definitions']['daily_check']['required'])
+
     def test_large_execution_output_is_read_from_file_without_shell_interpolation(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'execution.json'
@@ -246,9 +277,10 @@ class DailyCoverageTests(unittest.TestCase):
                    'SCAN_ACTION_OUTCOME': 'failure', 'DISCOVERY_MAX_ROUNDS': '200',
                    'GITHUB_OUTPUT': str(root / 'output'), 'GITHUB_STEP_SUMMARY': str(root / 'summary')}
             result = {'concerns': [], 'inspected_commits': [1, 2], 'remaining_work': 'Old history remains.',
-                      'release_audit_checks': [], 'daily_commit_checks': [
-                          {'source_commit': i, 'status': 'not_applicable', 'concerns': [],
-                           'evidence': 'Test-only changes, no changed user contract.'} for i in [1, 2]]}
+                      'release_audit_checks': [], 'daily_commit_checks': {
+                          str(i): {'status': 'not_applicable', 'concerns': [], 'blockers': [],
+                                   'evidence': 'Test-only changes, no changed user contract.'}
+                          for i in [1, 2]}}
             Path(env['SCAN_EXECUTION_FILE']).write_text(json.dumps([
                 {'type': 'assistant', 'message': {'id': 'msg-1'}}, {
                 'type': 'result', 'subtype': 'success', 'is_error': False,
@@ -267,6 +299,9 @@ class DailyCoverageTests(unittest.TestCase):
             report = json.loads(Path(env['REPORT_OUTPUT']).read_text())
             self.assertEqual(scoped['required_commit_ids'], [1, 2])
             self.assertEqual(scoped['pending_commit_checks'], prior['daily_coverage']['checks'])
+            output = dict(line.split('=', 1) for line in Path(env['GITHUB_OUTPUT']).read_text().splitlines())
+            schema = json.loads(output['schema'])
+            self.assertEqual(schema['properties']['daily_commit_checks']['required'], ['1', '2'])
             self.assertEqual(len(scoped['code_history']), 3)
             self.assertTrue(report['complete'])
             self.assertEqual(len(report['daily_coverage']['checks']), 2)

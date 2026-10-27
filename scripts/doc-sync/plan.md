@@ -15,8 +15,11 @@ merged changes. Never mark a commit inspected from its title alone.
 Use pending_commit_checks as leads, then re-check the current source, docs and PR
 inventory; old findings and blockers are not current approval or proof.
 
-Return one daily_commit_checks entry per required_commit_id, with source_commit,
-status, concerns, blockers, and concise source/documentation evidence:
+Return daily_commit_checks as an object keyed by EVERY required_commit_id as a
+decimal string (for example, "81"). Each required key has status, concerns,
+blockers, and concise source/documentation evidence. The schema requires every
+assigned ID, exactly once; do not add source_commit inside these keyed values.
+An inspected commit still needs its own disposition, including test-only changes.
 
 - proposed: all applicable gaps have proposals in THIS scan; reference their
   concern slugs. Explain any already-covered or inapplicable parts as well.

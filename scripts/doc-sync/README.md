@@ -139,6 +139,10 @@ as empty successful inspections. `daily_coverage` records the frozen time window
 each required commit/subsystem disposition and its evidence. Its unfinished checks
 are carried forward without the 100-concern queue cap, within the same 14-day
 production-report retention. Filtered pilots cover only their selected subsystem.
+Each scan's structured-output schema requires a field for every assigned commit
+ID. The SDK can correct omitted fields before returning; independent validation
+still rejects incomplete or unsupported assessments. Saved reports retain the
+usual list of resolved commit hashes and dispositions.
 With no scans, planning still writes a report,
 but no writer or publisher is scheduled. Scan contexts and
 writer bundles are retained for two days; publication validation artifacts

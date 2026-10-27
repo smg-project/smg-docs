@@ -69,11 +69,23 @@ def resolve_scan(raw, history):
             raise ValueError("The model must select a commit ID, not supply a hash")
         item["source_sha"] = resolve(item.pop("source_commit"))
         concerns.append(item)
+    daily = result.get('daily_commit_checks', [])
+    if isinstance(daily, dict):
+        keyed = []
+        for number, check in daily.items():
+            if not number.isdecimal() or str(int(number)) != number:
+                raise ValueError('Daily commit key must be a canonical numeric source ID')
+            if not isinstance(check, dict):
+                raise ValueError('Daily commit assessment must be an object')
+            if 'source_commit' in check or 'source_sha' in check:
+                raise ValueError('Keyed daily checks must select source only through the key')
+            keyed.append({**check, 'source_commit': int(number)})
+        daily = keyed
     return json.dumps({"concerns": concerns,
                        "inspected_commits": [resolve(number) for number in result["inspected_commits"]],
                        "daily_commit_checks": [{**{k: v for k, v in check.items() if k != 'source_commit'},
                                                 'source_sha': resolve(check['source_commit'])}
-                                               for check in result.get('daily_commit_checks', [])],
+                                               for check in daily],
                        "release_audit_checks": result.get("release_audit_checks", []),
                        "remaining_work": result["remaining_work"]})
 
@@ -292,6 +304,20 @@ def scan_context(context, slug, assignments):
             "scan_responsibilities": {name: focus for name, focus, _ in SHARDS}}
 
 
+def scan_schema(scoped):
+    """Make every frozen daily obligation a required output field.
+
+    A free-form array can silently omit an inspected commit. Required keys let
+    the SDK correct that omission before returning; our independent coverage
+    and evidence guards still decide whether the assessment is complete.
+    """
+    schema = json.loads(Path(__file__).with_name('scan-schema.json').read_text())
+    ids = [str(number) for number in scoped['required_commit_ids']]
+    schema['properties']['daily_commit_checks'].update(
+        properties={number: {'$ref': '#/definitions/daily_check'} for number in ids}, required=ids)
+    return schema
+
+
 def main():
     command = sys.argv[1]
     root = Path(os.environ["RUNNER_TEMP"]) / "nightly-docs-context"
@@ -324,6 +350,13 @@ def main():
         assignments = json.loads((root / "assignments.json").read_text())
         scoped = scan_context(context, slug, assignments)
         Path(os.environ["NIGHTLY_CONTEXT"]).write_text(json.dumps(scoped, indent=2))
+        encoded = json.dumps(scan_schema(scoped), separators=(',', ':'))
+        # Fail explicitly rather than silently dropping mandatory IDs or hitting
+        # Linux's per-argument limit when the action starts.
+        if len(encoded.encode()) > 120000:
+            raise ValueError('Daily coverage schema is too large for one scan; split the scan before retrying')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write('schema=' + encoded + '\n')
     elif command == "scan":
         slug = os.environ["SHARD"]
         assignments = json.loads((root / "assignments.json").read_text())

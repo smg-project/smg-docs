@@ -85,7 +85,10 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   mandatory checks remain required even after the 24-hour window moves on.
   Main discovery also runs when a new release needs its separate snapshot audit.
   Each check records a proposed correction, existing coverage, a reason no docs
-  change is needed, or unfinished work. Missing/deferred checks fail coverage
+  change is needed, a verified open-PR page blocker, or unfinished assessment.
+  Blocked corrections count as assessed only with inspected-source evidence and
+  exact page/PR references validated against the prepared open-PR inventory;
+  they carry forward until resolved. Missing/deferred checks fail coverage
   without blocking valid sibling publication. This guarantees explicit accounting,
   not model infallibility or a PR for every commit: independent review, page conflicts,
   and the daily PR cap still apply. Older history, pending corrections and release

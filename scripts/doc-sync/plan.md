@@ -12,9 +12,11 @@ current implementation/tests, and related documentation. These include the past
 checks from prior runs. A cross-cutting commit can be assigned to several scans;
 each checks its own responsibility. A merge's first-parent patch includes the
 merged changes. Never mark a commit inspected from its title alone.
+Use pending_commit_checks as leads, then re-check the current source, docs and PR
+inventory; old findings and blockers are not current approval or proof.
 
 Return one daily_commit_checks entry per required_commit_id, with source_commit,
-status, concerns, and concise source/documentation evidence:
+status, concerns, blockers, and concise source/documentation evidence:
 
 - proposed: all applicable gaps have proposals in THIS scan; reference their
   concern slugs. Explain any already-covered or inapplicable parts as well.
@@ -23,12 +25,20 @@ status, concerns, and concise source/documentation evidence:
 - not_applicable: no documentation change is needed for your subsystem; explain
   why from the patch/current source (for example, an internal refactor with no
   user-visible behavior change); concerns is empty.
+- blocked: the assessment is COMPLETE, but all remaining verified corrections
+  need pages held by open PRs. Name the stale/missing contract and source evidence,
+  and list each blocker as {pr: number, path: canonical_doc_path}. Each PR must
+  be open and hold that exact page in existing_prs. Reference any other completed
+  proposals in concerns. Do not use this for unverified changes or budget limits.
 - deferred: any relevant change remains unverified or a limit prevents a complete
   proposal; explain what remains. Reference any completed partial proposals.
-  Missing/deferred checks keep coverage incomplete and carry forward. Do not label
-  unfinished work covered to satisfy the check. One commit can need several
-  separate concerns; one proposal may address related changes in several commits.
-  Keep the one-concern rule and the usual independent review for every proposal.
+
+Use an empty blockers list for every status except blocked. Verified blockers
+count as assessed but carry forward until the pages are available or already
+corrected. Missing/deferred checks keep coverage incomplete and carry forward. Do not label
+unfinished work covered to satisfy the check. One commit can need several
+separate concerns; one proposal may address related changes in several commits.
+Keep the one-concern rule and the usual independent review for every proposal.
 
 Then compare implementation/tests with current docs for older changes since
 the fixed cutoff, pending_concerns and release audits. Survey broadly before investigating;

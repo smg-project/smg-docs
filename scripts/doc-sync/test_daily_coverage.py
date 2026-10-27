@@ -11,7 +11,7 @@ import daily_coverage as daily
 import discovery
 import nightly_docs as docs
 import test_nightly_docs as fixtures
-from test_nightly_docs import proposal
+from test_nightly_docs import proposal, pr
 
 
 class DailyCoverageTests(unittest.TestCase):
@@ -104,6 +104,40 @@ class DailyCoverageTests(unittest.TestCase):
                 self.assertEqual(report['queued_concerns'][0]['concern'], 'older-pending')
                 self.assertEqual(len(report['daily_coverage']['checks']), 3)
 
+    def test_verified_open_pr_blocker_counts_as_assessed_but_carries_forward(self):
+        page = proposal()['doc_paths'][0]
+        self.context['existing_prs'] = [pr(docs.validate_item(proposal()), number=338)]
+        check = self.check(status='blocked', blockers=[{'pr': 338, 'path': page}],
+                           evidence='The source adds a parameter missing from the held reference page.')
+        self.scans[0].update(inspected_commits=[self.latest, self.recent],
+                             daily_commit_checks=[check, self.check(self.recent)])
+        self.context['discovery_shard'] = 'api-protocols'
+        report = discovery.build_report(self.scans[:1], self.context)
+        self.assertTrue(report['complete'])
+        self.assertEqual(report['selected'], [])
+        # Even with no fresh commits next night, the blocked finding is required.
+        self.context['daily_window']['commits'] = []
+        assigned = daily.assign(self.context, report, self.assignments)
+        self.assertEqual(assigned['api-protocols'], [self.latest])
+        self.assertEqual(assigned['operations'], [])
+
+    def test_blockers_cannot_hide_an_uninspected_commit_or_invent_pr_coverage(self):
+        page = proposal()['doc_paths'][0]
+        scan = {**self.scans[0], 'inspected_commits': [self.latest]}
+        self.context['existing_prs'] = [pr(docs.validate_item(proposal()), number=338)]
+        bad = [self.check(status='blocked'),
+               self.check(self.recent, status='blocked', blockers=[{'pr': 338, 'path': page}]),
+               self.check(status='blocked', blockers=[{'pr': 339, 'path': page}]),
+               self.check(status='blocked', blockers=[{'pr': 338, 'path': docs.DOC_ROOT+'other.md'}]),
+               self.check(status='covered', blockers=[{'pr': 338, 'path': page}])]
+        for check in bad:
+            with self.subTest(check=check), self.assertRaises(ValueError):
+                daily.validate({**scan, 'daily_commit_checks': [check]}, self.context, 'api-protocols')
+        self.context['existing_prs'][0]['state'] = 'closed'
+        with self.assertRaisesRegex(ValueError, 'not an open PR'):
+            daily.validate({**scan, 'daily_commit_checks': [self.check(
+                status='blocked', blockers=[{'pr': 338, 'path': page}])]}, self.context, 'api-protocols')
+
     def test_no_scan_records_every_obligation_as_uninspected(self):
         report = discovery.build_report([], self.context)
         self.assertFalse(report['complete'])
@@ -180,8 +214,11 @@ class DailyCoverageTests(unittest.TestCase):
                            'evidence': 'Test-only changes, no changed user contract.'} for i in [1, 2]]}
             Path(env['SCAN_EXECUTION_FILE']).write_text(json.dumps([{
                 'type': 'result', 'subtype': 'success', 'is_error': False, 'structured_output': result}]))
+            prior = {'daily_coverage': {'checks': [
+                {'shard': 'api-protocols', **self.check(status='blocked',
+                   blockers=[{'pr': 338, 'path': proposal()['doc_paths'][0]}])}]}}
             with patch.dict(os.environ, env), \
-                    patch.object(discovery, 'previous_report', return_value={}), \
+                    patch.object(discovery, 'previous_report', return_value=prior), \
                     patch.object(discovery.release_handoff, 'collect', return_value=[]), \
                     patch.object(discovery, 'partition', return_value=self.assignments):
                 for command in ['partition', 'context', 'scan', 'combine']:
@@ -190,6 +227,7 @@ class DailyCoverageTests(unittest.TestCase):
             scoped = json.loads(Path(env['NIGHTLY_CONTEXT']).read_text())
             report = json.loads(Path(env['REPORT_OUTPUT']).read_text())
             self.assertEqual(scoped['required_commit_ids'], [1, 2])
+            self.assertEqual(scoped['pending_commit_checks'], prior['daily_coverage']['checks'])
             self.assertEqual(len(scoped['code_history']), 3)
             self.assertTrue(report['complete'])
             self.assertEqual(len(report['daily_coverage']['checks']), 2)

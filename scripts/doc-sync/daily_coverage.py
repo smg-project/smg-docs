@@ -1,7 +1,8 @@
 """Account for recent mainline changes without truncating discovery history."""
 
 
-COMPLETE = {'proposed', 'covered', 'not_applicable'}
+SETTLED = {'proposed', 'covered', 'not_applicable'}
+COMPLETE = SETTLED | {'blocked'}
 
 
 def assign(context, prior, assignments):
@@ -15,7 +16,7 @@ def assign(context, prior, assignments):
         required.update(history[:history.index(previous)])
     pending = {(c['shard'], c['source_sha'])
                for c in prior.get('daily_coverage', {}).get('checks', [])
-               if c['status'] not in COMPLETE}
+               if c['status'] not in SETTLED}
     assigned = {line.split()[0] for lines in assignments.values() for line in lines}
     if not required <= assigned:
         raise ValueError('Required daily commits lack discovery assignments')
@@ -42,6 +43,16 @@ def validate(result, context, slug):
             raise ValueError('Daily commit was not inspected')
         if not isinstance(check.get('evidence'), str) or not check['evidence'].strip():
             raise ValueError('Daily commit check needs source/documentation evidence')
+        blockers = check.get('blockers', [])
+        if not isinstance(blockers, list) or (status == 'blocked') != bool(blockers):
+            raise ValueError('Blocked daily checks need explicit open-PR page blockers')
+        for blocker in blockers:
+            number, path = blocker.get('pr'), blocker.get('path')
+            if (type(number) is not int or not isinstance(path, str)
+                    or not path.startswith('src/lib/content/')
+                    or not any(pr['number'] == number and pr['state'] == 'open'
+                               and path in pr['files'] for pr in context['existing_prs'])):
+                raise ValueError('Daily commit blocker is not an open PR holding that page')
         concerns = check.get('concerns')
         if (not isinstance(concerns, list) or any(not isinstance(c, str) for c in concerns)
                 or len(concerns) != len(set(concerns))

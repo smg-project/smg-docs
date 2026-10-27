@@ -281,6 +281,7 @@ def scan_context(context, slug, assignments):
     return {**context, "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
             "release_audit_candidates": audit_candidates,
             "pending_concerns": pending,
+            "pending_commit_checks": [c for c in context.get('pending_commit_checks', []) if c['shard'] == slug],
             "required_commit_ids": [i for i, line in enumerate(history, 1)
                                     if line.split()[0] in context.get('daily_assignments', {}).get(slug, [])],
             "focus_commit_ids": [i for i, line in enumerate(history, 1) if line.split()[0] in primary],
@@ -302,6 +303,9 @@ def main():
         context['pending_concerns'] = pending_from_report(prior, context)
         assignments = partition(context)
         context['daily_assignments'] = daily_coverage.assign(context, prior, assignments)
+        context['pending_commit_checks'] = [c for c in prior.get('daily_coverage', {}).get('checks', [])
+                                           if c['status'] not in daily_coverage.SETTLED
+                                           and c['source_sha'] in context['daily_assignments'].get(c['shard'], [])]
         candidates = release_handoff.collect(context, root / 'release-audits')
         checked = {c['candidate_id']: c['status'] for c in prior.get('release_audit_checks', [])}
         # Unfinished and newly discovered corrections get attention first. Never
@@ -351,11 +355,11 @@ def main():
                               f"at `{context['source_sha']}`; {len(window['commits'])} recent mainline commits.\n\n")
             summary.write(f"Required commit/subsystem checks: {len(daily['checks'])}; "
                           + ', '.join(f"{sum(c['status'] == status for c in daily['checks'])} {status}"
-                                      for status in ('proposed', 'covered', 'not_applicable', 'deferred', 'uninspected'))
+                                      for status in ('proposed', 'covered', 'not_applicable', 'blocked', 'deferred', 'uninspected'))
                           + '. Includes unfinished checks and changes between runs.\n\n')
             for check in daily['checks']:
-                if check['status'] not in daily_coverage.COMPLETE:
-                    summary.write(f"- Unfinished: `{check['source_sha']}` ({check['shard']}, {check['status']})\n")
+                if check['status'] not in daily_coverage.SETTLED:
+                    summary.write(f"- Carry forward: `{check['source_sha']}` ({check['shard']}, {check['status']})\n")
             checks = report['release_audit_checks']
             summary.write(f"Release-audit handoff: {len(checks)} candidate pages; "
                           + ', '.join(f"{sum(c['status'] == status for c in checks)} {status}"

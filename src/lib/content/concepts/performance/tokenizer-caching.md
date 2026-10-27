@@ -273,12 +273,15 @@ Chat templates use Jinja2 syntax with access to:
 | `documents` | Optional array of document context |
 | `bos_token`, `eos_token`, `unk_token`, `pad_token` | The tokenizer's special tokens, when it defines them |
 | `strftime_now` | Function writing the current date and time with a strftime format (see below) |
+| `dict` | Function building a map from a mapping or from key/value pairs, as Python's `dict` does (see below) |
 
 Keys in a request's `chat_template_kwargs` are passed to the template as extra variables.
 
 `strftime_now` matches the function HuggingFace Transformers provides to chat templates: `{{ strftime_now('%Y-%m-%d') }}` writes today's date in the server's local time, like Python's `datetime.now().strftime(format)`. Every call in one render writes the same instant. An invalid strftime format fails the render with an error naming `strftime_now`.
 
 To make a prompt that writes the date reproducible, set `SOURCE_DATE_EPOCH` in SMG's environment to the desired instant as seconds since the Unix epoch (the reproducible-builds convention). SMG reads it once, at the first render, and every render then writes that instant instead of the clock. A value that is not a whole number of seconds is ignored, and the clock is used.
+
+`dict` matches Python's built-in: `dict()` builds an empty map, `dict(mapping)` copies a mapping, and `dict(pairs)` builds a map from an iterable of key/value pairs — the form templates use to merge maps, as in `dict((a | items | list) + (b | items | list))`. Keyword arguments are written over the result, and a repeated key keeps its first position with its last value. An argument that is not a mapping or iterable, or an element that is not a two-item key/value pair, fails the render as it would in Python.
 
 #### Template Examples
 

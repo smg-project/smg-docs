@@ -113,6 +113,19 @@ class DiscoveryTests(unittest.TestCase):
         self.context["max_prs"] = 0
         self.assertEqual(self.combine()[0], [])
 
+    def test_pending_audit_identity_is_supplied_only_to_its_owner(self):
+        own = proposal(concern='release-audit-aaaa-same-gap')
+        foreign = proposal(concern='release-audit-bbbb-foreign-gap')
+        ordinary = proposal()
+        self.context['pending_concerns'] = [own, foreign, ordinary]
+        self.context['release_audit_candidates'] = [
+            {'id': 'aaaa', 'shard': 'api-protocols'}, {'id': 'bbbb', 'shard': 'operations'}]
+        scoped = discovery.scan_context(self.context, 'api-protocols', self.assignments)
+        self.assertEqual(scoped['pending_concerns'], [own, ordinary])
+        self.assertEqual(self.context['pending_concerns'], [own, foreign, ordinary])
+        scoped = discovery.scan_context(self.context, 'operations', self.assignments)
+        self.assertEqual(scoped['pending_concerns'], [foreign, ordinary])
+
     def test_overlap_and_semantic_identity_are_deferred_not_failed(self):
         for scan in self.scans[:3]:
             scan['inspected_commits'] = ['a' * 40, 'b' * 40]
@@ -152,6 +165,17 @@ class DiscoveryTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 discovery.validate_scan(json.dumps({**scan, **changes}), self.context,
                                         scan['shard'], self.history)
+
+    def test_recent_inspection_does_not_approve_uninspected_backlog_proposals(self):
+        scan = {**self.scans[0], 'inspected_commits': ['b' * 40],
+                'concerns': [proposal(), proposal(concern='other-gap')]}
+        with self.assertRaisesRegex(ValueError, 'Concern source was not reported as inspected') as error:
+            discovery.validate_scan(json.dumps(scan), self.context, scan['shard'], self.history)
+        self.assertIn('rollouts/wait-timeout (' + 'a' * 40 + ')', str(error.exception))
+        self.assertIn('rollouts/other-gap (' + 'a' * 40 + ')', str(error.exception))
+        scan['inspected_commits'].append('a' * 40)
+        self.assertEqual(len(discovery.validate_scan(json.dumps(scan), self.context,
+                                                    scan['shard'], self.history)['concerns']), 2)
 
 
 class BatchedPRFilesTests(unittest.TestCase):

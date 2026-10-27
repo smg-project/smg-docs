@@ -3,7 +3,7 @@
 """Bound and publish one-concern documentation updates (standard library only)."""
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import html
 import json
@@ -241,11 +241,23 @@ def prepare(repo, output):
         releases.verify(release)
     if (target or release or {}).get('sha') != source_sha:
         raise ValueError('Source checkout must match the pinned source revision')
-    history = source_git("log", "--first-parent", "--since=" + INITIAL_SINCE,
-                        "--format=%H %cs %s", source_sha)
+    captured_at = datetime.fromisoformat(os.environ.get(
+        'SMG_SOURCE_CAPTURED_AT', datetime.now(timezone.utc).isoformat()))
+    if captured_at.tzinfo is None:
+        raise ValueError('Source capture time must include a timezone')
+    since = captured_at - timedelta(days=1)
+    # Filter without stopping early at an older-dated commit. Committer dates
+    # capture mainline merges/squashes even when their author dates are old.
+    rows = [line.split(' ', 2) for line in source_git(
+        'log', '--first-parent', '--since-as-filter=' + INITIAL_SINCE,
+        '--format=%H %ct %cs %s', source_sha).splitlines()]
+    history = [f'{sha} {subject}' for sha, _, subject in rows]
+    daily_window = {'start': since.isoformat(), 'end': captured_at.isoformat(),
+                    'commits': [sha for sha, timestamp, _ in rows
+                                if int(timestamp) >= since.timestamp()]}
     sources = Path(output).parent / "nightly-docs-sources"
     sources.mkdir(exist_ok=True)
-    for line in history.splitlines():
+    for line in history:
         sha = line.split()[0]
         (sources / f"{sha}.patch").write_text(source_patch(sha) + "\n", encoding="utf-8")
     prs = existing_prs(repo)
@@ -255,7 +267,8 @@ def prepare(repo, output):
     context = {"base_sha": git("rev-parse", "HEAD"), "source_sha": source_sha,
                "source_release": release, "source_target": target, "source_repo": SOURCE_REPO, "source_root": os.environ["SOURCE_ROOT"],
                "initial_since": INITIAL_SINCE, "requested_max_prs": requested, "max_prs": min(requested, daily_remaining(prs)),
-               "code_history": history.splitlines(), "source_diffs": str(sources),
+               "code_history": history, "source_diffs": str(sources),
+               "daily_window": daily_window,
                "existing_prs": prs, "doc_inventory": doc_inventory("HEAD"),
                "discovery_shard": os.environ.get("DISCOVERY_SHARD", ""),
                "dry_run": os.environ.get("DRY_RUN") == "true"}

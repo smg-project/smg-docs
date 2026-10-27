@@ -6,12 +6,65 @@ other scans own scan_responsibilities. The deploy-config scan owns CLI syntax;
 subsystem scans own runtime behavior.
 
 Use code_history and source_diffs/<sha>.patch to discover concrete user gaps.
-Compare implementation/tests with current docs, including older changes since
-the fixed cutoff. Consider pending_concerns. Survey broadly before investigating;
+First inspect EVERY required_commit_id for your subsystem, reading its patch,
+current implementation/tests, and related documentation. These include the past
+24 hours at the pinned source snapshot, changes missed between runs, and unfinished
+checks from prior runs. A cross-cutting commit can be assigned to several scans;
+each checks its own responsibility. A merge's first-parent patch includes the
+merged changes. Never mark a commit inspected from its title alone.
+Use pending_commit_checks as leads, then re-check the current source, docs and PR
+inventory; old findings and blockers are not current approval or proof.
+
+Return daily_commit_checks as an object keyed by EVERY required_commit_id as a
+decimal string (for example, "81"). Each required key has status, concerns,
+blockers, and concise source/documentation evidence. The schema requires every
+assigned ID, exactly once; do not add source_commit inside these keyed values.
+An inspected commit still needs its own disposition, including test-only changes.
+
+- proposed: all applicable gaps have proposals in THIS scan; reference their
+  concern slugs. Explain any already-covered or inapplicable parts as well.
+- covered: existing documentation or an existing PR covers the relevant behavior;
+  name page sections or PR numbers; concerns is empty.
+- not_applicable: no documentation change is needed for your subsystem; explain
+  why from the patch/current source (for example, an internal refactor with no
+  user-visible behavior change); concerns is empty.
+- blocked: the assessment is COMPLETE, but all remaining verified corrections
+  need pages held by open PRs. Name the stale/missing contract and source evidence,
+  and list each blocker as {pr: number, path: canonical_doc_path}. Each PR must
+  be open and hold that exact page in existing_prs. Reference any other completed
+  proposals in concerns. Do not use this for unverified changes or budget limits.
+- deferred: any relevant change remains unverified or a limit prevents a complete
+  proposal; explain what remains. Reference any completed partial proposals.
+
+Use an empty blockers list for every status except blocked. Verified blockers
+count as assessed but carry forward until the pages are available or already
+corrected. Missing/deferred checks keep coverage incomplete and carry forward. Do not label
+unfinished work covered to satisfy the check. One commit can need several
+separate concerns; one proposal may address related changes in several commits.
+Keep the one-concern rule and the usual independent review for every proposal.
+
+Every concerns entry in a daily check must exactly match a returned proposal's
+concern slug, unique within THIS scan. Use the slug alone, not an area/slug,
+generated key, PR number or a name for a gap with no proposal. Put those details
+in evidence instead. If a proposal is omitted or deferred, remove its references
+from daily checks and use blocked or deferred for the unresolved change.
+Cross-check these references against the final proposals before returning.
+
+Then compare implementation/tests with current docs for older changes since
+the fixed cutoff, pending_concerns and release audits. Survey broadly before investigating;
 return remaining_work for unfinished candidates rather than claiming exhaustion.
 Select source_commit using the supplied numeric IDs, never invent a SHA. Record
-IDs actually inspected in inspected_commits. Target 80 investigative turns,
-reserving the rest of 200 for the structured result. Do not chase a PR quota.
+IDs actually inspected in inspected_commits. Budget the 80 investigative turns
+for required commits first, then older work, reserving the rest of 200 for the
+structured result. Do not chase a PR quota.
+
+inspected_commits is NOT limited to required_commit_ids. EVERY proposal's
+source_commit must also be inspected and listed, including a reused pending
+concern's older identity and the newest-commit verification baseline used by
+audit/editorial concerns. Before returning, cross-check all proposal source IDs
+against inspected_commits. If one is missing, inspect its patch and the relevant
+current source, or leave the proposal out and defer the gap. Never add an ID
+merely to satisfy validation without inspecting it.
 
 In evidence, separate the verification snapshot from the changes that introduced
 the behavior. When those changes are known from inspected source history, begin

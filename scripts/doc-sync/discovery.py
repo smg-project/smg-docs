@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 
 import nightly_docs as docs
 import release_handoff
+import daily_coverage
 
 
 # Ownership is about the user question, not where a shared API type happens to
@@ -68,8 +69,23 @@ def resolve_scan(raw, history):
             raise ValueError("The model must select a commit ID, not supply a hash")
         item["source_sha"] = resolve(item.pop("source_commit"))
         concerns.append(item)
+    daily = result.get('daily_commit_checks', [])
+    if isinstance(daily, dict):
+        keyed = []
+        for number, check in daily.items():
+            if not number.isdecimal() or str(int(number)) != number:
+                raise ValueError('Daily commit key must be a canonical numeric source ID')
+            if not isinstance(check, dict):
+                raise ValueError('Daily commit assessment must be an object')
+            if 'source_commit' in check or 'source_sha' in check:
+                raise ValueError('Keyed daily checks must select source only through the key')
+            keyed.append({**check, 'source_commit': int(number)})
+        daily = keyed
     return json.dumps({"concerns": concerns,
                        "inspected_commits": [resolve(number) for number in result["inspected_commits"]],
+                       "daily_commit_checks": [{**{k: v for k, v in check.items() if k != 'source_commit'},
+                                                'source_sha': resolve(check['source_commit'])}
+                                               for check in daily],
                        "release_audit_checks": result.get("release_audit_checks", []),
                        "remaining_work": result["remaining_work"]})
 
@@ -87,14 +103,18 @@ def validate_scan(raw, context, slug, history):
                 for item in result["concerns"]]
     # Validate each independently. Competing proposals are deferred centrally,
     # not an operational failure that discards a whole scan's useful results.
+    uninspected = []
     for item in concerns:
         docs.plan(json.dumps({"concerns": [item]}), {**context, "code_history": history})
         if item["source_sha"] not in inspected:
-            raise ValueError("Concern source was not reported as inspected")
+            uninspected.append(f"{item['area']}/{item['concern']} ({item['source_sha']})")
+    if uninspected:
+        raise ValueError('Concern source was not reported as inspected: ' + '; '.join(uninspected))
     if len(concerns) > docs.MAX_PRS:
         raise ValueError("Scan exceeds proposal limit")
     checks = release_handoff.validate_checks({**result, 'concerns': concerns}, context, slug)
     return {"shard": slug, "base_sha": context["base_sha"], "concerns": concerns,
+            "daily_commit_checks": daily_coverage.validate(result, context, slug),
             "release_audit_checks": checks,
             "inspected_commits": inspected, "remaining_work": result["remaining_work"]}
 
@@ -115,7 +135,6 @@ def combine(scans, context, allow_partial=False):
         raise ValueError("Unknown or duplicate discovery scans")
     if not allow_partial and set(by_slug) != set(expected):
         raise ValueError("Missing or duplicate discovery scans")
-    assignments = partition(context)
     for slug, scan in by_slug.items():
         if scan["base_sha"] != context["base_sha"]:
             raise ValueError("Discovery baseline mismatch")
@@ -176,11 +195,12 @@ def build_report(scans, context):
     expected = scan_names(context)
     received = {scan['shard'] for scan in scans}
     missing = [name for name in expected if name not in received]
+    daily = daily_coverage.report(context, scans, expected)
     queued = deferred_queue(scans, deferred, context['existing_prs'])
     # Daily quota can reduce each scan's proposal budget even when every scan
     # succeeds. Such a run cannot retire prior work merely by omitting it.
     quota_limited = context.get('max_prs', docs.MAX_PRS) < context.get('requested_max_prs', docs.MAX_PRS)
-    if missing or quota_limited:
+    if missing or not daily['complete'] or quota_limited:
         selected_ids = {(item['area'], item['concern']) for item in selected}
         prior = [item for item in context.get('pending_concerns', [])
                  if (item['area'], item['concern']) not in selected_ids]
@@ -195,9 +215,11 @@ def build_report(scans, context):
             'discovery_shard': context.get('discovery_shard', ''),
             'scans': scans, 'selected': selected,
             'release_audit_checks': release_handoff.report(context, scans),
+            'daily_coverage': daily,
             'deferred': deferred, 'queued_concerns': queued[:docs.MAX_PRS],
             'queue_overflow': [item['key'] for item in queued[docs.MAX_PRS:]],
-            'expected_shards': expected, 'missing_shards': missing, 'complete': not missing,
+            'expected_shards': expected, 'missing_shards': missing,
+            'complete': not missing and daily['complete'],
             'doc_inventory': context.get('doc_inventory', []),
             'dry_run': context.get('dry_run', False), 'max_prs': context.get('max_prs', docs.MAX_PRS)}
 
@@ -265,11 +287,35 @@ def scan_context(context, slug, assignments):
     focus = next(focus for name, focus, _ in SHARDS if name == slug)
     primary = {line.split()[0] for line in assignments[slug]}
     history = context["code_history"]
+    audit_candidates = release_handoff.assigned(context, slug)
+    # A queued audit identity can only be re-proposed by its owning scan, which
+    # receives the candidate evidence required by validate_checks.
+    pending = [p for p in context.get('pending_concerns', [])
+               if not p['concern'].startswith('release-audit-') or any(
+                   p['concern'].startswith('release-audit-' + c['id'] + '-') for c in audit_candidates)]
     return {**context, "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
-            "release_audit_candidates": release_handoff.assigned(context, slug),
+            "release_audit_candidates": audit_candidates,
+            "pending_concerns": pending,
+            "pending_commit_checks": [c for c in context.get('pending_commit_checks', []) if c['shard'] == slug],
+            "required_commit_ids": [i for i, line in enumerate(history, 1)
+                                    if line.split()[0] in context.get('daily_assignments', {}).get(slug, [])],
             "focus_commit_ids": [i for i, line in enumerate(history, 1) if line.split()[0] in primary],
             "shard": slug, "focus": focus,
             "scan_responsibilities": {name: focus for name, focus, _ in SHARDS}}
+
+
+def scan_schema(scoped):
+    """Make every frozen daily obligation a required output field.
+
+    A free-form array can silently omit an inspected commit. Required keys let
+    the SDK correct that omission before returning; our independent coverage
+    and evidence guards still decide whether the assessment is complete.
+    """
+    schema = json.loads(Path(__file__).with_name('scan-schema.json').read_text())
+    ids = [str(number) for number in scoped['required_commit_ids']]
+    schema['properties']['daily_commit_checks'].update(
+        properties={number: {'$ref': '#/definitions/daily_check'} for number in ids}, required=ids)
+    return schema
 
 
 def main():
@@ -284,6 +330,11 @@ def main():
         prior = previous_report(
             os.environ['GITHUB_REPOSITORY'], os.environ['DEFAULT_BRANCH'], context)
         context['pending_concerns'] = pending_from_report(prior, context)
+        assignments = partition(context)
+        context['daily_assignments'] = daily_coverage.assign(context, prior, assignments)
+        context['pending_commit_checks'] = [c for c in prior.get('daily_coverage', {}).get('checks', [])
+                                           if c['status'] not in daily_coverage.SETTLED
+                                           and c['source_sha'] in context['daily_assignments'].get(c['shard'], [])]
         candidates = release_handoff.collect(context, root / 'release-audits')
         checked = {c['candidate_id']: c['status'] for c in prior.get('release_audit_checks', [])}
         # Unfinished and newly discovered corrections get attention first. Never
@@ -291,7 +342,6 @@ def main():
         context['release_audit_candidates'] = sorted(candidates, key=lambda c: (
             checked.get(c['id']) not in (None, 'deferred', 'proposed'), c['release'], c['doc_path']))
         (root / 'context.json').write_text(json.dumps(context, indent=2))
-        assignments = partition(context)
         (root / "assignments.json").write_text(json.dumps(assignments))
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
             output.write("matrix=" + json.dumps({"include": [{"shard": slug} for slug in scan_names(context)]}) + "\n")
@@ -300,16 +350,30 @@ def main():
         assignments = json.loads((root / "assignments.json").read_text())
         scoped = scan_context(context, slug, assignments)
         Path(os.environ["NIGHTLY_CONTEXT"]).write_text(json.dumps(scoped, indent=2))
+        encoded = json.dumps(scan_schema(scoped), separators=(',', ':'))
+        # Fail explicitly rather than silently dropping mandatory IDs or hitting
+        # Linux's per-argument limit when the action starts.
+        if len(encoded.encode()) > 120000:
+            raise ValueError('Daily coverage schema is too large for one scan; split the scan before retrying')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write('schema=' + encoded + '\n')
     elif command == "scan":
         slug = os.environ["SHARD"]
         assignments = json.loads((root / "assignments.json").read_text())
-        raw = resolve_scan(os.environ["PLAN_JSON"], context["code_history"])
+        execution = {}
+        raw = resolve_scan(read_scan_output(
+            os.environ['SCAN_EXECUTION_FILE'], os.environ.get('SCAN_ACTION_OUTCOME', 'success'),
+            int(os.environ.get('DISCOVERY_MAX_ROUNDS', '200')), execution), context["code_history"])
         scan = validate_scan(raw, context, slug, context["code_history"])
+        scan['execution'] = execution
         Path(os.environ["SCAN_OUTPUT"]).write_text(json.dumps(scan))
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write(f"{slug}: {len(assignments[slug])} priority commits; "
                           f"{len(scan['inspected_commits'])} self-reported inspected; "
                           f"{len(scan['concerns'])} proposed concerns.\n")
+            summary.write(f"Verified {execution['assistant_rounds']} assistant rounds "
+                          f"within the {execution['max_rounds']}-round limit. "
+                          f"Upstream turn-counter recovery: {execution['recovered']}.\n")
     elif command == "combine":
         scans = [json.loads(path.read_text()) for path in Path(os.environ["SCAN_DIR"]).glob("*.json")]
         report = build_report(scans, context)
@@ -320,12 +384,25 @@ def main():
             output.write(f"count={len(selected)}\n")
             output.write(f"complete={str(report['complete']).lower()}\n")
             output.write("missing=" + ", ".join(report['missing_shards']) + "\n")
+            output.write(f"uncovered={sum(c['status'] not in daily_coverage.COMPLETE for c in report['daily_coverage']['checks'])}\n")
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write(f"Selected {len(selected)} independent concerns; deferred {len(deferred)}.\n\n")
             if report['missing_shards']:
                 summary.write("**Incomplete discovery**: missing validated scans from "
                               + ", ".join(report['missing_shards']) + ".\n\n")
             summary.write(f"Retained {len(report['queued_concerns'])} pending concerns.\n\n")
+            daily = report['daily_coverage']
+            if daily['window']:
+                window = daily['window']
+                summary.write(f"Daily source window: {window['start']} to {window['end']} "
+                              f"at `{context['source_sha']}`; {len(window['commits'])} recent mainline commits.\n\n")
+            summary.write(f"Required commit/subsystem checks: {len(daily['checks'])}; "
+                          + ', '.join(f"{sum(c['status'] == status for c in daily['checks'])} {status}"
+                                      for status in ('proposed', 'covered', 'not_applicable', 'blocked', 'deferred', 'uninspected'))
+                          + '. Includes unfinished checks and changes between runs.\n\n')
+            for check in daily['checks']:
+                if check['status'] not in daily_coverage.SETTLED:
+                    summary.write(f"- Carry forward: `{check['source_sha']}` ({check['shard']}, {check['status']})\n")
             checks = report['release_audit_checks']
             summary.write(f"Release-audit handoff: {len(checks)} candidate pages; "
                           + ', '.join(f"{sum(c['status'] == status for c in checks)} {status}"
@@ -341,6 +418,43 @@ def main():
                               f"{len(scan['inspected_commits'])} | {len(scan['concerns'])} |\n")
     else:
         raise ValueError("Unknown discovery command")
+
+
+def read_scan_output(path, action_outcome='success', max_rounds=200, details=None):
+    """Read a successful, bounded trace; never infer approval from step status.
+
+    The pinned action's post-hoc guard compares tool-result counts with SDK
+    API rounds (anthropics/claude-code-action#1795). Recover only that mismatch,
+    after checking distinct assistant message IDs and all ordinary result gates.
+    The workflow clears the known execution path before invoking the action.
+    """
+    messages = json.loads(Path(path).read_text())
+    if not isinstance(messages, list) or not messages:
+        raise ValueError('Missing discovery execution result')
+    result = messages[-1]
+    if (result.get('type') != 'result' or result.get('subtype') != 'success'
+            or result.get('is_error') is not False
+            or not isinstance(result.get('structured_output'), dict)):
+        raise ValueError('Discovery did not finish with successful structured output')
+    assistants = [m.get('message', {}).get('id') for m in messages if m.get('type') == 'assistant']
+    if (not assistants or any(not isinstance(i, str) or not i for i in assistants)
+            or type(max_rounds) is not int or max_rounds < 1):
+        raise ValueError('Discovery trace lacks a verifiable assistant-round count')
+    rounds = len(set(assistants))
+    if rounds > max_rounds:
+        raise ValueError(f'Discovery exceeded its API-round budget: {rounds} > {max_rounds}')
+    reported = result.get('num_turns')
+    if action_outcome != 'success':
+        if (action_outcome != 'failure' or type(reported) is not int or reported <= max_rounds):
+            raise ValueError('Discovery action failed without the known turn-counter mismatch')
+        print(f'Recovered upstream turn-counter mismatch: {reported} reported turns, '
+              f'{rounds} assistant rounds within the {max_rounds}-round limit.')
+    else:
+        print(f'Validated discovery trace: {rounds} assistant rounds within the {max_rounds}-round limit.')
+    if details is not None:
+        details.update(assistant_rounds=rounds, max_rounds=max_rounds, reported_turns=reported,
+                       action_outcome=action_outcome, recovered=action_outcome == 'failure')
+    return json.dumps(result['structured_output'])
 
 
 if __name__ == "__main__":

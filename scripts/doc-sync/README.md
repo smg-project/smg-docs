@@ -28,11 +28,13 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    canonical page needing correction, with justification for any new page.
    Each has a 200-turn hard ceiling with an 80-turn investigation target,
    reserving headroom for tool batches and structured output. Scans report
-   inspected commits, proposals, and remaining work.
+   inspected commits, proposals, and remaining work. Recent commits are mandatory
+   checks before older backlog and audit work.
 3. **Plan:** round-robin available validated scans, validate source IDs, remove
    duplicates, defer overlapping pages, and allocate the remaining daily PR slots.
    Failed scans do not suppress valid sibling results. A separate coverage job
-   fails on missing scans, so incomplete discovery remains visibly unsuccessful.
+   fails on missing scans or unfinished mandatory commit checks, so incomplete
+   discovery remains visibly unsuccessful.
    Unknown, duplicate, malformed, or wrong-baseline artifacts still fail planning.
 4. **Write:** at most four independent writers, each with 120 turns, update only
    its concern's allowlisted Markdown files. Export documentation text as JSON.
@@ -74,8 +76,23 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   lookback at setup. It is fixed, not rolling; older unfinished work stays eligible.
   Every main run supplies all first-parent commits since then reachable from its
   pinned SMG main revision. Merged commits become eligible immediately for main docs.
-  There is no 20-commit cap or success cursor. Runtime/turn budgets still bound
-  inspection; reported coverage is model self-reporting, not proof of completeness.
+  There is no 20-commit cap or success cursor that excludes older work.
+- Every main discovery run requires a disposition for **all mainline commits
+  from the 24 hours before the SMG source pin was captured**, using committer
+  timestamps rather than author dates. Merge patches include their merged changes.
+  Each affected subsystem inspects its part, including an operations fallback for
+  unmatched paths. Changes since the previous production report and unfinished
+  mandatory checks remain required even after the 24-hour window moves on.
+  Main discovery also runs when a new release needs its separate snapshot audit.
+  Each check records a proposed correction, existing coverage, a reason no docs
+  change is needed, a verified open-PR page blocker, or unfinished assessment.
+  Blocked corrections count as assessed only with inspected-source evidence and
+  exact page/PR references validated against the prepared open-PR inventory;
+  they carry forward until resolved. Missing/deferred checks fail coverage
+  without blocking valid sibling publication. This guarantees explicit accounting,
+  not model infallibility or a PR for every commit: independent review, page conflicts,
+  and the daily PR cap still apply. Older history, pending corrections and release
+  audits remain available after the mandatory checks; budgets still bound that work.
 - Each PR fixes **one concrete user question or stale claim** from one primary
   source change. Sharing a subsystem, commit, or page does not justify bundling.
 - Each PR must have **fewer than 1,000 added plus deleted lines** (999 maximum).
@@ -118,12 +135,28 @@ performs its own type check and production build.
 The `nightly-docs-discovery-report` artifact records pinned revisions, eligible
 commits, per-scan coverage, selected concerns, and deferred work. It also records
 `expected_shards`, `missing_shards`, and `complete`; absent scans are never counted
-as empty successful inspections. With no scans, planning still writes a report,
+as empty successful inspections. `daily_coverage` records the frozen time window,
+each required commit/subsystem disposition and its evidence. Its unfinished checks
+are carried forward without the 100-concern queue cap, within the same 14-day
+production-report retention. Filtered pilots cover only their selected subsystem.
+Each scan's structured-output schema requires a field for every assigned commit
+ID. The SDK can correct omitted fields before returning; independent validation
+still rejects incomplete or unsupported assessments. Saved reports retain the
+usual list of resolved commit hashes and dispositions.
+With no scans, planning still writes a report,
 but no writer or publisher is scheduled. Scan contexts and
 writer bundles are retained for two days; publication validation artifacts
 retain the item, diff, and explicit four-gate review verdict for fourteen days.
 The discovery report is also retained for fourteen days and identifies targeted
 scans and dry runs.
+Discovery retains its 200 API-round and 45-minute limits. The pinned action has
+an [upstream turn-counter mismatch](https://github.com/anthropics/claude-code-action/issues/1795):
+its reported tool-result count can exceed the API-round limit on successful runs.
+The mandatory validator counts distinct assistant message IDs in the fresh
+execution trace. It recovers only a failed action with that specific overcount,
+a successful structured result and a verified round count within the limit.
+Missing traces, real budget errors, other action failures and invalid proposals
+still fail; the execution file is cleared before each invocation.
 The old `automation/doc-sync-state` branch is retained as history and is no longer
 written. Eligibility comes from the fixed source window and live PR history, so
 legacy incomplete work remains discoverable.
@@ -137,7 +170,7 @@ not replace the production queue. The requested cap is stored separately from
 remaining daily slots, so a production run with no quota left still preserves
 pending work.
 
-When discovery is incomplete or daily quota reduces the requested proposal budget,
+When discovery is incomplete (including daily commit coverage) or daily quota reduces the requested proposal budget,
 prior unselected concerns take priority over newly
 deferred concerns. Recorded PR instances and older pending copies of selected
 identities are removed; file-blocked concerns remain pending. Any excess keys are

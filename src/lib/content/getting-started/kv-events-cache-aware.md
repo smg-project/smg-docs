@@ -83,7 +83,7 @@ What each flag does:
 |---|---|
 | `--grpc-mode` | Serves SMG's gRPC `SglangScheduler` service from `smg-grpc-servicer` (needs SGLang 0.5.21 or later) instead of SGLang's HTTP server. Required for SMG to talk to this worker over gRPC. |
 | `--page-size 16` | The KV cache page size, in tokens. Use the same value for SMG's `--block-size` (see [Block size alignment](#block-size-alignment)). |
-| `--kv-events-config` | Optional: without it the servicer publishes at a free port, with no gap replay. An explicit JSON object, parsed by SGLang's `KVEventsConfig.from_cli`, replaces that default exactly as given: `"publisher":"zmq"` keeps publishing on (leaving it out means the default `"null"`, which publishes nothing), and `replay_endpoint` lets the servicer fill gaps in the stream from SGLang's replay buffer. |
+| `--kv-events-config` | Optional: without it the servicer publishes at a free port, with no gap replay. An explicit JSON object, parsed by SGLang's `KVEventsConfig.from_cli`, replaces that default exactly as given: `"publisher":"zmq"` turns publishing on (leaving it out means the default `"null"`, which publishes nothing), and `replay_endpoint` lets the servicer fill gaps in the stream from SGLang's replay buffer. |
 
 ### `--kv-events-config` field reference
 
@@ -132,7 +132,7 @@ SMG learns the block size from the `BlockStored` events themselves; set SMG's `-
 
 TokenSpeed works the same way, and the TokenSpeed gRPC server *is* the SMG gRPC entrypoint, so there is no separate `--grpc` flag. A worker launched without `--kv-events-config` already publishes — the servicer turns the scheduler's ZMQ publisher on at a port found free on the host, and `SMG_TOKENSPEED_SERVICER_KV_EVENTS=0` leaves it off.
 
-Two launches get no default. An encode worker (`--disaggregation-mode encode`) has no KV cache and is left as given. On a hybrid model (Gated DeltaNet, Mamba or KDA layers) the servicer leaves the publisher off and logs why once (`KV event publishing left off: ...`): such a model keeps its recurrent state in State groups of TokenSpeed's cache, and TokenSpeed's KV-event drain aborts the engine on such a group. An explicit `--kv-events-config` turns the publisher on anyway.
+Two launches get no automatic publisher. An encode worker (`--disaggregation-mode encode`) has no KV cache and is left as given. On a hybrid model (Gated DeltaNet, Mamba or KDA layers) the servicer leaves the publisher off and logs why once (`KV event publishing left off: ...`): such a model keeps its recurrent state in State groups of TokenSpeed's cache, and TokenSpeed's KV-event drain aborts the engine on such a group. An explicit `--kv-events-config` turns the publisher on anyway.
 
 Pass `--kv-events-config` to pin the endpoint and enable gap replay:
 
@@ -151,7 +151,7 @@ python -m smg_grpc_servicer.tokenspeed \
 
 | Field | Why |
 |---|---|
-| `enable_kv_cache_events: true` | TokenSpeed master switch. Without it the scheduler records no events even if a publisher is set. |
+| `enable_kv_cache_events: true` | TokenSpeed master switch. An explicit config is kept as given, so one without it records no events even if a publisher is set. |
 | `publisher: "zmq"` | Selects the ZMQ publisher the servicer reads. Unset defaults to `"zmq"` when events are enabled; `"null"` (or any other value) disables event streaming. |
 | `endpoint` / `topic` | ZMQ `PUB` address and topic. Use a **bind-style** endpoint (`tcp://*:PORT`): TokenSpeed binds only when the endpoint contains `*` or `::` or starts with `ipc://` or `inproc://`, so a concrete address like `tcp://127.0.0.1:PORT` makes it *connect* instead, leaving nothing bound and the stream idle. With attention data parallelism each rank publishes on `endpoint` port + rank, and the servicer subscribes to every rank, so the index sees every rank's cache. |
 | `replay_endpoint` | As for SGLang and vLLM: the servicer fills gaps in each rank's events from it before forwarding later batches; without it, a missed batch costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)). Each rank serves replay on `replay_endpoint` port + rank. |

@@ -104,6 +104,15 @@ class DailyCoverageTests(unittest.TestCase):
                 self.assertEqual(report['queued_concerns'][0]['concern'], 'older-pending')
                 self.assertEqual(len(report['daily_coverage']['checks']), 3)
 
+    def test_missing_reference_diagnostic_identifies_commit_and_slug(self):
+        scan = {**self.scans[0], 'inspected_commits': [self.latest],
+                'concerns': [proposal()], 'daily_commit_checks': [
+                    self.check(status='proposed', concerns=['rollouts/wait-timeout'])]}
+        with self.assertRaisesRegex(ValueError, 'missing or ambiguous') as error:
+            daily.validate(scan, self.context, 'api-protocols')
+        self.assertIn(self.latest, str(error.exception))
+        self.assertIn("'rollouts/wait-timeout' (0 proposals)", str(error.exception))
+
     def test_verified_open_pr_blocker_counts_as_assessed_but_carries_forward(self):
         page = proposal()['doc_paths'][0]
         self.context['existing_prs'] = [pr(docs.validate_item(proposal()), number=338)]

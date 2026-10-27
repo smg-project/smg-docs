@@ -91,10 +91,13 @@ def validate_scan(raw, context, slug, history):
                 for item in result["concerns"]]
     # Validate each independently. Competing proposals are deferred centrally,
     # not an operational failure that discards a whole scan's useful results.
+    uninspected = []
     for item in concerns:
         docs.plan(json.dumps({"concerns": [item]}), {**context, "code_history": history})
         if item["source_sha"] not in inspected:
-            raise ValueError("Concern source was not reported as inspected")
+            uninspected.append(f"{item['area']}/{item['concern']} ({item['source_sha']})")
+    if uninspected:
+        raise ValueError('Concern source was not reported as inspected: ' + '; '.join(uninspected))
     if len(concerns) > docs.MAX_PRS:
         raise ValueError("Scan exceeds proposal limit")
     checks = release_handoff.validate_checks({**result, 'concerns': concerns}, context, slug)

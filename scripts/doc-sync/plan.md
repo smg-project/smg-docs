@@ -40,6 +40,13 @@ unfinished work covered to satisfy the check. One commit can need several
 separate concerns; one proposal may address related changes in several commits.
 Keep the one-concern rule and the usual independent review for every proposal.
 
+Every concerns entry in a daily check must exactly match a returned proposal's
+concern slug, unique within THIS scan. Use the slug alone, not an area/slug,
+generated key, PR number or a name for a gap with no proposal. Put those details
+in evidence instead. If a proposal is omitted or deferred, remove its references
+from daily checks and use blocked or deferred for the unresolved change.
+Cross-check these references against the final proposals before returning.
+
 Then compare implementation/tests with current docs for older changes since
 the fixed cutoff, pending_concerns and release audits. Survey broadly before investigating;
 return remaining_work for unfinished candidates rather than claiming exhaustion.
@@ -47,6 +54,14 @@ Select source_commit using the supplied numeric IDs, never invent a SHA. Record
 IDs actually inspected in inspected_commits. Budget the 80 investigative turns
 for required commits first, then older work, reserving the rest of 200 for the
 structured result. Do not chase a PR quota.
+
+inspected_commits is NOT limited to required_commit_ids. EVERY proposal's
+source_commit must also be inspected and listed, including a reused pending
+concern's older identity and the newest-commit verification baseline used by
+audit/editorial concerns. Before returning, cross-check all proposal source IDs
+against inspected_commits. If one is missing, inspect its patch and the relevant
+current source, or leave the proposal out and defer the gap. Never add an ID
+merely to satisfy validation without inspecting it.
 
 In evidence, separate the verification snapshot from the changes that introduced
 the behavior. When those changes are known from inspected source history, begin

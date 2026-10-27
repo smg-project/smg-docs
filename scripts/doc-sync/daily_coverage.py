@@ -60,8 +60,10 @@ def validate(result, context, slug):
                 or (status in {'covered', 'not_applicable'} and concerns)):
             raise ValueError('Invalid daily commit concern references')
         for concern in concerns:
-            if sum(p['concern'] == concern for p in result['concerns']) != 1:
-                raise ValueError('Daily commit check references missing or ambiguous concern')
+            matches = sum(p['concern'] == concern for p in result['concerns'])
+            if matches != 1:
+                raise ValueError('Daily commit check references missing or ambiguous concern: '
+                                 f'{sha}, {concern!r} ({matches} proposals)')
     # Missing dispositions remain incomplete in the report, without discarding
     # otherwise valid proposals from this scan.
     return checks

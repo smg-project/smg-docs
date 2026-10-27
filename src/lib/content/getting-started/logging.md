@@ -138,8 +138,15 @@ Every request that matches a route on the main listener is logged inside an `htt
 | `smg::response` | WARN | `request failed with client error` | A 4xx response |
 | `smg::response` | ERROR | `request failed with server error` | A 5xx response |
 | `smg::response` | ERROR | `response stream failed after the head was sent` | The response body failed after streaming began |
+| `smg::response` | INFO | `client closed the connection before the response` | The client disconnected before the gateway answered; logged with `status_code` 499 |
+| `smg::response` | INFO | `client closed the connection before the response stream ended` | The client disconnected while the response body was still streaming |
+| `smg::response` | DEBUG | `request refused; reported by the refusing router` | A refusal the routing layer already logged with its own WARN line |
 
 The logging layer writes one ERROR line per 5xx response; releases before v1.10.0 also logged a duplicate `tower_http` failure line for it (smg-project/smg#2124). A request to an unknown path gets a bare `404` and is not logged.
+
+A client that disconnects first — an SDK timeout, a user who navigated away, a proxy cutting an idle stream — is a normal outcome, not a gateway failure, so its one line is INFO. A disconnect before the response takes the place of the response line and records `status_code` 499 and the latency so far; a disconnect mid-stream follows the response line already written when the response head went out. The same lines cover the rare request the server itself dropped unanswered, such as on a handler panic or a connection cut by a forced shutdown. Either way, `smg_http_responses_total` counts the request as a `499` with `error_code="client_closed_request"`; see the [Metrics Reference](../reference/metrics.md#layer-1-http-metrics).
+
+A refusal the gateway answers on its own — for example a 503 `no_available_workers` or a 404 `model_not_found` — is logged by the routing layer as one WARN line with the request ID, the model, and the state of its worker pools, rate-limited while the condition lasts. The response line for such a refusal drops to DEBUG, so a client retrying against a model whose workers are all down does not fill the log with extra error lines per attempt.
 
 ### Health Probe Logs
 

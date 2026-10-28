@@ -105,7 +105,9 @@ When SMG calls an engine, it sends:
 - Only the `x-request-id`, `traceparent`, and `tracestate` headers from the caller. The caller's `Authorization` header is never forwarded.
 - The worker's own API key, if it has one, as `Authorization: Bearer <key>`. Workers added with `--worker-urls` or service discovery use `--api-key`; `POST /workers` takes an `api_key` field.
 
-Calls to an HTTP worker go through the HTTP client SMG already negotiated for it, so they keep its HTTP version, TLS identity and CA roots, and connection pool settings. Calls to a gRPC or ZMQ worker's control endpoint use a shared HTTP/1.1 client built from the worker's pool settings, with the same TLS identity and CA roots as SMG's other upstream clients. A call [carried on a worker's engine connection](#control-calls-on-the-engine-connection) sends no HTTP request at all: the route name and JSON body ride the ZMQ connection SMG already holds to the engine, with no headers and no API key.
+Calls to an HTTP worker go through the HTTP client SMG already negotiated for it, so they keep its HTTP version, TLS identity and CA roots, and connection pool settings. Calls to a gRPC or ZMQ worker's control endpoint use a shared HTTP/1.1 client built from the worker's pool settings, with the same TLS identity and CA roots as SMG's other upstream clients.
+
+A call [carried on a worker's engine connection](#control-calls-on-the-engine-connection) sends no HTTP request at all: the route name and JSON body ride the ZMQ connection SMG already holds to the engine, with no headers and no API key.
 
 The `rl.control_url` label is trusted: whatever host it names receives the worker's API key as a bearer token, so only engines and operators you trust may set it.
 
@@ -228,7 +230,7 @@ A TokenSpeed [ZMQ worker](zmq-workers.md) needs no `rl.control_url` label when i
 
 Discovery reports such a worker with `control_url: null` and `engine_control_calls: true`. A label, when set, wins: calls go to the label's HTTP server and the engine connection is not used, even though discovery still reports `engine_control_calls: true`.
 
-An engine whose handshake declares no control reply — its wire carries generate and abort only — cannot take these calls. Once it is connected, discovery reports the worker without `engine_control_calls`, and a control call on it answers [`no_control_endpoint`](#errors) with a `message` that names the reason and points to the `rl.control_url` label. A worker whose engine is still connecting is reported with `engine_control_calls: true` until the handshake settles the question.
+An engine whose handshake declares no control reply — its wire carries generate and abort only — cannot take these calls. Once it is connected, discovery reports the worker without `engine_control_calls`, and a control call on it answers [`no_control_endpoint`](#errors) with a `message` that points to the `rl.control_url` label. A worker whose engine is still connecting is reported with `engine_control_calls: true` until the handshake settles the question.
 
 ### Capabilities
 
@@ -602,7 +604,7 @@ RUST_LOG=warn,smg_rl=info smg launch \
     - `upstream_unreachable`: the engine is down or unreachable. Once it is back, the next call reaches it; control calls do not use circuit breakers.
     - `upstream_timeout`: the call took longer than `--rl-control-timeout-secs`, or connecting to the engine timed out. Raise the flag for long refits.
     - `upstream_error`: the engine rejected the call. Its answer is in `results[<worker_id>].body`.
-    - `no_control_endpoint`: the selector matched a worker without an `rl.control_url` label whose [engine connection cannot carry the call](#control-calls-on-the-engine-connection) — it is not a TokenSpeed ZMQ worker, the call is a `GET` or a multi-segment path, or the engine's handshake declares no control reply. The entry's `message` names the reason. Give the worker a [control endpoint](#control-endpoints), or keep such workers out of the selector (for example with `connection_mode=http`).
+    - `no_control_endpoint`: the selector matched a worker without an `rl.control_url` label whose [engine connection cannot carry the call](#control-calls-on-the-engine-connection) — it is not a TokenSpeed ZMQ worker, the call is a `GET` or a multi-segment path, or the engine's handshake declares no control reply. Give the worker a [control endpoint](#control-endpoints), or keep such workers out of the selector (for example with `connection_mode=http`).
 
 ??? question "SGLang returns 400 to pause_generation or continue_generation"
 

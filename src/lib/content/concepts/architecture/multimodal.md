@@ -236,7 +236,9 @@ Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer
 
 `fps` and `max_long_side_pixel` are MiniMax-M3 extensions to the OpenAI content part, and SMG applies them for any model. A part with any of these hints is never forwarded to a worker.
 
-`image_url.max_long_side_pixel` caps an image's long side. On MiniMax-M3, any positive value is accepted, and an image without the hint gets the default cap of 2016. SMG plans the output size from the source dimensions, keeping the aspect ratio: an image whose long side exceeds the cap is shrunk to the cap; otherwise an image whose short side is below 112 is enlarged until that side reaches 112, even if its long side then passes the cap. Both sides are then rounded to the nearest multiple of 28 to fit the patch grid, which can also leave the final long side slightly above the cap. An image whose planned size would exceed 12,845,056 pixels is refused with `media_too_large`. On other model families, the value must be a positive multiple of 28 and only shrinks an image whose long side exceeds it; video frames follow the rule in the table above for every model.
+`image_url.max_long_side_pixel` caps an image's long side. On MiniMax-M3, any positive value is accepted, and an image without the hint gets the default cap of 2016. SMG plans the output size from the source dimensions, keeping the aspect ratio: an image whose long side exceeds the cap is shrunk to the cap; otherwise an image whose short side is below 112 is enlarged until that side reaches 112, even if its long side then passes the cap. Both sides are then rounded to the nearest multiple of 28 to fit the patch grid, which can also leave the final long side slightly above the cap. An image whose planned size would exceed 12,845,056 pixels is refused with `media_too_large`.
+
+On other model families, `image_url.max_long_side_pixel` must be a positive multiple of 28 and only shrinks an image whose long side exceeds it. Video frames follow the rule in the table above for every model.
 
 ```json
 {"type": "video_url", "video_url": {"url": "https://example.com/clip.mp4", "fps": 1.0}}

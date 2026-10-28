@@ -273,6 +273,7 @@ Neither setting enables a modality the model does not support. When you raise a 
 | Encoded video | 256 MiB | `SMG_VIDEO_MAX_INPUT_BYTES` |
 | Encoded audio | 256 MiB | `SMG_AUDIO_MAX_INPUT_BYTES` |
 | Decoded image | 512 MiB | Fixed; the libjpeg-turbo path checks it before allocating (smg-project/smg#2569) |
+| MiniMax-M3 planned image pixels | 12,845,056 | Fixed; the output size planned from the source dimensions is checked before the image is decoded (see [Frame Sampling](#frame-sampling)) |
 | Decoded video frames | 1 GiB | `SMG_VIDEO_MAX_DECODED_BYTES` |
 | Inkling image patches per request | 32,768 | `in_patch_limit` in the preprocessor config (smg-project/smg#2102) |
 | Media fetch | 10 seconds per image or audio URL, 30 per video URL | `--mm-fetch-timeout-ms`, `--mm-video-fetch-timeout-ms` (`SMG_MM_FETCH_TIMEOUT_MS`, `SMG_MM_VIDEO_FETCH_TIMEOUT_MS`) |
@@ -294,7 +295,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `invalid_multimodal_request` | The model has no multimodal processor, does not take the modality, or the request has too many items (for example `model spec qwen3_vl supports at most 10 image inputs; got 11`) |
 | 400 | `multimodal_prompt_contract_mismatch` | The rendered prompt does not hold exactly one anchor per media item: a chat template that drops media, or a literal anchor token in user text |
 | 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, or an invalid `fps` or `max_long_side_pixel` |
-| 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
+| 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, a MiniMax-M3 image's planned size over the pixel budget, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
 | 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes do not cover |
 | 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, audio) |
 | 400 | `multimodal_worker_processing_unsupported_model` | `--mm-processing worker`, and vLLM cannot expand the model's anchor |

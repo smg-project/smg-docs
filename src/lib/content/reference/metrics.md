@@ -1793,9 +1793,9 @@ count(router_mesh_peer_connections{peer!=""} == 1)
 
 ---
 
-## Declared but Not Emitted
+## Metric Names That Never Appear
 
-The v1.11.0 code registers descriptions for the following names, but nothing records values for them, so they never appear on `/metrics`. Remove them from dashboards and alerts:
+The following names do not exist in SMG and never appear on `/metrics`. Remove them from dashboards and alerts carried over from older releases:
 
 - `smg_router_stage_duration_seconds`
 - `smg_worker_connections_active`

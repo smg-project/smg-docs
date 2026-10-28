@@ -97,7 +97,7 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     TokenSpeed's grammar backend defaults to none, so without `--grammar-backend xgrammar` it doesn't enforce forced tool calls or `response_format`. Add `--enable-output-logprobs` if clients request `logprobs`; TokenSpeed leaves output logprobs off by default.
 
-    This starts the default Python servicer. Setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
+    This starts the default Python servicer. Adding `--servicer-impl rust` — or setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment — serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
 
     After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine. A one-process engine takes about a minute, as on the other engines; an engine of more than one process takes ten minutes or more, since the pass then also warms every prompt length up to the chunk size. `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 
@@ -245,16 +245,25 @@ TokenSpeed gRPC workers have the same choice: a Rust implementation serving the 
 
 Like the vLLM and SGLang switches, the selection requires SMG v1.12.0 or newer wheels and engine images.
 
-One environment variable selects it on the unchanged entrypoint — every flag is still TokenSpeed's `ServerArgs`:
+Select the implementation with `--servicer-impl` on `python -m smg_grpc_servicer.tokenspeed` — this launcher's own flag, which `--help` lists ahead of TokenSpeed's `ServerArgs` flags — or with the `SMG_TOKENSPEED_SERVICER_IMPL` environment variable:
 
 ```bash
+python -m smg_grpc_servicer.tokenspeed \
+  --model meta-llama/Llama-3.1-8B-Instruct \
+  --host 0.0.0.0 \
+  --port 50051 \
+  --servicer-impl rust
+
+# The environment variable selects it on the same entrypoint:
 SMG_TOKENSPEED_SERVICER_IMPL=rust python -m smg_grpc_servicer.tokenspeed \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051
 ```
 
-`SMG_TOKENSPEED_SERVICER_IMPL` defaults to `python`, and a value other than `python` or `rust` fails startup. This launcher is also the process `ts serve` spawns for its gRPC worker. `smg serve` offers no path here: its `--servicer-impl` stays scoped to vLLM, and it drives TokenSpeed workers over `--connection-mode zmq` only — start the worker directly and connect it with `smg launch`.
+When both are set, the flag wins: `--servicer-impl python` overrides an exported `rust`. The decision a flag makes is written back to `SMG_TOKENSPEED_SERVICER_IMPL`, so the processes the worker spawns inherit the same choice. The selection defaults to `python`, and a value other than `python` or `rust` fails startup. At startup the worker logs which implementation it chose and whether the flag, the environment or the default decided it.
+
+This launcher is also the process `ts serve` spawns for its gRPC worker. `smg serve` offers no path here: its `--servicer-impl` stays scoped to vLLM, and it drives TokenSpeed workers over `--connection-mode zmq` only — start the worker directly and connect it with `smg launch`.
 
 In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servicer.TokenSpeedGrpcServer`, which needs the `smg` wheel installed alongside `smg-grpc-servicer`) before any TokenSpeed engine or Python gRPC machinery exists: the Rust server speaks the gRPC contract on the worker's host and port, the scheduler(s) run headless in a spawned child — TokenSpeed's own headless launch, what `ts serve --headless` runs — over a same-host msgpack ZMQ connection, and Python keeps only the process lifecycle. As with vLLM and SGLang, that ZMQ hop is inside the worker: the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md), and the gateway cannot tell the two implementations apart.
 

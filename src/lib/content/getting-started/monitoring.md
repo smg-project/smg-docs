@@ -516,7 +516,7 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
     3. Some metrics only appear for specific paths (for example, TTFT is recorded for streaming responses on the gRPC router).
 
-    4. Verify metric names against the [Metrics Reference](../reference/metrics.md). Names such as `smg_router_stage_duration_seconds` and the `smg_db_*` metrics are declared in code but never emitted.
+    4. Verify metric names against the [Metrics Reference](../reference/metrics.md). Names found on older dashboards, such as `smg_router_stage_duration_seconds` and the `smg_db_*` metrics, do not exist in SMG and are never emitted.
 
     SMG publishes the overload-shed and retry families at zero from start-up, whether or not overload protection is enabled. Each worker's circuit-breaker transition counters are likewise published at zero when that worker is registered. The start-up retry series cover the `regular`, `prefill`, and `decode` worker types only; the external-provider counters (`worker_type="external"`) appear only on their first event: `smg_worker_retries_total` on the first retry, `smg_worker_retries_exhausted_total` on the first exhaustion. Absence of the start-up families therefore points at a scrape problem rather than inactivity, while a missing transition series means no worker with that label is registered. The [Metrics Reference](../reference/metrics.md) lists the exact series.
 

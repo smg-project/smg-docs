@@ -232,13 +232,13 @@ Workers without a block, including those from `--worker-urls` and service discov
 
 While a worker is overloaded:
 
-- **Every routing policy skips it** while another candidate is under the thresholds, on the HTTP and gRPC routers, for regular workers and for each leg of a prefill/decode pair. Hash-based and sticky policies treat it like an unhealthy worker and route the key elsewhere while the veto lasts. One exception: a prefill pool placed by `cache_aware` is not steered by the thresholds unless `--worker-overload-shed` is set; the policy's own spill gate balances it.
+- **Every routing policy skips it** while another candidate is under the thresholds, on the HTTP and gRPC routers, for regular workers and for each leg of a prefill/decode pair. Hash-based and sticky policies treat it like an unhealthy worker and route the key elsewhere while the veto lasts. Two placements are not steered by the thresholds unless `--worker-overload-shed` is set: a prefill pool placed by `cache_aware`, which the policy's own spill gate balances, and a request that `consistent_hashing` places by routing key on regular (not prefill/decode) workers (a routing-key header, or the override's `rid`-derived key, and no `X-SMG-Target-Worker`), which stays on its ring owner because moving it would discard the conversation's cached prefix there. That keyed request still moves when its owner is not ready, its circuit breaker is open, or a liveness veto excludes it.
 - **Requests already running on it are unaffected**. The veto only applies to selection.
 - **It returns to routing** on the first poll whose report is under every threshold.
 
 ### When Every Worker Is Overloaded
 
-When every worker the request could have been routed to (the pool selection drew from: same model, worker type, and transport) is overloaded, the gateway never queues it. By default it **steers**: the request goes to the worker with the fewest requests this gateway has in flight to it (ties drawn at random), and the placement counts in `smg_worker_overload_fallback_total{stage="selection"}`. A fleet that is uniformly over its ceilings is still a fleet, and refusing the request would turn a load signal into an outage.
+When every worker the request could have been routed to (the pool selection drew from: same model, worker type, and transport) is overloaded, the gateway never queues it. By default it **steers**: the request goes to the worker with the fewest requests this gateway has in flight to it (ties drawn at random), and the placement counts in `smg_worker_overload_fallback_total{stage="selection"}`. The two placements exempt above are placed by their policy instead and counted the same way. A fleet that is uniformly over its ceilings is still a fleet, and refusing the request would turn a load signal into an outage.
 
 With `--worker-overload-shed` the gateway **sheds** instead, rejecting the request at once:
 
@@ -271,6 +271,9 @@ X-SMG-Error-Code: worker_overload_protection_shed
 
 !!! note "Changed in v1.12.0"
     Before v1.12.0, overload protection was opt-in: `--worker-overload-protection` turned it on at `0.9` KV usage with no queue ceiling, either threshold alone turned it on, and a request whose every candidate was overloaded was always shed with `503`. Since v1.12.0 it is on by default at `8` waiting requests and `0.8` KV usage, `--disable-worker-overload-protection` switches it off, and the shed is the opt-in `--worker-overload-shed`; without it the request is steered to the least-loaded worker.
+
+!!! note "Changed in v1.14.0"
+    Before v1.14.0, the overload veto also moved a request that `consistent_hashing` placed by routing key: each time the key's ring owner crossed a threshold, the conversation moved to the next ring node and came back when the veto cleared, losing its cached prefix both ways. Since v1.14.0 such a request stays on its owner unless `--worker-overload-shed` is set.
 
 ---
 
@@ -312,7 +315,7 @@ This gate is on by default and independent of the overload thresholds. Keep the 
 |--------|------|--------|-------------|
 | `smg_workers_overloaded` | Gauge | `model` | Workers of the model currently excluded by overload protection. Updated when a worker's verdict changes. |
 | `smg_worker_overload_shed_total` | Counter | `stage` | Requests shed with `worker_overload_protection_shed`. `stage` is `selection` (every candidate overloaded), `dispatch` (chosen worker flagged before dispatch), or `pd_admission` (decode window full). |
-| `smg_worker_overload_fallback_total` | Counter | `stage` | Requests placed although every worker they could use was overloaded, because shedding is off: routed to the least-loaded worker or, for a cache-aware prefill pool of a prefill/decode pair, placed by that policy. `stage` is `selection`. |
+| `smg_worker_overload_fallback_total` | Counter | `stage` | Requests placed although every worker they could use was overloaded, because shedding is off: routed to the least-loaded worker or, for a cache-aware prefill pool of a prefill/decode pair or a request `consistent_hashing` places by routing key, placed by that policy. `stage` is `selection`. |
 | `smg_worker_stalled` | Gauge | `worker`, `reason` | `1` while a liveness veto excludes the worker from routing. `reason` is `unreachable` or `wedged`. |
 | `smg_worker_stall_transitions_total` | Counter | `worker`, `reason` | Liveness vetoes set on the worker, counted each time one lands. |
 | `smg_worker_liveness_fallback_total` | Counter | `stage` | Requests routed to a worker the liveness tracker vetoed because every candidate was vetoed. `stage` is `selection`. |

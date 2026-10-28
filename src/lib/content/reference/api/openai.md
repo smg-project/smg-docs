@@ -811,7 +811,7 @@ Kimi.
 | Kimi | `kimi*`, `moonshot*`; the K3 rules apply to `kimi-k3*` and `kimi_k3*` |
 | MiniMax | `minimax*`, `abab*` |
 | z.ai (GLM) | `glm*`, `zai*`, `z-ai*`; the GLM-5.3 rules apply to `glm-5.3*`, `glm5.3*`, `glm_5.3*`, `glm-5-3*`, `glm5-3*` |
-| DeepSeek V4 | A segment equal to `deepseek-flash`, `deepseek-v4-flash`, `deepseek-v4-pro`, or `deepseek-v4.1-flash` |
+| DeepSeek V4 | A segment equal to `deepseek-flash`, `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4.1-flash`, or `deepseek-v4.1-flash-1017` |
 | OpenAI baseline | Everything else, including older DeepSeek models and `THUDM/chatglm3-6b` |
 
 Selection reads the model name as sent, before `--model-alias` resolution: an alias that

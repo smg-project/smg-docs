@@ -194,7 +194,7 @@ effort as its `reasoning_effort` variable, and SMG decides whether the model sta
 reasoning mode from the first of these that applies:
 
 1. an explicit thinking toggle in `chat_template_kwargs`;
-2. for templates with their own effort levels, the effort the template renders (the request's effective effort, else a `chat_template_kwargs.reasoning_effort` entry): a native level turns thinking on, and `none` and `minimal` turn it off — except on the DeepSeek-V4 renderer, which turns thinking off on `none` only and keeps it on for every other value;
+2. for templates with their own effort levels, the effort the template renders (the request's effective effort, else a `chat_template_kwargs.reasoning_effort` entry). A native level turns thinking on, and `none` and `minimal` turn it off, with two exceptions: the DeepSeek-V4 renderer turns thinking off on `none` only and keeps it on for every other value, and Kimi-K3 lets only `none` decide at this step, leaving a native level to the steps below;
 3. `thinking.type` (`enabled` on, `disabled` off);
 4. the effective effort, where `none` and `minimal` turn thinking off — except on MiniMax models, where no effort value does (MiniMax reads `none` as the model's default thinking depth and `minimal` as `low`).
 
@@ -883,7 +883,7 @@ its `400` carries the `X-SMG-Error-Code` header.
 | Kimi K3 | Omitted fields get the contract values: `temperature` 1.0, `top_p` 0.95, `presence_penalty` 0, `frequency_penalty` 0, `n` 1 |
 | MiniMax | `root` messages move, in order, to the front as `system` messages. On gRPC workers, responses are scanned for tool calls even when the request declares no tools |
 | z.ai | `thinking.clear_thinking` becomes the `clear_thinking` chat-template variable unless `chat_template_kwargs` sets it. `tool_stream` is accepted and dropped (SMG streams tool-call deltas anyway). GLM-5.x, GLM-4.7, and GLM-4.6 get `temperature` 1.0 and `top_p` 0.95 when omitted |
-| DeepSeek V4 | Effort `minimal` → `low`; on V4, `medium` and `xhigh` → `high` (V4.1 keeps both as native levels, though a request forwarded to an HTTP worker or external provider still sends `medium` as `high`, the vendor's reading). Thinking is on unless turned off (`thinking.type: disabled`, effort `none`, or a template override), and the result is written to `chat_template_kwargs.thinking` when that is unset. Streams use DeepSeek's usage format (see [Stream Usage](#stream-usage)) |
+| DeepSeek V4 | Effort `minimal` → `low`; on V4, `medium` and `xhigh` → `high` (V4.1 keeps both as native levels, though a request forwarded to an HTTP worker or external provider still sends `medium` as `high`, matching DeepSeek's own API). Thinking is on unless turned off (`thinking.type: disabled`, effort `none`, or a template override), and the result is written to `chat_template_kwargs.thinking` when that is unset. Streams use DeepSeek's usage format (see [Stream Usage](#stream-usage)) |
 
 ---
 

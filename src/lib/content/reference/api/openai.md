@@ -194,7 +194,7 @@ effort as its `reasoning_effort` variable, and SMG decides whether the model sta
 reasoning mode from the first of these that applies:
 
 1. an explicit thinking toggle in `chat_template_kwargs`;
-2. for templates with their own effort levels, the effort the template renders (the request's effective effort, else a `chat_template_kwargs.reasoning_effort` entry). A native level turns thinking on, and `none` and `minimal` turn it off, with two exceptions: the DeepSeek-V4 renderer turns thinking off on `none` only and keeps it on for every other value, and Kimi-K3 lets only `none` decide at this step, leaving every other value — `minimal` and native levels included — to the steps below;
+2. for templates with their own effort levels, the effort the template renders (the request's effective effort, else a `chat_template_kwargs.reasoning_effort` entry): a native level turns thinking on, and `none` and `minimal` turn it off. Two exceptions: the DeepSeek-V4 renderer keeps thinking on for every value but `none`, and Kimi-K3 lets only `none` decide at this step, leaving every other value — `minimal` and native levels included — to the steps below;
 3. `thinking.type` (`enabled` on, `disabled` off);
 4. the effective effort, where `none` and `minimal` turn thinking off — except on MiniMax models, where no effort value does (MiniMax reads `none` as the model's default thinking depth and `minimal` as `low`).
 

@@ -129,7 +129,7 @@ SMG also accepts these SGLang-style extensions on Chat Completions:
 | `skip_special_tokens` | boolean | Drop special tokens when detokenizing (default `true`) |
 | `continue_final_message` | boolean | Continue the trailing assistant message instead of starting a new one |
 | `separate_reasoning`, `stream_reasoning` | boolean | Return reasoning in `reasoning_content` and stream it (both default `true`) |
-| `chat_template_kwargs` | object | Extra chat-template variables. On gRPC workers an explicit entry wins over the `tool_choice` and `response_format` values SMG passes to the template, but not over the effort: a `reasoning_effort` entry applies only when the request sets no effort of its own. See [Thinking and Reasoning Effort](#thinking-and-reasoning-effort) |
+| `chat_template_kwargs` | object | Extra chat-template variables. On gRPC workers an explicit entry wins over the `tool_choice` and `response_format` values SMG passes to the template, but not over the effort: a `reasoning_effort` entry applies only when the request sets no effort of its own (see [Thinking and Reasoning Effort](#thinking-and-reasoning-effort)) |
 | `lora_path` | string | LoRA adapter to apply |
 | `sampling_seed` | integer | Seed for deterministic sampling |
 | `return_hidden_states` | boolean | Return the model's hidden states |
@@ -194,7 +194,7 @@ effort as its `reasoning_effort` variable, and SMG decides whether the model sta
 reasoning mode from the first of these that applies:
 
 1. an explicit thinking toggle in `chat_template_kwargs`;
-2. for templates with their own effort levels, the effort the template renders (the request's effective effort, else a `chat_template_kwargs.reasoning_effort` entry): a native level turns thinking on, and `none` and `minimal` turn it off — except on the DeepSeek-V4 renderer, which turns off on `none` only and keeps thinking on for every other value;
+2. for templates with their own effort levels, the effort the template renders (the request's effective effort, else a `chat_template_kwargs.reasoning_effort` entry): a native level turns thinking on, and `none` and `minimal` turn it off — except on the DeepSeek-V4 renderer, which turns thinking off on `none` only and keeps it on for every other value;
 3. `thinking.type` (`enabled` on, `disabled` off);
 4. the effective effort, where `none` and `minimal` turn thinking off — except on MiniMax models, where no effort value does (MiniMax reads `none` as the model's default thinking depth and `minimal` as `low`).
 

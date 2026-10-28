@@ -290,9 +290,8 @@ a request that declares it is rejected with `400` (`tool_not_supported`).
 ```
 
 Effort tiers, lowest to highest: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`,
-`max`. `none` turns reasoning off on most models; a `reasoning` object without `effort` defaults to
-`medium`. Any other value is rejected with `400` `invalid_value`. `summary` accepts
-`auto`, `concise`, or `detailed`.
+`max`. A `reasoning` object without `effort` defaults to `medium`. Any other value is
+rejected with `400` `invalid_value`. `summary` accepts `auto`, `concise`, or `detailed`.
 
 On gRPC workers the tier reaches the chat pipeline as the same `reasoning_effort` string,
 where `none` and `minimal` turn thinking off on most models (for the DeepSeek-V4 and

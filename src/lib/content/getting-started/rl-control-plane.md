@@ -178,9 +178,9 @@ Response for one SGLang worker (`labels` trimmed):
 | `engine_version` | The worker's `version` label, or `null` |
 | `model_id` | Model the worker serves |
 | `worker_type` | `regular`, `prefill`, `decode`, or `encode` |
-| `connection_mode` | `http`, `grpc`, or `zmq` — the worker's data transport. Control calls go to `control_url` when it is set, and ride the worker's own connection when it is `null` and `engine_control_calls` is `true`. |
-| `control_url` | Where control calls are sent: the worker itself for an HTTP worker, the resolved `rl.control_url` label otherwise, or `null` when the worker has no [control endpoint](#control-endpoints). A worker with a `null` `control_url` is controllable only when `engine_control_calls` is `true`. |
-| `engine_control_calls` | Present and `true` only when the worker's [engine connection carries control calls](#control-calls-on-the-engine-connection): a TokenSpeed ZMQ worker whose engine handshake declared the control reply, or whose engine has not finished connecting. When `control_url` is also set, calls go to `control_url`. |
+| `connection_mode` | `http`, `grpc`, or `zmq` — the worker's data transport. Control calls go to `control_url` instead, or [ride the worker's own engine connection](#control-calls-on-the-engine-connection) when `control_url` is `null` and `engine_control_calls` is `true`. |
+| `control_url` | Where control calls are sent: the worker itself for an HTTP worker, the resolved `rl.control_url` label otherwise, or `null` when the worker has no [control endpoint](#control-endpoints) |
+| `engine_control_calls` | Present and `true` only when the worker's [engine connection carries control calls](#control-calls-on-the-engine-connection): a TokenSpeed ZMQ worker whose engine handshake declared the control reply, or whose engine has not finished connecting |
 | `tp_size`, `dp_size`, `pp_size` | From the worker's labels; `null` when missing or not an integer |
 | `dp_ranks` | Number of DP-aware ranks collapsed into this row; `1` for other workers |
 | `role` | The worker's `role` label, or `null` |
@@ -212,7 +212,7 @@ Control calls go to a worker's control endpoint, which is independent of its dat
 
 A TokenSpeed gRPC engine launched with `--rl-control-host` and `--rl-control-port` advertises its control server in server info, and SMG turns the advertisement into the label at registration. Give `--rl-control-host` an address SMG can reach: the engine does not advertise a wildcard bind (`0.0.0.0`, `::`), and the default loopback is right only when SMG runs on the same machine.
 
-Label the worker yourself when the engine does not advertise: the [Rust TokenSpeed servicer](grpc-workers.md#rust-tokenspeed-servicer) carries no `rl.*` advertisement. A TokenSpeed engine started by `smg serve` in ZMQ mode runs no control server at all, but when its handshake declares the control reply it needs no label either — its [engine connection carries the calls](#control-calls-on-the-engine-connection). Set a label on such a worker only to name a control server you run yourself, for example to reach `GET` routes or an engine that declares no control reply.
+Label the worker yourself when the engine does not advertise: the [Rust TokenSpeed servicer](grpc-workers.md#rust-tokenspeed-servicer) carries no `rl.*` advertisement. A TokenSpeed engine started by `smg serve` in ZMQ mode runs no control server at all, and when its handshake declares the control reply it needs no label: its [engine connection carries the calls](#control-calls-on-the-engine-connection). A label on such a worker can only name a control server you run yourself; set one to reach `GET` routes, or for an engine that declares no control reply.
 
 A wildcard host in a label you set (`http://0.0.0.0:40100`) is replaced by the worker's own host; a worker with no host of its own (an `ipc://` ZMQ worker) keeps the label as given. The result is the `control_url` discovery field. A worker whose `control_url` is `null` takes control calls on its engine connection when discovery reports `engine_control_calls: true`, and fails every control call with [`no_control_endpoint`](#errors) otherwise.
 
@@ -220,7 +220,7 @@ SMG authenticates to the control endpoint with the worker's own API key (see [Se
 
 ### Control Calls on the Engine Connection
 
-A TokenSpeed worker on the gateway's direct ZMQ lane needs no `rl.control_url` label when its engine's handshake declared the control reply. Without a label, SMG carries the engine's `POST` control routes (`pause_generation`, `update_weights_from_distributed`, ...) as control calls named after the route on the worker's own engine connection, running each call on every rank the worker drives:
+A TokenSpeed [ZMQ worker](zmq-workers.md) needs no `rl.control_url` label when its engine's handshake declared the control reply. Without a label, SMG carries the engine's `POST` control routes (`pause_generation`, `update_weights_from_distributed`, ...) as control calls named after the route on the worker's own engine connection, running each call on every rank the worker drives:
 
 - The route's JSON body is the call's argument. A request with no body, or with `{}`, calls without an argument; a body that is not a JSON object gets [`400 invalid_body`](#errors). The call carries only the route name and the body — a query string is dropped.
 - The answer keeps the route's shape: `{"success": ..., "message": ...}`, with status `200` when every rank succeeded and `400` with the failing ranks' distinct messages otherwise.
@@ -228,7 +228,7 @@ A TokenSpeed worker on the gateway's direct ZMQ lane needs no `rl.control_url` l
 
 Discovery reports such a worker with `control_url: null` and `engine_control_calls: true`. A label, when set, wins: calls go to the label's HTTP server and the engine connection is not used, even though discovery still reports `engine_control_calls: true`.
 
-An engine whose handshake declares no control reply — its wire carries generate and abort only — cannot take these calls. Once it is connected, discovery reports the worker without `engine_control_calls`, and a control call on it answers [`no_control_endpoint`](#errors) with a `message` naming the reason and the `rl.control_url` way out. A worker whose engine is still connecting is reported with `engine_control_calls: true` until the handshake settles the question.
+An engine whose handshake declares no control reply — its wire carries generate and abort only — cannot take these calls. Once it is connected, discovery reports the worker without `engine_control_calls`, and a control call on it answers [`no_control_endpoint`](#errors) with a `message` that names the reason and points to the `rl.control_url` label. A worker whose engine is still connecting is reported with `engine_control_calls: true` until the handshake settles the question.
 
 ### Capabilities
 
@@ -419,7 +419,7 @@ A failure on the SMG side returns JSON `{"error": "<code>", "message": "<text>"}
 | `400` | `invalid_selector` | Fan-out | The selector does not parse | `offset` |
 | `400` | `no_workers_match` | Fan-out | No worker matches the selector | `selector` |
 | `404` | `worker_not_found` | Worker lookup, per-worker call | Unknown worker ID | `id` |
-| `422` | `no_control_endpoint` | Per-worker call | The worker has no [control endpoint](#control-endpoints) and its [engine connection cannot carry the call](#control-calls-on-the-engine-connection) (not a TokenSpeed ZMQ worker, a `GET` or multi-segment path, or an engine that declares no control reply), or SMG has no HTTP client to reach the endpoint; `message` says which and names the way out | `worker_id`, `url`, `connection_mode` |
+| `422` | `no_control_endpoint` | Per-worker call | The worker has no [control endpoint](#control-endpoints) and its [engine connection cannot carry the call](#control-calls-on-the-engine-connection), or SMG has no HTTP client to reach the endpoint; `message` says which | `worker_id`, `url`, `connection_mode` |
 | `502` | `upstream_unreachable` | Per-worker call | SMG could not connect to the engine or read its response | `worker_id`, `url` |
 | `504` | `upstream_timeout` | Per-worker call | Connecting timed out, or the engine sent no response within `--rl-control-timeout-secs` | `worker_id`, `url` |
 
@@ -477,7 +477,7 @@ The results are dataclasses:
 
 | Type | Fields |
 |---|---|
-| `Worker` | The discovery row: `id`, `url`, `base_url`, `engine`, `engine_version`, `model_id`, `worker_type`, `connection_mode`, `tp_size`, `dp_size`, `pp_size`, `dp_ranks`, `role`, `health`, `weight_version`, `control_url`, `labels`, and `capabilities` (a dict) |
+| `Worker` | The discovery row, without `engine_control_calls`: `id`, `url`, `base_url`, `engine`, `engine_version`, `model_id`, `worker_type`, `connection_mode`, `tp_size`, `dp_size`, `pp_size`, `dp_ranks`, `role`, `health`, `weight_version`, `control_url`, `labels`, and `capabilities` (a dict) |
 | `CallResult` | `worker_id`, `url`, `status`, `latency_ms`, `body` |
 | `FanoutResult` | `results` (worker ID to `CallResult`), `failed` (a list of `FanoutFailure`), `total`, `succeeded` |
 | `FanoutFailure` | `worker_id`, `url`, `status`, `error`, `message` |

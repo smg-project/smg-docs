@@ -42,7 +42,7 @@ Workers registered on any router and cache-aware routing tree updates reach ever
 
 ### :material-rocket-launch: Rolling Updates
 
-Replace routers one at a time: each drains in-flight requests on shutdown. With Kubernetes router discovery, a replaced pod rejoins as soon as it is Ready.
+Replace routers one at a time: each announces its leave to the mesh and drains in-flight requests on shutdown. With Kubernetes router discovery, a replaced pod rejoins as soon as it is Ready.
 
 </div>
 
@@ -266,7 +266,7 @@ smg launch --enable-mesh \
 | `ALIVE` | Reachable. Every router starts in this state |
 | `SUSPECTED` | A probe failed: neither the direct ping nor any indirect ping reached the router. Still probed. Router discovery also sets it for a known pod that is not Ready, unless that router is already `DOWN` |
 | `DOWN` | A probe failed again while `SUSPECTED`, or the router's pod was deleted or is terminating. Peers stop probing it |
-| `LEAVING` | The node announced a graceful leave. Peers stop probing it. The v1.12 gateway does not announce it during shutdown |
+| `LEAVING` | The router announced a graceful leave, as every router does when its [graceful shutdown](../reliability/graceful-shutdown.md) begins. Peers stop probing it |
 | `INIT` | Defined in the protocol but not used |
 
 !!! warning "A `DOWN` router is not probed again"

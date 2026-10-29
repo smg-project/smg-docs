@@ -229,7 +229,7 @@ smg launch \
 - **File naming**: `smg.YYYY-MM-DD`, with no extension
 - **No deletion**: old files are kept; see [Log Rotation](#log-rotation)
 - **Non-blocking I/O**: dedicated writer threads write the files and stdout; a writer that falls more than 128,000 lines behind drops new lines for its sink rather than slowing requests
-- **Dropped-line reporting**: drops are counted per sink in the `smg_log_dropped_lines` metric and reported in a WARN line (`log lines dropped: the writer queue was full`) every 30 seconds while drops continue; see the [Metrics Reference](../reference/metrics.md#log-writer-metrics)
+- **Dropped-line reporting**: drops are counted per sink in the `smg_log_dropped_lines` metric and reported in a WARN line (`log lines dropped: the writer queue was full`, with the total and the count since the last report) every 30 seconds while drops continue; see the [Metrics Reference](../reference/metrics.md#log-writer-metrics)
 - **Directory creation**: SMG creates the directory if it does not exist
 
 ### Log Directory Requirements

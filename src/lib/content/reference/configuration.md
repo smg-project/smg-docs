@@ -172,11 +172,11 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 
 ## Worker Overload Protection
 
-Absolute per-worker ceilings, evaluated once per load report rather than per request, on by default since v1.12.0. A worker at or above a ceiling leaves routing, while another candidate is under the ceilings, until its load report drops below it. When every candidate worker is overloaded, the request goes to the least-loaded of them; with `--worker-overload-shed` it is shed immediately with `503` and error code `worker_overload_protection_shed` instead of queueing. The shed carries `Retry-After` set to `--load-monitor-interval` (at least 1 second), and the gateway does not retry it. See [Overload Protection](../concepts/reliability/overload-protection.md).
+Absolute per-worker ceilings, evaluated once per load report rather than per request, on by default. A worker at or above a ceiling leaves routing, while another candidate is under the ceilings, until its load report drops below it. When every candidate worker is overloaded, the request goes to the least-loaded of them; with `--worker-overload-shed` it is shed immediately with `503` and error code `worker_overload_protection_shed` instead of queueing. The shed carries `Retry-After` set to `--load-monitor-interval` (at least 1 second), and the gateway does not retry it. See [Overload Protection](../concepts/reliability/overload-protection.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--worker-overload-protection` | `true` | The default since v1.12.0; the flag is still accepted so that command lines written for earlier releases parse unchanged. |
+| `--worker-overload-protection` | `true` | Protection is on by default; the flag is still accepted so that command lines written for earlier releases parse unchanged. |
 | `--disable-worker-overload-protection` | `false` | Switch protection off: no worker is left out of routing for its waiting queue or KV usage. Per-worker `overload` blocks still apply. |
 | `--worker-overload-waiting-requests` | `8` | Queued (waiting) requests, summed across DP ranks, at or above which a worker is overloaded. Must be at least `1`, because `0` would veto every worker. |
 | `--worker-overload-token-usage` | `0.8` | Mean KV-cache token usage across DP ranks, in `(0.0, 1.0]`, at or above which a worker is overloaded. The backend must report `token_usage`. `0.0` is rejected because it would veto every worker. |
@@ -266,7 +266,7 @@ EPD mode only.
 
 ### Prefill Admission
 
-These three flags exist since v1.12.0 (smg-project/smg#1961); v1.11.0 builds do not have them. They cap how many Prefill requests the gateway keeps in flight on each prefill worker, counting only this gateway process's own dispatches. Requests over the cap wait in one FIFO queue per gateway process, not per worker.
+These flags cap how many Prefill requests the gateway keeps in flight on each prefill worker, counting only this gateway process's own dispatches. Requests over the cap wait in one FIFO queue per gateway process, not per worker.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -305,7 +305,7 @@ The load monitor polls every worker group for load reports. The reports feed the
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--load-monitor-interval` | `10` | Seconds between load polls of each worker group. This is the global poll interval for all of the consumers above, even though `--help` still describes it as "for PowerOfTwo routing". The overload shed advertises it as `Retry-After`. Must be greater than 0. The worker spec's `load_monitor_interval_secs` field applies since v1.12.0 (a group polls at the smallest value its workers set); v1.11.0 did not apply it. |
+| `--load-monitor-interval` | `10` | Seconds between load polls of each worker group. This is the global poll interval for all of the consumers above, even though `--help` still describes it as "for PowerOfTwo routing". The overload shed advertises it as `Retry-After`. Must be greater than 0. The worker spec's `load_monitor_interval_secs` field overrides it per group: a group polls at the smallest value its workers set, floored to one second. |
 | `--disable-load-monitoring` | `false` | Poll a worker group only when something needs the data: a load-aware policy, `--dp-minimum-tokens-scheduler`, `--engine-metrics`, or overload protection on one of its workers. By default every group is polled from registration onward. |
 | `--engine-metrics` | `false` | Force load polling for the `smg_engine_*` Prometheus gauges even when nothing else needs it. Every successful poll is exported anyway, so this matters only together with `--disable-load-monitoring`. |
 | `--pd-admission-wait-secs` | `30` | Seconds a prefill/decode dispatch waits for a free slot in the decode engine's running window (`--max-num-seqs` / `--max-running-requests`) before shedding with `503` `worker_overload_protection_shed`. Keep it well under the engine's bootstrap deadline (120 seconds on TokenSpeed) so a request that waits still dispatches with the deadline ahead of it. `0` sheds immediately. Engines that report no running window are never gated. |
@@ -327,7 +327,7 @@ Resolution precedence (highest first): CLI flag, `SMG_MM_*` environment variable
 | `--multimodal-tensor-transport` | `inline` | Transport for large tensors: `inline` (gRPC bytes); `shm` (use `/dev/shm` whenever the router can write it; the operator asserts co-location); `auto` (use `/dev/shm` only when the worker is verified to share it: the router compares the worker's advertised `/dev/shm` namespace token from `GetServerInfo` with its own and falls back to inline on a mismatch); or `rdma` (pull pixels over the NIXL RDMA lane, see [RDMA Pixel Lane](#rdma-pixel-lane)). `--help` lists only the first three values, but `rdma` is accepted too. Env: `SMG_MM_TENSOR_TRANSPORT` (legacy name `SMG_TOKENSPEED_MM_TENSOR_TRANSPORT`). |
 | `--multimodal-shm-min-bytes` | `65536` | Minimum tensor size in bytes before the SHM path is used; smaller tensors stay inline. Env: `SMG_MM_SHM_MIN_BYTES` (legacy name `SMG_TOKENSPEED_MM_SHM_MIN_BYTES`). |
 
-The worker spec has matching `multimodal_tensor_transport` and `multimodal_shm_min_bytes` fields, consulted for the worker that runs the vision encoder since v1.12.0 (v1.11.0 did not copy them onto registered workers). The legacy `SMG_TOKENSPEED_MM_*` names still work but log a migration warning.
+The worker spec has matching `multimodal_tensor_transport` and `multimodal_shm_min_bytes` fields, consulted for the worker that runs the vision encoder. The legacy `SMG_TOKENSPEED_MM_*` names still work but log a migration warning.
 
 On the worker side, the vLLM and TokenSpeed gRPC servicers read `TOKENSPEED_UNLINK_MM_SHM_AFTER_READ` (default on: unlink each `/dev/shm` segment after the worker reads it; `0`, `false`, or `no` keeps the segments), and the TokenSpeed servicer also reads `TOKENSPEED_LOG_MM_TIMING` (worker-side timing logs).
 
@@ -504,7 +504,7 @@ See [Configure Logging](../getting-started/logging.md).
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--prometheus-port` | `29000` | Port of the metrics server, which serves `/metrics`. Must be greater than 0: v1.11.0 rejects `0` at startup (`metrics.port` ... `Port must be > 0`), even though `--help` describes `0` as an OS-assigned ephemeral port. |
+| `--prometheus-port` | `29000` | Port of the metrics server, which serves `/metrics`. Must be at least `1` (`0` is rejected at startup), and each listener (`--port`, `--prometheus-port`, `--health-check-port`, `--admin-port`, `--mesh-port`) needs its own port. |
 | `--prometheus-host` | the unspecified address of `--host`'s family: `0.0.0.0`, or `::` for an IPv6 `--host` | IP address the metrics server binds, IPv6 with or without brackets. A value that is not an IP address is a configuration error. |
 | `--prometheus-duration-buckets` | see below | Space-separated histogram bucket boundaries, in seconds, for metrics whose names end in `duration_seconds`, `ttft_seconds`, or `tpot_seconds`. |
 
@@ -524,7 +524,7 @@ See the [Metrics Reference](metrics.md).
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--request-timeout-secs` | `1800` (30 min) | Maximum time for request processing. Must be greater than 0. |
-| `--sse-keepalive-secs` | `15` | Send a keepalive after this many seconds of silence on an open SSE response. `0` disables it. Available from v1.13.0; see [Streaming Keepalives](#streaming-keepalives). |
+| `--sse-keepalive-secs` | `15` | Send a keepalive after this many seconds of silence on an open SSE response. `0` disables it. See [Streaming Keepalives](#streaming-keepalives). |
 | `--upstream-pool-idle-timeout-secs` | `3` | Idle timeout for pooled upstream connections. Keep it below the backend server's keep-alive timeout (vLLM and SGLang default to 5 seconds), or reused connections the server already closed fail non-idempotent sends. `0` keeps idle connections forever. |
 | `--shutdown-grace-period-secs` | `180` (3 min) | Time to wait for in-flight requests during shutdown. See [Graceful Shutdown](../concepts/reliability/graceful-shutdown.md). |
 | `--max-payload-size` | `536870912` (512 MiB) | Maximum request body size in bytes. Must be greater than 0. |
@@ -539,8 +539,6 @@ See the [Metrics Reference](metrics.md).
 | `--max-background-responses` | `1024` | Most Responses API requests with `background: true` in flight at once; one beyond answers `429` (`background_responses_limit_reached`). `0` switches background mode off: such requests then run in the foreground. See [Responses API](api/responses.md). |
 | `--cors-allowed-origins` | none (no cross-origin allowance) | Space-separated exact origins a browser may call the gateway from, or `*` alone for any origin, method and header. Without the flag no CORS headers are sent: a browser's preflight gets no `access-control-allow-*` headers and the browser refuses the cross-origin call; other clients are unaffected. Earlier releases allowed any origin when the flag was absent; set `*` to keep that. |
 
-`--stream-request-bodies-over`, which existed briefly in pre-release builds, was removed before v1.10.0; v1.11.0 rejects it as an unknown argument. The per-request decision described under `--max-buffered-request-bytes` replaces it.
-
 **Examples**:
 ```bash
 --cors-allowed-origins http://localhost:3000 https://example.com
@@ -550,12 +548,10 @@ See the [Metrics Reference](metrics.md).
 
 ### Streaming Keepalives
 
-!!! note "New in v1.13.0"
-    SMG can keep an open streaming response active while the engine is silent, such as during a long prefill. This setting is unavailable in v1.12.0.
-
-After **15 seconds** without response data, SMG sends an SSE keepalive. The
-interval starts when the response headers are sent and restarts when data flows.
-Keepalives are inserted only between complete SSE frames.
+SMG keeps an open streaming response active while the engine is silent, such as
+during a long prefill. After **15 seconds** without response data, SMG sends an
+SSE keepalive. The interval starts when the response headers are sent and
+restarts when data flows. Keepalives are inserted only between complete SSE frames.
 
 | Endpoint | Keepalive format |
 |----------|------------------|
@@ -614,7 +610,7 @@ Priority-aware admission, disabled by default. The YAML format, request header, 
 | `--priority-scheduler-enabled` | `false` | Use the priority-aware admission scheduler instead of the concurrency-limit middleware. If the scheduler cannot start, the gateway logs an error and keeps the legacy path. |
 | `--priority-scheduler-default-max-class` | `default` | Maximum priority class for tenants not listed in the YAML: `system`, `interactive`, `default`, or `bulk`. Case-insensitive, surrounding spaces ignored. With the scheduler enabled, an unknown value is a configuration error at start-up (the error names the four classes); the flag is not read otherwise. |
 | `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class tuning and per-tenant policy). Unset uses the built-in defaults. |
-| `--priority-scheduler-tenant-metric-top-n` | `32` | Intended cap on per-tenant scheduler metric label cardinality (top N plus `other`). Stored but not yet applied in v1.11.0. |
+| `--priority-scheduler-tenant-metric-top-n` | `32` | Intended cap on per-tenant scheduler metric label cardinality (top N plus `other`). Stored but not yet applied. |
 
 ---
 
@@ -661,7 +657,7 @@ Per-worker circuit breakers. See [Circuit Breakers](../concepts/reliability/circ
 | `--cb-failure-threshold` | `10` | Consecutive failures that open a worker's circuit; a success resets the count. Must be at least `1`. |
 | `--cb-success-threshold` | `3` | Consecutive successes in the half-open state that close the circuit. Must be at least `1`. |
 | `--cb-timeout-duration-secs` | `60` | Seconds a circuit stays open. The move to half-open happens lazily, on the first check after this time has passed. Must be greater than 0. |
-| `--cb-window-duration-secs` | `120` | Currently unused: it is validated (must be greater than 0), but the v1.11.0 breaker counts consecutive failures and never reads this window. |
+| `--cb-window-duration-secs` | `120` | Currently unused: it is validated (must be greater than 0), but the breaker counts consecutive failures and never reads this window. |
 | `--disable-circuit-breaker` | `false` | Disable the circuit breaker by raising the failure threshold to its maximum, so the circuit never opens. Outcomes are still recorded. |
 
 **Circuit Breaker States**:

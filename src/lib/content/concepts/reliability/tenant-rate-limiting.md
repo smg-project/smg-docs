@@ -49,6 +49,8 @@ So the reservation is made **once**, before the first attempt, and the same rese
 
 The model a reservation is scoped to is pinned the same way: the router resolves the request's model to its canonical ID once, up front, and both the reservation and every dispatch attempt use that ID, even if the alias mapping changes mid-request. Without that, a request could be reserved against one model's budget and settled against another's.
 
+A Responses request is the one case where a single client request can contain several of these logical requests: each iteration of its MCP tool loop is a generation of its own, with a reservation of its own (see [Current scope](#current-scope)). The reserved-once rule holds per iteration, not per client request.
+
 ---
 
 ## Tenant and per-model policy
@@ -90,7 +92,9 @@ A denied reservation returns **429** with the gateway's standard JSON error enve
 
 ## Current scope
 
-Tenant rate limiting is wired into SMG's **gRPC router**, covering the Chat, Generate, Completion, Messages, Decisions, Embeddings, Classify, and Audio Transcriptions endpoints (Harmony-mode chat is covered too — it shares the same entry point as regular chat). The gRPC router serves [ZMQ-connected workers](../../getting-started/zmq-workers.md) too — `--connection-mode zmq` builds the same router and pipeline — and the reservation happens before a worker is even selected, so for every covered endpoint except Decisions, enforcement is identical whichever transport the workers use. Tenant rate limiting is **not wired into** the Responses endpoint or any of the HTTP-passthrough / external-provider routers.
+Tenant rate limiting is wired into SMG's **gRPC router**, covering the Chat, Generate, Completion, Messages, Decisions, Embeddings, Classify, Audio Transcriptions, and Responses endpoints (Chat and Responses in regular and Harmony mode alike). The gRPC router serves [ZMQ-connected workers](../../getting-started/zmq-workers.md) too — `--connection-mode zmq` builds the same router and pipeline — and the reservation happens before a worker is even selected, so for every covered endpoint except Decisions, enforcement is identical whichever transport the workers use. Tenant rate limiting is **not wired into** the HTTP-passthrough / external-provider routers.
+
+The Responses endpoint is metered **per iteration**: every turn of an [MCP tool loop](../extensibility/mcp.md) is a generation of its own, taking exactly the reservation a chat request takes — the estimated input tokens, plus a flat `1` from the request counter — and settling against the backend's reported usage for that turn. A loop that runs *N* turns therefore debits *N* requests, and each turn's real token count, from the tenant's budget; a request without MCP tools runs a single iteration and is charged like a chat request. Each iteration is admitted independently, so a loop can be denied partway through once the budget runs out, and an iteration that fails keeps its reserved estimate as the charge, like any other failed request.
 
 Decisions is the one endpoint where the worker transport matters: the gRPC router serves it only on gRPC-connected SGLang workers, so a Decisions request for a model served entirely by ZMQ-connected workers is rejected as unsupported before any budget is reserved.
 

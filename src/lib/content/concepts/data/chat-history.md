@@ -290,12 +290,16 @@ smg --history-backend oracle \
 
 ## Schema Migrations
 
-At startup, the PostgreSQL and Oracle backends create their tables if they don't exist, then compare the database's recorded schema version (the `_schema_versions` table) with the migrations SMG ships. SMG applies pending migrations only when auto-migration is on. Otherwise it refuses to start and prints the SQL to apply by hand. A new, empty database has pending migrations too, so turn auto-migration on for the first start:
+At startup, the PostgreSQL and Oracle backends create their tables if they don't exist and compare the database's recorded schema version (the `_schema_versions` table) with the migrations SMG ships. SMG applies pending migrations only when auto-migration is on; otherwise it refuses to start and prints the SQL to apply by hand. To turn auto-migration on:
 
 ```bash
 DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
   --postgres-db-url "postgres://user:password@localhost:5432/smg"
 ```
+
+On PostgreSQL, a new, empty database — one with no responses table yet — needs no auto-migration for its first start: its tables are created in their final shape and the database is recorded at the latest schema version, so nothing is pending. Schema setup runs once per database, in a single transaction under a database-wide lock, so gateways starting together on one database take turns and all come up. Migrations become pending only when an existing database is behind the schema a newer SMG build expects, typically after an upgrade.
+
+On Oracle, a new, empty database starts with every migration pending, so turn auto-migration on for its first start as well as for upgrades.
 
 `DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
 

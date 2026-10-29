@@ -57,7 +57,7 @@ smg \
   --postgres-pool-max-size 16
 ```
 
-On a new database, also set `DB_AUTO_MIGRATE=true` for the first start; see [Schema migrations](#schema-migrations).
+A new, empty database needs nothing more: the first start creates the tables at the latest schema version. An existing database that is behind a newer SMG build needs auto-migration; see [Schema migrations](#schema-migrations).
 
 To keep the password off the command line, set `SMG_POSTGRES_DB_URL` or pass `--postgres-db-url-file` with a file holding the URL instead; see [Store URLs from the environment or a file](#store-urls-from-the-environment-or-a-file).
 
@@ -88,6 +88,8 @@ smg \
   --oracle-password "$ORACLE_PASSWORD"
 ```
 
+On a new database, also set `DB_AUTO_MIGRATE=true` for the first start; see [Schema migrations](#schema-migrations).
+
 !!! note "Python launcher flag names"
     These commands use the Rust `smg` binary's flag names. The Python launcher (`smg launch` from pip, and the container image) spells four of them differently: `--postgres-pool-max`, `--redis-pool-max`, `--oracle-username`, and `--oracle-connect-descriptor` (for `--oracle-dsn`). See [Python Launcher Differences](../reference/configuration.md#python-launcher-differences).
 
@@ -95,7 +97,9 @@ smg \
 
 ## Schema migrations
 
-PostgreSQL and Oracle track a schema version and refuse to start while migrations are pending, printing the SQL to apply by hand. A new database has pending migrations, so set `DB_AUTO_MIGRATE=true` (or `1`) to let SMG apply them at startup:
+PostgreSQL and Oracle track a schema version and refuse to start while migrations are pending, printing the SQL to apply by hand. A new, empty PostgreSQL database has nothing pending: the first start creates its tables at the latest schema version, under a lock, so gateways starting together on one database all come up.
+
+A new Oracle database starts with every migration pending, and an existing database on either backend can fall behind after an upgrade. Set `DB_AUTO_MIGRATE=true` (or `1`) to let SMG apply pending migrations at startup:
 
 ```bash
 DB_AUTO_MIGRATE=true smg launch \

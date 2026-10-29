@@ -14,7 +14,7 @@ Since v1.13.0 the gateway publishes the overload-shed, retry, and circuit-breake
 
 ## Metrics Endpoint
 
-Metrics are served at `GET /metrics` on a dedicated listener, `--prometheus-host`:`--prometheus-port` (default `0.0.0.0:29000`):
+Metrics are served at `GET /metrics` on a dedicated listener, `--prometheus-host`:`--prometheus-port`. The port defaults to `29000` and the host to the unspecified address of `--host`'s family (`::` for an IPv6 `--host`, `0.0.0.0` otherwise):
 
 ```bash
 curl http://localhost:29000/metrics
@@ -26,7 +26,7 @@ Configure via CLI:
 smg launch --prometheus-port 29000 --prometheus-host 0.0.0.0
 ```
 
-- The port must be greater than `0`. Although `--help` describes `--prometheus-port 0` as binding an OS-assigned port, configuration validation rejects it at startup (`Port must be > 0`).
+- The port must be at least `1`. Configuration validation rejects `--prometheus-port 0` at startup with `Port must be > 0 (0 would request an unstable OS-ephemeral port)`. Each listener (`--port`, `--prometheus-port`, `--health-check-port`, `--admin-port`, `--mesh-port`) needs its own port.
 - The listener binds at startup and logs `Metrics server listening on <address> (/metrics)`. If the port is already taken, startup fails with `failed to bind metrics server on <address>` instead of continuing without metrics.
 - `--prometheus-duration-buckets` changes the buckets of the latency histograms (see [Histogram Buckets](#histogram-buckets)).
 

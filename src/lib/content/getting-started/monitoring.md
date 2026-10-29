@@ -21,7 +21,7 @@ Set up Prometheus monitoring, OpenTelemetry tracing, and Grafana dashboards for 
 
 ## Enable Metrics
 
-SMG always serves Prometheus metrics on a dedicated port, `29000` by default. The flags below set the listener explicitly.
+SMG always serves Prometheus metrics on a dedicated port, `29000` by default. Without `--prometheus-host` the listener binds the unspecified address of `--host`'s family: `::` for an IPv6 `--host`, `0.0.0.0` otherwise. The flags below set the listener explicitly.
 
 ### Start SMG with metrics
 
@@ -32,7 +32,7 @@ smg launch \
   --prometheus-host 0.0.0.0
 ```
 
-At startup SMG logs `Metrics server listening on <address> (/metrics)`. The port must be greater than `0`: `--prometheus-port 0` is rejected at startup even though `--help` describes it as an OS-assigned port. If the port is already in use, SMG fails at startup with `failed to bind metrics server on <address>`.
+At startup SMG logs `Metrics server listening on <address> (/metrics)`. The port must be at least `1`: `--prometheus-port 0` is rejected at startup. If the port is already in use, SMG fails at startup with `failed to bind metrics server on <address>`.
 
 !!! warning "The metrics listener has no authentication"
     `/metrics` answers anyone who can reach the port, in every configuration (`--api-key` and the control-plane keys do not apply to it), and its per-worker series name each backend by its address. Bind it to a private address with `--prometheus-host`, and in Kubernetes fence the port with a NetworkPolicy that admits only the scraper. See [Default posture](control-plane-auth.md#default-posture).

@@ -191,12 +191,9 @@ Every request goes through the same steps. Cache affinity comes first; load deci
     - *KV-event index:* every eligible worker that holds at least the request's first full block is a candidate, scored by how many consecutive leading blocks it holds. `--cache-threshold` does not apply.
     - *Hash index:* the eligible live holders of the deepest head that has any.
 4. **Rank candidates** (tree and KV-event modes). With `--overlap-decay` above 0, a candidate's score shrinks with its waiting-prefill backlog. The top-scoring group is kept; with `--selection-temperature` above 0, a group is sampled instead, weighted toward higher scores. With both at their default of 0, the tree keeps every matched tenant and the KV-event index keeps the workers with the most cached blocks.
-5. **Apply the spill gate.** A candidate is *hot* when its in-flight request count exceeds both `--balance-rel-threshold` times the fleet mean (default 1.5) and the fleet mean plus `--balance-abs-threshold` (default 64). The request goes to the lowest-expected-wait candidate that is not hot. If every candidate is hot, the request spills to the lowest-expected-wait eligible worker that is not hot (or to the lowest-expected-wait eligible worker when every worker is hot).
+5. **Apply the spill gate.** A candidate is *hot* when its in-flight request count exceeds both `--balance-rel-threshold` times the fleet mean (default 1.5) and the fleet mean plus an absolute margin sized to the pool's load — the in-flight count's natural swing at that mean, raised to the price of the prefix the candidate holds when `--balance-prefix-margin-tokens` is set, and capped by `--balance-abs-threshold` (default 64; [Spill Gate](#spill-gate) details the sizing). The request goes to the lowest-expected-wait candidate that is not hot. If every candidate is hot, the request spills to the lowest-expected-wait eligible worker that is not hot (or to the lowest-expected-wait eligible worker when every worker is hot).
 6. **Cache miss:** the request goes to the lowest-expected-wait eligible worker.
 7. **Record.** Tree and hash modes record the final worker as a holder of the request's prefix, so a spill makes the spill target an additional holder: a hot prefix replicates instead of queueing behind one worker. The gateway never records its routing decisions in the KV-event index, which changes only through engine events and worker removal.
-
-!!! note "Changed in v1.10.0"
-    `--balance-abs-threshold` and `--balance-rel-threshold` used to define a fleet-wide imbalance check that switched every request to shortest-queue routing. They now define the per-request spill gate in step 5 and compare a candidate against the fleet mean; the aliases `--spill-abs-threshold` and `--spill-rel-threshold` name that role. Only the KV-usage triggers in step 2 still act fleet-wide.
 
 ### Expected-Wait Selection
 
@@ -207,8 +204,9 @@ Misses, spills, KV-pressure fallbacks and ties among equally good candidates are
 | Flag (alias) | Default | Effect | Input |
 |--------------|---------|--------|-------|
 | `--cache-threshold` (`--cache-match-threshold`) | `0.3` | Tree affinity only when the match ratio is above this (0.0-1.0) | Tree match |
-| `--balance-abs-threshold` (`--spill-abs-threshold`) | `64` | Spill gate: requests above the fleet mean | Gateway in-flight counts |
+| `--balance-abs-threshold` (`--spill-abs-threshold`) | `64` | Spill gate: caps the load-sized absolute margin over the fleet mean | Gateway in-flight counts |
 | `--balance-rel-threshold` (`--spill-rel-threshold`) | `1.5` | Spill gate: multiple of the fleet mean (must be at least 1.0) | Gateway in-flight counts |
+| `--balance-prefix-margin-tokens` | `0` (off) | Spill gate: raises a holder's absolute margin to its held-prefix tokens divided by this price, rounded up, up to `--balance-abs-threshold` | Matched prefix length |
 | `--balance-token-usage-threshold` | `1.0` (off) | Skip affinity when the hottest backend's KV usage exceeds the coldest's by more than this | Backend KV usage |
 | `--overload-token-usage-threshold` | `1.0` (off) | Skip affinity when any backend's KV usage exceeds this; best set high, for example `0.9` | Backend KV usage |
 | `--overlap-decay` | `0.0` (off) | Divide a candidate's score by `1 + overlap_decay * x`, where `x` is its waiting-prefill backlog above the least-backlogged candidate, in blocks, per block of the request | Backend waiting-prefill tokens |
@@ -217,7 +215,7 @@ Misses, spills, KV-pressure fallbacks and ties among equally good candidates are
 The token-usage thresholds must be above 0 (a value of 1.0 or more disables them), and `--overlap-decay` and `--selection-temperature` must be 0 or more. In the trees every matched tenant starts with the same score, so `--selection-temperature` changes nothing there unless `--overlap-decay` separates them.
 
 !!! warning "Per-model policies from worker labels"
-    When the first worker registered for a model carries a `policy` label, that model gets its own policy instance. A `cache_aware` label inherits the flags on this page only when the gateway's `--policy` is also `cache_aware`. Otherwise the instance uses built-in defaults: a `cache_threshold` of 0.5, a spill gate of 32 requests and 1.1x the mean, eviction every 30 seconds, and a `max_tree_size` of 10,000.
+    When the first worker registered for a model carries a `policy` label, that model gets its own policy instance. A `cache_aware` label inherits the flags on this page only when the gateway's `--policy` is also `cache_aware`. Otherwise the instance uses built-in defaults: a `cache_threshold` of 0.5, a spill gate of 1.1x the mean with the absolute margin capped at 32 requests, eviction every 30 seconds, and a `max_tree_size` of 10,000.
 
 ### Backend Load Reports
 
@@ -302,9 +300,13 @@ The worker spec's `kv_block_size` field seeds the model's block size until the K
 
 `--balance-abs-threshold` and `--balance-rel-threshold` decide how busy a holder may get before its requests spill. Both margins must be exceeded, so the gate ignores small fluctuations at low load (absolute margin) without missing a deep queue at high load (relative margin).
 
+The absolute margin adapts to the pool's load rather than sitting at the flag's value. It is the in-flight count's natural swing at the current fleet mean — two standard deviations, that is twice the square root of the mean, rounded up to whole requests — with a floor of 4 requests so a handful of requests on an otherwise idle fleet keep their affinity. `--balance-abs-threshold` caps the margin: the default of 64 leaves the swing in charge in most pools, a lower value spills sooner under heavy load, a value below 4 becomes the margin itself, and `0` disables the absolute test so the relative one decides alone. Because the margin shrinks with the mean, small pools balance too: at a fleet mean of 16 in-flight requests the margin is 8, so a holder spills above 24 in flight instead of above 80.
+
+`--balance-prefix-margin-tokens` (default `0`, off) additionally prices the prefix a spill gives up: with a price set, a holder's margin is raised to the request's held-prefix tokens divided by the price, rounded up, still capped by `--balance-abs-threshold`. A spill makes the target recompute the prefix, so a deep prefix — a long conversation's follow-up holds nearly all of its context — keeps its holder through a skew that moves a shallow one. A price near the typical prefill per request, for example `1024`, suits prefill pools serving long multi-turn sessions. The price counts the holder's whole match even when the spill target holds part of it, and decode picks are never priced: a decode worker prefills nothing again. Without KV events the held length is the tree's routing history, not confirmed engine residency. `smg_cache_aware_prefix_margin_held_total` counts the picks the price alone kept on their holder.
+
 | Scenario | Recommendation |
 |----------|---------------|
-| **Long shared prefixes, prefill-bound** | Higher thresholds (hold affinity longer) |
+| **Long shared prefixes, prefill-bound** | Higher `--balance-rel-threshold`, or price held prefixes with `--balance-prefix-margin-tokens` (hold affinity longer) |
 | **Bursty, latency-sensitive traffic** | Lower thresholds (spill sooner; hot prefixes replicate faster) |
 | **Uneven request sizes** | Also set `--balance-token-usage-threshold`, which request counts cannot replace |
 
@@ -325,6 +327,7 @@ Request counts miss long-context imbalance: a few long requests can fill one eng
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `smg_cache_aware_policy_branch_total` | counter | `branch` | Tree-mode decisions: `tree_match` (affinity kept), `spill` (the match cleared the threshold but the request went to a worker outside the matched set), `expected_wait_fallback` (match ratio at or below `--cache-threshold`), `first_healthy_fallback` (no worker could be selected) |
+| `smg_cache_aware_prefix_margin_held_total` | counter | none | Affinity picks kept on their holder only by the held prefix's price (`--balance-prefix-margin-tokens`); the swing-sized margin alone would have spilled them |
 | `smg_cache_aware_match_ratio` | histogram | none | Best prefix match ratio of each tree-mode decision; buckets `0`, `0.1`, ... `1.0` |
 | `smg_cache_tree_chars` | gauge | `model` | String-tree size in characters, summed across workers |
 | `smg_cache_tree_tokens` | gauge | `model` | Token-tree size in tokens, summed across workers |
@@ -419,7 +422,7 @@ max by (model) (smg_cache_tree_tokens)
 
 | Signal | Meaning | Action |
 |--------|---------|--------|
-| Spill share rising | Hot prefixes are saturating their holders | Add capacity, or raise the spill thresholds if spills happen at low load |
+| Spill share rising | Hot prefixes are saturating their holders | Add capacity; if spills happen at low load, raise `--balance-rel-threshold` or price held prefixes with `--balance-prefix-margin-tokens` |
 | Mostly `expected_wait_fallback` | Few requests share prefixes above the threshold | Check the match-ratio histogram; lower `--cache-threshold`, or accept load-based routing |
 | High tree match ratios but low `smg_engine_cache_hit_rate` | Tree predictions do not match engine state (evicted prefixes, mismatched page size) | Align `--block-size` with the engines; stream KV events from gRPC workers |
 | Tree gauges pinned at `--max-tree-size` | Eviction is trimming the working set | Raise `--max-tree-size` if memory allows |

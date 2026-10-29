@@ -11,7 +11,7 @@ Reinforcement learning (RL) training loops send rollout traffic through SMG, but
 #### Before you begin
 
 - Completed the [Getting Started](index.md) guide
-- Workers with a control endpoint: an HTTP worker has one automatically, a gRPC or ZMQ worker needs an `rl.control_url` label (see [Control Endpoints](#control-endpoints))
+- Workers SMG can control: an HTTP worker is controlled through itself, a TokenSpeed ZMQ worker's own [engine connection](#control-calls-on-the-engine-connection) can carry the calls, and any other gRPC or ZMQ worker needs an `rl.control_url` label (see [Control Endpoints](#control-endpoints))
 - An admin credential if the gateway uses [Control Plane Auth](control-plane-auth.md)
 
 </div>
@@ -33,7 +33,7 @@ Control calls stay out of the inference path. They skip routing policies, retrie
 ### What M1 Does Not Do
 
 - **No engine-neutral operations.** SMG forwards each engine's own route names and request bodies unchanged (for example SGLang's `update_weights_from_disk`). It does not translate a pause or a refit from one engine's API to another's. The [capability table](#capabilities) describes what each engine supports, but SMG does not check it before forwarding a call.
-- **No control calls without a control endpoint.** Control calls go to a worker's [control endpoint](#control-endpoints), whatever its data transport. An HTTP worker is controlled through itself; a gRPC or ZMQ worker without an `rl.control_url` label fails with `no_control_endpoint`.
+- **No control calls without a control path.** Control calls go to a worker's [control endpoint](#control-endpoints), whatever its data transport; a TokenSpeed ZMQ worker without one can take them on [its own engine connection](#control-calls-on-the-engine-connection) instead. A worker with neither — a gRPC or non-TokenSpeed ZMQ worker without an `rl.control_url` label, or a TokenSpeed ZMQ worker whose engine declares no control reply — fails with `no_control_endpoint`.
 - **No retries and no streaming.** A refit is not idempotent, so a failed call is reported, not retried. Each call returns one buffered response.
 - **No pause or refit tracking.** Routing is unchanged: inference requests keep reaching a paused or refitting engine according to the routing policy.
 - **Registration-time weight version.** `weight_version` in discovery is the value recorded when the worker registered. SMG does not refresh it after a refit.
@@ -107,6 +107,8 @@ When SMG calls an engine, it sends:
 
 Calls to an HTTP worker go through the HTTP client SMG already negotiated for it, so they keep its HTTP version, TLS identity and CA roots, and connection pool settings. Calls to a gRPC or ZMQ worker's control endpoint use a shared HTTP/1.1 client built from the worker's pool settings, with the same TLS identity and CA roots as SMG's other upstream clients.
 
+A call [carried on a worker's engine connection](#control-calls-on-the-engine-connection) sends no HTTP request at all: the route name and JSON body ride the ZMQ connection SMG already holds to the engine, with no headers and no API key.
+
 The `rl.control_url` label is trusted: whatever host it names receives the worker's API key as a bearer token, so only engines and operators you trust may set it.
 
 !!! warning "No route allowlist"
@@ -178,8 +180,9 @@ Response for one SGLang worker (`labels` trimmed):
 | `engine_version` | The worker's `version` label, or `null` |
 | `model_id` | Model the worker serves |
 | `worker_type` | `regular`, `prefill`, `decode`, or `encode` |
-| `connection_mode` | `http`, `grpc`, or `zmq` — the worker's data transport. Control calls go to `control_url` instead. |
+| `connection_mode` | `http`, `grpc`, or `zmq` — the worker's data transport. Control calls go to `control_url` instead, or [ride the worker's own engine connection](#control-calls-on-the-engine-connection) when `control_url` is `null` and `engine_control_calls` is `true`. |
 | `control_url` | Where control calls are sent: the worker itself for an HTTP worker, the resolved `rl.control_url` label otherwise, or `null` when the worker has no [control endpoint](#control-endpoints) |
+| `engine_control_calls` | Present and `true` only when the worker's [engine connection carries control calls](#control-calls-on-the-engine-connection): a TokenSpeed ZMQ worker whose engine handshake declared the control reply, or whose engine has not finished connecting |
 | `tp_size`, `dp_size`, `pp_size` | From the worker's labels; `null` when missing or not an integer |
 | `dp_ranks` | Number of DP-aware ranks collapsed into this row; `1` for other workers |
 | `role` | The worker's `role` label, or `null` |
@@ -207,15 +210,27 @@ curl -X POST http://localhost:30000/workers \
 Control calls go to a worker's control endpoint, which is independent of its data transport:
 
 - **HTTP workers** are controlled through themselves. An `rl.control_url` label on an HTTP worker is ignored.
-- **gRPC and ZMQ workers** need an `rl.control_url` label naming an HTTP server that implements the engine's control routes. Set it with the `labels` field of `POST /workers` or `PATCH /workers/{id}`, or let the engine advertise it.
+- **gRPC and ZMQ workers** take an `rl.control_url` label naming an HTTP server that implements the engine's control routes. Set it with the `labels` field of `POST /workers` or `PATCH /workers/{id}`, or let the engine advertise it. Every gRPC worker and every non-TokenSpeed ZMQ worker needs the label; a TokenSpeed ZMQ worker's own [engine connection](#control-calls-on-the-engine-connection) can carry the calls without one.
 
 A TokenSpeed gRPC engine launched with `--rl-control-host` and `--rl-control-port` advertises its control server in server info, and SMG turns the advertisement into the label at registration. Give `--rl-control-host` an address SMG can reach: the engine does not advertise a wildcard bind (`0.0.0.0`, `::`), and the default loopback is right only when SMG runs on the same machine.
 
-Label the worker yourself when the engine does not advertise: the [Rust TokenSpeed servicer](grpc-workers.md#rust-tokenspeed-servicer) carries no `rl.*` advertisement, and a TokenSpeed engine started by `smg serve` in ZMQ mode runs no control server at all, so its label can only name a control server you run yourself.
+Label the worker yourself when the engine does not advertise: the [Rust TokenSpeed servicer](grpc-workers.md#rust-tokenspeed-servicer) carries no `rl.*` advertisement. A TokenSpeed engine started by `smg serve` in ZMQ mode runs no control server at all, and when its handshake declares the control reply it needs no label: its [engine connection carries the calls](#control-calls-on-the-engine-connection). A label on such a worker can only name a control server you run yourself; set one to reach `GET` routes, or for an engine that declares no control reply.
 
-A wildcard host in a label you set (`http://0.0.0.0:40100`) is replaced by the worker's own host; a worker with no host of its own (an `ipc://` ZMQ worker) keeps the label as given. The result is the `control_url` discovery field, and a worker whose `control_url` is `null` fails every control call with [`no_control_endpoint`](#errors).
+A wildcard host in a label you set (`http://0.0.0.0:40100`) is replaced by the worker's own host; a worker with no host of its own (an `ipc://` ZMQ worker) keeps the label as given. The result is the `control_url` discovery field. A worker whose `control_url` is `null` takes control calls on its engine connection when discovery reports `engine_control_calls: true`, and fails every control call with [`no_control_endpoint`](#errors) otherwise.
 
 SMG authenticates to the control endpoint with the worker's own API key (see [Security](#security)). When the engine's control server has a key of its own (TokenSpeed's `--rl-control-api-key`), set it as the worker's `api_key`: `PATCH /workers/{id}`, or the `api_key` field of `POST /workers`.
+
+### Control Calls on the Engine Connection
+
+A TokenSpeed [ZMQ worker](zmq-workers.md) needs no `rl.control_url` label when its engine's handshake declared the control reply. Without a label, SMG carries the engine's `POST` control routes (`pause_generation`, `update_weights_from_distributed`, ...) as control calls named after the route on the worker's own engine connection, running each call on every rank the worker drives:
+
+- The route's JSON body is the call's argument. A request with no body, or with `{}`, calls without an argument; a body that is not a JSON object gets [`400 invalid_body`](#errors). The call carries only the route name and the body — a query string is dropped.
+- The answer keeps the route's shape: `{"success": ..., "message": ...}`, with status `200` when every rank succeeded and `400` with the failing ranks' distinct messages otherwise.
+- Only `POST` routes of one path segment have a call. A `GET` request, or a deeper path such as `inference/v1/generate`, answers [`no_control_endpoint`](#errors) with a `message` naming the reason; set an `rl.control_url` label to reach those routes on the engine's own control server.
+
+Discovery reports such a worker with `control_url: null` and `engine_control_calls: true`. A label, when set, wins: calls go to the label's HTTP server and the engine connection is not used, even though discovery still reports `engine_control_calls: true`.
+
+An engine whose handshake declares no control reply — its wire carries generate and abort only — cannot take these calls. Once it is connected, discovery reports the worker without `engine_control_calls`, and a control call on it answers [`no_control_endpoint`](#errors) with a `message` that points to the `rl.control_url` label. A worker whose engine is still connecting is reported with `engine_control_calls: true` until the handshake settles the question.
 
 ### Capabilities
 
@@ -240,7 +255,7 @@ Worker labels override the table. `rl.pause_modes` and `rl.update_from` take com
 
 ## Call One Worker
 
-`GET` or `POST /v1/rl/workers/{id}/engine/{path}` sends one request to `<control_url>/<path>`, the worker's [control endpoint](#control-endpoints):
+`GET` or `POST /v1/rl/workers/{id}/engine/{path}` sends one request to `<control_url>/<path>`, the worker's [control endpoint](#control-endpoints) — or, for a worker without one, carries the route as a [control call on its engine connection](#control-calls-on-the-engine-connection):
 
 ```bash
 curl -X POST "http://localhost:30000/v1/rl/workers/${WORKER_ID}/engine/update_weights_from_disk" \
@@ -358,7 +373,8 @@ Each `failed[]` entry has `worker_id`, `url`, `error`, and `message`, plus `stat
 | `upstream_error` | The engine answered with a non-2xx status; `message` is `HTTP <status>` | Yes |
 | `upstream_unreachable` | SMG could not connect to the engine or read its response | No |
 | `upstream_timeout` | Connecting timed out, or the engine sent no response within `--rl-control-timeout-secs` | No |
-| `no_control_endpoint` | The worker has no [control endpoint](#control-endpoints), or SMG has no HTTP client to reach it | No |
+| `no_control_endpoint` | The worker has no [control endpoint](#control-endpoints) and its [engine connection cannot carry the call](#control-calls-on-the-engine-connection), or SMG has no HTTP client to reach the endpoint; `message` says which | No |
+| `invalid_body` | The body of a call [carried on the engine connection](#control-calls-on-the-engine-connection) is not a JSON object | No |
 
 SMG does not retry or roll back. Engines that succeeded keep the change; use `failed[]` to decide what to do for the others.
 
@@ -400,11 +416,12 @@ A failure on the SMG side returns JSON `{"error": "<code>", "message": "<text>"}
 | Status | `error` | Applies to | When | Extra fields |
 |---|---|---|---|---|
 | `400` | `invalid_engine_path` | Per-worker call, fan-out | The path breaks the [path rules](#engine-paths) | — |
+| `400` | `invalid_body` | Per-worker call | The body of a call [carried on the engine connection](#control-calls-on-the-engine-connection) is not a JSON object | — |
 | `400` | `selector_required` | Fan-out | `selector` is missing or empty | — |
 | `400` | `invalid_selector` | Fan-out | The selector does not parse | `offset` |
 | `400` | `no_workers_match` | Fan-out | No worker matches the selector | `selector` |
 | `404` | `worker_not_found` | Worker lookup, per-worker call | Unknown worker ID | `id` |
-| `422` | `no_control_endpoint` | Per-worker call | The worker has no [control endpoint](#control-endpoints), or SMG has no HTTP client to reach it; `message` says which | `worker_id`, `url`, `connection_mode` |
+| `422` | `no_control_endpoint` | Per-worker call | The worker has no [control endpoint](#control-endpoints) and its [engine connection cannot carry the call](#control-calls-on-the-engine-connection), or SMG has no HTTP client to reach the endpoint; `message` says which | `worker_id`, `url`, `connection_mode` |
 | `502` | `upstream_unreachable` | Per-worker call | SMG could not connect to the engine or read its response | `worker_id`, `url` |
 | `504` | `upstream_timeout` | Per-worker call | Connecting timed out, or the engine sent no response within `--rl-control-timeout-secs` | `worker_id`, `url` |
 
@@ -416,7 +433,7 @@ In a fan-out, a failed target never changes the status beyond `207`; it is repor
 
 | Limit | Value | Notes |
 |---|---|---|
-| Engine call deadline | `--rl-control-timeout-secs` (`600`) | Total time for one engine call, from connecting to reading the last byte of the response. It applies instead of `--request-timeout-secs`. |
+| Engine call deadline | `--rl-control-timeout-secs` (`600`) | Total time for one engine call, from connecting to reading the last byte of the response; for a call [carried on the engine connection](#control-calls-on-the-engine-connection), it bounds each rank's reply. It applies instead of `--request-timeout-secs`. |
 | Fan-out concurrency | `--rl-fanout-concurrency` (`32`) | Calls in flight at once; the next call starts as soon as one finishes. With more targets than this, a fan-out can take longer than one deadline. |
 | Fan-out deadline | None | A fan-out ends when every call has answered or hit its own deadline |
 | Engine response size | 1 MiB | A larger response is cut to its first 1 MiB and flagged `body_truncated` |
@@ -462,7 +479,7 @@ The results are dataclasses:
 
 | Type | Fields |
 |---|---|
-| `Worker` | The discovery row: `id`, `url`, `base_url`, `engine`, `engine_version`, `model_id`, `worker_type`, `connection_mode`, `tp_size`, `dp_size`, `pp_size`, `dp_ranks`, `role`, `health`, `weight_version`, `control_url`, `labels`, and `capabilities` (a dict) |
+| `Worker` | The discovery row, without `engine_control_calls`: `id`, `url`, `base_url`, `engine`, `engine_version`, `model_id`, `worker_type`, `connection_mode`, `tp_size`, `dp_size`, `pp_size`, `dp_ranks`, `role`, `health`, `weight_version`, `control_url`, `labels`, and `capabilities` (a dict) |
 | `CallResult` | `worker_id`, `url`, `status`, `latency_ms`, `body` |
 | `FanoutResult` | `results` (worker ID to `CallResult`), `failed` (a list of `FanoutFailure`), `total`, `succeeded` |
 | `FanoutFailure` | `worker_id`, `url`, `status`, `error`, `message` |
@@ -532,7 +549,7 @@ Two `/generate` behaviors matter for this check and for RL rollout frameworks (s
 | `smg_rl_fanout_duration_seconds` | Histogram | — | Wall time of one fan-out request |
 
 - `op` is the engine path when it is one of the control operations SMG recognizes, and `other` for any other path, so arbitrary paths cannot create new label values. The recognized operations are `pause_generation`, `continue_generation`, `update_weights_from_disk`, `update_weights_from_tensor`, `update_weights_from_distributed`, `init_weights_update_group`, `destroy_weights_update_group`, `update_weight_version`, `flush_cache`, `abort_request`, `release_memory_occupation`, `resume_memory_occupation`, `pause`, `resume`, `sleep`, `wake_up`, `collective_rpc`, `server_info`, `get_server_info`, and `health`.
-- A worker that failed with `no_control_endpoint` is not counted in `smg_rl_control_calls_total`. A fan-out rejected before target resolution (`selector_required`, `invalid_selector`, or `invalid_engine_path`) is not counted in `smg_rl_fanout_total`.
+- A worker that failed with `no_control_endpoint` or `invalid_body` is not counted in `smg_rl_control_calls_total`. A fan-out rejected before target resolution (`selector_required`, `invalid_selector`, or `invalid_engine_path`) is not counted in `smg_rl_fanout_total`.
 - Both histograms use SMG's duration buckets, which `--prometheus-duration-buckets` overrides.
 - Each series appears the first time SMG records it. Without `--enable-rl`, there are none.
 
@@ -552,7 +569,7 @@ See [Monitoring](monitoring.md) for scraping SMG metrics.
 
 ### Logs
 
-Every engine call that gets a response logs an `rl.proxy` event with `worker_id`, `url`, `control_url`, `method`, `path`, `status`, and `latency_ms`. Every fan-out that reaches its targets logs an `rl.fanout` event with `path`, `selector`, `total`, `succeeded`, `failed`, and `latency_ms`.
+Every engine call that gets a response logs an `rl.proxy` event with `worker_id`, `url`, `control_url`, `method`, `path`, `status`, and `latency_ms`; a call [carried on the engine connection](#control-calls-on-the-engine-connection) logs `transport="engine_connection"` and the rank count (`ranks`) instead of `control_url` and `method`. Every fan-out that reaches its targets logs an `rl.fanout` event with `path`, `selector`, `total`, `succeeded`, `failed`, and `latency_ms`.
 
 Both are INFO events on the `smg_rl` log target. SMG's default log filter includes them at the default `--log-level info`, because its `smg=info` entry matches every target that starts with `smg`. `RUST_LOG` replaces the default filter; to see only these events and warnings:
 
@@ -587,7 +604,7 @@ RUST_LOG=warn,smg_rl=info smg launch \
     - `upstream_unreachable`: the engine is down or unreachable. Once it is back, the next call reaches it; control calls do not use circuit breakers.
     - `upstream_timeout`: the call took longer than `--rl-control-timeout-secs`, or connecting to the engine timed out. Raise the flag for long refits.
     - `upstream_error`: the engine rejected the call. Its answer is in `results[<worker_id>].body`.
-    - `no_control_endpoint`: the selector matched a gRPC or ZMQ worker that has no `rl.control_url` label. Give it a [control endpoint](#control-endpoints), or keep such workers out of the selector (for example with `connection_mode=http`).
+    - `no_control_endpoint`: the selector matched a worker without an `rl.control_url` label whose [engine connection cannot carry the call](#control-calls-on-the-engine-connection) — it is not a TokenSpeed ZMQ worker, the call is a `GET` or a multi-segment path, or the engine's handshake declares no control reply. Give the worker a [control endpoint](#control-endpoints), or keep such workers out of the selector (for example with `connection_mode=http`).
 
 ??? question "SGLang returns 400 to pause_generation or continue_generation"
 

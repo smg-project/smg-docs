@@ -234,7 +234,11 @@ Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer
 | Frame placement | Spread evenly from the first frame to the last. MiniMax-M3 takes one frame per interval from the start and always keeps the last frame, as its reference does (smg-project/smg#2584). | — |
 | Frame size | Set by the model's processor | `video_url.max_long_side_pixel`: a multiple of 28 from 150 to 3584, applied to the decoded frames |
 
-`fps` and `max_long_side_pixel` are MiniMax-M3 extensions to the OpenAI content part, and SMG applies them for any model. `image_url.max_long_side_pixel` (a positive multiple of 28) caps an image's long side the same way. A part with any of these hints is never forwarded to a worker.
+`fps` and `max_long_side_pixel` are MiniMax-M3 extensions to the OpenAI content part, and SMG applies them for any model. A part with any of these hints is never forwarded to a worker.
+
+`image_url.max_long_side_pixel` caps an image's long side. On MiniMax-M3, any positive value is accepted, and an image without the hint gets the default cap of 2016. SMG plans the output size from the source dimensions, keeping the aspect ratio: an image whose long side exceeds the cap is shrunk to the cap; otherwise an image whose short side is below 112 is enlarged until that side reaches 112, even if its long side then exceeds the cap. Both sides are then rounded to the nearest multiple of 28 to fit the patch grid, which can also leave the final long side slightly above the cap. An image whose planned size exceeds 12,845,056 pixels is refused with `media_too_large` before it is decoded.
+
+On other model families, `image_url.max_long_side_pixel` must be a positive multiple of 28 and only shrinks an image whose long side exceeds it. Video frames follow the rule in the table above for every model.
 
 ```json
 {"type": "video_url", "video_url": {"url": "https://example.com/clip.mp4", "fps": 1.0}}
@@ -269,6 +273,7 @@ Neither setting enables a modality the model does not support. When you raise a 
 | Encoded video | 256 MiB | `SMG_VIDEO_MAX_INPUT_BYTES` |
 | Encoded audio | 256 MiB | `SMG_AUDIO_MAX_INPUT_BYTES` |
 | Decoded image | 512 MiB | Fixed; the libjpeg-turbo path checks it before allocating (smg-project/smg#2569) |
+| MiniMax-M3 planned image pixels | 12,845,056 | Fixed; the output size planned from the source dimensions is checked before the image is decoded (see [Frame Sampling](#frame-sampling)) |
 | Decoded video frames | 1 GiB | `SMG_VIDEO_MAX_DECODED_BYTES` |
 | Inkling image patches per request | 32,768 | `in_patch_limit` in the preprocessor config (smg-project/smg#2102) |
 | Media fetch | 10 seconds per image or audio URL, 30 per video URL | `--mm-fetch-timeout-ms`, `--mm-video-fetch-timeout-ms` (`SMG_MM_FETCH_TIMEOUT_MS`, `SMG_MM_VIDEO_FETCH_TIMEOUT_MS`) |
@@ -290,7 +295,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `invalid_multimodal_request` | The model has no multimodal processor, does not take the modality, or the request has too many items (for example `model spec qwen3_vl supports at most 10 image inputs; got 11`) |
 | 400 | `multimodal_prompt_contract_mismatch` | The rendered prompt does not hold exactly one anchor per media item: a chat template that drops media, or a literal anchor token in user text |
 | 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, or an invalid `fps` or `max_long_side_pixel` |
-| 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
+| 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, a MiniMax-M3 image's planned size over the pixel budget, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
 | 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes do not cover |
 | 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, audio) |
 | 400 | `multimodal_worker_processing_unsupported_model` | `--mm-processing worker`, and vLLM cannot expand the model's anchor |

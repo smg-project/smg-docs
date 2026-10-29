@@ -899,7 +899,7 @@ These routes need `--enable-wasm`. Without it, each answers `500 Internal Server
 POST /wasm
 ```
 
-Registers one or more WASM modules. Each file's SHA-256 hash is computed at registration, and a module whose hash matches an already registered module is refused.
+Registers one or more WASM modules. The gateway computes each file's SHA-256 hash at registration and refuses a module whose hash is already registered.
 
 **Request Body:** JSON `WasmModuleAddRequest`
 ```json

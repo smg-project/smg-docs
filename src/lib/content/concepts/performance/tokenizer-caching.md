@@ -510,8 +510,7 @@ smg \
 
 ## Monitoring & Observability
 
-The gateway exports cache activity on its Prometheus `/metrics` endpoint
-(smg-project/smg#2603):
+The gateway exports cache activity on its Prometheus `/metrics` endpoint:
 
 | Metric | Labels | Meaning |
 |--------|--------|---------|

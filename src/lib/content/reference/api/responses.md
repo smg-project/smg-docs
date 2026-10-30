@@ -74,7 +74,7 @@ POST /v1/responses
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `model` | string | Yes | Model identifier |
-| `input` | string or array | Yes | Input text or array of input items. Must not be empty. In v1.11.0 and earlier an array must also contain at least one message; see [Input Formats](#input-formats) |
+| `input` | string or array | Yes | Input text or array of input items. Must not be empty; see [Input Formats](#input-formats) |
 | `instructions` | string | No | System instructions for the model |
 | `max_output_tokens` | integer | No | Maximum tokens to generate (at least 1, as `max_tokens` on the other APIs; the public API's own floor of 16 is not imposed) |
 | `max_tool_calls` | integer | No | Maximum tool calls SMG executes for this response (at least 1); see [Tool Call Limits](#tool-call-limits) |
@@ -181,10 +181,6 @@ message after the tool result. On gpt-oss (Harmony) models each result's `call_i
 match a `function_call` earlier in the resolved input — the replayed items plus any
 history loaded from `previous_response_id` — and an unmatched result is rejected with
 `400` `harmony_build_failed` (`No function call found for call_id: ...`).
-
-Accepting an `input` array without any message requires v1.12.0 or later. v1.11.0 and
-earlier reject such an array with `400` (`Input items must contain at least one message`),
-so on those releases a continuation must include a message item.
 
 ### Tool Configuration
 
@@ -1437,7 +1433,7 @@ The Responses API includes additional sampling parameters specific to SGLang:
 Where they take effect:
 
 - **HTTP workers** receive them with the request.
-- **gpt-oss (Harmony) models on gRPC**: all but `stop` are applied; `stop` is not passed to the engine yet.
+- **gpt-oss (Harmony) models on gRPC**: all but `stop` are applied; `stop` is not passed to the engine.
 - **Other models on gRPC**: the request is converted to a chat request without these fields, so they have no effect.
 
 Example:

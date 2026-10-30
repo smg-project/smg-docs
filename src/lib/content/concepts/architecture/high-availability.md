@@ -42,7 +42,7 @@ Workers registered on any router and cache-aware routing tree updates reach ever
 
 ### :material-rocket-launch: Rolling Updates
 
-Replace routers one at a time: each drains in-flight requests on shutdown. With Kubernetes router discovery, a replaced pod rejoins as soon as it is Ready.
+Replace routers one at a time: each announces its leave to the mesh and drains in-flight requests on shutdown. With Kubernetes router discovery, a replaced pod rejoins as soon as it is Ready.
 
 </div>
 
@@ -266,11 +266,11 @@ smg launch --enable-mesh \
 | `ALIVE` | Reachable. Every router starts in this state |
 | `SUSPECTED` | A probe failed: neither the direct ping nor any indirect ping reached the router. Still probed. Router discovery also sets it for a known pod that is not Ready, unless that router is already `DOWN` |
 | `DOWN` | A probe failed again while `SUSPECTED`, or the router's pod was deleted or is terminating. Peers stop probing it |
-| `LEAVING` | The node announced a graceful leave. Peers stop probing it. The v1.12 gateway does not announce it during shutdown |
+| `LEAVING` | The router announced a graceful leave, as every router does when its [graceful shutdown](../reliability/graceful-shutdown.md) begins. Peers stop probing it |
 | `INIT` | Defined in the protocol but not used |
 
-!!! warning "A `DOWN` router is not probed again"
-    Gossip cannot clear a `DOWN` mark: a router that restarts under the same name announces itself with a lower version than the `DOWN` entry, and its peers no longer probe it. This applies after a crash or restart, and after a network partition long enough for routers to mark each other `DOWN`. Router discovery re-admits a router whenever its watch reports the pod as Ready, as it does when a restarted pod becomes Ready. With static peers, restart the isolated router under a new `--mesh-server-name` (omitting the flag picks a random one) and point `--mesh-peer-urls` at a running router.
+!!! warning "A `DOWN` or `LEAVING` router is not probed again"
+    Gossip cannot clear a `DOWN` or `LEAVING` mark: a router that restarts under the same name announces itself with a lower version than the old entry, and its peers no longer probe it. This applies after a graceful shutdown (which leaves a `LEAVING` entry), after a crash, and after a network partition long enough for routers to mark each other `DOWN`. Router discovery re-admits a router whenever its watch reports the pod as Ready, as it does when a restarted pod becomes Ready. With static peers, restart the isolated router under a new `--mesh-server-name` (omitting the flag picks a random one) and point `--mesh-peer-urls` at a running router.
 
 ### Failure Detection Timing
 
@@ -633,7 +633,7 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 | Startup fails with `mesh advertise address cannot be unspecified` | `--mesh-host` is `0.0.0.0` and `--mesh-advertise-host` is unset | Set `--mesh-advertise-host` to the node's IP |
 | Startup fails with `mesh port cannot be 0` | `--mesh-port 0` | Use a fixed port |
 | A joining router logs `No peer address available to connect` every round | Its bootstrap peer was unreachable in the first gossip round and is not retried | Start the bootstrap router, then restart this one |
-| A router stays out of the mesh after a restart or partition | Peers marked it `DOWN` and no longer probe it | Restart it under a new name, or use router discovery; see [Node Status States](#node-status-states) |
+| A router stays out of the mesh after a restart or partition | Its peers hold it as `DOWN` or `LEAVING` and no longer probe it | Restart it under a new name, or use router discovery; see [Node Status States](#node-status-states) |
 | Routers appear under both their pod name and another name in the `Status:` log | `--mesh-server-name` differs from the pod name under router discovery | Set `--mesh-server-name=$(POD_NAME)` |
 | Log shows `Router selector configured but mesh is not enabled` | `--router-selector` without `--enable-mesh` | Add `--enable-mesh` |
 | No `Router node discovery enabled` log line | `--router-selector` without `--service-discovery` | Add `--service-discovery` |

@@ -633,7 +633,7 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 | Startup fails with `mesh advertise address cannot be unspecified` | `--mesh-host` is `0.0.0.0` and `--mesh-advertise-host` is unset | Set `--mesh-advertise-host` to the node's IP |
 | Startup fails with `mesh port cannot be 0` | `--mesh-port 0` | Use a fixed port |
 | A joining router logs `No peer address available to connect` every round | Its bootstrap peer was unreachable in the first gossip round and is not retried | Start the bootstrap router, then restart this one |
-| A router stays out of the mesh after a restart or partition | Peers marked it `DOWN` or `LEAVING` and no longer probe it | Restart it under a new name, or use router discovery; see [Node Status States](#node-status-states) |
+| A router stays out of the mesh after a restart or partition | Its peers hold it as `DOWN` or `LEAVING` and no longer probe it | Restart it under a new name, or use router discovery; see [Node Status States](#node-status-states) |
 | Routers appear under both their pod name and another name in the `Status:` log | `--mesh-server-name` differs from the pod name under router discovery | Set `--mesh-server-name=$(POD_NAME)` |
 | Log shows `Router selector configured but mesh is not enabled` | `--router-selector` without `--enable-mesh` | Add `--enable-mesh` |
 | No `Router node discovery enabled` log line | `--router-selector` without `--service-discovery` | Add `--service-discovery` |

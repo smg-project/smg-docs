@@ -688,7 +688,7 @@ A few chart behaviors to know:
 - The router container runs the gateway image, so it accepts the same flags as `smg launch` from pip. `router.extraArgs` appends flags the values file does not cover.
 - The chart's schema limits `router.policy` to `cache_aware`, `round_robin`, `power_of_two`, `manual`, `random`, and `prefix_hash`.
 - `global.image.tag` overrides the gateway version, which defaults to the chart's `appVersion`.
-- Engine images for `workers[]` resolve to `ghcr.io/<repository>:<tag>`, and the repository defaults to `global.image.repository` (`lightseekorg/smg`). GHCR has no engine release images under that name after 1.9.0, so set `image.repository: smg-project/smg` next to each worker's `image.tag`. The chart's worker examples still pin 1.3.3 images.
+- Engine images for `workers[]` resolve to `ghcr.io/smg-project/smg:<tag>` by default; `workers[].image.registry` and `image.repository` override the path. Set each worker's `image.tag` to the engine-specific tag (for example `1.13.0-vllm-v0.31.0`); without it the tag falls back to `global.image.tag` or the chart's `appVersion`, a bare gateway version rather than an engine image tag.
 - `history.backend` selects the conversation-history backend: `memory` (the default), `none` (history off), `postgres`, `redis`, or `oracle`. For `postgres` and `redis`, set the store's `url` under `history.<backend>`, or name a Secret you manage in `existingSecret`; for `oracle`, set `history.oracle.dsn`, `user`, and `password`, or `existingSecret`. The connection URL and credentials reach the router from a Secret through environment variables, never in the pod's arguments. [Data Connections](data-connections.md) covers each backend, including schema migrations.
 
 Verify:

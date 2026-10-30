@@ -842,7 +842,7 @@ Authentication for the admin routes: worker management, cache and tokenizer oper
 
 | Option | Environment | Default | Description |
 |--------|-------------|---------|-------------|
-| `--control-plane-api-keys` | `CONTROL_PLANE_API_KEYS` | none | An API key as `id:name:role:key`, where role is `admin` or `user`. One key per flag; repeat the flag for more. A malformed entry, including one with a role other than `admin` or `user`, fails startup; the error does not echo the entry, which carries the key. |
+| `--control-plane-api-keys` | `CONTROL_PLANE_API_KEYS` | none | An API key as `id:name:role:key`, where role is `admin` or `user`. One key per flag; repeat the flag for more. A malformed entry, including one with a role other than `admin` or `user`, fails startup; the error does not echo the entry, since it carries the key. |
 | `--jwt-issuer` | `JWT_ISSUER` | unset | OIDC issuer URL. JWT auth needs both the issuer and the audience; setting only one of them fails startup. |
 | `--jwt-audience` | `JWT_AUDIENCE` | unset | Expected audience claim. |
 | `--jwt-jwks-uri` | `JWT_JWKS_URI` | discovered from the issuer | Explicit JWKS URI. |

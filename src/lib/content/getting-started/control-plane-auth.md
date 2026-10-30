@@ -81,7 +81,7 @@ curl -H "Authorization: Bearer super-secret-key" \
 
 Format: `id:name:role:key` where role is `admin` or `user`. Repeat the flag to add more keys. A `user` key reaches the read-only routes (`GET` and `HEAD`); every other control-plane method answers it with `403`.
 
-SMG refuses to start on a malformed entry, including one with a role other than `admin` or `user`; the error does not echo the entry, which carries the key.
+SMG refuses to start on a malformed entry, including one with a role other than `admin` or `user`; the error does not echo the entry, since it carries the key.
 
 ---
 

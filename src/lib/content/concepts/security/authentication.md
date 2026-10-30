@@ -309,7 +309,7 @@ smg \
 | `role` | Gateway role (`admin` or `user`) |
 | `key` | The secret API key value |
 
-SMG refuses to start on a malformed entry, including one with a role other than `admin` or `user`. The error does not echo the entry, which carries the key.
+SMG refuses to start on a malformed entry, including one with a role other than `admin` or `user`. The error does not echo the entry, since it carries the key.
 
 ### Multiple API Keys
 

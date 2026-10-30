@@ -445,7 +445,7 @@ spec:
 
 1. **Pod becomes Ready**: The pod matches the selector, is `Running`, and its `Ready` condition is `True`.
 2. **Reconcile pass**: SMG finds no registered worker for the pod's address and submits an `AddWorker` job.
-3. **Startup probing**: After `--worker-startup-delay`, registration detects whether the worker speaks HTTP or gRPC, retrying every `--worker-startup-check-interval` seconds until `--worker-startup-timeout-secs`.
+3. **Startup probing**: After `--worker-startup-delay`, registration probes the address over HTTP and gRPC in parallel and keeps the protocol that answers (HTTP, if both do). No worker is created until a probe succeeds — a `2xx` from `GET /health`, or a gRPC health RPC in which the engine reports itself healthy. Failed probes are retried every `--worker-startup-check-interval` seconds; when `--worker-startup-timeout-secs` elapses first, the job fails, and a later reconcile pass submits it again.
 4. **Capability query**: SMG reads the engine's metadata, for example SGLang's `/model_info` endpoint (falling back to the deprecated `/get_model_info` if the new path returns 404).
 5. **Registration**: The worker joins the registry with its `smg.ai/pod-name` and `smg.ai/pod-uid` labels, becomes `Ready`, and background health checks start immediately.
 

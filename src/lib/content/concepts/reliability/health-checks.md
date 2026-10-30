@@ -152,6 +152,10 @@ With `--remove-unhealthy-workers` (the default under service discovery), a worke
 
 The default follows `--service-discovery`. With discovery on, removal is followed by re-registration, so recovery completes on its own. Without discovery, nothing would add a removed worker back, so the default keeps failed workers in place instead of permanently shrinking a static fleet.
 
+Re-registration takes effect only once the engine passes a startup probe, the same gate every registration passes: an HTTP worker must answer `GET /health` with a `2xx` (startup probing always uses `/health`, even when `--health-check-endpoint` is set), a gRPC worker must answer a health RPC and report itself healthy, and a bare `host:port` address is probed both ways and keeps the protocol that answers. Failed probes are retried every `--worker-startup-check-interval` seconds until `--worker-startup-timeout-secs` elapses ([Worker Startup](../architecture/service-discovery.md#worker-startup)), so an engine that is still down keeps its registration waiting instead of rejoining the pool only to fail out again.
+
+The exception is a ZMQ `ipc://` URL, which registers without a probe — SMG binds the sockets and the engine dials in — so it re-registers as `Pending` and is promoted when the engine completes its handshake.
+
 | Command | Auto-recovery |
 |---------|---------------|
 | `smg launch --service-discovery ...` | On |

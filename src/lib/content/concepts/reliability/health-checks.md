@@ -191,7 +191,7 @@ smg \
 | `--health-failure-threshold` | `3` | Consecutive failures before a `Ready` worker becomes `NotReady`; also scales the liveness threshold (3×) and the `Pending` probe cap (10×) |
 | `--health-success-threshold` | `2` | Consecutive successes before a worker returns to `Ready` |
 | `--health-check-timeout-secs` | `5` | Timeout for each probe |
-| `--health-check-endpoint` | `/health` | HTTP path probed on HTTP workers |
+| `--health-check-endpoint` | `/health` | HTTP path for background probes of HTTP workers; the startup probe at registration always uses `/health` |
 | `--disable-health-check` | `false` | Disable background probing (ZMQ workers keep their local check) |
 | `--remove-unhealthy-workers` | follows `--service-discovery` | Remove workers that reach `Failed` (alias `--worker-auto-recovery`); see [Worker Auto-Recovery](#worker-auto-recovery) |
 | `--drain-settle-secs` | `5` | Seconds a `Ready` worker stays `Draining` before removal; `0` removes immediately. Not accepted by the Python launcher yet |
@@ -334,6 +334,8 @@ smg \
   --worker-urls http://worker:8000 \
   --health-check-endpoint /api/health
 ```
+
+The custom path applies to the background probes. The startup probe at registration always sends `GET /health`, so the worker must answer that path with a `2xx` too, or registration fails.
 
 ---
 

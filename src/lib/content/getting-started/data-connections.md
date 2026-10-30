@@ -57,7 +57,7 @@ smg \
   --postgres-pool-max-size 16
 ```
 
-A new, empty database needs nothing more: the first start creates the tables at the latest schema version. An existing database that is behind a newer SMG build needs auto-migration; see [Schema migrations](#schema-migrations).
+A new, empty database needs nothing more: the first start creates the tables at the latest schema version. An existing database that is behind a newer SMG build has pending migrations to apply; see [Schema migrations](#schema-migrations).
 
 To keep the password off the command line, set `SMG_POSTGRES_DB_URL` or pass `--postgres-db-url-file` with a file holding the URL instead; see [Store URLs from the environment or a file](#store-urls-from-the-environment-or-a-file).
 

@@ -95,7 +95,7 @@ smg \
   --jwt-audience "smg-gateway"
 ```
 
-The two flags are required together: SMG refuses to start with only one of them.
+`--jwt-issuer` and `--jwt-audience` are required together: SMG refuses to start with only one of them.
 
 ### JWKS Discovery
 

@@ -114,9 +114,9 @@ Errors use the body `{"error": {"message": "...", "type": "..."}}`:
 
 `POST /parse/function_call`
 
-Runs one tool-call parser over complete model output, the same way the gateway parses a non-streaming response in its default (legacy) parser mode.
+Runs one tool-call parser over complete model output, the same way the gateway parses a non-streaming response under `--parser legacy`.
 
-[`--parser symphony`](../concepts/architecture/grpc-pipeline.md#symphony-parsing) and the `X-SMG-Parser` header change only the serving pipeline. This endpoint always runs the legacy parser named in `tool_call_parser`, never a Symphony table; a name that only a table answers to is rejected as unknown.
+The serving pipeline reads with [Symphony tables](../concepts/architecture/grpc-pipeline.md#symphony-parsing) by default, but the `--parser` flag and the `X-SMG-Parser` header change only that pipeline. This endpoint always runs the legacy parser named in `tool_call_parser`, never a Symphony table; a name that only a table answers to is rejected as unknown.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -172,7 +172,7 @@ curl http://localhost:30000/parse/function_call \
 
 `POST /parse/reasoning`
 
-Runs one reasoning parser over complete model output. Like `/parse/function_call`, it always runs the legacy parser named in `reasoning_parser`; `--parser symphony` and the `X-SMG-Parser` header change only the serving pipeline.
+Runs one reasoning parser over complete model output. Like `/parse/function_call`, it always runs the legacy parser named in `reasoning_parser`, never a Symphony table; the `--parser` flag (`symphony` by default) and the `X-SMG-Parser` header change only the serving pipeline.
 
 | Field | Type | Description |
 |-------|------|-------------|

@@ -309,8 +309,16 @@ data: [DONE]
 An error before the first chunk is an ordinary JSON error response with its own status;
 when a worker rejects a streaming request, SMG keeps the worker's content type
 (`application/json`, not `text/event-stream`) so SSE clients still see the error body.
+
 If generation fails after a gRPC stream has started, SMG sends
-`data: {"error": {"message": "...", "type": "internal_error"}}` followed by `data: [DONE]`.
+`data: {"error": {"message": "...", "type": "..."}}` followed by `data: [DONE]`. The
+`type` is `stream_error` when the worker failed the stream: its connection broke, its
+server cut the stream, or it answered a server error or a timeout after the first chunk,
+including the engine's own report that the request failed. Any other status the engine
+answers mid-stream keeps the `type` it would carry in an error body (see
+[Error Format](#error-format)): for example `invalid_request_error` when the engine
+rejects the request after its first chunk, or `rate_limit_error` for capacity pushback.
+`internal_error` means the failure was in SMG's own processing.
 
 Starting with v1.13.0, a quiet open SSE response can contain `: ping` comments
 between events. SMG sends them after 15 seconds of silence by default, including

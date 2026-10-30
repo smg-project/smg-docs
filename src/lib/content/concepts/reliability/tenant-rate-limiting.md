@@ -70,7 +70,7 @@ See the [reference page](../../reference/tenant-rate-limiting.md) for the exact 
 
 ## `n>1` and streaming are counted correctly
 
-A few accounting details that were specifically fixed to avoid over- or under-charging a tenant:
+A few accounting details avoid over- or under-charging a tenant:
 
 - **A shared prompt is charged once, not per choice.** When a request asks for `n>1` completions, every choice shares the same input prompt. The reservation counts the prompt once, and settlement takes a single prompt count from the reported usage (for chat, the *maximum* across choices), not the sum; only completion tokens, which really are distinct per choice, are summed.
 - **A streaming response settles only once every expected choice has actually finished.** A clean end-of-stream partway through an `n>1` request (some choices completed, others didn't) is not treated as full, trustworthy usage — it closes the reservation at the estimate instead of settling with an understated real count.

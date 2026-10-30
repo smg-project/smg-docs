@@ -54,7 +54,7 @@ smg \
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--cache-threshold` | `0.3` | Minimum matched-prefix share (0.0–1.0) before a request is pinned to a worker that holds the prefix. At or below it, the request goes to the worker with the lowest expected wait |
-| `--balance-abs-threshold` | `64` | Spill gate, absolute part: a matched worker is skipped when its in-flight requests exceed the mean across available workers by more than this many and also exceed `--balance-rel-threshold` × that mean |
+| `--balance-abs-threshold` | `64` | Spill gate, absolute part: caps how many in-flight requests above the mean across available workers a matched worker may hold before it is skipped. The margin sizes itself to the pool's load (two standard deviations of the in-flight count at the mean, never under four requests unless this value is lower), so small pools spill well below this cap |
 | `--balance-rel-threshold` | `1.5` | Spill gate, relative part: a multiple of that mean (at least `1.0`); fires only together with the absolute part |
 | `--eviction-interval` | `120` (Python launcher: `60`) | Seconds between cache-tree eviction cycles. The Python launcher behind `pip install smg` and the container images names the flag `--eviction-interval-secs` |
 | `--max-tree-size` | `67108864` | Maximum total size of each model's prefix tree (characters for HTTP, tokens for gRPC), shared across all workers |

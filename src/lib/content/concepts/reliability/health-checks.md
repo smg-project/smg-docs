@@ -152,10 +152,6 @@ With `--remove-unhealthy-workers` (the default under service discovery), a worke
 
 The default follows `--service-discovery`. With discovery on, removal is followed by re-registration, so recovery completes on its own. Without discovery, nothing would add a removed worker back, so the default keeps failed workers in place instead of permanently shrinking a static fleet.
 
-Re-registration takes effect only once the engine passes a startup probe, the same gate every registration passes: an HTTP worker must answer `GET /health` with a `2xx` (startup probing always uses `/health`, even when `--health-check-endpoint` is set), a gRPC worker must answer a health RPC and report itself healthy, and a bare `host:port` address is probed both ways and keeps the protocol that answers. Failed probes are retried every `--worker-startup-check-interval` seconds until `--worker-startup-timeout-secs` elapses ([Worker Startup](../architecture/service-discovery.md#worker-startup)), so an engine that is still down keeps its registration waiting instead of rejoining the pool only to fail out again.
-
-The exception is a ZMQ `ipc://` URL, which registers without a probe — SMG binds the sockets and the engine dials in — so it re-registers as `Pending` and is promoted when the engine completes its handshake.
-
 | Command | Auto-recovery |
 |---------|---------------|
 | `smg launch --service-discovery ...` | On |
@@ -164,6 +160,10 @@ The exception is a ZMQ `ipc://` URL, which registers without a probe — SMG bin
 | `smg launch --service-discovery ... --no-remove-unhealthy-workers` | Off |
 
 `smg launch` (the Python launcher from pip, and the container image) also accepts the alias, as `--worker-auto-recovery` and `--no-worker-auto-recovery`. The `smg` binary has no `--no-` form; turn auto-recovery off there with `--remove-unhealthy-workers=false`.
+
+Re-registration waits because it goes through the same startup-probe gate as every registration: no worker is created until a probe succeeds. An HTTP worker must answer `GET /health` with a `2xx` (startup probing always uses `/health`, even when `--health-check-endpoint` is set), a gRPC worker must answer a health RPC and report itself healthy, and a bare `host:port` address is probed both ways, keeping the protocol that answers — HTTP, if both do. Failed probes are retried every `--worker-startup-check-interval` seconds; when `--worker-startup-timeout-secs` elapses first, the job fails and a later reconcile pass submits it again ([Worker Startup](../architecture/service-discovery.md#worker-startup)). An engine that is still down keeps its registration waiting instead of rejoining the pool only to fail out again.
+
+The exception is a ZMQ `ipc://` URL: SMG binds the sockets and the engine dials in, so there is no endpoint to probe. It registers without a probe, as `Pending`, and is promoted to `Ready` when the engine completes its handshake.
 
 Removal targets are resolved from registered worker URLs and pinned to the failed worker's own revision, so only that registration is removed: sibling DP ranks behind the same address stay registered. Workers imported from mesh peers are never removed locally; the gateway that owns them manages them.
 

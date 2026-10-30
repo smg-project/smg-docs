@@ -97,7 +97,9 @@ On a new database, also set `DB_AUTO_MIGRATE=true` for the first start; see [Sch
 
 ## Schema migrations
 
-PostgreSQL and Oracle track a schema version and refuse to start while migrations are pending, printing the SQL to apply by hand. A new, empty PostgreSQL database has nothing pending: the first start creates its tables at the latest schema version. On PostgreSQL, gateways starting together on one database take turns at schema setup and all come up.
+PostgreSQL and Oracle track a schema version and refuse to start while migrations are pending, printing the SQL to apply by hand.
+
+A new, empty PostgreSQL database has nothing pending: the first start creates its tables at the latest schema version, and gateways starting together on one database take turns at schema setup and all come up.
 
 A new Oracle database starts with every migration pending, and an existing database on either backend can fall behind after an SMG upgrade. Set `DB_AUTO_MIGRATE=true` (or `1`) to let SMG apply pending migrations at startup:
 

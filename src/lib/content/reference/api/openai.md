@@ -312,9 +312,9 @@ when a worker rejects a streaming request, SMG keeps the worker's content type
 
 If generation fails after a gRPC stream has started, SMG sends
 `data: {"error": {"message": "...", "type": "..."}}` followed by `data: [DONE]`. The
-`type` is `stream_error` when the worker failed the stream: its connection broke, its
-server cut the stream, it answered a server error or a timeout after the first chunk,
-or the engine itself reported that the request failed. Any other status the engine
+`type` is `stream_error` when the worker fails the stream: its connection breaks, its
+server cuts the stream, it answers a server error or a timeout after the first chunk,
+or the engine itself reports that the request failed. Any other status the engine
 answers mid-stream keeps the `type` it would carry in an error body (see
 [Error Format](#error-format)): for example `invalid_request_error` when the engine
 rejects the request after its first chunk, or `rate_limit_error` for capacity pushback.

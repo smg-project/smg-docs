@@ -81,6 +81,8 @@ curl -H "Authorization: Bearer super-secret-key" \
 
 Format: `id:name:role:key` where role is `admin` or `user`. Repeat the flag to add more keys. A `user` key reaches the read-only routes (`GET` and `HEAD`); every other control-plane method answers it with `403`.
 
+SMG refuses to start on a malformed entry, including one with a role other than `admin` or `user`; the error does not echo the entry, which carries the key.
+
 ---
 
 ## Option B: JWT / OIDC
@@ -94,7 +96,9 @@ smg launch \
   --jwt-role-mapping 'Gateway.User=user'
 ```
 
-JWT auth needs both `--jwt-issuer` and `--jwt-audience`. With only one of them, it stays off. SMG checks the token's signature (RS256, RS384, RS512, ES256, or ES384, with the JWKS key named by the token's `kid`), issuer, audience, expiry, and not-before (`nbf`). The expiry and not-before checks share a 30-second clock-skew leeway, and a token without an `nbf` claim passes the not-before check. SMG then assigns a role:
+`--jwt-issuer` and `--jwt-audience` are required together: SMG refuses to start with only one of them. It also refuses to start on a malformed `--jwt-role-mapping` entry (one without `=`, or with a gateway role other than `admin` or `user`).
+
+SMG checks the token's signature (RS256, RS384, RS512, ES256, or ES384, with the JWKS key named by the token's `kid`), issuer, audience, expiry, and not-before (`nbf`). The expiry and not-before checks share a 30-second clock-skew leeway, and a token without an `nbf` claim passes the not-before check. SMG then assigns a role:
 
 - The role comes from the claim named by `--jwt-role-claim` (default `roles`). Only when that claim is missing does SMG read the `role`, `roles`, `groups`, and `group` claims. `--jwt-role-claim` is a flag of the Rust `smg` binary; the Python launcher (`pip install smg`, and the container image) always uses `roles`.
 - Without `--jwt-role-mapping`, a claim value of `admin` or `user` (in any case) is used as the role.

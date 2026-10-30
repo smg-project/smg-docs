@@ -95,6 +95,8 @@ smg \
   --jwt-audience "smg-gateway"
 ```
 
+The two flags are required together: SMG refuses to start with only one of them.
+
 ### JWKS Discovery
 
 By default, SMG discovers the JWKS (JSON Web Key Set) endpoint automatically via OIDC discovery (`/.well-known/openid-configuration`). You can override this with an explicit JWKS URI:
@@ -128,6 +130,8 @@ smg \
 ```
 
 **Role Mapping Format**: `idp_role=gateway_role`
+
+SMG refuses to start on a malformed mapping: one without `=`, or with a gateway role other than `admin` or `user`.
 
 | Gateway Role | Permissions |
 |--------------|-------------|
@@ -304,6 +308,8 @@ smg \
 | `name` | Human-readable name/description |
 | `role` | Gateway role (`admin` or `user`) |
 | `key` | The secret API key value |
+
+SMG refuses to start on a malformed entry, including one with a role other than `admin` or `user`. The error does not echo the entry, which carries the key.
 
 ### Multiple API Keys
 

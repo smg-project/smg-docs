@@ -161,7 +161,7 @@ The default follows `--service-discovery`. With discovery on, removal is followe
 
 `smg launch` (the Python launcher from pip, and the container image) also accepts the alias, as `--worker-auto-recovery` and `--no-worker-auto-recovery`. The `smg` binary has no `--no-` form; turn auto-recovery off there with `--remove-unhealthy-workers=false`.
 
-Re-registration waits because it goes through the same startup-probe gate as every registration: no worker is created until a probe succeeds. An HTTP worker must answer `GET /health` with a `2xx`, a gRPC worker must answer a health RPC and report itself healthy, and a bare `host:port` address is probed both ways, keeping the protocol that answers — HTTP, if both do. The startup probe always uses `/health`; `--health-check-endpoint` changes only the background probes.
+Re-registration waits because it goes through the same startup-probe gate as every registration: no worker is created until a probe succeeds. An HTTP worker must answer `GET /health` with a `2xx`, a gRPC worker must answer a health RPC and report itself healthy, and a bare `host:port` address is probed over both protocols, keeping the one that answers — HTTP, if both do. The startup probe always uses `/health`; `--health-check-endpoint` changes only the background probes.
 
 Failed probes are retried every `--worker-startup-check-interval` seconds; when `--worker-startup-timeout-secs` elapses first, the job fails and a later reconcile pass submits it again ([Worker Startup](../architecture/service-discovery.md#worker-startup)). An engine that is still down keeps its registration waiting instead of rejoining the pool only to fail out again.
 

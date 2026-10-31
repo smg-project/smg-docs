@@ -869,10 +869,15 @@ An unknown ID — or another tenant's response — returns `404` with code `not_
 
 Conversations provide persistent storage for multi-turn interactions, enabling chat history to be maintained across multiple requests.
 
-The conversation endpoints report errors as `{"error": "<message>"}`, except for two
-structured errors: `item_already_in_conversation` under
-[Create Conversation Items](#create-conversation-items) and the `invalid_value` rejection
-of a bad `include` query under [Get Conversation Item](#get-conversation-item).
+The conversation endpoints report errors in the gateway envelope
+(`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).
+An unknown conversation or item answers `404` with code `not_found`; an invalid request
+answers `400` with code `invalid_request`. Three rejections carry their own `code` and
+`param`: under [Create Conversation Items](#create-conversation-items),
+`item_already_in_conversation` (`param`: `items`) and `string_above_max_length` for an
+item `id` over 64 bytes (`param`: `items[].id`); under
+[Get Conversation Item](#get-conversation-item), `invalid_value` for a bad `include`
+value (`param`: the offending entry, such as `include[0]`).
 
 A conversation is scoped to the tenant that created it: on every route below, and as
 the `conversation` of a new response, another tenant's conversation ID answers `404`,
@@ -1107,6 +1112,10 @@ see — its own, or one stored without a tenant — reuses that stored item as-i
 belongs to another tenant's item is rejected with `400` (`Item id '...' cannot be used`),
 neither serving nor overwriting it (see
 [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
+
+A supplied item `id` — an item's own or an `item_reference`'s — may be at most 64 bytes;
+a longer one is rejected with `400` (`string_above_max_length` on `items[].id`) before
+any item of the request is stored.
 
 ### Example Request
 

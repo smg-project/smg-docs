@@ -262,7 +262,7 @@ ZMQ-related worker fields:
 | `url` | `ipc://<path>` (the path is required) |
 | `runtime_type` | `vllm`, `tokenspeed`, or `sglang` (`runtime` is accepted as an alias). Unset means vLLM |
 | `zmq_handshake_address` | A `tcp://` address to bind for the handshake instead of the derived one. Rejected on non-ZMQ workers |
-| `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); leave `dp_rank` unset. Without it, the worker waits for as many engines as the first one to dial declares, one for an engine that declares none |
+| `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); if omitted, the worker waits for as many engines as the first one to dial declares, one for an engine that declares none. Leave `dp_rank` unset |
 | `labels.model_path` | Model ID and tokenizer source, for gateways started without `--model-path` |
 
 `zmq_handshake_address` pairs a worker with an engine that dials a fixed address. A TokenSpeed engine started without `--data-parallel-rpc-port` dials `tcp://127.0.0.1:30500`, so this worker pairs with it:
@@ -292,7 +292,7 @@ Replicas work with every ZMQ engine. Grouped workers are a vLLM and TokenSpeed s
 
 ### Configure a Grouped Worker
 
-Start the engine group with its data-parallel size, and tell the gateway how many engines to wait for with `--zmq-engine-count`. A TokenSpeed attention-DP group declares its size when it dials in, so it can leave the flag unset and the gateway waits for the whole declared group. A vLLM engine declares no group size, so a vLLM group needs the explicit count:
+Start the engine group with its data-parallel size, then tell the gateway how many engines to wait for. A TokenSpeed attention-DP group declares its size when it dials in, so `--zmq-engine-count` can stay unset and the gateway waits for the whole declared group. A vLLM engine declares no group size, so a vLLM group needs the explicit count:
 
 === "vLLM"
 
@@ -335,9 +335,10 @@ Start the engine group with its data-parallel size, and tell the gateway how man
     Each TokenSpeed rank dials in with its own identity (`--zmq-engine-index` plus its rank). TokenSpeed requires an explicit `--dist-init-addr` when `--data-parallel-size` is above 1; pick a free port outside the 20000–29999 handshake range.
 
 - `--zmq-engine-count` applies to every `ipc://` URL in `--worker-urls`; an explicit value must be a positive integer. For a worker added through the API, set `"dp_size"` on the worker instead.
-- Left unset, the count settles on what the first engine to dial declares. An engine that declares no group size — as vLLM engines do — counts as one, so a vLLM group with the count unset settles at a single engine, and the other ranks fail the handshake as extras or never connect. An engine that declares a different size than an explicit count still connects; the gateway logs `engine declares a group of a different size than this handshake awaits` and keeps the explicit count.
-- The engine process needs `N` times its tensor-parallel size in GPUs.
+- Left unset, the count settles on what the first engine to dial declares, and an engine that declares no group size counts as one. A vLLM group with the count unset therefore settles at a single engine, and the rest of its ranks dial in as extras.
 - The count the gateway waits for must match the number of engines that dial in. An extra engine can fail the handshake with `duplicate HELLO ... after INIT phase`; a missing one leaves the handshake waiting until it times out.
+- An engine that declares a different group size than an explicit count still connects; the gateway logs `engine declares a group of a different size than this handshake awaits` and keeps the explicit count.
+- The engine process needs `N` times its tensor-parallel size in GPUs.
 - Grouped workers can't be combined with `--dp-aware`, which tries to expand the group into one worker per rank and fails with `cannot be dp-aware expanded`. Single-engine ZMQ workers register normally under `--dp-aware`.
 
 ### Rank Selection

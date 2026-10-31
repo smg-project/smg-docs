@@ -397,7 +397,7 @@ smg launch --backend anthropic --worker-urls https://api.anthropic.com
 
 Clients then call SMG as in the [Anthropic API example](#example-request).
 
-- SMG sends each request to `<worker URL>/v1/messages`, so the worker URL is the API origin without `/v1`. The request carries the client's `x-api-key`, `Authorization`, `anthropic-version`, and `anthropic-beta` headers; SMG adds none of them.
+- SMG sends each request to `<worker URL>/v1/messages`, so the worker URL is the API origin without `/v1`. The request carries the client's `x-api-key`, `Authorization`, `anthropic-version`, and `anthropic-beta` headers; when it arrives with neither key header, SMG adds the worker's stored key as `x-api-key` (see [Authentication](#authentication)).
 - Streaming responses are relayed as they arrive. Non-streaming responses are parsed into SMG's Messages schema and re-serialized; a body that does not parse returns `502` with code `parse_error`.
 - An upstream error is returned with its status and body, minus the organization and project identifiers in the body's `error.message` (see [Provider Error Responses](../../getting-started/external-providers.md#provider-error-responses)). An error Anthropic answers as an SSE stream is relayed as it arrives.
 - `/v1/messages/count_tokens` returns `501`.

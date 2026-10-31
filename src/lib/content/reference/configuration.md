@@ -842,12 +842,12 @@ Authentication for the admin routes: worker management, cache and tokenizer oper
 
 | Option | Environment | Default | Description |
 |--------|-------------|---------|-------------|
-| `--control-plane-api-keys` | `CONTROL_PLANE_API_KEYS` | none | An API key as `id:name:role:key`, where role is `admin` or `user`. One key per flag; repeat the flag for more. A malformed entry is skipped with a warning. |
-| `--jwt-issuer` | `JWT_ISSUER` | unset | OIDC issuer URL. JWT auth needs both the issuer and the audience; with only one, it stays off and a warning is printed. |
+| `--control-plane-api-keys` | `CONTROL_PLANE_API_KEYS` | none | An API key as `id:name:role:key`, where role is `admin` or `user`. One key per flag; repeat the flag for more. A malformed entry, including one with any other role, fails startup; the error does not echo the entry, since it carries the key. |
+| `--jwt-issuer` | `JWT_ISSUER` | unset | OIDC issuer URL. JWT auth needs both the issuer and the audience; setting only one of them fails startup. |
 | `--jwt-audience` | `JWT_AUDIENCE` | unset | Expected audience claim. |
 | `--jwt-jwks-uri` | `JWT_JWKS_URI` | discovered from the issuer | Explicit JWKS URI. |
 | `--jwt-role-claim` | - | `roles` | JWT claim that carries the role. |
-| `--jwt-role-mapping` | - | none | Maps an IDP role to a gateway role, as `idp_role=gateway_role` with gateway role `admin` or `user`. One mapping per flag. |
+| `--jwt-role-mapping` | - | none | Maps an IDP role to a gateway role, as `idp_role=gateway_role` with gateway role `admin` or `user`. One mapping per flag. A malformed mapping — no `=`, or any other gateway role — fails startup. |
 | `--disable-audit-logging` | - | `false` | Disable audit logging of control plane operations (on by default when control plane auth is configured). |
 
 `--help` also lists `--api-key` under this heading; it is the shared data plane key described in the next section.

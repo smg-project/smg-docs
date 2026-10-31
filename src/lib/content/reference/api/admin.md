@@ -887,7 +887,9 @@ Forwards the request the same way as [Get Model Info](#get-model-info) and retur
 
 ## WASM Module Management
 
-Manage WebAssembly plugins. Modules are registered from files accessible to the gateway process; the request body contains descriptors with paths, not binary payloads.
+Manage WebAssembly plugins. Modules are registered from files on the gateway host; the request body contains descriptors with paths, not binary payloads.
+
+A module's `file_path` must be an absolute path ending in `.wasm`, with no `.` or `..` components. Paths under `/etc/`, `/proc/`, `/sys/`, `/dev/`, `/boot/`, `/root/`, `/var/log/`, or `/var/run/` are refused, and after symlinks are resolved the target is checked again: it must be a `.wasm` file outside those directories. See [WASM Plugins](../../concepts/extensibility/wasm-plugins.md#security-model) for the full security model.
 
 These routes need `--enable-wasm`. Without it, each answers `500 Internal Server Error` with an empty body.
 
@@ -897,7 +899,7 @@ These routes need `--enable-wasm`. Without it, each answers `500 Internal Server
 POST /wasm
 ```
 
-Registers one or more WASM modules.
+Registers one or more WASM modules. The gateway computes each file's SHA-256 hash at registration and refuses a module whose hash is already registered.
 
 **Request Body:** JSON `WasmModuleAddRequest`
 ```json
@@ -905,7 +907,7 @@ Registers one or more WASM modules.
   "modules": [
     {
       "name": "custom-middleware",
-      "file_path": "/etc/smg/wasm/custom-middleware.wasm",
+      "file_path": "/opt/smg/wasm/custom-middleware.wasm",
       "module_type": "Middleware",
       "attach_points": [
         {"Middleware": "OnRequest"},
@@ -925,7 +927,7 @@ The only supported `module_type` is `Middleware`. Valid `Middleware` attach poin
   "modules": [
     {
       "name": "custom-middleware",
-      "file_path": "/etc/smg/wasm/custom-middleware.wasm",
+      "file_path": "/opt/smg/wasm/custom-middleware.wasm",
       "module_type": "Middleware",
       "attach_points": [
         {"Middleware": "OnRequest"},
@@ -957,7 +959,7 @@ Returns all registered WASM modules together with aggregate execution metrics.
       "module_uuid": "550e8400-e29b-41d4-a716-446655440000",
       "module_meta": {
         "name": "custom-middleware",
-        "file_path": "/etc/smg/wasm/custom-middleware.wasm",
+        "file_path": "/opt/smg/wasm/custom-middleware.wasm",
         "sha256_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "size_bytes": 65536,
         "created_at": "2024-01-15T12:00:00.000000000Z",

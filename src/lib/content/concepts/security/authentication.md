@@ -378,7 +378,7 @@ What reaches a worker depends on the path:
 
 | Path | What the worker receives |
 |------|--------------------------|
-| HTTP regular router | The client's `Authorization` header, as sent. The worker's API key is sent (as `Authorization: Bearer <key>`) when the client's `Authorization` is absent. A matched gateway key (`--api-key` or a tenant key) is removed at authentication and never forwarded, so under gateway authentication the worker receives its own API key — for `--worker-urls` workers, the same `--api-key` value — or, when the worker has no key, no `Authorization` header at all. |
+| HTTP regular router | The client's `Authorization` header as sent, else the worker's API key as `Authorization: Bearer <key>`. A matched gateway key (`--api-key` or a tenant key) is removed at authentication and never forwarded, so under gateway authentication the worker receives its own API key — for `--worker-urls` workers, the same `--api-key` value — or no `Authorization` header at all when it has no key. |
 | HTTP PD router | The client's allowlisted headers on both the prefill and the decode request, with the same `Authorization` precedence as the regular router: the client's header when one reaches the router, else each worker's own API key as `Authorization: Bearer <key>`. |
 | gRPC and ZMQ workers | No API key and no `Authorization` metadata. |
 | SMG's own calls to HTTP workers (health checks, metadata discovery, load polling) | The worker's API key, as `Authorization: Bearer <key>`. |

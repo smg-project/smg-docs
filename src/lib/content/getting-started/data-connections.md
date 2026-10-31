@@ -39,7 +39,7 @@ smg \
   --history-backend memory
 ```
 
-The memory backend is bounded: on every write it drops the oldest records to keep at most 10,000 stored responses and 100,000 conversation items, and by default drops records older than 24 hours (a conversation's age counts from its last use). Change the bounds with `--history-memory-max-responses`, `--history-memory-max-items`, and `--history-memory-retention-secs` (`0` keeps a record until a count bound drops it); see the [memory backend options](../concepts/data/chat-history.md#memory-backend) for details.
+The memory backend is bounded: on every write it drops the oldest records to keep at most 10,000 stored responses and 100,000 conversation items, and drops records older than 24 hours (a conversation's age counts from its last use). Change these default bounds with `--history-memory-max-responses`, `--history-memory-max-items`, and `--history-memory-retention-secs` (`0` keeps a record until a count bound drops it); see the [memory backend options](../concepts/data/chat-history.md#memory-backend) for details.
 
 ### No history
 

@@ -212,7 +212,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SHARD: ${{ matrix.shard }}
-      BACKLOG_BATCH: ${{ matrix.backlog || '' }}
       SCAN_ID: ${{ matrix.shard }}${{ matrix.backlog && format('-backlog-{0}', matrix.backlog) || '' }}
       DISCOVERY_MAX_ROUNDS: '200'
     steps:
@@ -239,6 +238,8 @@ jobs:
       - name: Prepare this subsystem's discovery context
         id: scan_context
         env:
+          # Step-scoped: the setup action's unit tests must not see it.
+          BACKLOG_BATCH: ${{ matrix.backlog || '' }}
           NIGHTLY_CONTEXT: ${{ runner.temp }}/nightly-docs-scan-context.json
         run: |
           python3 "$RUNNER_TEMP/nightly-docs-tools/discovery.py" context
@@ -263,6 +264,7 @@ jobs:
             --json-schema '${{ steps.scan_context.outputs.schema }}'
       - name: Validate and record scan coverage
         env:
+          BACKLOG_BATCH: ${{ matrix.backlog || '' }}
           SCAN_ACTION_OUTCOME: ${{ steps.discover.outcome }}
           SCAN_EXECUTION_FILE: ${{ steps.discover.outputs.execution_file || format('{0}/claude-execution-output.json', runner.temp) }}
           SCAN_OUTPUT: ${{ runner.temp }}/nightly-docs-scan-${{ env.SCAN_ID }}.json

@@ -269,7 +269,9 @@ class DailyCoverageTests(unittest.TestCase):
             (context_root / 'context.json').write_text(json.dumps(self.context))
             scans = root / 'scans'
             scans.mkdir()
+            # Explicit: a backlog discovery job exports BACKLOG_BATCH to its steps.
             env = {'RUNNER_TEMP': directory, 'SOURCE_ROOT': directory, 'SHARD': 'api-protocols',
+                   'BACKLOG_BATCH': '', 'BACKLOG_JOBS': '0',
                    'DEFAULT_BRANCH': 'main', 'GITHUB_REPOSITORY': 'test/repo',
                    'NIGHTLY_CONTEXT': str(root / 'scoped.json'), 'SCAN_DIR': str(scans),
                    'SCAN_OUTPUT': str(scans / 'api.json'), 'REPORT_OUTPUT': str(root / 'report.json'),

@@ -523,7 +523,7 @@ Long prompts with short outputs need relatively more prefill capacity. Short pro
 | `smg_pd_kv_connector_mode_total` | Counter | `mode` (`nixl`, `mooncake`, `moriio`, `passthrough`; `moriio` since v1.12.0) | vLLM dispatches, sequential and MoRI-IO concurrent |
 | `smg_pd_kv_transfer_failures_total` | Counter | — | A NIXL prefill returned no `kv_transfer_params`, so decode recomputed the prompt; or, since v1.12.0, a MoRI-IO pair or handoff check failed, so the request failed |
 | `smg_pd_bootstrap_failures_total` | Counter | — | HTTP bootstrap injection failed |
-| `smg_pd_rendezvous_failures_total` | Counter | `leg` (the failed leg's worker type), `phase` | A rendezvous failed: a bootstrap port did not accept the registration probe (`probe`); the same probe, rerun when a decode engine failed a request without a reason, found the port dead (`request`, counted on the prefill leg whose port it is); or an engine reported on the gRPC path that the legs never met (`bootstrap`) or that the KV handoff after they met failed (`transfer`) |
+| `smg_pd_rendezvous_failures_total` | Counter | `leg` (the worker type of the leg whose rendezvous failed), `phase` | A rendezvous failed: a bootstrap port did not accept the registration probe (`probe`); or, on the gRPC path, the same probe, rerun when a decode engine failed a request without a reason, found the port dead (`request`, counted on the prefill leg whose port it is), or an engine reported that the legs never met (`bootstrap`) or that the KV handoff after they met failed (`transfer`) |
 | `smg_pd_admission_waits_total` | Counter | — | gRPC dispatches admitted after waiting for a decode slot |
 | `smg_pd_admission_sheds_total` | Counter | — | gRPC dispatches shed at the decode admission window |
 

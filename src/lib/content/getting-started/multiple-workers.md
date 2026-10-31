@@ -112,7 +112,7 @@ The OpenAI-compatible router (`--backend openai`) also adjusts each request for 
 
 A worker can also carry a stored key: pass `api_key` when you [add a worker](#add-a-worker) through the API, or set `--api-key`, which the `--worker-urls` workers take as their key. With `--api-key` set, SMG lists the provider's models with that key when it registers the worker (unless the provider's admin key variable, such as `OPENAI_ADMIN_KEY`, is set), and callers must authenticate to the gateway with it.
 
-The gateway key ends at the gateway's authentication and is never forwarded; SMG sends the worker's stored key upstream instead, in the provider's own key header — here the `--api-key` value itself. See [External Providers](external-providers.md#api-key-handling) for how stored and caller keys combine.
+The gateway key ends at the gateway's authentication and is never forwarded; SMG sends the worker's stored key upstream instead, in the provider's own key header — in this setup, the `--api-key` value itself. See [External Providers](external-providers.md#api-key-handling) for how stored and caller keys combine.
 
 ## Dynamic Workers with IGW Mode
 

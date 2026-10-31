@@ -45,7 +45,7 @@ SMG's own authentication is separate from the credentials it passes to backends:
 |-----|---------|----------|
 | Client to SMG | `Authorization: Bearer <key>` | Checked when `--api-key` or `--tenant-api-key` is set (`--tenant-api-key` is a Rust binary flag; the pip `smg launch` does not accept it). SMG does not read `x-api-key`. A missing or unknown bearer token gets `401 Unauthorized`. |
 | SMG to HTTP workers | `Authorization` | The client's header is forwarded with the other [allowlisted headers](#forwarded-headers); `x-api-key` is not. A matched gateway key is removed at authentication, so the worker receives its own configured key instead. See [Authentication](../../concepts/security/authentication.md) for worker API keys. |
-| SMG to the Anthropic API | `x-api-key`, `Authorization` | The client's own key headers are forwarded as sent. When the client sends neither (a gateway key is removed at authentication), SMG sends the worker's stored key as `x-api-key`, with `anthropic-version: 2023-06-01` added when the client sent no version header. |
+| SMG to the Anthropic API | `x-api-key`, `Authorization` | The client's own key headers are forwarded as sent. When the client sends neither, SMG sends the worker's stored key as `x-api-key`, with `anthropic-version: 2023-06-01` added when the client sent no version header. |
 
 Anthropic SDKs send their key in `x-api-key`, which the Anthropic API backend passes upstream. When gateway authentication is on, clients must also send the gateway key as `Authorization: Bearer <key>`. The gateway key never reaches Anthropic: it is removed from `Authorization` at authentication, and from `x-api-key` too when sent there, while the client's own Anthropic key in `x-api-key` passes through.
 
@@ -346,7 +346,7 @@ For HTTP and PD workers, SMG forwards only these request headers (it sets `Conte
 | `x-smg-routing-key` | SMG routing hint |
 | `x-override-priority` | SGLang's request priority, read by an engine started with `SGLANG_ENABLE_REQUEST_HEADER_OVERRIDES=true` and not by SMG; newer than v1.13.0 (smg-project/smg#3510) |
 
-Every other request header, including `x-api-key`, is dropped. The Anthropic API backend forwards a different set — `Authorization`, `x-api-key`, `anthropic-version`, and `anthropic-beta` — and, when the request carries neither `Authorization` nor `x-api-key` (a gateway key is removed at authentication), adds the worker's stored key as `x-api-key`, with `anthropic-version: 2023-06-01` when that header is absent. gRPC and ZMQ workers receive a tokenized request, not HTTP headers.
+Every other request header, including `x-api-key`, is dropped. The Anthropic API backend forwards a different set — `Authorization`, `x-api-key`, `anthropic-version`, and `anthropic-beta` — and nothing else. When the request carries neither `Authorization` nor `x-api-key` (a gateway key is removed at authentication), SMG adds the worker's stored key as `x-api-key`, with `anthropic-version: 2023-06-01` when that header is absent. gRPC and ZMQ workers receive a tokenized request, not HTTP headers.
 
 ---
 

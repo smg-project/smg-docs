@@ -292,7 +292,7 @@ Replicas work with every ZMQ engine. Grouped workers are a vLLM and TokenSpeed s
 
 ### Configure a Grouped Worker
 
-Start the engine group with its data-parallel size, then tell the gateway how many engines to wait for. A TokenSpeed attention-DP group declares its size when it dials in, so `--zmq-engine-count` can stay unset and the gateway waits for the whole declared group. A vLLM engine declares no group size, so a vLLM group needs the explicit count:
+Start the engine group with its data-parallel size. A TokenSpeed attention-DP group declares its size when it dials in, so `--zmq-engine-count` can stay unset and the gateway waits for the whole declared group. A vLLM engine declares no group size, so a vLLM group needs the explicit count:
 
 === "vLLM"
 
@@ -334,7 +334,7 @@ Start the engine group with its data-parallel size, then tell the gateway how ma
 
     Each TokenSpeed rank dials in with its own identity (`--zmq-engine-index` plus its rank). TokenSpeed requires an explicit `--dist-init-addr` when `--data-parallel-size` is above 1; pick a free port outside the 20000–29999 handshake range.
 
-- `--zmq-engine-count` applies to every `ipc://` URL in `--worker-urls`; an explicit value must be a positive integer. For a worker added through the API, set `"dp_size"` on the worker instead.
+- `--zmq-engine-count` applies to every `ipc://` URL in `--worker-urls`; an explicit value must be a positive integer, and `--zmq-engine-count 1` behaves like leaving the flag unset. For a worker added through the API, set `"dp_size"` on the worker instead; a `dp_size` of 1 waits for exactly one engine.
 - Left unset, the count settles on what the first engine to dial declares, and an engine that declares no group size counts as one. A vLLM group with the count unset therefore settles at a single engine, and the rest of its ranks dial in as extras.
 - The count the gateway waits for must match the number of engines that dial in. An extra engine can fail the handshake with `duplicate HELLO ... after INIT phase`; a missing one leaves the handshake waiting until it times out.
 - An engine that declares a different group size than an explicit count still connects; the gateway logs `engine declares a group of a different size than this handshake awaits` and keeps the explicit count.

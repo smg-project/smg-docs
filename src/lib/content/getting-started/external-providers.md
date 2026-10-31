@@ -31,7 +31,7 @@ SMG serves each provider through a provider router. Register a worker with the p
 
 - **External workers.** SMG treats a worker as external when its URL host ends in `openai.com`, `x.ai`, `anthropic.com`, or `googleapis.com`, or when its spec sets `"runtime_type": "external"`. Set it for any other host, such as a proxy or another OpenAI-compatible API.
 - **Router by model.** When SMG lists a worker's models at registration (see [Model Discovery](#model-discovery)), it tags each model with a provider from its ID. In [IGW mode](multiple-workers.md#dynamic-workers-with-igw-mode), a request for a `claude*` model goes to the Anthropic router, a `gemini*` model to the Gemini router, and every other model to the OpenAI-compatible router. With `--backend`, the gateway runs the one router you chose.
-- **Upstream key header.** The OpenAI-compatible router picks the header from the worker URL: `x-api-key` plus `anthropic-version: 2023-06-01` for a URL that contains `anthropic`, `x-goog-api-key` for a URL that contains `googleapis.com`, and `Authorization: Bearer` for any other URL. The Anthropic router forwards the caller's own headers (see [API Key Handling](#api-key-handling)), and the Gemini router sends `x-goog-api-key`.
+- **Upstream key header.** The OpenAI-compatible router picks the header from the worker URL: `x-api-key` plus `anthropic-version: 2023-06-01` for a URL that contains `anthropic`, `x-goog-api-key` for a URL that contains `googleapis.com`, and `Authorization: Bearer` for any other URL. The Anthropic router forwards the caller's key headers as sent, or attaches the stored key as `x-api-key` (see [API Key Handling](#api-key-handling)), and the Gemini router sends `x-goog-api-key`.
 - **Gemini limits.** The Gemini router answers `501` for a streaming request, for a request that carries `previous_interaction_id`, and for a model request with `store` left at its default (`true`), so send `"store": false`.
 - **Build features.** Each provider router is a Cargo feature of the gateway (`provider-openai`, `provider-anthropic`, `provider-gemini`), all in the default build: the pip wheels, the container images, and `cargo install smg` include them. A build without one refuses workers that need it, and `--backend` for it fails at startup.
 
@@ -112,12 +112,14 @@ How the two combine depends on the router:
 
 | Router | Key sent upstream |
 |--------|-------------------|
-| OpenAI-compatible | The caller's `Authorization` header. The stored key is used, as a bearer token, only when the caller sends no `Authorization` header. |
+| OpenAI-compatible | The caller's `Authorization` header, else the stored key as a bearer token. On `/v1/responses`, a caller's `x-api-key` (worker URL containing `anthropic`) or `x-goog-api-key` (worker URL containing `googleapis.com`) is preferred over `Authorization`; `/v1/chat/completions` reads only `Authorization`. |
 | Gemini | The caller's `x-goog-api-key`, else the caller's `Authorization` token, else the stored key |
-| Anthropic | Only the caller's headers: SMG forwards `x-api-key`, `Authorization`, `anthropic-version`, and `anthropic-beta` as sent and never attaches the stored key. Callers must send their own key and an `anthropic-version` header. |
+| Anthropic | The caller's `x-api-key` or `Authorization`, forwarded as sent along with `anthropic-version` and `anthropic-beta`. When the caller sends neither, the stored key goes out as `x-api-key`, with `anthropic-version: 2023-06-01` added when the caller sent no version header. |
 
-!!! warning "Gateway keys and caller keys share the `Authorization` header"
-    With `--api-key` or `--tenant-api-key` set, every inference request must carry `Authorization: Bearer <gateway key>`, and the provider routers forward that header upstream. The OpenAI-compatible router sends it in place of the stored key, the Gemini router sends it unless the caller also sends `x-goog-api-key`, and the Anthropic router passes it through next to the caller's `x-api-key`.
+!!! note "Gateway keys stop at the gateway"
+    With `--api-key` or `--tenant-api-key` set, every inference request must carry `Authorization: Bearer <gateway key>`. A matched gateway key ends at authentication: the `Authorization` header is removed, and an `x-api-key` or `x-goog-api-key` header whose value is a gateway key is removed with it, so the gateway key is never sent upstream. The provider receives the worker's stored key, just as when a caller sends no credential; a worker registered without a key is reached with no key.
+
+    Callers can still bring their own provider key under gateway authentication by sending it as `x-api-key` or `x-goog-api-key` on the endpoints that read those headers (`/v1/responses`, `/v1/interactions`, `/v1/messages`). `/v1/chat/completions` reads only `Authorization`, which the gateway key occupies, so it always uses the stored key.
 
 !!! warning "Caller keys can reach every registered provider"
     `GET /v1/models` sends the caller's token to every healthy external worker, whatever its provider. When the OpenAI-compatible router finds no worker for a requested model, it also refreshes the model lists of the healthy external workers with the caller's token before it answers. Register only providers you trust with your callers' keys.

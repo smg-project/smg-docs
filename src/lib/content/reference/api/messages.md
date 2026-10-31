@@ -44,10 +44,10 @@ SMG's own authentication is separate from the credentials it passes to backends:
 | Hop | Headers | Behavior |
 |-----|---------|----------|
 | Client to SMG | `Authorization: Bearer <key>` | Checked when `--api-key` or `--tenant-api-key` is set (`--tenant-api-key` is a Rust binary flag; the pip `smg launch` does not accept it). SMG does not read `x-api-key`. A missing or unknown bearer token gets `401 Unauthorized`. |
-| SMG to HTTP workers | `Authorization` | The client's header is forwarded with the other [allowlisted headers](#forwarded-headers); `x-api-key` is not. See [Authentication](../../concepts/security/authentication.md) for worker API keys. |
-| SMG to the Anthropic API | `x-api-key`, `Authorization` | Forwarded exactly as the client sent them. SMG adds no key of its own, so the client supplies the Anthropic key. |
+| SMG to HTTP workers | `Authorization` | The client's header is forwarded with the other [allowlisted headers](#forwarded-headers); `x-api-key` is not. A matched gateway key is removed at authentication, and the worker's own configured key, when it has one, is sent instead. See [Authentication](../../concepts/security/authentication.md) for worker API keys. |
+| SMG to the Anthropic API | `x-api-key`, `Authorization` | The client's own key headers are forwarded as sent. When the client sends neither, SMG sends the worker's stored key as `x-api-key`, with `anthropic-version: 2023-06-01` added when the client sent no version header. |
 
-Anthropic SDKs send their key in `x-api-key`, which the Anthropic API backend passes upstream. When gateway authentication is on, clients must also send the gateway key as `Authorization: Bearer <key>`; on the Anthropic API backend that header is forwarded to Anthropic as well.
+Anthropic SDKs send their key in `x-api-key`, which the Anthropic API backend passes upstream. When gateway authentication is on, clients must also send the gateway key as `Authorization: Bearer <key>`. The gateway key never reaches Anthropic: it is removed from `Authorization` at authentication, and from `x-api-key` too when sent there, while the client's own Anthropic key in `x-api-key` passes through.
 
 !!! note "Browser clients"
     With `--cors-allowed-origins` set, cross-origin requests may carry the `Content-Type`, `Authorization`, `anthropic-version`, and `anthropic-beta` headers; `x-api-key` is not on that list. Without the flag, SMG allows any origin and header.
@@ -329,7 +329,7 @@ Headers specific to the Messages API:
 | `X-SMG-MCP` | `enabled` makes SMG run the MCP tool loop itself for a request whose `tools` include an `mcp_toolset` entry, on the Anthropic API backend. See [MCP Tools](#mcp-tools) and [MCP](../../concepts/extensibility/mcp.md). Other backends ignore it, and SMG does not forward it. |
 | `anthropic-version` | Checked on `/v1/messages` and `/v1/messages/count_tokens` before routing: the value must be a real calendar date of 2023 or later, written `YYYY-MM-DD`. Anything else, including an impossible date such as `2023-02-30`, is refused with `400` (`invalid_anthropic_version`). A request without the header is served, and a valid value does not change how SMG handles the request. Forwarded to HTTP and PD workers and to the Anthropic API. |
 | `anthropic-beta` | Read on `/v1/messages` for one rule: an entry starting with `interleaved-thinking` lets `thinking.budget_tokens` be at or above `max_tokens`; without it, such a budget is refused with `400` (`thinking_budget_exceeds_max_tokens`). Forwarded to HTTP and PD workers and to the Anthropic API. |
-| `x-api-key` | Not read by SMG. Forwarded only to the Anthropic API; see [Authentication](#authentication). |
+| `x-api-key` | Not used to authenticate to SMG. Forwarded only to the Anthropic API; a gateway key sent there is removed at authentication. See [Authentication](#authentication). |
 
 Like the [request-body rules](#request-body), the `anthropic-version` and `anthropic-beta` checks are skipped for a `/v1/messages` request whose body the HTTP router streams through unparsed (see [HTTP and PD Workers](#http-and-pd-workers)). A `/v1/messages/count_tokens` body is always buffered, so its `anthropic-version` check always runs.
 
@@ -346,7 +346,7 @@ For HTTP and PD workers, SMG forwards only these request headers (it sets `Conte
 | `x-smg-routing-key` | SMG routing hint |
 | `x-override-priority` | SGLang's request priority, read by an engine started with `SGLANG_ENABLE_REQUEST_HEADER_OVERRIDES=true` and not by SMG; newer than v1.13.0 (smg-project/smg#3510) |
 
-Every other request header, including `x-api-key`, is dropped. The Anthropic API backend forwards a different set: `Authorization`, `x-api-key`, `anthropic-version`, and `anthropic-beta`, and nothing else. gRPC and ZMQ workers receive a tokenized request, not HTTP headers.
+Every other request header, including `x-api-key`, is dropped. The Anthropic API backend forwards a different set — `Authorization`, `x-api-key`, `anthropic-version`, and `anthropic-beta` — and nothing else. When the request carries neither `Authorization` nor `x-api-key` (a gateway key is removed at authentication), SMG adds the worker's stored key as `x-api-key`, with `anthropic-version: 2023-06-01` when that header is absent. gRPC and ZMQ workers receive a tokenized request, not HTTP headers.
 
 ---
 
@@ -397,7 +397,7 @@ smg launch --backend anthropic --worker-urls https://api.anthropic.com
 
 Clients then call SMG as in the [Anthropic API example](#example-request).
 
-- SMG sends each request to `<worker URL>/v1/messages`, so the worker URL is the API origin without `/v1`. The request carries the client's `x-api-key`, `Authorization`, `anthropic-version`, and `anthropic-beta` headers; SMG adds none of them.
+- SMG sends each request to `<worker URL>/v1/messages`, so the worker URL is the API origin without `/v1`. The request carries the client's `x-api-key`, `Authorization`, `anthropic-version`, and `anthropic-beta` headers; when it arrives with neither key header, SMG adds the worker's stored key as `x-api-key` (see [Authentication](#authentication)).
 - Streaming responses are relayed as they arrive. Non-streaming responses are parsed into SMG's Messages schema and re-serialized; a body that does not parse returns `502` with code `parse_error`.
 - An upstream error is returned with its status and body, minus the organization and project identifiers in the body's `error.message` (see [Provider Error Responses](../../getting-started/external-providers.md#provider-error-responses)). An error Anthropic answers as an SSE stream is relayed as it arrives.
 - `/v1/messages/count_tokens` returns `501`.

@@ -663,7 +663,7 @@ Asks every registered HTTP and gRPC worker to drop its KV prefix cache. The call
 | Worker | How it is flushed |
 |--------|-------------------|
 | HTTP | `POST {worker_url}/flush_cache`, with the worker's API key (if it has one) as a bearer token and a 45-second timeout. Any non-2xx answer counts as a failure, so the engine must serve this route (SGLang's HTTP server does). |
-| gRPC SGLang, TokenSpeed | `FlushCache` RPC. A TokenSpeed EPD encode worker runs the vision tower only, with no KV cache to flush: it refuses the call and is reported under `failed` (`UNIMPLEMENTED`). |
+| gRPC SGLang, TokenSpeed | `FlushCache` RPC. A TokenSpeed [EPD](../../concepts/routing/pd-disaggregation.md#epd-encode-prefill-decode) encode worker runs the vision tower only, with no KV cache to flush: it refuses the call and is reported under `failed` (`UNIMPLEMENTED`). |
 | gRPC vLLM | `FlushCache` RPC. Needs `smg-grpc-servicer` 0.12.0 or later; older servicers answer `UNIMPLEMENTED`. Resets vLLM's local prefix cache without preempting running requests or clearing connector caches. The gateway makes a single attempt, so a reset that vLLM refuses while requests are in flight is reported under `failed`. |
 | gRPC TRT-LLM, MLX | Not supported: reported under `failed` (`UNIMPLEMENTED`). |
 | ZMQ (`ipc://`) | Skipped, because the transport has no cache-flush RPC. Counted in `total_zmq_workers_skipped`. |

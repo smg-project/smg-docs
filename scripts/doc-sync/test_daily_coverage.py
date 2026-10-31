@@ -454,6 +454,23 @@ class DailyCoverageTests(unittest.TestCase):
         self.assertEqual([item['concern'] for item in selected], ['recent-gap'])
         self.assertEqual(deferred[0][1], 'overlapping documentation files')
 
+    def test_queued_commit_work_outranks_queued_audit_retries(self):
+        # Run 41175160739: a queued audit retry took multimodal.md from the
+        # queued smg#4721 fix that an older commit's backlog check was waiting on.
+        page = proposal()['doc_paths']
+        retry = proposal(concern='release-audit-aaaa-hint-fallback', question='Hint fallback',
+                         doc_paths=page)
+        waiting = proposal(concern='pd-media-identity', question='PD media identity',
+                           doc_paths=page, source_sha=self.old)
+        self.context['pending_concerns'] = [docs.validate_item(retry), docs.validate_item(waiting)]
+        self.context['backlog_batches'] = [{'shard': 'api-protocols', 'backlog': 1, 'commits': [self.old]}]
+        self.scans[0].update(concerns=[retry], inspected_commits=[self.old])
+        backlog = {**self.scans[0], 'backlog': 1, 'concerns': [waiting], 'inspected_commits': [self.old],
+                   'daily_commit_checks': [self.check(self.old, status='proposed',
+                                                      concerns=['pd-media-identity'])]}
+        ordered = discovery.prioritized([self.scans[0], backlog], self.context)
+        self.assertEqual([p['concern'] for p in ordered], ['pd-media-identity', retry['concern']])
+
     def test_publication_feedback_reads_prior_review_verdicts(self):
         rejected, accepted, missing = (docs.validate_item(proposal(concern=c)) for c in
                                        ('rejected-gap', 'accepted-gap', 'missing-verdict'))

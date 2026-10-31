@@ -144,9 +144,10 @@ def scan_names(context):
 def prioritized(scans, context):
     """Order proposals so required commit coverage claims contested pages first.
 
-    Tiers: concerns for required recent commits, previously queued or retried
-    concerns, older backlog commits, then audits and other discovery. Round
-    robin within each tier prevents one large subsystem from consuming the cap.
+    Tiers: concerns for required recent commits, queued concerns an older
+    commit is waiting on, other queued or retried concerns, new backlog
+    concerns, then audits and other discovery. Round robin within each tier
+    prevents one large subsystem from consuming the cap.
     """
     pending = {(p['area'], p['concern']) for p in context.get('pending_concerns', [])}
 
@@ -156,11 +157,11 @@ def prioritized(scans, context):
         if referenced and not scan.get('backlog'):
             return 0
         if (proposal['area'], proposal['concern']) in pending:
-            return 1
-        return 2 if referenced else 3
+            return 1 if referenced else 2
+        return 3 if referenced else 4
 
     ordered = []
-    for level in range(4):
+    for level in range(5):
         lanes = [[p for p in scan['concerns'] if tier(scan, p) == level] for scan in scans]
         ordered.extend(p for row in zip_longest(*lanes) for p in row if p is not None)
     return ordered

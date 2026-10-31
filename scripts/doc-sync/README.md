@@ -35,7 +35,8 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
 3. **Plan:** round-robin available validated scans, validate source IDs, remove
    duplicates, defer overlapping pages, and allocate the remaining daily PR slots.
    Contested pages go first to concerns for required recent commits, then to
-   queued or retried concerns, then backlog commits, then audits and other work.
+   queued concerns an older commit is waiting on, other queued or retried
+   concerns, new backlog concerns, and finally audits and other work.
    Failed scans do not suppress valid sibling results. A separate coverage job
    fails on missing scans or unfinished mandatory commit checks, so incomplete
    discovery remains visibly unsuccessful.

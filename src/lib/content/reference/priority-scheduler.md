@@ -71,20 +71,20 @@ smg launch \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--priority-scheduler-enabled` | `false` | Master switch. When unset, the legacy concurrency-limit middleware stays wired and no scheduler is constructed. |
-| `--priority-scheduler-default-max-class` | `default` | Maximum class for tenants not listed in the YAML (`system` \| `interactive` \| `default` \| `bulk`). Parsed with the same rules as the header — an unknown value falls back to `default`. |
-| `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class overrides + per-tenant policy). Absent → built-in defaults and an empty tenant policy map. |
+| `--priority-scheduler-default-max-class` | `default` | Maximum class for tenants not listed in the YAML (`system` \| `interactive` \| `default` \| `bulk`). Case-insensitive and whitespace-tolerant like the header, but unlike the header an unknown value is a **startup error** naming the four classes, not a silent fallback to `default`. |
+| `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class overrides + per-tenant policy). Absent → built-in defaults and an empty tenant policy map. Given without `--priority-scheduler-enabled`, the file is not read and the gateway prints a startup warning. |
 | `--priority-scheduler-tenant-metric-top-n` | `32` | Intended cap on per-tenant metric label cardinality. **Not yet enforced** — the value is stored but no top-N bucketing is applied today; per-tenant counters currently intern the raw tenant. |
 
 While the scheduler is active, the legacy admission flags change meaning: `--queue-size` and `--queue-timeout-secs` are not used, `--max-concurrent-requests` only sets the fallback capacity while no healthy worker is registered, and a positive `--rate-limit-tokens-per-second` (unless `--max-concurrent-requests` is `0`) adds a request-rate check before admission that sheds with 429 `scheduler_queue_full`. See [Rate Limiting](../concepts/reliability/rate-limiting.md#with-the-priority-scheduler).
 
-!!! warning "Fail-safe startup"
-    If the scheduler is enabled but cannot start — unparsable YAML, or class reservation floors + shares that sum to more than the live backend capacity — the gateway logs at `ERROR` and **falls back to legacy admission** instead of aborting. It does not take the data plane down.
+!!! warning "Startup behavior"
+    With the scheduler enabled, a bad configuration **stops the gateway at startup** with an error naming the field and the problem: a YAML file that cannot be read or parsed (an unknown key included), an unknown class name in the file or in `--priority-scheduler-default-max-class`, or a value that fails [validation](#validation). The one case that does not stop startup is capacity: if the configured reservation floors + shares sum to more than the fleet's initial live capacity, the gateway logs at `ERROR` and **falls back to legacy admission** — a too-small fleet does not take the data plane down.
 
 ---
 
 ## YAML configuration
 
-The file referenced by `--priority-scheduler-config` has two top-level maps, both optional. An empty or absent file means "use built-in defaults for every class, no per-tenant overrides."
+The file referenced by `--priority-scheduler-config` has two top-level maps, both optional. An empty file, or omitting the flag entirely, means "use built-in defaults for every class, no per-tenant overrides." A path that cannot be read is a startup error.
 
 ```yaml
 # Per-class tuning. Any class you omit keeps its built-in default.
@@ -112,7 +112,7 @@ tenant_policies:
     max_class: system
 ```
 
-Class keys and `max_class` values are lowercase: `system`, `interactive`, `default`, `bulk`. An unknown class name in the YAML is a parse error (which triggers the fail-safe fallback above), unlike the lenient request header.
+Class keys and `max_class` values are lowercase: `system`, `interactive`, `default`, `bulk`. An unknown class name in the YAML, like an unknown key, is a configuration error that stops the gateway at startup, unlike the lenient request header.
 
 ### Per-class knobs
 
@@ -121,7 +121,7 @@ Each entry under `classes` accepts the following fields. All are per-class.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `reserved_floor` | integer (slots) | Minimum slots reserved for this class — the value the effective reservation never drops below. A higher class's *unused* reservation is held back from lower classes; a class's own reservation never reduces its own headroom. |
-| `reserved_per_slot` | float (0.0–1.0+) | Share of live capacity reserved for this class. The effective reservation is the greater of the floor or the share-based reservation: `effective = max(reserved_floor, ceil(reserved_per_slot × capacity))`, recomputed as capacity changes so the reservation tracks the fleet. `0.0` (the default) means purely absolute (just the floor). Must be finite and ≥ 0. At startup, if the floors + shares exceed capacity the scheduler fails safe to legacy admission; at runtime a capacity dip is absorbed by clamping the lowest classes first. |
+| `reserved_per_slot` | float (0.0–1.0+) | Share of live capacity reserved for this class. The effective reservation is the greater of the floor or the share-based reservation: `effective = max(reserved_floor, ceil(reserved_per_slot × capacity))`, recomputed as capacity changes so the reservation tracks the fleet. `0.0` (the default) means purely absolute (just the floor). Must be finite and ≥ 0. If the floors + shares exceed the fleet's initial capacity the gateway falls back to legacy admission; a runtime capacity dip instead scales every class's reservation down proportionally (see [Validation](#validation)). |
 | `queue_size` | integer | Per-class queue depth limit. A request that arrives when the queue is full is rejected with **429**. |
 | `queue_timeout_secs` | integer (seconds) | How long a queued request waits before it is rejected with **503** and `Retry-After: 2`. Must be `> 0`. |
 | `starvation_threshold_secs` | integer (seconds) | Head-of-queue age past which the dispatcher promotes a waiter out of normal priority order (and lets it use a reserved-but-unused slot) to avoid starvation. Must be `> 0`. |
@@ -142,13 +142,15 @@ Higher classes fail fast (short queues, short timeouts) and reserve capacity —
 
 ### Validation
 
-At startup the scheduler validates:
+At startup the gateway validates, for every class:
 
-- `queue_timeout_secs > 0` for every class (else startup fails for that class).
-- `starvation_threshold_secs > 0` for every class.
-- The sum of all `reserved` values must not exceed the live backend capacity. On a capacity *shrink* that would otherwise break this invariant, the scheduler scales reservations down proportionally rather than locking itself out.
+- `queue_timeout_secs > 0`
+- `starvation_threshold_secs > 0`
+- `reserved_per_slot` finite and ≥ 0
 
-Any validation failure triggers the [fail-safe fallback to legacy admission](#enabling-the-scheduler).
+A validation failure is a startup error naming the class and the field: the gateway refuses to start rather than serve under a configuration the operator did not write.
+
+Capacity is checked separately, against the live fleet. If the effective reservations exceed the fleet's *initial* capacity, the gateway logs at `ERROR` and [falls back to legacy admission](#enabling-the-scheduler) — the one scheduler failure that does not stop startup. A later capacity shrink never rejects: every class's reservation is scaled down proportionally (each keeps the same fraction of what it asked for), and the rounding remainder is left unreserved, shared by every class.
 
 ---
 

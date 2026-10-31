@@ -288,6 +288,12 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --all-targets --all-features --fix --allow-dirty
 ```
 
+After clippy, the same CI job builds the workspace's public documentation with rustdoc warnings as errors, so a dangling or private intra-doc link — for example, one left behind by a moved or renamed item — fails the pull request:
+
+```bash
+RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --all-features
+```
+
 CI also lints two reduced builds, so code that only one provider router uses cannot hide behind the default feature set:
 
 ```bash
@@ -303,10 +309,11 @@ cargo clippy -p smg -p smg-external-router --no-default-features \
 Clippy runs with `-D warnings`, so every workspace lint set to `warn` fails CI too; see [Code Style](code-style.md#linting).
 
 !!! note "`--all-features` needs OpenCV and libclang"
-    `--all-features` turns on `opencv-video`, which links system OpenCV, and `mm-rdma`, whose NIXL bindings are generated with bindgen; both need libclang at build time. `make opencv-deps` runs `scripts/install_opencv.sh`, which installs `opencv` and `pkg-config` with Homebrew on macOS (libclang comes with the Xcode Command Line Tools), or `clang`, `libclang-dev`, `cmake`, `ninja-build`, `pkg-config`, and `libopencv-dev` with apt on Debian/Ubuntu. To lint without them, drop `--all-features`:
+    `--all-features` turns on `opencv-video`, which links system OpenCV, and `mm-rdma`, whose NIXL bindings are generated with bindgen; both need libclang at build time. `make opencv-deps` runs `scripts/install_opencv.sh`, which installs `opencv` and `pkg-config` with Homebrew on macOS (libclang comes with the Xcode Command Line Tools), or `clang`, `libclang-dev`, `cmake`, `ninja-build`, `pkg-config`, and `libopencv-dev` with apt on Debian/Ubuntu. To run these checks without them, drop `--all-features`:
 
     ```bash
     cargo clippy --workspace --all-targets -- -D warnings
+    RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
     ```
 
 ### Python
@@ -682,7 +689,7 @@ Crate versions follow [Semantic Versioning](https://semver.org/). `make check-ve
 |-----------------|----------------|----------------|
 | `pre-commit` | The pre-commit hooks on all files, minus rustfmt, clippy, and the branch and commit-message hooks | `pre-commit run --all-files` |
 | `python-lint` | ruff and mypy | [Python](#python) |
-| `unit-tests` | Clippy (all features, self-hosted-only, and Anthropic-only builds), `cargo +nightly fmt -- --check`, `cargo test`, and the Postgres tests | [Rust tests](#rust-unit-and-integration-tests) |
+| `unit-tests` | Clippy (all features, self-hosted-only, and Anthropic-only builds), the workspace rustdoc with warnings as errors, `cargo +nightly fmt -- --check`, `cargo test`, and the Postgres tests | [Rust tests](#rust-unit-and-integration-tests) |
 | `cargo-audit` | `Cargo.lock` against the [RustSec advisory database](https://rustsec.org/), when the dependency graph changes (`Cargo.lock`, any `Cargo.toml`, `.cargo/audit.toml`, the audit script, or the workflow) | `bash scripts/ci_cargo_audit.sh` |
 | `build-wheel`, `python-unit-tests` | The Python wheel and Go FFI library; binding, servicer, and e2e-harness unit tests | [Python Bindings](#python-bindings) |
 | `e2e-*` | GPU lanes against real engines, and CPU lanes against third-party providers | [End-to-End Tests](#end-to-end-tests) |

@@ -296,6 +296,8 @@ On PostgreSQL, a new, empty database — one with no responses table yet — nee
 
 On Oracle, a new, empty database starts with every migration pending, so turn auto-migration on for its first start as well as for upgrades.
 
+A database whose recorded version is **ahead** of the migrations the running build knows — typically after rolling the gateway image back to an older build once a newer build migrated the database forward — is refused at startup on both backends, whatever the auto-migration setting. The older build does not know the shape of the newer schema and would otherwise start and then fail on its first read of a changed column; the refusal comes before any history table is touched, so the database stays as the newer build left it. Upgrade the gateway to the build that migrated the database, or set `version:` in the schema config to the database's recorded version (the error message names the value to set) to run this build against it anyway — SMG then starts and logs a warning.
+
 To turn auto-migration on:
 
 ```bash
@@ -303,7 +305,7 @@ DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
   --postgres-db-url "postgres://user:password@localhost:5432/smg"
 ```
 
-`DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
+`DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied — set at or above the database's recorded version, it also lets a build start against a database that is ahead of the migrations it knows. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
 
 ---
 

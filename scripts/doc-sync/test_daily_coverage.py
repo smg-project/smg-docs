@@ -310,6 +310,229 @@ class DailyCoverageTests(unittest.TestCase):
             self.assertIn('uncovered=0\n', Path(env['GITHUB_OUTPUT']).read_text())
             self.assertIn('2 not_applicable', Path(env['GITHUB_STEP_SUMMARY']).read_text())
 
+    def dependent_scan(self, **check):
+        # Run 41035666401: routing waited on grpc-multimodal's fix for smg#4721.
+        self.context['daily_assignments'] = {'routing-workers': [self.latest],
+                                             'grpc-multimodal': [self.latest]}
+        own = {**self.scans[0], 'shard': 'routing-workers', 'inspected_commits': [self.latest],
+               'daily_commit_checks': [self.check(status='blocked', depends_on=['grpc-multimodal'],
+                   evidence='The PD guide must follow the multimodal correction for this commit.', **check)]}
+        other = {**self.scans[0], 'shard': 'grpc-multimodal', 'inspected_commits': [self.latest],
+                 'concerns': [proposal(source_sha=self.latest)],
+                 'daily_commit_checks': [self.check(status='proposed', concerns=['wait-timeout'])]}
+        return own, other
+
+    def test_cross_subsystem_dependency_is_assessed_only_while_other_work_is_live(self):
+        own, other = self.dependent_scan()
+        names = discovery.SHARD_NAMES
+        self.assertEqual(daily.validate(own, self.context, 'routing-workers', names),
+                         own['daily_commit_checks'])
+        for depends, status in [(['routing-workers'], 'blocked'), (['unknown'], 'blocked'),
+                                (['grpc-multimodal'] * 2, 'blocked'), (['grpc-multimodal'], 'covered'),
+                                ([], 'blocked')]:
+            bad = {**own, 'daily_commit_checks': [self.check(status=status, depends_on=depends)]}
+            with self.subTest(depends=depends, status=status), self.assertRaises(ValueError):
+                daily.validate(bad, self.context, 'routing-workers', names)
+        self.context['discovery_shard'] = ''
+        expected = ['routing-workers', 'grpc-multimodal']
+        self.assertTrue(daily.report(self.context, [own, other], expected)['complete'])
+        # Without live work on the other side the wait could never end.
+        lonely = daily.report(self.context, [own], ['routing-workers'])
+        self.assertFalse(lonely['complete'])
+        self.assertEqual(lonely['checks'][0]['status'], 'deferred')
+        self.assertIn('Unverified dependency', lonely['checks'][0]['evidence'])
+        queued = docs.validate_item(proposal(source_sha=self.latest, concern='queued-fix'))
+        for live in [{'pending_concerns': [queued]},
+                     {'existing_prs': [pr(queued, number=380)]}]:
+            with self.subTest(live=list(live)):
+                context = {**self.context, **live}
+                self.assertTrue(daily.report(context, [own], ['routing-workers'])['complete'])
+
+    def prior_proposal(self, **report):
+        item = docs.validate_item(proposal(source_sha=self.latest))
+        scan = {'shard': 'api-protocols', 'concerns': [item]}
+        return item, {'source_sha': self.latest, 'scans': [scan], 'selected': [item], 'deferred': [],
+                      'daily_coverage': {'checks': [{'shard': 'api-protocols', **self.check(
+                          status='proposed', concerns=[item['concern']])}]}, **report}
+
+    def test_proposed_check_reopens_until_its_concern_reaches_a_pr(self):
+        item, prior = self.prior_proposal()
+        reason = 'Independent review rejected it (failed: related_docs_consistent): guide.md also says 30s.'
+        carried, attempts, abandoned = daily.carry_forward(prior, [], {item['key']: reason})
+        self.assertEqual([c['status'] for c in carried], ['unpublished'])
+        self.assertIn('guide.md also says 30s', carried[0]['evidence'])
+        self.assertEqual(attempts, {'rollouts/wait-timeout': 1})
+        self.assertEqual(abandoned, [])
+        retry = daily.retry_concerns(prior, [], attempts, {item['key']: reason})
+        self.assertEqual(retry[0]['publication_feedback'], reason)
+        # The reopened commit is mandatory again although its window has passed.
+        self.context['daily_window']['commits'] = []
+        self.assertEqual(daily.assign(self.context, {}, self.assignments, carried)['api-protocols'],
+                         [self.latest])
+        # Any recorded PR (open, merged or declined) settles the check.
+        for state in ['open', 'closed']:
+            self.assertEqual(daily.carry_forward(prior, [pr(item, state=state)])[:2], ([], {}))
+        overlap = {**prior, 'selected': [], 'deferred': [[item['key'], 'overlapping documentation files']]}
+        carried, attempts, _ = daily.carry_forward(overlap, [])
+        self.assertIn('overlapping documentation files', carried[0]['evidence'])
+        self.assertEqual(attempts, {})
+
+    def test_repeated_unpublished_selection_stops_retrying_and_is_reported(self):
+        item, prior = self.prior_proposal(publication_attempts={'rollouts/wait-timeout': 2})
+        carried, attempts, abandoned = daily.carry_forward(prior, [])
+        self.assertEqual(carried, [])
+        self.assertEqual(attempts['rollouts/wait-timeout'], daily.MAX_PUBLICATION_ATTEMPTS)
+        self.assertEqual(abandoned[0]['concern'], 'rollouts/wait-timeout')
+        self.assertEqual(daily.retry_concerns(prior, [], attempts), [])
+        ledger = daily.ledger(prior, carried, abandoned, self.history)
+        self.assertEqual(ledger[self.latest]['api-protocols'], 'abandoned')
+
+    def test_backlog_assigns_unassessed_pairs_newest_first_and_blocked_last(self):
+        history = [f'{n:040x} change {n}' for n in range(1, 8)]
+        shas = [line.split()[0] for line in history]
+        context = {**self.context, 'code_history': history,
+                   'daily_assignments': {'api-protocols': shas[:1]}}
+        assignments = {name: [] for name in discovery.SHARD_NAMES}
+        assignments['api-protocols'] = history
+        assignments['operations'] = history[:2]
+        ledger = {shas[1]: {'api-protocols': 'covered'}, shas[2]: {'api-protocols': 'blocked'}}
+        carried = [{'shard': 'api-protocols', 'source_sha': shas[5], 'status': 'deferred', 'kind': 'backlog'}]
+        batches, remaining = daily.backlog(context, ledger, carried, assignments,
+                                           list(discovery.SHARD_NAMES), jobs=3, size=2)
+        self.assertEqual(remaining['api-protocols'], 5)
+        self.assertEqual(batches, [
+            {'shard': 'api-protocols', 'backlog': 1, 'commits': [shas[5], shas[3]]},
+            {'shard': 'api-protocols', 'backlog': 2, 'commits': [shas[4], shas[6]]},
+            {'shard': 'operations', 'backlog': 1, 'commits': shas[:2]}])
+        self.assertEqual(daily.backlog(context, ledger, carried, assignments,
+                                       list(discovery.SHARD_NAMES), jobs=0)[0], [])
+
+    def test_backlog_scans_record_the_ledger_without_failing_daily_coverage(self):
+        self.context['backlog_batches'] = [{'shard': 'api-protocols', 'backlog': 1, 'commits': [self.old]},
+                                           {'shard': 'operations', 'backlog': 1, 'commits': [self.old]}]
+        self.context['commit_ledger'] = {self.old: {'deploy-config': 'covered'}}
+        self.scans[0].update(inspected_commits=[self.latest, self.recent],
+                             daily_commit_checks=[self.check(), self.check(self.recent)])
+        self.scans[-1].update(inspected_commits=[self.latest], daily_commit_checks=[self.check()])
+        backlog = {**self.scans[0], 'backlog': 1, 'inspected_commits': [self.old],
+                   'concerns': [proposal(source_sha=self.old)],
+                   'daily_commit_checks': [self.check(self.old, status='proposed', concerns=['wait-timeout'])]}
+        validated = discovery.validate_scan(json.dumps(backlog), self.context, 'api-protocols',
+                                            self.history, 1)
+        self.assertEqual(validated['backlog'], 1)
+        with self.assertRaisesRegex(ValueError, 'Unknown backlog scan'):
+            discovery.validate_scan(json.dumps(backlog), self.context, 'api-protocols', self.history, 2)
+        # Backlog scans never satisfy, or replace, the mandatory recent checks.
+        with self.assertRaises(ValueError):
+            discovery.validate_scan(json.dumps({**backlog, 'daily_commit_checks': [self.check()]}),
+                                    self.context, 'api-protocols', self.history, 1)
+        report = discovery.build_report(self.scans + [backlog], self.context)
+        self.assertTrue(report['complete'])
+        self.assertEqual(len(report['selected']), 1)
+        self.assertEqual(report['backlog_coverage']['missing'], ['operations/backlog-1'])
+        self.assertEqual([c['status'] for c in report['backlog_coverage']['checks']],
+                         ['proposed', 'uninspected'])
+        self.assertEqual(report['commit_ledger'][self.old],
+                         {'deploy-config': 'covered', 'api-protocols': 'proposed'})
+        self.assertEqual(report['commit_ledger'][self.latest],
+                         {'api-protocols': 'not_applicable', 'operations': 'not_applicable'})
+        with self.assertRaisesRegex(ValueError, 'Unknown or duplicate'):
+            discovery.combine(self.scans + [backlog, backlog], self.context)
+
+    def test_required_commit_concerns_claim_contested_pages_first(self):
+        page = proposal()['doc_paths']
+        audit = proposal(concern='version-context-old-anchor', question='Old anchor', doc_paths=page)
+        recent = proposal(concern='recent-gap', question='Recent gap', doc_paths=page,
+                          source_sha=self.latest)
+        self.scans[0].update(concerns=[audit], inspected_commits=[self.old])
+        self.scans[1].update(concerns=[recent], inspected_commits=[self.latest],
+                             daily_commit_checks=[self.check(status='proposed', concerns=['recent-gap'])])
+        self.context['daily_assignments']['routing-workers'] = [self.latest]
+        selected, deferred = discovery.combine(self.scans, self.context)
+        self.assertEqual([item['concern'] for item in selected], ['recent-gap'])
+        self.assertEqual(deferred[0][1], 'overlapping documentation files')
+
+    def test_publication_feedback_reads_prior_review_verdicts(self):
+        rejected, accepted, missing = (docs.validate_item(proposal(concern=c)) for c in
+                                       ('rejected-gap', 'accepted-gap', 'missing-verdict'))
+        verdict = {'single_concern': True, 'accurate': True, 'placement_appropriate': True,
+                   'related_docs_consistent': True, 'reason': 'Matches source.'}
+
+        def download(*args):
+            self.assertEqual(args[:4], ('gh', 'run', 'download', '41'))
+            for item, review in [(rejected, {**verdict, 'related_docs_consistent': False,
+                                             'reason': 'guide.md still says 30s.'}),
+                                 (accepted, verdict), (missing, None)]:
+                folder = Path(args[-1], 'nightly-docs-validation-' + item['concern'])
+                folder.mkdir()
+                (folder / 'nightly-docs-item.json').write_text(json.dumps(item))
+                if review:
+                    (folder / 'nightly-docs-review.json').write_text(json.dumps(review))
+            return ''
+
+        report = {'run_id': 41, 'selected': [rejected]}
+        with patch.object(docs, 'run', side_effect=download):
+            feedback = discovery.publication_feedback('o/r', report)
+        self.assertIn('related_docs_consistent): guide.md still says 30s.', feedback[rejected['key']])
+        self.assertIn('Review accepted', feedback[accepted['key']])
+        self.assertIn('no valid review verdict', feedback[missing['key']])
+        with patch.object(docs, 'run', side_effect=AssertionError):
+            self.assertEqual(discovery.publication_feedback('o/r', {'selected': [rejected]}), {})
+        error = discovery.subprocess.CalledProcessError(1, 'gh')
+        with patch.object(docs, 'run', side_effect=error):
+            self.assertEqual(discovery.publication_feedback('o/r', report), {})
+
+    def test_schema_offers_only_other_subsystems_as_dependencies(self):
+        schema = discovery.scan_schema({'required_commit_ids': [1], 'shard': 'routing-workers'})
+        check = schema['definitions']['daily_check']
+        self.assertIn('depends_on', check['required'])
+        enum = check['properties']['depends_on']['items']['enum']
+        self.assertNotIn('routing-workers', enum)
+        self.assertEqual(len(enum), len(discovery.SHARD_NAMES) - 1)
+
+    def test_partition_plans_backlog_scans_end_to_end(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context_root = root / 'nightly-docs-context'
+            context_root.mkdir()
+            self.context['discovery_shard'] = 'api-protocols'
+            (context_root / 'context.json').write_text(json.dumps(self.context))
+            scans = root / 'scans'
+            scans.mkdir()
+            env = {'RUNNER_TEMP': directory, 'SOURCE_ROOT': directory, 'SHARD': 'api-protocols',
+                   'BACKLOG_BATCH': '1', 'BACKLOG_JOBS': '1', 'BACKLOG_COMMITS': '5',
+                   'DEFAULT_BRANCH': 'main', 'GITHUB_REPOSITORY': 'test/repo',
+                   'NIGHTLY_CONTEXT': str(root / 'scoped.json'), 'SCAN_DIR': str(scans),
+                   'SCAN_OUTPUT': str(scans / 'api-backlog-1.json'), 'REPORT_OUTPUT': str(root / 'report.json'),
+                   'SCAN_EXECUTION_FILE': str(root / 'execution.json'),
+                   'GITHUB_OUTPUT': str(root / 'output'), 'GITHUB_STEP_SUMMARY': str(root / 'summary')}
+            result = {'concerns': [], 'inspected_commits': [3], 'remaining_work': 'Nothing else.',
+                      'release_audit_checks': [], 'daily_commit_checks': {'3': {
+                          'status': 'not_applicable', 'concerns': [], 'blockers': [], 'depends_on': [],
+                          'evidence': 'Benchmark-only change; no user contract.'}}}
+            Path(env['SCAN_EXECUTION_FILE']).write_text(json.dumps([
+                {'type': 'assistant', 'message': {'id': 'msg-1'}},
+                {'type': 'result', 'subtype': 'success', 'is_error': False, 'structured_output': result}]))
+            with patch.dict(os.environ, env), \
+                    patch.object(discovery, 'previous_report', return_value={}), \
+                    patch.object(discovery.release_handoff, 'collect', return_value=[]), \
+                    patch.object(discovery, 'partition', return_value=self.assignments):
+                for command in ['partition', 'context', 'scan', 'combine']:
+                    with patch('sys.argv', ['discovery.py', command]):
+                        discovery.main()
+            output = Path(env['GITHUB_OUTPUT']).read_text()
+            matrix = json.loads(output.split('matrix=', 1)[1].splitlines()[0])
+            self.assertEqual(matrix['include'], [{'shard': 'api-protocols'},
+                                                 {'shard': 'api-protocols', 'backlog': 1}])
+            scoped = json.loads(Path(env['NIGHTLY_CONTEXT']).read_text())
+            self.assertEqual((scoped['scan_mode'], scoped['required_commit_ids']), ('backlog', [3]))
+            self.assertNotIn('commit_ledger', scoped)
+            report = json.loads(Path(env['REPORT_OUTPUT']).read_text())
+            # The daily scan is missing, so coverage fails; backlog work is kept.
+            self.assertFalse(report['complete'])
+            self.assertEqual(report['commit_ledger'], {self.old: {'api-protocols': 'not_applicable'}})
+            self.assertIn('1 assigned to 1 backlog scans', Path(env['GITHUB_STEP_SUMMARY']).read_text())
+
 
 class DailyWindowGitTests(unittest.TestCase):
     setUp = fixtures.GitGuardTests.setUp

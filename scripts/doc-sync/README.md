@@ -29,9 +29,13 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    Each has a 200-turn hard ceiling with an 80-turn investigation target,
    reserving headroom for tool batches and structured output. Scans report
    inspected commits, proposals, and remaining work. Recent commits are mandatory
-   checks before older backlog and audit work.
+   checks before older backlog and audit work. Up to eight extra **backlog
+   scans** (25 commits each by default) assess older commits that never received
+   a disposition, largest subsystem backlog first.
 3. **Plan:** round-robin available validated scans, validate source IDs, remove
    duplicates, defer overlapping pages, and allocate the remaining daily PR slots.
+   Contested pages go first to concerns for required recent commits, then to
+   queued or retried concerns, then backlog commits, then audits and other work.
    Failed scans do not suppress valid sibling results. A separate coverage job
    fails on missing scans or unfinished mandatory commit checks, so incomplete
    discovery remains visibly unsuccessful.
@@ -85,14 +89,30 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   mandatory checks remain required even after the 24-hour window moves on.
   Main discovery also runs when a new release needs its separate snapshot audit.
   Each check records a proposed correction, existing coverage, a reason no docs
-  change is needed, a verified open-PR page blocker, or unfinished assessment.
+  change is needed, a verified blocker, or unfinished assessment.
   Blocked corrections count as assessed only with inspected-source evidence and
-  exact page/PR references validated against the prepared open-PR inventory;
-  they carry forward until resolved. Missing/deferred checks fail coverage
-  without blocking valid sibling publication. This guarantees explicit accounting,
-  not model infallibility or a PR for every commit: independent review, page conflicts,
-  and the daily PR cap still apply. Older history, pending corrections and release
-  audits remain available after the mandatory checks; budgets still bound that work.
+  either exact page/PR references validated against the prepared open-PR inventory,
+  or `depends_on` subsystems whose correction for the same commit must land first.
+  A dependency is accepted only while that subsystem has a proposal tonight, a
+  queued concern, or an open PR for the commit; otherwise the check stays unfinished.
+  Blocked checks carry forward until resolved. Missing/deferred checks fail coverage
+  without blocking valid sibling publication.
+- A `proposed` check settles only once its concerns have a recorded PR (open,
+  merged, or declined). If the proposal was deferred for a page conflict, rejected
+  by independent review, produced no change, or failed to publish, the next run
+  reopens the check as `unpublished` with the reason (including the reviewer's
+  failed gates) and queues the concern with `publication_feedback`. After three
+  selections without a PR, the concern is listed under **Needs maintainer
+  attention** in the plan summary and is no longer retried automatically. This
+  guarantees explicit accounting, not model infallibility or a PR for every commit:
+  independent review, page conflicts, and the daily PR cap still apply.
+- `commit_ledger` in the discovery report remembers every assessed commit/subsystem
+  pair. Backlog scans take never-assessed pairs since the initial cutoff newest-first
+  (reopened backlog checks first, pairs blocked by open PRs last). Backlog checks
+  use the same dispositions and validation, but unfinished ones simply return next
+  run and never fail coverage. The plan summary reports the remaining backlog.
+  Older history, pending corrections and release audits remain available to the
+  subsystem scans after the mandatory checks; budgets still bound that work.
 - Each PR fixes **one concrete user question or stale claim** from one primary
   source change. Sharing a subsystem, commit, or page does not justify bundling.
 - Each PR must have **fewer than 1,000 added plus deleted lines** (999 maximum).
@@ -125,7 +145,9 @@ Maintenance applies the same policy and invalidates older cached verdicts.
 Dispatch `nightly-doc-sync.yml` on a working branch to test its automation against
 current main docs and SMG main (or the new published release for snapshot runs). `dry_run` defaults to true; set it to false to publish.
 `discovery_shard` optionally selects one subsystem for a targeted validation run;
-omitting it runs all eight scans. `max_prs` accepts 1–100 and cannot override the shared daily cap. The old
+omitting it runs all eight scans. `max_prs` accepts 1–100 and cannot override the shared daily cap.
+`backlog_jobs` (0–16, default 8; 0 disables) and `backlog_commits` (1–40, default 25)
+size the older-commit backlog scans; scheduled runs use the defaults. The old
 `max_commits` input is removed so the full initial window stays available.
 The optional `DOC_SYNC_TOKEN` is used only by the trusted publication step;
 otherwise `GITHUB_TOKEN` publishes. GitHub Actions must be allowed to create PRs.
@@ -137,8 +159,9 @@ commits, per-scan coverage, selected concerns, and deferred work. It also record
 `expected_shards`, `missing_shards`, and `complete`; absent scans are never counted
 as empty successful inspections. `daily_coverage` records the frozen time window,
 each required commit/subsystem disposition and its evidence. Its unfinished checks
-are carried forward without the 100-concern queue cap, within the same 14-day
-production-report retention. Filtered pilots cover only their selected subsystem.
+are carried forward without the 100-concern queue cap, within the same 30-day
+production-report retention. `backlog_coverage` and `commit_ledger` record backlog
+batches, their dispositions, and every assessed pair. Filtered pilots cover only their selected subsystem.
 Each scan's structured-output schema requires a field for every assigned commit
 ID. The SDK can correct omitted fields before returning; independent validation
 still rejects incomplete or unsupported assessments. Saved reports retain the
@@ -147,8 +170,9 @@ With no scans, planning still writes a report,
 but no writer or publisher is scheduled. Scan contexts and
 writer bundles are retained for two days; publication validation artifacts
 retain the item, diff, and explicit four-gate review verdict for fourteen days.
-The discovery report is also retained for fourteen days and identifies targeted
-scans and dry runs.
+The discovery report is retained for thirty days and identifies targeted
+scans and dry runs. If no production report is found within that window, the
+ledger restarts and older commits are reassessed; nothing is skipped.
 Discovery retains its 200 API-round and 45-minute limits. The pinned action has
 an [upstream turn-counter mismatch](https://github.com/anthropics/claude-code-action/issues/1795):
 its reported tool-result count can exceed the API-round limit on successful runs.
@@ -163,7 +187,7 @@ legacy incomplete work remains discoverable.
 
 Concerns blocked by page conflicts or quota are retained as `queued_concerns`
 (up to 100) for fresh evaluation. Recovery paginates default-branch reports from
-the last 14 days, accepting only attempts that requested all eight scans and the
+the last 30 days, accepting only attempts that requested all eight scans and the
 full 100-PR cap with publication enabled, for the same SMG source/history window.
 Partial production reports qualify; branch pilots, dry runs, and limited runs do
 not replace the production queue. The requested cap is stored separately from

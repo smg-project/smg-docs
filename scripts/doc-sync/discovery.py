@@ -8,6 +8,7 @@ from itertools import zip_longest
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 from urllib.parse import urlencode
@@ -37,6 +38,9 @@ SHARDS = [
     ("operations", "Observability, metrics, logging, mesh, benchmarks, testing/contributor workflows and other user-facing changes outside the other responsibilities.",
      ["model_gateway/src/observability", "model_gateway/src/mesh", "model_gateway/src/mesh_discovery", "crates/mesh", "scripts", "examples", "e2e_test", ".github", "Makefile"]),
 ]
+SHARD_NAMES = tuple(slug for slug, _, _ in SHARDS)
+# Discovery reports chain the queue and commit ledger from run to run.
+REPORT_DAYS = 30
 
 
 def partition(context):
@@ -90,7 +94,7 @@ def resolve_scan(raw, history):
                        "remaining_work": result["remaining_work"]})
 
 
-def validate_scan(raw, context, slug, history):
+def validate_scan(raw, context, slug, history, backlog=0):
     result = json.loads(raw)
     inspected = result["inspected_commits"]
     candidates = {line.split()[0] for line in history}
@@ -112,11 +116,20 @@ def validate_scan(raw, context, slug, history):
         raise ValueError('Concern source was not reported as inspected: ' + '; '.join(uninspected))
     if len(concerns) > docs.MAX_PRS:
         raise ValueError("Scan exceeds proposal limit")
-    checks = release_handoff.validate_checks({**result, 'concerns': concerns}, context, slug)
+    expected, audit_context = None, context
+    if backlog:
+        # Backlog scans assess only their assigned older commits; release audits
+        # stay with the subsystem's daily scan, which owns their candidates.
+        expected = daily_coverage.batch_commits(context, slug, backlog)
+        if not expected:
+            raise ValueError("Unknown backlog scan")
+        audit_context = {**context, 'release_audit_candidates': []}
+    checks = release_handoff.validate_checks({**result, 'concerns': concerns}, audit_context, slug)
     return {"shard": slug, "base_sha": context["base_sha"], "concerns": concerns,
-            "daily_commit_checks": daily_coverage.validate(result, context, slug),
+            "daily_commit_checks": daily_coverage.validate(result, context, slug, SHARD_NAMES, expected),
             "release_audit_checks": checks,
-            "inspected_commits": inspected, "remaining_work": result["remaining_work"]}
+            "inspected_commits": inspected, "remaining_work": result["remaining_work"],
+            **({"backlog": backlog} if backlog else {})}
 
 
 def scan_names(context):
@@ -128,45 +141,72 @@ def scan_names(context):
     return [requested] if requested else names
 
 
+def prioritized(scans, context):
+    """Order proposals so required commit coverage claims contested pages first.
+
+    Tiers: concerns for required recent commits, previously queued or retried
+    concerns, older backlog commits, then audits and other discovery. Round
+    robin within each tier prevents one large subsystem from consuming the cap.
+    """
+    pending = {(p['area'], p['concern']) for p in context.get('pending_concerns', [])}
+
+    def tier(scan, proposal):
+        referenced = any(proposal['concern'] in check.get('concerns', [])
+                         for check in scan.get('daily_commit_checks', []))
+        if referenced and not scan.get('backlog'):
+            return 0
+        if (proposal['area'], proposal['concern']) in pending:
+            return 1
+        return 2 if referenced else 3
+
+    ordered = []
+    for level in range(4):
+        lanes = [[p for p in scan['concerns'] if tier(scan, p) == level] for scan in scans]
+        ordered.extend(p for row in zip_longest(*lanes) for p in row if p is not None)
+    return ordered
+
+
 def combine(scans, context, allow_partial=False):
     expected = scan_names(context)
-    by_slug = {scan["shard"]: scan for scan in scans}
-    if len(by_slug) != len(scans) or not set(by_slug) <= set(expected):
+    batches = [(b['shard'], b['backlog']) for b in context.get('backlog_batches', [])]
+    by_id = {daily_coverage.scan_key(scan): scan for scan in scans}
+    daily = {slug for slug, batch in by_id if not batch}
+    if (len(by_id) != len(scans) or not daily <= set(expected)
+            or not {key for key in by_id if key[1]} <= set(batches)):
         raise ValueError("Unknown or duplicate discovery scans")
-    if not allow_partial and set(by_slug) != set(expected):
+    # Backlog scans are best-effort; only the subsystem scans are mandatory.
+    if not allow_partial and daily != set(expected):
         raise ValueError("Missing or duplicate discovery scans")
-    for slug, scan in by_slug.items():
+    for (slug, batch), scan in by_id.items():
         if scan["base_sha"] != context["base_sha"]:
             raise ValueError("Discovery baseline mismatch")
-        validate_scan(json.dumps(scan), context, slug, context["code_history"])
+        validate_scan(json.dumps(scan), context, slug, context["code_history"], batch)
+    ordered = ([by_id[(slug, 0)] for slug in expected if (slug, 0) in by_id]
+               + [by_id[key] for key in batches if key in by_id])
     selected, occupied, keys, identities, questions, deferred = [], set(), set(), set(), set(), []
-    # Round robin prevents the first large subsystem from consuming the cap.
-    for row in zip_longest(*(by_slug[slug]["concerns"] for slug in expected if slug in by_slug)):
-        for proposal in row:
-            if proposal is None:
-                continue
-            proposal = {**proposal, "title": docs.normalize_title(proposal["title"])}
-            item = docs.plan(json.dumps({"concerns": [proposal]}), context)
-            if not item:
-                deferred.append((docs.validate_item(proposal)["key"], "existing PR"))
-                continue
-            item = item[0]
-            identity = (item["area"], item["concern"])
-            question = " ".join(item["question"].lower().split())
-            if item["key"] in keys or identity in identities or question in questions:
-                reason = "duplicate concern"
-            elif occupied.intersection(item["doc_paths"]):
-                reason = "overlapping documentation files"
-            elif len(selected) >= context.get("max_prs", docs.MAX_PRS):
-                reason = "UTC daily/run PR cap"
-            else:
-                selected.append(item)
-                keys.add(item["key"])
-                identities.add(identity)
-                questions.add(question)
-                occupied.update(item["doc_paths"])
-                continue
-            deferred.append((item["key"], reason))
+    for proposal in prioritized(ordered, context):
+        proposal = {**proposal, "title": docs.normalize_title(proposal["title"])}
+        item = docs.plan(json.dumps({"concerns": [proposal]}), context)
+        if not item:
+            deferred.append((docs.validate_item(proposal)["key"], "existing PR"))
+            continue
+        item = item[0]
+        identity = (item["area"], item["concern"])
+        question = " ".join(item["question"].lower().split())
+        if item["key"] in keys or identity in identities or question in questions:
+            reason = "duplicate concern"
+        elif occupied.intersection(item["doc_paths"]):
+            reason = "overlapping documentation files"
+        elif len(selected) >= context.get("max_prs", docs.MAX_PRS):
+            reason = "UTC daily/run PR cap"
+        else:
+            selected.append(item)
+            keys.add(item["key"])
+            identities.add(identity)
+            questions.add(question)
+            occupied.update(item["doc_paths"])
+            continue
+        deferred.append((item["key"], reason))
     return selected, deferred
 
 
@@ -193,9 +233,10 @@ def build_report(scans, context):
     """Keep validated partial work while explicitly reporting missing coverage."""
     selected, deferred = combine(scans, context, allow_partial=True)
     expected = scan_names(context)
-    received = {scan['shard'] for scan in scans}
+    received = {scan['shard'] for scan in scans if not scan.get('backlog')}
     missing = [name for name in expected if name not in received]
     daily = daily_coverage.report(context, scans, expected)
+    backlog = daily_coverage.backlog_report(context, scans)
     queued = deferred_queue(scans, deferred, context['existing_prs'])
     # Daily quota can reduce each scan's proposal budget even when every scan
     # succeeds. Such a run cannot retire prior work merely by omitting it.
@@ -215,7 +256,13 @@ def build_report(scans, context):
             'discovery_shard': context.get('discovery_shard', ''),
             'scans': scans, 'selected': selected,
             'release_audit_checks': release_handoff.report(context, scans),
-            'daily_coverage': daily,
+            'daily_coverage': daily, 'backlog_coverage': backlog,
+            # The ledger outlives the 24-hour window, so older commits are
+            # assessed once and then leave the backlog.
+            'commit_ledger': daily_coverage.record(context.get('commit_ledger', {}),
+                                                   daily['checks'] + backlog['checks']),
+            'publication_attempts': context.get('publication_attempts', {}),
+            'abandoned_concerns': context.get('abandoned_concerns', []),
             'deferred': deferred, 'queued_concerns': queued[:docs.MAX_PRS],
             'queue_overflow': [item['key'] for item in queued[docs.MAX_PRS:]],
             'expected_shards': expected, 'missing_shards': missing,
@@ -247,7 +294,7 @@ def pending_from_report(report, context):
 
 def previous_report(repo, branch, context):
     """Read the latest retained main-branch plan, never another branch's pilot."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).date().isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=REPORT_DAYS)).date().isoformat()
     query = urlencode({'branch': branch, 'per_page': 100, 'created': '>=' + cutoff})
     run_pages = json.loads(docs.run('gh', 'api',
         f'repos/{repo}/actions/workflows/nightly-doc-sync.yml/runs?{query}', '--paginate', '--slurp'))
@@ -272,34 +319,81 @@ def previous_report(repo, branch, context):
                 or set(report.get('expected_shards', []))
                 != {name for name, _, _ in SHARDS}):
             continue
-        return report
+        # Publication outcomes are separate artifacts of the same run.
+        return {**report, 'run_id': run['id']}
     return {}
+
+
+def publication_feedback(repo, report):
+    """Read the prior run's review verdicts so unpublished concerns return with a reason."""
+    if not report.get('run_id') or not report.get('selected'):
+        return {}
+    feedback = {}
+    with tempfile.TemporaryDirectory() as directory:
+        try:
+            docs.run('gh', 'run', 'download', str(report['run_id']), '--repo', repo,
+                     '--pattern', 'nightly-docs-validation-*', '--dir', directory)
+        except subprocess.CalledProcessError:
+            return {}
+        for path in Path(directory).rglob('nightly-docs-item.json'):
+            try:
+                key = json.loads(path.read_text())['key']
+            except (OSError, ValueError, KeyError, TypeError):
+                continue  # Feedback is advisory; a damaged artifact only loses the reason.
+            try:
+                verdict = docs.review_verdict(path.with_name('nightly-docs-review.json').read_text())
+            except (OSError, ValueError):
+                feedback[key] = 'Imported for review, but no valid review verdict was recorded.'
+                continue
+            failed = [gate for gate in docs.REVIEW_GATES if not verdict[gate]]
+            feedback[key] = ('Independent review rejected it (failed: ' + ', '.join(failed) + '): '
+                             + verdict['reason'][:3000] if failed else
+                             'Review accepted it, but the site build or publication did not complete.')
+    return feedback
+
+
+def backlog_limits():
+    jobs = int(os.environ.get('BACKLOG_JOBS') or daily_coverage.BACKLOG_JOBS)
+    size = int(os.environ.get('BACKLOG_COMMITS') or daily_coverage.BACKLOG_COMMITS)
+    if not 0 <= jobs <= 16 or not 1 <= size <= 40:
+        raise ValueError('backlog_jobs must be 0-16 and backlog_commits 1-40')
+    return jobs, size
 
 
 def previous_pending(repo, branch, context):
     return pending_from_report(previous_report(repo, branch, context), context)
 
 
-def scan_context(context, slug, assignments):
+def scan_context(context, slug, assignments, backlog=0):
     # Path ownership is a prioritization hint, not a source-attribution boundary.
     # Cross-cutting wiring (e.g. app_context.rs enabling MCP config) can introduce
     # subsystem behavior without touching that subsystem's directory.
     focus = next(focus for name, focus, _ in SHARDS if name == slug)
     primary = {line.split()[0] for line in assignments[slug]}
     history = context["code_history"]
-    audit_candidates = release_handoff.assigned(context, slug)
+    if backlog:
+        required = set(daily_coverage.batch_commits(context, slug, backlog))
+        audit_candidates = []
+    else:
+        required = set(context.get('daily_assignments', {}).get(slug, []))
+        audit_candidates = release_handoff.assigned(context, slug)
     # A queued audit identity can only be re-proposed by its owning scan, which
     # receives the candidate evidence required by validate_checks.
     pending = [p for p in context.get('pending_concerns', [])
                if not p['concern'].startswith('release-audit-') or any(
                    p['concern'].startswith('release-audit-' + c['id'] + '-') for c in audit_candidates)]
-    return {**context, "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
+    # The ledger and backlog plan are bookkeeping, not discovery evidence.
+    shared = {k: v for k, v in context.items()
+              if k not in ('commit_ledger', 'backlog_batches', 'publication_attempts')}
+    return {**shared, "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
             "release_audit_candidates": audit_candidates,
             "pending_concerns": pending,
-            "pending_commit_checks": [c for c in context.get('pending_commit_checks', []) if c['shard'] == slug],
+            "pending_commit_checks": [c for c in context.get('pending_commit_checks', [])
+                                      if c['shard'] == slug and c['source_sha'] in required],
             "required_commit_ids": [i for i, line in enumerate(history, 1)
-                                    if line.split()[0] in context.get('daily_assignments', {}).get(slug, [])],
+                                    if line.split()[0] in required],
             "focus_commit_ids": [i for i, line in enumerate(history, 1) if line.split()[0] in primary],
+            "scan_mode": "backlog" if backlog else "daily",
             "shard": slug, "focus": focus,
             "scan_responsibilities": {name: focus for name, focus, _ in SHARDS}}
 
@@ -315,6 +409,8 @@ def scan_schema(scoped):
     ids = [str(number) for number in scoped['required_commit_ids']]
     schema['properties']['daily_commit_checks'].update(
         properties={number: {'$ref': '#/definitions/daily_check'} for number in ids}, required=ids)
+    schema['definitions']['daily_check']['properties']['depends_on']['items']['enum'] = [
+        name for name in SHARD_NAMES if name != scoped.get('shard')]
     return schema
 
 
@@ -326,15 +422,27 @@ def main():
     context["source_diffs"] = str(root / "nightly-docs-sources")
     context['release_audit_evidence'] = str(root / 'release-audits')
     if command == "partition":
-        scan_names(context)  # Reject invalid manual inputs before network work.
-        prior = previous_report(
-            os.environ['GITHUB_REPOSITORY'], os.environ['DEFAULT_BRANCH'], context)
-        context['pending_concerns'] = pending_from_report(prior, context)
+        names = scan_names(context)  # Reject invalid manual inputs before network work.
+        jobs, size = backlog_limits()
+        repo = os.environ['GITHUB_REPOSITORY']
+        prior = previous_report(repo, os.environ['DEFAULT_BRANCH'], context)
+        feedback = publication_feedback(repo, prior)
+        prs = context['existing_prs']
+        carried, attempts, abandoned = daily_coverage.carry_forward(prior, prs, feedback)
+        # Rejected or unpublished selections return first, with the reason.
+        context['pending_concerns'] = pending_candidates(
+            daily_coverage.retry_concerns(prior, prs, attempts, feedback)
+            + pending_from_report(prior, context), context)[:docs.MAX_PRS]
+        context['publication_attempts'] = attempts
+        context['abandoned_concerns'] = abandoned
         assignments = partition(context)
-        context['daily_assignments'] = daily_coverage.assign(context, prior, assignments)
-        context['pending_commit_checks'] = [c for c in prior.get('daily_coverage', {}).get('checks', [])
-                                           if c['status'] not in daily_coverage.SETTLED
-                                           and c['source_sha'] in context['daily_assignments'].get(c['shard'], [])]
+        context['daily_assignments'] = daily_coverage.assign(context, prior, assignments, carried)
+        context['commit_ledger'] = daily_coverage.ledger(prior, carried, abandoned, context['code_history'])
+        context['backlog_batches'], context['backlog_remaining'] = daily_coverage.backlog(
+            context, context['commit_ledger'], carried, assignments, names, jobs, size)
+        assigned = {(slug, sha) for slug, shas in context['daily_assignments'].items() for sha in shas}
+        assigned.update((b['shard'], sha) for b in context['backlog_batches'] for sha in b['commits'])
+        context['pending_commit_checks'] = [c for c in carried if (c['shard'], c['source_sha']) in assigned]
         candidates = release_handoff.collect(context, root / 'release-audits')
         checked = {c['candidate_id']: c['status'] for c in prior.get('release_audit_checks', [])}
         # Unfinished and newly discovered corrections get attention first. Never
@@ -344,11 +452,12 @@ def main():
         (root / 'context.json').write_text(json.dumps(context, indent=2))
         (root / "assignments.json").write_text(json.dumps(assignments))
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-            output.write("matrix=" + json.dumps({"include": [{"shard": slug} for slug in scan_names(context)]}) + "\n")
+            output.write("matrix=" + json.dumps({"include": [{"shard": slug} for slug in names] + [
+                {"shard": b['shard'], "backlog": b['backlog']} for b in context['backlog_batches']]}) + "\n")
     elif command == "context":
-        slug = os.environ["SHARD"]
+        slug, backlog = os.environ["SHARD"], int(os.environ.get("BACKLOG_BATCH") or 0)
         assignments = json.loads((root / "assignments.json").read_text())
-        scoped = scan_context(context, slug, assignments)
+        scoped = scan_context(context, slug, assignments, backlog)
         Path(os.environ["NIGHTLY_CONTEXT"]).write_text(json.dumps(scoped, indent=2))
         encoded = json.dumps(scan_schema(scoped), separators=(',', ':'))
         # Fail explicitly rather than silently dropping mandatory IDs or hitting
@@ -358,17 +467,19 @@ def main():
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
             output.write('schema=' + encoded + '\n')
     elif command == "scan":
-        slug = os.environ["SHARD"]
+        slug, backlog = os.environ["SHARD"], int(os.environ.get("BACKLOG_BATCH") or 0)
         assignments = json.loads((root / "assignments.json").read_text())
         execution = {}
         raw = resolve_scan(read_scan_output(
             os.environ['SCAN_EXECUTION_FILE'], os.environ.get('SCAN_ACTION_OUTCOME', 'success'),
             int(os.environ.get('DISCOVERY_MAX_ROUNDS', '200')), execution), context["code_history"])
-        scan = validate_scan(raw, context, slug, context["code_history"])
+        scan = validate_scan(raw, context, slug, context["code_history"], backlog)
         scan['execution'] = execution
         Path(os.environ["SCAN_OUTPUT"]).write_text(json.dumps(scan))
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-            summary.write(f"{slug}: {len(assignments[slug])} priority commits; "
+            label = (f"{slug} backlog {backlog}: {len(daily_coverage.batch_commits(context, slug, backlog))} older"
+                     if backlog else f"{slug}: {len(assignments[slug])} priority")
+            summary.write(f"{label} commits; "
                           f"{len(scan['inspected_commits'])} self-reported inspected; "
                           f"{len(scan['concerns'])} proposed concerns.\n")
             summary.write(f"Verified {execution['assistant_rounds']} assistant rounds "
@@ -403,6 +514,24 @@ def main():
             for check in daily['checks']:
                 if check['status'] not in daily_coverage.SETTLED:
                     summary.write(f"- Carry forward: `{check['source_sha']}` ({check['shard']}, {check['status']})\n")
+            reopened = [c for c in context.get('pending_commit_checks', []) if c['status'] == 'unpublished']
+            if reopened:
+                summary.write(f"\nReopened {len(reopened)} commit checks whose proposals never reached a PR "
+                              "(page conflict, review rejection, or no change).\n\n")
+            backlog = report['backlog_coverage']
+            summary.write(f"Older-commit backlog: {sum(backlog['remaining_before_run'].values())} unassessed "
+                          f"commit/subsystem pairs before this run; {len(backlog['checks'])} assigned to "
+                          f"{len(backlog['batches'])} backlog scans: "
+                          + ', '.join(f"{sum(c['status'] == status for c in backlog['checks'])} {status}"
+                                      for status in ('proposed', 'covered', 'not_applicable', 'blocked', 'deferred', 'uninspected'))
+                          + '. Unfinished backlog pairs return next run without failing coverage.\n\n')
+            if backlog['missing']:
+                summary.write('Missing backlog scans (retried next run): ' + ', '.join(backlog['missing']) + '.\n\n')
+            if report['abandoned_concerns']:
+                summary.write(f"**Needs maintainer attention** (no PR after {daily_coverage.MAX_PUBLICATION_ATTEMPTS} "
+                              "selections; no longer retried automatically):\n"
+                              + ''.join(f"- `{a['concern']}` for `{a['source_sha']}` ({a['shard']}): "
+                                        f"{a['reason'][:300]}\n" for a in report['abandoned_concerns']) + '\n')
             checks = report['release_audit_checks']
             summary.write(f"Release-audit handoff: {len(checks)} candidate pages; "
                           + ', '.join(f"{sum(c['status'] == status for c in checks)} {status}"
@@ -414,7 +543,11 @@ def main():
             summary.write("| Scan | Priority commits | Reported inspected | Proposals |\n| --- | ---: | ---: | ---: |\n")
             assignments = partition(context)
             for scan in scans:
-                summary.write(f"| {scan['shard']} | {len(assignments[scan['shard']])} | "
+                name, priority = scan['shard'], len(assignments[scan['shard']])
+                if scan.get('backlog'):
+                    name = f"{name}/backlog-{scan['backlog']}"
+                    priority = len(daily_coverage.batch_commits(context, scan['shard'], scan['backlog']))
+                summary.write(f"| {name} | {priority} | "
                               f"{len(scan['inspected_commits'])} | {len(scan['concerns'])} |\n")
     else:
         raise ValueError("Unknown discovery command")

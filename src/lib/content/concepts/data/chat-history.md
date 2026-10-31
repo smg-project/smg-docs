@@ -296,8 +296,6 @@ On PostgreSQL, a new, empty database — one with no responses table yet — nee
 
 On Oracle, a new, empty database starts with every migration pending, so turn auto-migration on for its first start as well as for upgrades.
 
-On both backends, whatever the auto-migration setting, SMG refuses to start against a database whose recorded schema version is **ahead** of the latest migration the running build knows. This typically follows a rollback of the gateway image after a newer build has migrated the database forward: the older build does not know the shape of the newer schema and would otherwise start, then fail on its first read of a changed column. The refusal comes before any history table is touched, so the database stays as the newer build left it. Upgrade the gateway to the build that migrated the database, or set `version:` in the `--schema-config` file to the database's recorded version or higher — the error message names the value to set. With that override, SMG starts and logs a warning.
-
 To turn auto-migration on:
 
 ```bash
@@ -306,6 +304,8 @@ DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
 ```
 
 `DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
+
+On PostgreSQL and Oracle, whatever the auto-migration setting, SMG refuses to start against a database whose recorded schema version is **ahead** of the latest migration the running build knows. This typically follows a rollback of the gateway image after a newer build has migrated the database forward: the older build does not know the shape of the newer schema and would otherwise start, then fail on its first read of a changed column. The refusal comes before any history table is touched, so the database stays as the newer build left it. Upgrade the gateway to the build that migrated the database, or set `version:` in the schema config to the database's recorded version or higher — the error message names the value to set. With that override, SMG starts and logs a warning.
 
 ---
 

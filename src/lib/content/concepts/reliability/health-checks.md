@@ -161,6 +161,12 @@ The default follows `--service-discovery`. With discovery on, removal is followe
 
 `smg launch` (the Python launcher from pip, and the container image) also accepts the alias, as `--worker-auto-recovery` and `--no-worker-auto-recovery`. The `smg` binary has no `--no-` form; turn auto-recovery off there with `--remove-unhealthy-workers=false`.
 
+Re-registration waits because it goes through the same startup-probe gate as every registration: no worker is created until a probe succeeds. An HTTP worker must answer `GET /health` with a `2xx`, a gRPC worker must answer a health RPC and report itself healthy, and a bare `host:port` address is probed over both protocols, keeping the one that answers — HTTP, if both do. The startup probe always uses `/health`; `--health-check-endpoint` changes only the background probes.
+
+Failed probes are retried every `--worker-startup-check-interval` seconds; when `--worker-startup-timeout-secs` elapses first, the job fails and a later reconcile pass submits it again ([Worker Startup](../architecture/service-discovery.md#worker-startup)). An engine that is still down keeps its registration waiting instead of rejoining the pool only to fail out again.
+
+The exception is a ZMQ `ipc://` URL: SMG binds the sockets and the engine dials in, so there is no endpoint to probe. It registers without a probe, as `Pending`, and is promoted to `Ready` when the engine completes its handshake.
+
 Removal targets are resolved from registered worker URLs and pinned to the failed worker's own revision, so only that registration is removed: sibling DP ranks behind the same address stay registered. Workers imported from mesh peers are never removed locally; the gateway that owns them manages them.
 
 ---
@@ -185,7 +191,7 @@ smg \
 | `--health-failure-threshold` | `3` | Consecutive failures before a `Ready` worker becomes `NotReady`; also scales the liveness threshold (3×) and the `Pending` probe cap (10×) |
 | `--health-success-threshold` | `2` | Consecutive successes before a worker returns to `Ready` |
 | `--health-check-timeout-secs` | `5` | Timeout for each probe |
-| `--health-check-endpoint` | `/health` | HTTP path probed on HTTP workers |
+| `--health-check-endpoint` | `/health` | HTTP path for background probes of HTTP workers; the startup probe at registration always uses `/health` |
 | `--disable-health-check` | `false` | Disable background probing (ZMQ workers keep their local check) |
 | `--remove-unhealthy-workers` | follows `--service-discovery` | Remove workers that reach `Failed` (alias `--worker-auto-recovery`); see [Worker Auto-Recovery](#worker-auto-recovery) |
 | `--drain-settle-secs` | `5` | Seconds a `Ready` worker stays `Draining` before removal; `0` removes immediately. Not accepted by the Python launcher yet |
@@ -328,6 +334,8 @@ smg \
   --worker-urls http://worker:8000 \
   --health-check-endpoint /api/health
 ```
+
+The custom path applies to the background probes. The startup probe at registration always sends `GET /health`, so the worker must answer that path with a `2xx` too, or registration fails.
 
 ---
 

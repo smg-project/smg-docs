@@ -179,7 +179,7 @@ For this path it prints `22670`. SMG also logs the address when it binds:
 Binding ZMQ client for worker ipc:///tmp/smg-zmq/engine-0 (handshake=tcp://127.0.0.1:22670, engines=Declared)
 ```
 
-`engines=` shows `Exactly(N)` for a worker with an explicit engine count and `Declared` for one without (see [Data-Parallel Engines](#data-parallel-engines)).
+`engines=` shows how many engines the handshake waits for: `Exactly(N)` for a worker with an explicit engine count, or `Declared` when the gateway takes the count from the first engine to dial (see [Data-Parallel Engines](#data-parallel-engines)).
 
 Two paths can hash to the same port; SMG rejects the second worker at registration. Workers added through the [worker API](#register-workers-at-runtime) can set a fixed `zmq_handshake_address` instead.
 
@@ -262,7 +262,7 @@ ZMQ-related worker fields:
 | `url` | `ipc://<path>` (the path is required) |
 | `runtime_type` | `vllm`, `tokenspeed`, or `sglang` (`runtime` is accepted as an alias). Unset means vLLM |
 | `zmq_handshake_address` | A `tcp://` address to bind for the handshake instead of the derived one. Rejected on non-ZMQ workers |
-| `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); if omitted, the worker waits for as many engines as the first one to dial declares, one for an engine that declares none. Leave `dp_rank` unset |
+| `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); if omitted, the worker waits for the group size the first engine to dial declares (one for an engine that declares none). Leave `dp_rank` unset |
 | `labels.model_path` | Model ID and tokenizer source, for gateways started without `--model-path` |
 
 `zmq_handshake_address` pairs a worker with an engine that dials a fixed address. A TokenSpeed engine started without `--data-parallel-rpc-port` dials `tcp://127.0.0.1:30500`, so this worker pairs with it:

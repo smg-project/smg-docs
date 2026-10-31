@@ -26,6 +26,7 @@ SMG supports TLS configurations for securing communications:
 | **Server TLS** | HTTPS for client → gateway communication | Available |
 | **Client mTLS** | Mutual TLS for gateway → HTTP worker communication | Python launcher only |
 | **gRPC worker transport** | Gateway → gRPC worker (`grpc://`) connections | Plaintext; mTLS through a service mesh |
+| **Mesh mTLS** | Mutual TLS for router → router communication in the [high-availability mesh](../concepts/architecture/high-availability.md#mesh-mtls) | Available (`--mesh-tls-*` flags) |
 
 !!! info "Client mTLS"
     The client certificate flags (`--client-cert-path`, `--client-key-path`, and `--ca-cert-paths`) exist only in the Python launcher: `smg launch` from pip, and the container image. The Rust `smg` binary has no client certificate flags in v1.11.0. See [Client mTLS to Workers](#client-mtls-to-workers).

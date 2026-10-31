@@ -147,7 +147,7 @@ python -m smg_grpc_servicer.sglang.headless \
 
 With `--backend sglang`, the launcher refuses an engine-level `--dp-size` above 1 with `--dp-size > 1 is not supported over the SGLang ZMQ wire yet; use --connection-mode grpc for data parallelism`.
 
-To put several data-parallel vLLM or TokenSpeed engines behind one worker, start the engines yourself and use `smg launch --zmq-engine-count` (see [Data-Parallel Engines](#data-parallel-engines)).
+To put several data-parallel vLLM or TokenSpeed engines behind one worker, start the engines yourself and register them as a grouped worker with `smg launch` (see [Data-Parallel Engines](#data-parallel-engines)).
 
 ---
 
@@ -176,8 +176,10 @@ EOF
 For this path it prints `22670`. SMG also logs the address when it binds:
 
 ```text
-Binding ZMQ client for worker ipc:///tmp/smg-zmq/engine-0 (handshake=tcp://127.0.0.1:22670, engines=1)
+Binding ZMQ client for worker ipc:///tmp/smg-zmq/engine-0 (handshake=tcp://127.0.0.1:22670, engines=Declared)
 ```
+
+`engines=` shows how many engines the handshake waits for: `Exactly(N)` for a worker with an explicit engine count, or `Declared` when the gateway takes the count from the first engine to dial (see [Data-Parallel Engines](#data-parallel-engines)).
 
 Two paths can hash to the same port; SMG rejects the second worker at registration. Workers added through the [worker API](#register-workers-at-runtime) can set a fixed `zmq_handshake_address` instead.
 
@@ -260,7 +262,7 @@ ZMQ-related worker fields:
 | `url` | `ipc://<path>` (the path is required) |
 | `runtime_type` | `vllm`, `tokenspeed`, or `sglang` (`runtime` is accepted as an alias). Unset means vLLM |
 | `zmq_handshake_address` | A `tcp://` address to bind for the handshake instead of the derived one. Rejected on non-ZMQ workers |
-| `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); leave `dp_rank` unset |
+| `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); if omitted, the worker waits for the group size the first engine to dial declares (one for an engine that declares none). Leave `dp_rank` unset |
 | `labels.model_path` | Model ID and tokenizer source, for gateways started without `--model-path` |
 
 `zmq_handshake_address` pairs a worker with an engine that dials a fixed address. A TokenSpeed engine started without `--data-parallel-rpc-port` dials `tcp://127.0.0.1:30500`, so this worker pairs with it:
@@ -290,7 +292,7 @@ Replicas work with every ZMQ engine. Grouped workers are a vLLM and TokenSpeed s
 
 ### Configure a Grouped Worker
 
-Start the engine group with its data-parallel size, then tell the gateway how many engines to wait for:
+Start the engine group with its data-parallel size. A TokenSpeed attention-DP group declares its size when it dials in, so `--zmq-engine-count` can stay unset and the gateway waits for the whole declared group. A vLLM engine declares no group size, so a vLLM group needs the explicit count:
 
 === "vLLM"
 
@@ -332,9 +334,11 @@ Start the engine group with its data-parallel size, then tell the gateway how ma
 
     Each TokenSpeed rank dials in with its own identity (`--zmq-engine-index` plus its rank). TokenSpeed requires an explicit `--dist-init-addr` when `--data-parallel-size` is above 1; pick a free port outside the 20000–29999 handshake range.
 
-- `--zmq-engine-count` applies to every `ipc://` URL in `--worker-urls` and must be a positive integer. For a worker added through the API, set `"dp_size"` on the worker instead.
+- `--zmq-engine-count` applies to every `ipc://` URL in `--worker-urls`; an explicit value must be a positive integer, and `--zmq-engine-count 1` behaves like leaving the flag unset. For a worker added through the API, set `"dp_size"` on the worker instead; a `dp_size` of 1 waits for exactly one engine.
+- Left unset, the count settles on what the first engine to dial declares, and an engine that declares no group size counts as one. A vLLM group with the count unset therefore settles at a single engine, and the rest of its ranks dial in as extras.
+- The count the gateway waits for must match the number of engines that dial in. An extra engine can fail the handshake with `duplicate HELLO ... after INIT phase`; a missing one leaves the handshake waiting until it times out.
+- An engine that declares a different group size than an explicit count still connects; the gateway logs `engine declares a group of a different size than this handshake awaits` and keeps the explicit count.
 - The engine process needs `N` times its tensor-parallel size in GPUs.
-- The gateway must wait for exactly as many engines as dial in. An extra engine can fail the handshake with `duplicate HELLO ... after INIT phase`; a missing one leaves the handshake waiting until it times out.
 - Grouped workers can't be combined with `--dp-aware`, which tries to expand the group into one worker per rank and fails with `cannot be dp-aware expanded`. Single-engine ZMQ workers register normally under `--dp-aware`.
 
 ### Rank Selection
@@ -460,7 +464,7 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
     **Solutions:**
 
     1. Check that the engine dials the address SMG bound: compare the engine's `--data-parallel-rpc-port` and `--data-parallel-address` with the `handshake=` value in SMG's `Binding ZMQ client for worker ...` log line. With no engine, once `--zmq-startup-timeout-secs` expires, SMG logs `ZMQ backend handshake failed for ...: ... startup handshake timed out while waiting for HELLO after 3600s; will retry on the next health probe`.
-    2. For a grouped worker, check that `--zmq-engine-count` (or `dp_size`) matches the engine's `--data-parallel-size`.
+    2. For a grouped worker, check that an explicit `--zmq-engine-count` (or `dp_size`) matches the engine's `--data-parallel-size`. With no explicit count, the gateway waits for the group size the first engine to dial declared, so the worker stays pending until that many engines have dialed in.
     3. A worker added through the API to a gateway started with `--disable-health-check` and no ZMQ workers at startup is never promoted. Restart the gateway without that flag.
 
 ??? question "Socket bind errors or stale socket files"

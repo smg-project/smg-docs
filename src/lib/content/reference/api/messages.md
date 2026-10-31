@@ -329,7 +329,7 @@ Headers specific to the Messages API:
 | `X-SMG-MCP` | `enabled` makes SMG run the MCP tool loop itself for a request whose `tools` include an `mcp_toolset` entry, on the Anthropic API backend. See [MCP Tools](#mcp-tools) and [MCP](../../concepts/extensibility/mcp.md). Other backends ignore it, and SMG does not forward it. |
 | `anthropic-version` | Checked on `/v1/messages` and `/v1/messages/count_tokens` before routing: the value must be a real calendar date of 2023 or later, written `YYYY-MM-DD`. Anything else, including an impossible date such as `2023-02-30`, is refused with `400` (`invalid_anthropic_version`). A request without the header is served, and a valid value does not change how SMG handles the request. Forwarded to HTTP and PD workers and to the Anthropic API. |
 | `anthropic-beta` | Read on `/v1/messages` for one rule: an entry starting with `interleaved-thinking` lets `thinking.budget_tokens` be at or above `max_tokens`; without it, such a budget is refused with `400` (`thinking_budget_exceeds_max_tokens`). Forwarded to HTTP and PD workers and to the Anthropic API. |
-| `x-api-key` | Not read by SMG. Forwarded only to the Anthropic API; see [Authentication](#authentication). |
+| `x-api-key` | Not used to authenticate to SMG. Forwarded only to the Anthropic API; a gateway key sent there is removed at authentication. See [Authentication](#authentication). |
 
 Like the [request-body rules](#request-body), the `anthropic-version` and `anthropic-beta` checks are skipped for a `/v1/messages` request whose body the HTTP router streams through unparsed (see [HTTP and PD Workers](#http-and-pd-workers)). A `/v1/messages/count_tokens` body is always buffered, so its `anthropic-version` check always runs.
 

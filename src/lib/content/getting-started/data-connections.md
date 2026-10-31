@@ -21,7 +21,7 @@ This guide helps you quickly enable conversation history storage with a backend 
 
 SMG supports these history backends via `--history-backend`:
 
-- `memory` (default): in-process, non-persistent
+- `memory` (default): in-process, non-persistent, with bounded retention
 - `none`: disable history storage
 - `postgres`: durable relational storage
 - `redis`: fast key-value storage with optional retention
@@ -38,6 +38,8 @@ smg \
   --worker-urls http://worker:8000 \
   --history-backend memory
 ```
+
+The memory backend is bounded: on every write it drops the oldest records to keep at most 10,000 stored responses and 100,000 conversation items, and by default drops records older than 24 hours (a conversation's age counts from its last use). Change the bounds with `--history-memory-max-responses`, `--history-memory-max-items`, and `--history-memory-retention-secs` (`0` keeps a record until a count bound drops it); see the [memory backend options](../concepts/data/chat-history.md#memory-backend) for details.
 
 ### No history
 

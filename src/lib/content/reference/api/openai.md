@@ -330,12 +330,13 @@ Configure or disable them with
 
 | `stream_options` field | Default | Effect |
 |------------------------|---------|--------|
-| `include_usage` | `false` (Kimi: `true`) | Send the whole request's usage in a final chunk with an empty `choices` array |
+| `include_usage` | `false` (Kimi, MiniMax: `true`) | Send the whole request's usage in a final chunk with an empty `choices` array |
 | `continuous_usage_stats` | `false` | gRPC workers, except for gpt-oss (Harmony) models: with `include_usage: true`, every chunk also carries a running `usage` snapshot (the prompt plus the tokens generated so far) |
 
 On HTTP workers `stream_options`, including keys SMG does not model, is forwarded to the
-engine, which produces the usage chunks. The Kimi profile turns `include_usage` on for
-streaming requests that leave it unset, on every backend; an explicit `false` is kept.
+engine, which produces the usage chunks. The Kimi and MiniMax profiles turn
+`include_usage` on for streaming requests that leave it unset, on every backend; an
+explicit `false` is kept.
 
 The DeepSeek V4 profile uses DeepSeek's stream format on gRPC workers instead: aggregate
 usage rides on the final finish chunk whether or not `include_usage` is set, and no
@@ -889,7 +890,7 @@ its `400` carries the `X-SMG-Error-Code` header.
 |---------|----------|
 | Kimi | Streaming requests get `stream_options.include_usage: true` unless set. Tools declared on `system` and `developer` messages join the request's `tools` for `tool_choice`, the tool-choice constraint, and tool-call parsing; a `system` message that only declares tools may omit `content` |
 | Kimi K3 | Omitted fields get the contract values: `temperature` 1.0, `top_p` 0.95, `presence_penalty` 0, `frequency_penalty` 0, `n` 1 |
-| MiniMax | `root` messages move, in order, to the front as `system` messages. On gRPC workers, responses are scanned for tool calls even when the request declares no tools |
+| MiniMax | Streaming requests get `stream_options.include_usage: true` unless set. `root` messages are hoisted above all other messages and merged into one leading message that keeps the `root` role: texts are joined by a blank line in their original order, a parts list keeps its parts, and the merged message carries the first one's `name`. On gRPC workers, responses are scanned for tool calls even when the request declares no tools |
 | z.ai | `thinking.clear_thinking` becomes the `clear_thinking` chat-template variable unless `chat_template_kwargs` sets it. `tool_stream` is accepted and dropped (SMG streams tool-call deltas anyway). GLM-5.x, GLM-4.7, and GLM-4.6 get `temperature` 1.0 and `top_p` 0.95 when omitted |
 | DeepSeek V4 | Effort `minimal` → `low`; on V4, `medium` and `xhigh` → `high` (V4.1 keeps both as native levels, though a request forwarded to an HTTP worker or external provider still sends `medium` as `high`, matching DeepSeek's own API). Thinking is on unless turned off (`thinking.type: disabled`, effort `none`, or a template override), and the result is written to `chat_template_kwargs.thinking` when that is unset. Streams use DeepSeek's usage format (see [Stream Usage](#stream-usage)) |
 

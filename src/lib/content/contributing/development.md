@@ -663,12 +663,16 @@ The docs site needs Node 22 and pnpm 10 (`pnpm node:use` installs Node with fnm)
 
 ## Release Process
 
-Releases are cut by the core maintainers:
+Releases are cut by the core maintainers from `main` onto a `release/<x.y>` branch, tagged there, and published only by manually dispatched workflows. Nothing publishes on a merge or a push, and `main` never pauses for a release. The `make release-*` targets drive each step; `scripts/release/README.md` in the smg repository holds the step-by-step detail.
 
-1. A `chore(release): bump versions for vX.Y.Z` PR bumps the versions. `make bump-version VERSION=X.Y.Z` updates the gateway and binding versions (`model_gateway/Cargo.toml`, both binding `Cargo.toml` files, `bindings/python/pyproject.toml`, and `bindings/python/src/smg/version.py`), and `make check-versions` checks that every workspace crate changed since the last tag has a version bump.
-2. Merging the PR to `main` starts the release workflows: `release-crates` publishes each crate whose version is newer than the one on crates.io, and `release-pypi`, `release-docker`, and `release-helm` run when `bindings/python/pyproject.toml` changes.
+1. `make release-cut VERSION=X.Y.Z-rc.1` creates `release/<x.y>` from `main` and commits the version bump on it. After the cut, the branch moves only by pull requests: `make release-pick` cherry-picks fixes from `main`, and `make release-bump` opens the version-bump PR for the next candidate or the final.
+2. `make release-check VERSION=X.Y.Z` prints the release gate: CI green on the branch head itself, consistent versions, and a recorded verifier run for each of the four model providers (DeepSeek, GLM, Kimi, MiniMax). The `PR Test (SMG)` matrix runs on pushes to `release/**` and on pull requests against it, as it does for `main`. Once the gate is green, `make release-tag VERSION=X.Y.Z` tags the branch head; it refuses when the versions are inconsistent.
+3. Publishing is a set of manual dispatches against the tag; `make release-publish-plan` prints the dispatches to run and the artifacts they produce. `release-pypi`, `release-helm`, `release-crates`, and `release-grpc` run on `workflow_dispatch` only; a crate publishes when its exact version is not on crates.io yet. The two image workflows have extra triggers that never publish: `release-engine-docker` runs as a dry run on a pull request that touches the engine image's build files, and `release-docker` builds the gateway image on a push to `main` or `release/**` that touches the Dockerfile. Both push images only on a dispatch, and the gateway image's `latest` tag moves only for a final release.
+4. After a final, `make release-bump-main` opens the PR that moves `main`'s version files to the release's versions; `main` keeps the last final's versions between releases and never carries an `-rc` suffix.
 
-Crate versions follow [Semantic Versioning](https://semver.org/). `make check-versions` derives the bump level from conventional commits: a `!` after any type (such as `feat!` or `fix!`) or `BREAKING CHANGE` in the message for major, `feat` for minor, anything else for patch.
+A bump, whether from `release-cut` or `release-bump`, writes the same version string to every version file (`model_gateway/Cargo.toml`, both binding `Cargo.toml` files, `bindings/python/pyproject.toml`, `bindings/python/src/smg/version.py`, `deploy/helm/smg/Chart.yaml`, and the `SMG_RELEASE_TAG` line of the `release-engine-docker` workflow) and raises the version of every workspace crate and gRPC Python package changed since the previous tag.
+
+Crate versions follow [Semantic Versioning](https://semver.org/). `make check-versions` checks that every workspace crate changed since the previous tag has a version bump, and derives the required level from conventional commits: a `!` after any type (such as `feat!` or `fix!`) or `BREAKING CHANGE` in the message for major, `feat` for minor, anything else for patch.
 
 ---
 

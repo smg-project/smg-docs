@@ -71,7 +71,7 @@ smg launch \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--priority-scheduler-enabled` | `false` | Master switch. When unset, the legacy concurrency-limit middleware stays wired and no scheduler is constructed. |
-| `--priority-scheduler-default-max-class` | `default` | Maximum class for tenants not listed in the YAML (`system` \| `interactive` \| `default` \| `bulk`). Case-insensitive and whitespace-tolerant like the header, but unlike the header an unknown value is a **startup error** naming the four classes, not a silent fallback to `default`. |
+| `--priority-scheduler-default-max-class` | `default` | Maximum class for tenants not listed in the YAML (`system` \| `interactive` \| `default` \| `bulk`). Case-insensitive and whitespace-tolerant like the header, but an unknown value is a **startup error** naming the four classes, not the header's silent fallback to `default`. |
 | `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class overrides + per-tenant policy). Absent → built-in defaults and an empty tenant policy map. Given without `--priority-scheduler-enabled`, the file is not read and the gateway prints a startup warning. |
 | `--priority-scheduler-tenant-metric-top-n` | `32` | Intended cap on per-tenant metric label cardinality. **Not yet enforced** — the value is stored but no top-N bucketing is applied today; per-tenant counters currently intern the raw tenant. |
 
@@ -150,7 +150,7 @@ At startup the gateway validates, for every class:
 
 A validation failure is a startup error naming the class and the field: the gateway refuses to start rather than serve under a configuration the operator did not write.
 
-Capacity is checked separately, against the live fleet. If the effective reservations exceed the fleet's *initial* capacity, the gateway logs at `ERROR` and [falls back to legacy admission](#enabling-the-scheduler) — the one scheduler failure that does not stop startup. A later capacity shrink never rejects: every class's reservation is scaled down proportionally (each keeps the same fraction of what it asked for), and the rounding remainder is left unreserved, shared by every class.
+Capacity is checked separately, against the live fleet. If the effective reservations exceed the fleet's *initial* capacity, the gateway logs at `ERROR` and [falls back to legacy admission](#enabling-the-scheduler) — the one scheduler failure that does not stop startup. A later capacity shrink never triggers that fallback: every class's reservation is scaled down proportionally (each keeps the same fraction of what it asked for), and the rounding remainder is left unreserved, shared by every class.
 
 ---
 

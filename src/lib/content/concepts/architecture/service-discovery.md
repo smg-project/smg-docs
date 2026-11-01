@@ -533,7 +533,7 @@ The manifest is reread in full whenever it changes and on every periodic pass, i
 | `workers[].worker_type` | In PD and EPD routing | `regular`, `prefill`, `decode`, or `encode`; it must be a type the routing mode uses. In regular routing it defaults to `regular` |
 | `workers[].bootstrap_port` | No | The worker's bootstrap port, `1`–`65535`, on prefill and encode workers only |
 | `workers[].model_id` | No | Overrides the worker's model ID |
-| `workers[].kv_connector`, `workers[].kv_role`, `workers[].kv_engine_id` | No | KV metadata for vLLM PD deployments, carrying what the [pod annotations](#pod-annotations) carry in Kubernetes |
+| `workers[].kv_connector`, `workers[].kv_role`, `workers[].kv_engine_id` | No | KV metadata for vLLM PD deployments. `kv_connector` and `kv_engine_id` carry what the [pod annotations](#pod-annotations) carry in Kubernetes; `kv_role` is the engine's `kv_transfer_config.kv_role`, which has no pod annotation |
 
 The parse is strict, and a manifest is applied whole or not at all: an unknown or misspelled field, an unknown worker type, an unsupported version, a duplicate `id`, or two records naming the same endpoint rejects the whole file, with a log line naming the record and the reason. `{"version": 1, "workers": []}` is valid and means an intentionally empty fleet.
 

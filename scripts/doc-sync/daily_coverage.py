@@ -43,12 +43,13 @@ def unpublished_reason(item, prior, feedback):
     return 'Proposed, but not selected for publication.'
 
 
-def carry_forward(prior, prs, feedback=None):
+def carry_forward(prior, prs, feedback=None, history=None):
     """Return unfinished checks, reopening proposals that never reached a PR.
 
     A proposed disposition only settles a commit once its concerns have a PR.
     Deferred page conflicts, review rejections and writer no-ops reopen the
     check with the reason, so the subsystem re-examines it on the next run.
+    Abandoned concerns stay listed until a PR lands or the commit leaves history.
     """
     feedback = feedback or {}
     attempts = dict(prior.get('publication_attempts', {}))
@@ -70,7 +71,8 @@ def carry_forward(prior, prs, feedback=None):
         waiting = [owned[c] for c in check['concerns'] if c in owned and not published(owned[c], prs)]
         retry = [item for item in waiting if attempts.get(identity(item), 0) < MAX_PUBLICATION_ATTEMPTS]
         abandoned.extend({'shard': check['shard'], 'source_sha': check['source_sha'],
-                          'concern': identity(item), 'attempts': attempts[identity(item)],
+                          'concern': identity(item), 'key': item['key'],
+                          'attempts': attempts[identity(item)],
                           'reason': unpublished_reason(item, prior, feedback)}
                          for item in waiting if item not in retry)
         if retry:
@@ -78,6 +80,15 @@ def carry_forward(prior, prs, feedback=None):
                            'blockers': [], 'depends_on': [],
                            'evidence': ' '.join(f"{identity(i)}: {unpublished_reason(i, prior, feedback)}"
                                                 for i in retry)})
+    seen = {(a['source_sha'], a['shard'], a['concern']) for a in abandoned}
+    for entry in prior.get('abandoned_concerns', []):
+        area, concern = entry['concern'].split('/', 1)
+        if ((entry['source_sha'], entry['shard'], entry['concern']) in seen
+                or (history is not None and entry['source_sha'] not in history)
+                or published({'key': entry['key'], 'area': area, 'concern': concern}, prs)):
+            continue
+        seen.add((entry['source_sha'], entry['shard'], entry['concern']))
+        abandoned.append(entry)
     return checks, attempts, abandoned
 
 

@@ -429,7 +429,8 @@ def main():
         prior = previous_report(repo, os.environ['DEFAULT_BRANCH'], context)
         feedback = publication_feedback(repo, prior)
         prs = context['existing_prs']
-        carried, attempts, abandoned = daily_coverage.carry_forward(prior, prs, feedback)
+        carried, attempts, abandoned = daily_coverage.carry_forward(
+            prior, prs, feedback, {line.split()[0] for line in context['code_history']})
         # Rejected or unpublished selections return first, with the reason.
         context['pending_concerns'] = pending_candidates(
             daily_coverage.retry_concerns(prior, prs, attempts, feedback)

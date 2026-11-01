@@ -388,6 +388,13 @@ class DailyCoverageTests(unittest.TestCase):
         self.assertEqual(daily.retry_concerns(prior, [], attempts), [])
         ledger = daily.ledger(prior, carried, abandoned, self.history)
         self.assertEqual(ledger[self.latest]['api-protocols'], 'abandoned')
+        # The maintainer list survives later runs, without duplicates, until a
+        # PR lands for the concern or its commit leaves the source history.
+        history = {line.split()[0] for line in self.history}
+        later = {'abandoned_concerns': abandoned + abandoned}
+        self.assertEqual(daily.carry_forward(later, [], history=history)[2], abandoned)
+        self.assertEqual(daily.carry_forward(later, [pr(item, state='closed')], history=history)[2], [])
+        self.assertEqual(daily.carry_forward(later, [], history={self.old})[2], [])
 
     def test_backlog_assigns_unassessed_pairs_newest_first_and_blocked_last(self):
         history = [f'{n:040x} change {n}' for n in range(1, 8)]

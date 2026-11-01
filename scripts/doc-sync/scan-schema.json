@@ -155,9 +155,15 @@
 						},
 						"required": ["pr", "path"]
 					}
+				},
+				"depends_on": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
 				}
 			},
-			"required": ["status", "concerns", "evidence", "blockers"]
+			"required": ["status", "concerns", "evidence", "blockers", "depends_on"]
 		}
 	}
 }

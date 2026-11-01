@@ -179,7 +179,7 @@ For this path it prints `22670`. SMG also logs the address when it binds:
 Binding ZMQ client for worker ipc:///tmp/smg-zmq/engine-0 (handshake=tcp://127.0.0.1:22670, engines=Declared)
 ```
 
-`engines=` shows how many engines the handshake waits for: `Exactly(N)` for a worker with an explicit engine count, or `Declared` when the gateway takes the count from the first engine to dial (see [Data-Parallel Engines](#data-parallel-engines)).
+`engines=` shows how many engines the handshake waits for: `Exactly(N)` for a grouped worker with an explicit engine count, or `Declared` when the gateway takes the count from the first engine to dial (see [Data-Parallel Engines](#data-parallel-engines)).
 
 Two paths can hash to the same port; SMG rejects the second worker at registration. Workers added through the [worker API](#register-workers-at-runtime) can set a fixed `zmq_handshake_address` instead.
 

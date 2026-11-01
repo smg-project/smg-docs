@@ -78,7 +78,7 @@ smg launch \
 While the scheduler is active, the legacy admission flags change meaning: `--queue-size` and `--queue-timeout-secs` are not used, `--max-concurrent-requests` only sets the fallback capacity while no healthy worker is registered, and a positive `--rate-limit-tokens-per-second` (unless `--max-concurrent-requests` is `0`) adds a request-rate check before admission that sheds with 429 `scheduler_queue_full`. See [Rate Limiting](../concepts/reliability/rate-limiting.md#with-the-priority-scheduler).
 
 !!! warning "Startup behavior"
-    With the scheduler enabled, a bad configuration **stops the gateway at startup** with an error naming the field and the problem: a YAML file that cannot be read or parsed (an unknown key included), an unknown class name in the file or in `--priority-scheduler-default-max-class`, or a value that fails [validation](#validation). The one case that does not stop startup is capacity: if the configured reservation floors + shares sum to more than the fleet's initial live capacity, the gateway logs at `ERROR` and **falls back to legacy admission** — a too-small fleet does not take the data plane down.
+    With the scheduler enabled, a bad configuration **stops the gateway at startup** with an error naming the field and the problem: a YAML file that cannot be read or parsed (including an unknown key), an unknown class name in the file or in `--priority-scheduler-default-max-class`, or a value that fails [validation](#validation). The one case that does not stop startup is capacity: if the configured reservation floors + shares sum to more than the fleet's initial live capacity, the gateway logs at `ERROR` and **falls back to legacy admission** — a too-small fleet does not take the data plane down.
 
 ---
 

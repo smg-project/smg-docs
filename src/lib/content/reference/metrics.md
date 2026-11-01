@@ -1446,7 +1446,7 @@ sum by (model) (smg_engine_waiting_requests >= 0)
 
 ## Layer 4: Discovery Metrics
 
-Metrics for Kubernetes service discovery, emitted when `--service-discovery` is enabled. The `source` label is always `kubernetes`.
+Metrics for worker service discovery, emitted when a discovery provider is selected (`--service-discovery` or `--discovery-provider`). The `source` label names the provider: `kubernetes`, `file`, `slurm`, or `consul`.
 
 ### `smg_discovery_registrations_total`
 

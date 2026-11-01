@@ -337,7 +337,7 @@ Start the engine group with its data-parallel size. A TokenSpeed attention-DP gr
 - `--zmq-engine-count` applies to every `ipc://` URL in `--worker-urls`; an explicit value must be a positive integer, and `--zmq-engine-count 1` behaves like leaving the flag unset. For a worker added through the API, set `"dp_size"` on the worker instead; a `dp_size` of 1 waits for exactly one engine.
 - Left unset, the count settles on what the first engine to dial declares, and an engine that declares no group size counts as one. A vLLM group with the count unset therefore settles at a single engine, and the rest of its ranks dial in as extras.
 - The count the gateway waits for must match the number of engines that dial in. An extra engine can fail the handshake with `duplicate HELLO ... after INIT phase`; a missing one leaves the handshake waiting until it times out.
-- An engine that declares a different group size than the count the handshake already awaits — an explicit count, or the size the first engine declared — still connects; the gateway logs `engine declares a group of a different size than this handshake awaits` and keeps the count it was waiting for.
+- An engine may declare a group size that differs from the count the handshake awaits, whether that count was set explicitly or settled by the first engine. The engine still connects; the gateway logs `engine declares a group of a different size than this handshake awaits` and keeps the count it was waiting for.
 - The engine process needs `N` times its tensor-parallel size in GPUs.
 - Grouped workers can't be combined with `--dp-aware`, which tries to expand the group into one worker per rank and fails with `cannot be dp-aware expanded`. Single-engine ZMQ workers register normally under `--dp-aware`.
 

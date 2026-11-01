@@ -334,9 +334,10 @@ Configure or disable them with
 | `continuous_usage_stats` | `false` | gRPC workers, except for gpt-oss (Harmony) models: with `include_usage: true`, every chunk also carries a running `usage` snapshot (the prompt plus the tokens generated so far) |
 
 On HTTP workers `stream_options`, including keys SMG does not model, is forwarded to the
-engine, which produces the usage chunks. The Kimi and MiniMax profiles turn
-`include_usage` on for streaming requests that leave it unset, on every backend; an
-explicit `false` is kept.
+engine, which produces the usage chunks.
+
+The Kimi and MiniMax profiles turn `include_usage` on for streaming requests that leave
+it unset, on every backend; an explicit `false` is kept.
 
 The DeepSeek V4 profile uses DeepSeek's stream format on gRPC workers instead: aggregate
 usage rides on the final finish chunk whether or not `include_usage` is set, and no

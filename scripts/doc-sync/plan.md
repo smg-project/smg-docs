@@ -14,6 +14,21 @@ each checks its own responsibility. A merge's first-parent patch includes the
 merged changes. Never mark a commit inspected from its title alone.
 Use pending_commit_checks as leads, then re-check the current source, docs and PR
 inventory; old findings and blockers are not current approval or proof.
+Status "unpublished" means a prior proposal for that commit never became a PR;
+its evidence says why (page conflict, review rejection, or no change). Fix the
+cause, for example by adding every related page the reviewer named to
+doc_paths, or explain why the commit is now covered or not applicable.
+pending_concerns may carry publication_feedback with the same reason; reuse
+their identity when re-proposing.
+
+When scan_mode is "backlog", required_commit_ids are older mainline commits that
+never received an assessment for your subsystem. Assess each exactly like a
+recent commit, but document the contract at the pinned source: later commits
+may have changed or replaced the behavior. Propose concerns only for gaps found
+in these commits or matching pending_concerns. Skip release audits (return an
+empty release_audit_checks and never propose release-audit- slugs), version-
+context cleanup and the broad older-history survey. Mark IDs you cannot finish
+as deferred; they return next run without failing coverage.
 
 Return daily_commit_checks as an object keyed by EVERY required_commit_id as a
 decimal string (for example, "81"). Each required key has status, concerns,
@@ -29,16 +44,20 @@ An inspected commit still needs its own disposition, including test-only changes
   why from the patch/current source (for example, an internal refactor with no
   user-visible behavior change); concerns is empty.
 - blocked: the assessment is COMPLETE, but all remaining verified corrections
-  need pages held by open PRs. Name the stale/missing contract and source evidence,
-  and list each blocker as {pr: number, path: canonical_doc_path}. Each PR must
-  be open and hold that exact page in existing_prs. Reference any other completed
+  need pages held by open PRs, or must wait for another subsystem's correction
+  for this same commit. Name the stale/missing contract and source evidence.
+  List each page blocker as {pr: number, path: canonical_doc_path}; each PR must
+  be open and hold that exact page in existing_prs. List each subsystem whose
+  correction must land first in depends_on (scan_responsibilities names); that
+  subsystem must have a proposal, queued pending concern or open PR for this
+  commit, otherwise the check stays unfinished. Reference any other completed
   proposals in concerns. Do not use this for unverified changes or budget limits.
 - deferred: any relevant change remains unverified or a limit prevents a complete
   proposal; explain what remains. Reference any completed partial proposals.
 
-Use an empty blockers list for every status except blocked. Verified blockers
-count as assessed but carry forward until the pages are available or already
-corrected. Missing/deferred checks keep coverage incomplete and carry forward. Do not label
+Use empty blockers and depends_on lists for every status except blocked.
+Verified blockers count as assessed but carry forward until the pages are
+available or already corrected. Missing/deferred checks keep coverage incomplete and carry forward. Do not label
 unfinished work covered to satisfy the check. One commit can need several
 separate concerns; one proposal may address related changes in several commits.
 Keep the one-concern rule and the usual independent review for every proposal.
@@ -56,7 +75,8 @@ return remaining_work for unfinished candidates rather than claiming exhaustion.
 Select source_commit using the supplied numeric IDs, never invent a SHA. Record
 IDs actually inspected in inspected_commits. Budget the 80 investigative turns
 for required commits first, then older work, reserving the rest of 200 for the
-structured result. Do not chase a PR quota.
+structured result. Read several patches per turn where possible. Do not chase a
+PR quota.
 
 inspected_commits is NOT limited to required_commit_ids. EVERY proposal's
 source_commit must also be inspected and listed, including a reused pending

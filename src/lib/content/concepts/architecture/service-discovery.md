@@ -545,7 +545,7 @@ A read that fails never removes a worker. An unreadable manifest (absent, or a p
 
 How an edit maps onto a running worker:
 
-- **Editing a record that keeps its `id`** — correcting its bootstrap port, say — updates its worker in place with the new settings, without removing or draining it.
+- **Editing a record that keeps its `id`** (for example, correcting its bootstrap port) updates its worker in place with the new settings, without removing or draining it.
 - **A new `id` at a reused address** signals a new instance there: the old worker is removed and the address is registered again.
 - **Removing a record** drains and removes its worker, through the same [removal flow](#removal-flow) as a deleted pod.
 

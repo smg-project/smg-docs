@@ -871,8 +871,9 @@ Conversations provide persistent storage for multi-turn interactions, enabling c
 
 The conversation endpoints report errors in the gateway envelope
 (`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).
-An unknown conversation or item answers `404` with code `not_found`; an invalid request
-answers `400` with code `invalid_request`.
+An unknown conversation or item answers `404` with code `not_found` (the exception is
+[Delete Conversation Item](#delete-conversation-item), which ignores an unknown item);
+an invalid request answers `400` with code `invalid_request`.
 
 Three `400` rejections carry their own `code` and `param`: under
 [Create Conversation Items](#create-conversation-items), `item_already_in_conversation`
@@ -1211,7 +1212,9 @@ curl -X DELETE http://localhost:30000/v1/conversations/conv_abc123/items/msg_abc
 
 ### Response
 
-Returns the updated conversation object.
+Returns the updated conversation object. An item that is not in the conversation,
+including an unknown id, is ignored: the request answers `200` with the conversation
+object, not `404`.
 
 ---
 

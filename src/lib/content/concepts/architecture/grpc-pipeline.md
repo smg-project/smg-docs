@@ -502,6 +502,14 @@ The constraint travels in the request's `SamplingParams.constraint` oneof (`crat
 
 See [gRPC Workers](../../getting-started/grpc-workers.md) for the launch commands.
 
+### Older XGrammar Releases
+
+The structural tags [Symphony's tables](#constraints-under-symphony) build can carry the `optional`, `plus`, `star` and `token` nodes, which xgrammar compiles from release 0.1.33 on; an older xgrammar refuses a tag that carries one at compile time ("Format type not recognized"), failing the request. The Rust servicers close the gap: when the engine's grammar backend runs xgrammar (named `xgrammar`, vLLM's `auto`, or the engine's own default) and the xgrammar installed beside the engine predates 0.1.33, they advertise the `structural_tag_vocabulary: older` worker label (the installed version is read once, at the worker's launch). The gateway then spells that worker's Symphony tags without `optional`, `plus` and `star` — the same language, written with the nodes every xgrammar release compiles — so the request compiles instead of failing. One exception: a marker the table writes as a single `token` of the model's vocabulary stays as built, so a tag that carries one still fails on the older compiler.
+
+Without the label — a current xgrammar, another grammar backend, or a servicer that doesn't say — every tag is sent as the table built it. Only Symphony's tags are respelled; the [legacy parsers' structural tags](#when-a-constraint-is-sent) are always sent as built. The selected worker's label decides each request (under PD disaggregation, the decode worker's); a forced call's tag, built before a worker is selected, takes the older spelling when any of the model's token-generating workers advertises the label — a spelling every compiler takes.
+
+The Python servicers and the [ZMQ direct backend](../../getting-started/zmq-workers.md) do not report the label; when such a worker's engine runs an older xgrammar, set `structural_tag_vocabulary: older` among the labels of its [worker spec](../../reference/api/admin.md#worker-spec) yourself.
+
 ---
 
 ## Configuration

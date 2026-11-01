@@ -112,7 +112,7 @@ How the two combine depends on the router:
 
 | Router | Key sent upstream |
 |--------|-------------------|
-| OpenAI-compatible | The caller's `Authorization` header, else the stored key as a bearer token. On `/v1/responses`, a caller's `x-api-key` (when the worker URL contains `anthropic`) or `x-goog-api-key` (when the worker URL contains `googleapis.com`) is preferred over `Authorization`; `/v1/chat/completions` reads only `Authorization`. |
+| OpenAI-compatible | The caller's `Authorization` token, else the stored key, in the [upstream key header](#supported-providers) picked from the worker URL. On `/v1/responses`, a caller's `x-api-key` (when the worker URL contains `anthropic`) or `x-goog-api-key` (when the worker URL contains `googleapis.com`) is preferred over `Authorization`; `/v1/chat/completions` reads only `Authorization`. |
 | Gemini | The caller's `x-goog-api-key`, else the caller's `Authorization` token, else the stored key |
 | Anthropic | The caller's `x-api-key` or `Authorization`, forwarded as sent along with `anthropic-version` and `anthropic-beta`. When the caller sends neither, the stored key goes out as `x-api-key`, with `anthropic-version: 2023-06-01` added when the caller sent no version header. |
 

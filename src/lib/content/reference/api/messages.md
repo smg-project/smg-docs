@@ -43,7 +43,7 @@ SMG's own authentication is separate from the credentials it passes to backends:
 
 | Hop | Headers | Behavior |
 |-----|---------|----------|
-| Client to SMG | `Authorization: Bearer <key>` | Checked when `--api-key` or `--tenant-api-key` is set (`--tenant-api-key` is a Rust binary flag; the pip `smg launch` does not accept it). SMG does not read `x-api-key`. A missing or unknown bearer token gets `401 Unauthorized`. |
+| Client to SMG | `Authorization: Bearer <key>` | Checked when `--api-key` or `--tenant-api-key` is set (`--tenant-api-key` is a Rust binary flag; the pip `smg launch` does not accept it). `x-api-key` does not authenticate to SMG. A missing or unknown bearer token gets `401 Unauthorized`. |
 | SMG to HTTP workers | `Authorization` | The client's header is forwarded with the other [allowlisted headers](#forwarded-headers); `x-api-key` is not. A matched gateway key is removed at authentication, and the worker's own configured key, when it has one, is sent instead. See [Authentication](../../concepts/security/authentication.md) for worker API keys. |
 | SMG to the Anthropic API | `x-api-key`, `Authorization` | The client's own key headers are forwarded as sent. When the client sends neither, SMG sends the worker's stored key as `x-api-key`, with `anthropic-version: 2023-06-01` added when the client sent no version header. |
 

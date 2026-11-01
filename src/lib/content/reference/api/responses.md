@@ -872,12 +872,14 @@ Conversations provide persistent storage for multi-turn interactions, enabling c
 The conversation endpoints report errors in the gateway envelope
 (`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).
 An unknown conversation or item answers `404` with code `not_found`; an invalid request
-answers `400` with code `invalid_request`. Three rejections carry their own `code` and
-`param`: under [Create Conversation Items](#create-conversation-items),
-`item_already_in_conversation` (`param`: `items`) and `string_above_max_length` for an
-item `id` over 64 bytes (`param`: `items[].id`); under
-[Get Conversation Item](#get-conversation-item), `invalid_value` for a bad `include`
-value (`param`: the offending entry, such as `include[0]`).
+answers `400` with code `invalid_request`.
+
+Three `400` rejections carry their own `code` and `param`: under
+[Create Conversation Items](#create-conversation-items), `item_already_in_conversation`
+(`param` is `items`) and `string_above_max_length` for an item `id` over 64 bytes
+(`param` is `items[].id`); under [Get Conversation Item](#get-conversation-item),
+`invalid_value` for a bad `include` value (`param` names the offending entry, such as
+`include[0]`).
 
 A conversation is scoped to the tenant that created it: on every route below, and as
 the `conversation` of a new response, another tenant's conversation ID answers `404`,
@@ -1392,7 +1394,7 @@ vocabulary.
 | 401 | — | Invalid or missing API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |
 | 404 | `conversation_not_found` | The `conversation` does not exist, or belongs to another tenant |
-| 404 | `not_found` | Unknown or another tenant's response ID on get, delete, or input items |
+| 404 | `not_found` | Unknown or another tenant's ID: a response on get, delete, or input items, or a conversation or item on the conversation routes |
 | 404 | `response_not_found` | Unknown or another tenant's response ID on cancel |
 | 424 | `connect_mcp_server_failed` | A declared MCP server could not be reached |
 | 429 | `admission_queue_full`, `scheduler_queue_full` | Admission control; see [Rate Limiting](openai.md#rate-limiting) |

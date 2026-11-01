@@ -1213,7 +1213,7 @@ curl -X DELETE http://localhost:30000/v1/conversations/conv_abc123/items/msg_abc
 ### Response
 
 Returns the updated conversation object. An item that is not in the conversation,
-including an unknown id, is ignored: the request answers `200` with the conversation
+including an unknown ID, is ignored: the request answers `200` with the conversation
 object, not `404`.
 
 ---

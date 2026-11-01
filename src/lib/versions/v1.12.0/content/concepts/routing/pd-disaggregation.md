@@ -173,6 +173,8 @@ HTTP vLLM workers report none of the MoRI-IO settings, so set them as worker lab
 
 For DP>1, SMG selects one rank per request, round-robin, and pins both legs to it with `X-data-parallel-rank`. It also includes that rank in the transfer params and rejects a handoff from another rank. This applies to READ, sequential WRITE and concurrent WRITE. For DP1, SMG sends no rank header and keeps `remote_dp_size: 1`.
 
+If either engine combines DP>1 with TP>1, both engines additionally need the MoRI-IO port-offset correction from vLLM source revision `4e123050ee6ff2a8c86ccf678735380ad87eea6f`, or an equivalent backport. Listeners and peer notifications must consistently use the listening instance's TP size in `dp_rank * tp_size + tp_rank`. Without that correction, two ranks can bind the same port or notifications can reach the wrong rank. The separate DP8/TP1 and DP1 heterogeneous-TP results do not exercise this combined configuration.
+
 For example, register two engines already configured with DP8 and TP1 as follows. These labels describe the running engines; they do not configure vLLM. For DP1, omit `dp_size` or set it to `"1"` on both registrations.
 
 

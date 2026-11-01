@@ -288,7 +288,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo clippy --all-targets --all-features --fix --allow-dirty
 ```
 
-After clippy, the same CI job builds the workspace's public documentation with rustdoc warnings as errors, so a dangling or private intra-doc link — for example, one left behind by a moved or renamed item — fails the pull request:
+After clippy, the same CI job, `rust-lint (all-features)`, builds the workspace's public documentation with rustdoc warnings as errors, so a dangling or private intra-doc link — for example, one left behind by a moved or renamed item — fails the pull request:
 
 ```bash
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --all-features
@@ -689,7 +689,8 @@ Crate versions follow [Semantic Versioning](https://semver.org/). `make check-ve
 |-----------------|----------------|----------------|
 | `pre-commit` | The pre-commit hooks on all files, minus rustfmt, clippy, and the branch and commit-message hooks | `pre-commit run --all-files` |
 | `python-lint` | ruff and mypy | [Python](#python) |
-| `unit-tests` | Clippy (all features, self-hosted-only, and Anthropic-only builds), the workspace rustdoc with warnings as errors, `cargo +nightly fmt -- --check`, `cargo test`, and the Postgres tests | [Rust tests](#rust-unit-and-integration-tests) |
+| `rust-lint` | Clippy (all features, self-hosted-only, and Anthropic-only builds), the workspace rustdoc with warnings as errors, and `cargo +nightly fmt -- --check` | [Linting and Formatting](#linting-and-formatting) |
+| `rust-tests` | `cargo test` and the Postgres tests, split into shards that each group crates | [Rust tests](#rust-unit-and-integration-tests) |
 | `cargo-audit` | `Cargo.lock` against the [RustSec advisory database](https://rustsec.org/), when the dependency graph changes (`Cargo.lock`, any `Cargo.toml`, `.cargo/audit.toml`, the audit script, or the workflow) | `bash scripts/ci_cargo_audit.sh` |
 | `build-wheel`, `python-unit-tests` | The Python wheel and Go FFI library; binding, servicer, and e2e-harness unit tests | [Python Bindings](#python-bindings) |
 | `e2e-*` | GPU lanes against real engines, and CPU lanes against third-party providers | [End-to-End Tests](#end-to-end-tests) |
@@ -700,7 +701,7 @@ Crate versions follow [Semantic Versioning](https://semver.org/). `make check-ve
 
 `cargo-audit` fails on any vulnerability that `.cargo/audit.toml` does not ignore, and passes when only warnings (unmaintained or yanked crates) remain. Every ignore entry needs a reason and is removed once the fixed release is in the lockfile. `scripts/ci_cargo_audit.sh` downloads the same pinned `cargo-audit` release that CI uses, so running the script from the repository root reproduces the job. A nightly workflow runs the same audit against `main`, catching advisories published after the last dependency change.
 
-On pull requests, a `detect-changes` job skips work whose inputs did not change: the Rust `unit-tests` job runs only when Rust code, manifests, or lint configuration change, and each e2e lane only when its paths do. Forks can run CI on their own runners by setting repository variables such as `SMG_RUNNER_CPU` and `SMG_RUNNER_GPU_1`; see [Running CI on your own runners](https://github.com/smg-project/smg/blob/main/CONTRIBUTING.md#running-ci-on-your-own-runners).
+On pull requests, a `detect-changes` job skips work whose inputs did not change: the `rust-lint` legs run only when Rust code, manifests, or lint configuration change, each `rust-tests` shard only when a path that can affect what it tests does, and each e2e lane only when its paths do. Forks can run CI on their own runners by setting repository variables such as `SMG_RUNNER_CPU` and `SMG_RUNNER_GPU_1`; the "Running CI on your own runners" section of `CONTRIBUTING.md` in the smg repository describes the setup.
 
 ---
 

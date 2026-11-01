@@ -77,7 +77,7 @@ RUST_LOG=info smg launch --worker-urls http://worker:8000
 Human-readable lines: UTC timestamp, level, the enclosing request span with its fields, target, source location, and message. On stdout the lines carry ANSI color codes when stdout is a terminal, not when it is redirected into a file or a pipe (`NO_COLOR` set to a non-empty value turns color off on a terminal too; `FORCE_COLOR` or `CLICOLOR_FORCE` set to a non-empty value other than `0` turns it on into a pipe); files written with `--log-dir` never do.
 
 ```
-2026-09-24 10:30:45  INFO http_request{method=POST path=/v1/chat/completions version=HTTP/1.1 module="smg" request_id="chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE" status_code=200 latency=1523}: smg::response: model_gateway/src/middleware/logging.rs:138: finished processing request
+2026-09-24 10:30:45  INFO http_request{method=POST path=/v1/chat/completions version=HTTP/1.1 module="smg" request_id="chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE" status_code=200 latency=1523}: smg::response: model_gateway/src/middleware/logging.rs:465: finished processing request
 ```
 
 ### JSON Format
@@ -97,14 +97,14 @@ Output (pretty-printed here):
   "message": "finished processing request",
   "target": "smg::response",
   "filename": "model_gateway/src/middleware/logging.rs",
-  "line_number": 138,
+  "line_number": 465,
   "span": {
     "latency": 1523,
     "method": "POST",
     "module": "smg",
+    "path": "/v1/chat/completions",
     "request_id": "chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE",
     "status_code": 200,
-    "path": "/v1/chat/completions",
     "version": "HTTP/1.1",
     "name": "http_request"
   },
@@ -113,9 +113,9 @@ Output (pretty-printed here):
       "latency": 1523,
       "method": "POST",
       "module": "smg",
+      "path": "/v1/chat/completions",
       "request_id": "chatcmpl-4qD9pXvR2mT7sLk0aZ3nB8wE",
       "status_code": 200,
-      "path": "/v1/chat/completions",
       "version": "HTTP/1.1",
       "name": "http_request"
     }

@@ -872,8 +872,8 @@ Conversations provide persistent storage for multi-turn interactions, enabling c
 The conversation endpoints report errors in the gateway envelope
 (`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).
 An unknown conversation or item answers `404` with code `not_found` (the exception is
-[Delete Conversation Item](#delete-conversation-item), which ignores an unknown item);
-an invalid request answers `400` with code `invalid_request`.
+[Delete Conversation Item](#delete-conversation-item), which ignores an item that is
+not in the conversation); an invalid request answers `400` with code `invalid_request`.
 
 Three `400` rejections carry their own `code` and `param`: under
 [Create Conversation Items](#create-conversation-items), `item_already_in_conversation`

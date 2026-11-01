@@ -452,6 +452,7 @@ smg --history-backend redis \
 | Symptom | Cause | Solution |
 |---------|-------|----------|
 | Startup fails with `is unreachable at start-up` or `did not answer within the start-up bound` | History store down, not answering, or wrong connection URL | Check that the store is running and verify the connection URL |
+| Startup fails with `ahead of the latest migration this build knows` | Gateway rolled back after a newer build migrated the database | Upgrade the gateway, or set `version:` in the schema config (see [Schema Migrations](#schema-migrations)) |
 | Connection timeouts | Slow network | Increase pool timeout |
 | Pool exhaustion | High concurrency | Increase pool size |
 | Data not persisting | Wrong backend | Verify `--history-backend` setting |

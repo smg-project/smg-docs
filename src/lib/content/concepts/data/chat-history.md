@@ -307,7 +307,7 @@ DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
 
 On PostgreSQL and Oracle, whatever the auto-migration setting, SMG refuses to start against a database whose recorded schema version is **ahead** of the latest migration the running build knows. This typically follows a rollback of the gateway image after a newer build has migrated the database forward: the older build does not know the shape of the newer schema and would otherwise start, then fail on its first read of a changed column. The refusal comes before any history table is touched, so the database stays as the newer build left it.
 
-To recover, upgrade the gateway to the build that migrated the database. To run the older build against the database anyway, set `version:` in the schema config to the database's recorded version (the refusal names the exact value to set); SMG then starts and logs a warning. A higher `version:` also satisfies the check, but it marks future migrations as already applied, so later upgrades would skip them.
+To recover, upgrade the gateway to the build that migrated the database. To run the older build against the database anyway, set `version:` in the schema config to the database's recorded version (the refusal names the exact value to set); SMG then starts and logs a warning. A higher `version:` also satisfies the check, but it marks migrations up to that number as already applied, so a later upgrade would skip them.
 
 ---
 

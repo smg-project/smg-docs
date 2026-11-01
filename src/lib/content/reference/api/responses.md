@@ -871,16 +871,17 @@ Conversations provide persistent storage for multi-turn interactions, enabling c
 
 The conversation endpoints report errors in the gateway envelope
 (`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).
-An unknown conversation or item answers `404` with code `not_found` (the exception is
-[Delete Conversation Item](#delete-conversation-item), which ignores an item that is
-not in the conversation); an invalid request answers `400` with code `invalid_request`.
+An unknown conversation or item answers `404` with code `not_found`, and an invalid
+request answers `400` with code `invalid_request`; the one exception is
+[Delete Conversation Item](#delete-conversation-item), which answers `200` for an item
+that is not in the conversation.
 
 Three `400` rejections carry their own `code` and `param`: under
 [Create Conversation Items](#create-conversation-items), `item_already_in_conversation`
-(`param` is `items`) and `string_above_max_length` for an item `id` over 64 bytes
-(`param` is `items[].id`); under [Get Conversation Item](#get-conversation-item),
-`invalid_value` for a bad `include` value (`param` names the offending entry, such as
-`include[0]`).
+for an item the conversation already holds (`param` is `items`) and
+`string_above_max_length` for an item `id` over 64 bytes (`param` is `items[].id`);
+under [Get Conversation Item](#get-conversation-item), `invalid_value` for a bad
+`include` value (`param` names the offending entry, such as `include[0]`).
 
 A conversation is scoped to the tenant that created it: on every route below, and as
 the `conversation` of a new response, another tenant's conversation ID answers `404`,
@@ -1213,8 +1214,8 @@ curl -X DELETE http://localhost:30000/v1/conversations/conv_abc123/items/msg_abc
 ### Response
 
 Returns the updated conversation object. An item that is not in the conversation,
-including an unknown ID, is ignored: the request answers `200` with the conversation
-object, not `404`.
+including an unknown item ID, is ignored: the request answers `200` with the
+conversation object, not `404`. An unknown conversation still answers `404`.
 
 ---
 

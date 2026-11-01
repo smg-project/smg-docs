@@ -262,7 +262,7 @@ ZMQ-related worker fields:
 | `url` | `ipc://<path>` (the path is required) |
 | `runtime_type` | `vllm`, `tokenspeed`, or `sglang` (`runtime` is accepted as an alias). Unset means vLLM |
 | `zmq_handshake_address` | A `tcp://` address to bind for the handshake instead of the derived one. Rejected on non-ZMQ workers |
-| `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); if omitted, the worker waits for the group size the first engine to dial declares (one for an engine that declares none). Leave `dp_rank` unset |
+| `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); if omitted, the worker waits for the group size declared by the first engine to dial (one for an engine that declares none). Leave `dp_rank` unset |
 | `labels.model_path` | Model ID and tokenizer source, for gateways started without `--model-path` |
 
 `zmq_handshake_address` pairs a worker with an engine that dials a fixed address. A TokenSpeed engine started without `--data-parallel-rpc-port` dials `tcp://127.0.0.1:30500`, so this worker pairs with it:
@@ -464,7 +464,7 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
     **Solutions:**
 
     1. Check that the engine dials the address SMG bound: compare the engine's `--data-parallel-rpc-port` and `--data-parallel-address` with the `handshake=` value in SMG's `Binding ZMQ client for worker ...` log line. With no engine, once `--zmq-startup-timeout-secs` expires, SMG logs `ZMQ backend handshake failed for ...: ... startup handshake timed out while waiting for HELLO after 3600s; will retry on the next health probe`.
-    2. For a grouped worker, check that an explicit `--zmq-engine-count` (or `dp_size`) matches the engine's `--data-parallel-size`. With no explicit count, the gateway waits for the group size the first engine to dial declared, so the worker stays pending until that many engines have dialed in.
+    2. For a grouped worker, check that an explicit `--zmq-engine-count` (or `dp_size`) matches the engine's `--data-parallel-size`. With no explicit count, the gateway waits for the group size declared by the first engine to dial, so the worker stays pending until that many engines have dialed in.
     3. A worker added through the API to a gateway started with `--disable-health-check` and no ZMQ workers at startup is never promoted. Restart the gateway without that flag.
 
 ??? question "Socket bind errors or stale socket files"

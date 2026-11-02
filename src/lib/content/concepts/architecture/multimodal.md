@@ -110,7 +110,9 @@ SMG_VLLM_MM_PROCESSOR=inprocess \
   vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc --allowed-media-domains example.com
 ```
 
-The servicer reads each setting below from its `--mm-*` flag when the launcher passes the flags through, and otherwise from the matching `SMG_VLLM_MM_*` variable. vLLM's gRPC launcher (`vllm serve --grpc`) does not pass them, so set the variables. A value read from a variable logs a deprecation warning, and env support is due to end in the next minor release — except `SMG_VLLM_MM_FETCH_TIMEOUT_MS` and `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS`, which remain supported spellings of their flags and never log the warning.
+The servicer reads each setting below from its `--mm-*` flag when the launcher passes the flags through, and otherwise from the matching `SMG_VLLM_MM_*` variable. vLLM's gRPC launcher (`vllm serve --grpc`) does not pass them, so set the variables.
+
+A value read from a variable logs a deprecation warning, and env support is due to end in the next minor release. `SMG_VLLM_MM_FETCH_TIMEOUT_MS` and `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS` are the exceptions: they remain supported spellings of their flags and never log the warning.
 
 | Servicer flag | Env fallback | Default | Description |
 |---------------|--------------|---------|-------------|
@@ -118,8 +120,8 @@ The servicer reads each setting below from its `--mm-*` flag when the launcher p
 | `--mm-max-inflight` | `SMG_VLLM_MM_MAX_INFLIGHT` | `64` | Multimodal jobs the worker runs at once, whichever processor runs; once as many are waiting, further requests are shed with a retryable error |
 | `--mm-max-items` | `SMG_VLLM_MM_MAX_ITEMS` | unset | Overrides the per-modality item limits the worker takes from vLLM's `--limit-mm-per-prompt` |
 | `--mm-max-item-bytes` | `SMG_VLLM_MM_MAX_ITEM_BYTES` | 32 MiB | Cap on one inline `data:` payload |
-| `--mm-fetch-timeout-ms` | `SMG_VLLM_MM_FETCH_TIMEOUT_MS` | `10000` | Download budget per image or audio URL; must be positive (`smg` processor only) |
-| `--mm-video-fetch-timeout-ms` | `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS` | `30000` | Download budget per video URL; must be positive (`smg` processor only) |
+| `--mm-fetch-timeout-ms` | `SMG_VLLM_MM_FETCH_TIMEOUT_MS` | `10000` | Download budget per image or audio URL (`smg` processor only); must be positive |
+| `--mm-video-fetch-timeout-ms` | `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS` | `30000` | Download budget per video URL (`smg` processor only); must be positive |
 | `--mm-redis-url` | `SMG_VLLM_MM_REDIS_URL` | `redis://127.0.0.1:6379/0` | Sidecar Redis (`redis` mode) |
 | `--mm-sidecar-timeout-ms` | `SMG_VLLM_MM_SIDECAR_TIMEOUT_MS` | `30000` | How long the worker waits for a sidecar result |
 | `--mm-sidecar-max-queue` | `SMG_VLLM_MM_SIDECAR_MAX_QUEUE` | `256` | Fail fast once this many jobs are queued for the sidecar |

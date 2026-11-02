@@ -112,10 +112,7 @@ Optional explicit JWKS URI:
 
 Without it, SMG reads `<issuer>/.well-known/openid-configuration` at startup to find the JWKS URI. The discovery URL and the JWKS URI must use `https://`; plain `http://` is accepted only for `localhost`, `127.0.0.1`, and `::1`. An `https://` URL is also rejected when its host is a private, loopback, or link-local IP address, or a name ending in `.internal` or `.local`, such as an in-cluster `*.svc.cluster.local` service.
 
-When JWT validation cannot be set up at startup — the URL is rejected, or discovery fails — control-plane authentication stays required: SMG logs `Failed to initialize JWT authentication: <error>` and keeps running without JWT validation. Keys from `--control-plane-api-keys` keep working; JWTs and every other token get `401`. SMG does not retry JWT initialization while running, so restart the gateway after correcting the configuration or restoring the identity provider. This is the behavior of current main, not yet of any release.
-
-!!! warning "Released versions disable control-plane auth after a failed JWT setup"
-    In released versions, a failed JWT setup leaves all of control-plane auth off, control-plane API keys included: SMG logs `Failed to initialize control plane auth: <error>. Falling back to simple API key auth.`, and the control-plane routes fall back to the shared `--api-key` as in [Without Control Plane Auth](#without-control-plane-auth) — open when no key is configured at all.
+When JWT validation cannot be set up at startup — the URL is rejected, or discovery fails — control-plane authentication stays required: SMG logs `Failed to initialize JWT authentication: <error>` and keeps running without JWT validation. Keys from `--control-plane-api-keys` keep working; JWTs and every other token get `401`. SMG does not retry JWT initialization while running, so restart the gateway after correcting the configuration or restoring the identity provider.
 
 JWTs are validated first when configured. A token with three dot-separated parts that fails JWT validation gets `401`; SMG does not fall back to API key validation for it. Any other token is checked against the control-plane API keys.
 

@@ -150,7 +150,7 @@ A refusal the gateway answers on its own — for example a 503 `no_available_wor
 
 ### Health Probe Logs
 
-Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, whatever the status; the response line reads `finished probe request` (smg-project/smg#2124). A `503` from `/readiness` while workers are still loading is an expected state, so polling probes no longer fill the log with ERROR lines. Probes served on the dedicated `--health-check-port` listener bypass the logging layer entirely.
+Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, whatever the status; the response line reads `finished probe request`. A `503` from `/readiness` while workers are still loading is an expected state, so polling probes do not fill the log with ERROR lines. Probes served on the dedicated `--health-check-port` listener bypass the logging layer entirely.
 
 ### Other Structured Logs
 
@@ -164,7 +164,7 @@ Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, wh
 
 ## Routing Decision Logs
 
-At DEBUG, the routing policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker (smg-project/smg#2210). The lines are off at the default `info` level. Turn them on for the policy targets only:
+At DEBUG, the routing policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker. The lines are off at the default `info` level. Turn them on for the policy targets only:
 
 ```bash
 RUST_LOG=warn,smg=info,smg::policies=debug smg launch --worker-urls http://worker:8000 --policy cache_aware
@@ -192,7 +192,7 @@ See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for 
 
 ## Multimodal Timing Logs
 
-`--log-mm-timing` logs per-request multimodal timing at INFO (smg-project/smg#2625). Each line's message starts with `smg_mm_timing`, followed by the stage:
+`--log-mm-timing` logs per-request multimodal timing at INFO. Each line's message starts with `smg_mm_timing`, followed by the stage:
 
 | Message | Contents |
 |---------|----------|

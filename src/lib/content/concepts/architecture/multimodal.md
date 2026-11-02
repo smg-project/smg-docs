@@ -110,7 +110,7 @@ SMG_VLLM_MM_PROCESSOR=inprocess \
   vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc --allowed-media-domains example.com
 ```
 
-The servicer reads each setting below from its `--mm-*` flag when the launcher passes the flags through, and otherwise from the matching `SMG_VLLM_MM_*` variable. vLLM's gRPC launcher (`vllm serve --grpc`) does not pass them, so set the variables.
+The servicer reads each setting below from its `--mm-*` flag, and otherwise from the matching `SMG_VLLM_MM_*` variable. The `smg-grpc-servicer` package adds the flags to both gRPC launchers' parsers (`vllm serve --grpc` and `python -m vllm.entrypoints.grpc_server`) as a `vllm.general_plugins` plugin, so either form works on the worker's command line.
 
 A value read from a variable logs a deprecation warning, and env support is due to end in the next minor release. `SMG_VLLM_MM_FETCH_TIMEOUT_MS` and `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS` are the exceptions: they stay supported fallbacks for their flags and never log the warning.
 

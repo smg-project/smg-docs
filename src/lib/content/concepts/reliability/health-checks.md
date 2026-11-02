@@ -475,7 +475,7 @@ groups:
 | Workers marked unhealthy too quickly | Increase `--health-failure-threshold` |
 | Slow failure detection | Decrease `--health-check-interval-secs` |
 | Health checks timing out | Increase `--health-check-timeout-secs` |
-| Workers slow to rejoin | Decrease `--health-check-interval-secs`: the first passing probe is most of the wait, and each further success adds only a probe timeout |
+| Workers slow to rejoin | Decrease `--health-check-interval-secs`: the first passing probe is most of the wait, and each further success adds at most a probe timeout |
 | Too many health check requests | Increase `--health-check-interval-secs` |
 | Workers vanish for good after an outage in a static fleet | Turn auto-recovery off (`--remove-unhealthy-workers=false`; Python launcher: `--no-remove-unhealthy-workers`) so failed workers rejoin in place |
 | Removed workers stay `Draining` too long | Decrease `--drain-settle-secs` |

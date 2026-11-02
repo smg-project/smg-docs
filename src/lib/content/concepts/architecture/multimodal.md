@@ -112,7 +112,7 @@ SMG_VLLM_MM_PROCESSOR=inprocess \
 
 The servicer reads each setting below from its `--mm-*` flag when the launcher passes the flags through, and otherwise from the matching `SMG_VLLM_MM_*` variable. vLLM's gRPC launcher (`vllm serve --grpc`) does not pass them, so set the variables.
 
-A value read from a variable logs a deprecation warning, and env support is due to end in the next minor release. `SMG_VLLM_MM_FETCH_TIMEOUT_MS` and `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS` are the exceptions: they remain supported spellings of their flags and never log the warning.
+A value read from a variable logs a deprecation warning, and env support is due to end in the next minor release. `SMG_VLLM_MM_FETCH_TIMEOUT_MS` and `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS` are the exceptions: they stay supported fallbacks for their flags and never log the warning.
 
 | Servicer flag | Env fallback | Default | Description |
 |---------------|--------------|---------|-------------|

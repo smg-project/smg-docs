@@ -142,7 +142,7 @@ Every request that matches a route on the main listener is logged inside an `htt
 | `smg::response` | INFO | `client closed the connection before the response stream ended` | The client disconnected while the response body was still streaming |
 | `smg::response` | DEBUG | `request refused; reported by the refusing router` | A refusal the routing layer already logged with its own WARN line |
 
-The logging layer writes one ERROR line per 5xx response; releases before v1.10.0 also logged a duplicate `tower_http` failure line for it (smg-project/smg#2124). A request to an unknown path gets a bare `404` and is not logged.
+The logging layer writes one ERROR line per 5xx response. A request to an unknown path gets a bare `404` and is not logged.
 
 A client that disconnects first — an SDK timeout, a user who navigated away, a proxy cutting an idle stream — is a normal outcome, not a gateway failure, so its one line is INFO. A disconnect before the response takes the place of the response line and records `status_code` 499 and the latency so far; a disconnect mid-stream follows the response line already written when the response head went out. The same lines cover the rare request the server itself dropped unanswered, such as on a handler panic or a connection cut by a forced shutdown. All of these count in `smg_http_responses_total` as a `499` with `error_code="client_closed_request"`; see the [Metrics Reference](../reference/metrics.md#layer-1-http-metrics).
 
@@ -205,7 +205,9 @@ See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for 
 smg launch --worker-urls grpc://worker:50051 --model-path Qwen/Qwen2.5-VL-7B-Instruct --log-mm-timing
 ```
 
-The older `SMG_LOG_MM_TIMING` environment variable (`1`, `true`, `yes`, or `on`) still turns the logs on when the flag is absent, but it is deprecated: SMG logs a warning, and support ends in the next minor release. v1.11.0 also stopped logging where each request's media is processed (smg-project/smg#2594); that is counted by `smg_mm_processing_total` instead. See [Multimodal](../concepts/architecture/multimodal.md) for the processing pipeline.
+The older `SMG_LOG_MM_TIMING` environment variable (`1`, `true`, `yes`, or `on`) still turns the logs on when the flag is absent, but it is deprecated: SMG logs a warning, and support ends in the next minor release.
+
+The timing lines do not record where each request's media is processed; the `smg_mm_processing_total` metric counts that, by model, processing location (`router` or `worker`), and reason. See [Multimodal](../concepts/architecture/multimodal.md) for the processing pipeline.
 
 ---
 

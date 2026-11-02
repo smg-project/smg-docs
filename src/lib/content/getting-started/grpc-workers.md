@@ -424,8 +424,8 @@ To have the gateway execute MCP tools on `/v1/responses`, add `--mcp-config-path
 | `qwen` | Qwen2.5, Qwen3 |
 | `qwen_xml` | Qwen3-Coder, Qwen3.5, Qwen3.6, Qwen3.8, Nemotron-3 family (aliases `qwen_coder`, `nemotron`) |
 | `deepseek` | DeepSeek-V3 |
-| `deepseek31` | DeepSeek-V3.1, DeepSeek-V3.2-Exp |
-| `deepseek32` | DeepSeek-V3.2 |
+| `deepseek31` | DeepSeek-V3.1 |
+| `deepseek32` | DeepSeek-V3.2, DeepSeek-V3.2-Exp |
 | `deepseek_v4` | DeepSeek-V4 |
 | `deepseek_v41` | DeepSeek-V4.1 |
 | `glm45_moe` | GLM-4.5, GLM-4.6 |

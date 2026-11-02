@@ -51,13 +51,17 @@ When a slot frees, the scheduler's dispatcher wakes and tries to admit waiting r
 
 ### Reserved slots
 
-Each class can reserve a share of capacity. A reservation is a floor, not a fixed partition:
+Each class can reserve capacity. A reservation is sized by two knobs: an **absolute floor** (`reserved_floor`, in slots) and a **share of live capacity** (`reserved_per_slot`). The effective reservation is whichever yields more slots, recomputed whenever the fleet's capacity changes — a share-based reservation grows and shrinks with the fleet.
+
+Whatever its size, a reservation is a hold, not a fixed partition:
 
 - A higher class's **unused** reservation is held back from lower classes. If `interactive` has reserved slots it is not currently using, `bulk` and `default` cannot consume them — they stay available so an arriving `interactive` request is admitted immediately instead of queueing.
 - Once a higher class **actually uses** a reserved slot, the hold collapses one-for-one; the slot is simply in flight.
 - A class's own reservation never counts against its own headroom.
 
-This is why `system` and `interactive` ship with reservations by default while `default` and `bulk` reserve nothing — interactive traffic should almost never wait behind a batch burst. The sum of all reservations must fit under capacity; if it does not at startup, the scheduler refuses to build and the gateway falls back to legacy admission.
+By default every class except `bulk` reserves capacity: `system` keeps a fixed floor of 32 slots, `interactive` reserves 128 slots or 25% of capacity (whichever is larger), and `default` reserves 10% of capacity. Interactive traffic should almost never wait behind a batch burst, and even unlabeled traffic keeps a slice a bulk flood cannot squeeze out. The exact per-class defaults and knobs are in the [reference page](../../reference/priority-scheduler.md#per-class-knobs).
+
+The sum of all reservations must fit under capacity; if it does not at startup, the scheduler refuses to build and the gateway falls back to legacy admission. A capacity dip *after* startup never triggers that fallback: reservations are recomputed for the smaller fleet, and if they no longer fit, the scheduler scales them down proportionally. Each class keeps the same fraction of what it asked for, so a small pool is never reserved whole for one class, and the full reservations are restored automatically when capacity recovers.
 
 ---
 

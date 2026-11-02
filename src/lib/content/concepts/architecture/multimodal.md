@@ -110,7 +110,7 @@ SMG_VLLM_MM_PROCESSOR=inprocess \
   vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc --allowed-media-domains example.com
 ```
 
-The servicer reads each setting below from its `--mm-*` flag when the launcher passes the flags through (smg-project/smg#2626), and otherwise from the matching `SMG_VLLM_MM_*` variable. vLLM's gRPC launcher (`vllm serve --grpc`) does not pass them, so set the variables; a value read from a variable logs a deprecation warning, and env support is due to end in the next minor release.
+The servicer reads each setting below from its `--mm-*` flag when the launcher passes the flags through, and otherwise from the matching `SMG_VLLM_MM_*` variable. vLLM's gRPC launcher (`vllm serve --grpc`) does not pass them, so set the variables. A value read from a variable logs a deprecation warning, and env support is due to end in the next minor release — except `SMG_VLLM_MM_FETCH_TIMEOUT_MS` and `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS`, which remain supported spellings of their flags and never log the warning.
 
 | Servicer flag | Env fallback | Default | Description |
 |---------------|--------------|---------|-------------|
@@ -118,6 +118,8 @@ The servicer reads each setting below from its `--mm-*` flag when the launcher p
 | `--mm-max-inflight` | `SMG_VLLM_MM_MAX_INFLIGHT` | `64` | Multimodal jobs the worker runs at once, whichever processor runs; once as many are waiting, further requests are shed with a retryable error |
 | `--mm-max-items` | `SMG_VLLM_MM_MAX_ITEMS` | unset | Overrides the per-modality item limits the worker takes from vLLM's `--limit-mm-per-prompt` |
 | `--mm-max-item-bytes` | `SMG_VLLM_MM_MAX_ITEM_BYTES` | 32 MiB | Cap on one inline `data:` payload |
+| `--mm-fetch-timeout-ms` | `SMG_VLLM_MM_FETCH_TIMEOUT_MS` | `10000` | Download budget per image or audio URL, in milliseconds; must be positive (`smg` processor only) |
+| `--mm-video-fetch-timeout-ms` | `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS` | `30000` | Download budget per video URL, in milliseconds; must be positive (`smg` processor only) |
 | `--mm-redis-url` | `SMG_VLLM_MM_REDIS_URL` | `redis://127.0.0.1:6379/0` | Sidecar Redis (`redis` mode) |
 | `--mm-sidecar-timeout-ms` | `SMG_VLLM_MM_SIDECAR_TIMEOUT_MS` | `30000` | How long the worker waits for a sidecar result |
 | `--mm-sidecar-max-queue` | `SMG_VLLM_MM_SIDECAR_MAX_QUEUE` | `256` | Fail fast once this many jobs are queued for the sidecar |
@@ -160,7 +162,7 @@ SMG_VLLM_SERVICER_IMPL=rust SMG_VLLM_MM_PROCESSOR=smg \
 
 - The worker serves the model families SMG's pipeline supports (see [Supported Models](#supported-models)); a multimodal model outside them is refused at startup, while a text-only model ignores the setting as it does the other processors. The router still decides per model whether to forward references at all (see [Where Media Is Processed](#where-media-is-processed)): `smg` changes what runs once references arrive, not which models they are forwarded for.
 - The pipeline reads the model's `config.json` and preprocessor configs from the model directory, or from the tokenizer directory the launcher resolved. The engine's `mm_processor_kwargs` are applied as overrides of the preprocessor config; a key the config has no field for fails the launch rather than being ignored.
-- The worker advertises `mm_processor=smg` and `mm_media_ref_schemes=http,https,data`, and fetches from any host with a fixed 10-second timeout. vLLM's `--allowed-media-domains` and `--allowed-local-media-path` do not apply, and `file` URLs are never accepted.
+- The worker advertises `mm_processor=smg` and `mm_media_ref_schemes=http,https,data`, and fetches from any host. `--mm-fetch-timeout-ms` and `--mm-video-fetch-timeout-ms` set its download budgets (10 and 30 seconds by default); each budget covers one URL's fetch, from connecting through the last byte, not decoding or inference. vLLM's `--allowed-media-domains` and `--allowed-local-media-path` do not apply, and `file` URLs are never accepted.
 - `--mm-max-inflight` and `--mm-max-item-bytes` apply as above. `--mm-max-items` overrides the model's built-in per-request limits rather than vLLM's `--limit-mm-per-prompt`; `SMG_VLLM_MM_MAX_VIDEO_FRAMES` and the Redis sidecar settings are not used.
 - An engine that normalizes pixels on device (vLLM's `mm_device_do_normalize`, on by default for the Qwen-VL family) takes raw `uint8` pixels, and the pipeline writes those for it. A model whose processor produces only normalized floats is refused at startup under that setting: start the engine with `--mm-device-do-normalize=false` or use `inprocess`. Otherwise pixels are written in the engine's own dtype.
 - The in-flight cap, the saturation refusal, and the PD prefill leg's `media_identity` behave as with the Python backends.

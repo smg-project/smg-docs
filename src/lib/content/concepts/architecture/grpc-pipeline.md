@@ -328,7 +328,7 @@ All 24 registered tool-call parsers. For auto-detection, the longest matching pa
 | `llama` | `llama-3.2`, `meta-llama-3.2` | `<\|python_tag\|>{"name": ..., "parameters": {...}}` (the tag is optional) | JSON schema |
 | `deepseek` | `deepseek-v3` | `<｜tool▁call▁begin｜>function<｜tool▁sep｜>NAME` followed by a fenced JSON block | JSON schema |
 | `deepseek31` | `deepseek-v3.1` | `<｜tool▁call▁begin｜>NAME<｜tool▁sep｜>{json}<｜tool▁call▁end｜>` | JSON schema |
-| `deepseek32` | `deepseek-v3.2` (DeepSeek-V3.2-Exp names match this too) | DSML: `<｜DSML｜invoke name="...">` and `<｜DSML｜parameter name="..." string="true\|false">` inside a `<｜DSML｜function_calls>` block | JSON schema |
+| `deepseek32` | `deepseek-v3.2` (also matches DeepSeek-V3.2-Exp names) | DSML: `<｜DSML｜invoke name="...">` and `<｜DSML｜parameter name="..." string="true\|false">` inside a `<｜DSML｜function_calls>` block | JSON schema |
 | `deepseek_v4` | `deepseek-v4` | DSML inside a `<｜DSML｜tool_calls>` block | JSON schema |
 | `deepseek_v41` | `deepseek-v4.1`, `deepseek-v41`, `deepseek_v41` | Spaced DSML: `<｜DSML｜ calls>`, `<｜DSML｜ invoke ...>`, `<｜DSML｜ parameter ...>` | Structural tag |
 | `glm45_moe` | `glm-4.5`, `glm-4.6` | `<tool_call>NAME`, then `<arg_key>K</arg_key>` / `<arg_value>V</arg_value>` pairs on separate lines | JSON schema |

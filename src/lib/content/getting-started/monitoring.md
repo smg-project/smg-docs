@@ -142,6 +142,10 @@ spec:
 
 If you deploy with the SMG Helm chart, set `router.metrics.serviceMonitor.enabled=true` and the chart creates a ServiceMonitor for the router's `metrics` port.
 
+The chart can also expose worker-side metrics. A gRPC `workers[]` entry with `metrics.enabled: true` runs its engine behind the Rust servicer, and the engine pod answers `GET /metrics` with the servicer's own [`smg_servicer_*` families](../reference/servicer-metrics.md) on `metrics.port` (default `29100`; a port equal to the worker's serving port is refused when the chart renders). An HTTP worker runs the engine's own server, which has its own `/metrics`; the setting is ignored there.
+
+Under the same `router.metrics.serviceMonitor.enabled` flag, when at least one worker serves metrics, the chart adds a second ServiceMonitor (suffixed `-worker`) over the worker Services with the router ServiceMonitor's interval and labels; a worker without `metrics.enabled` exposes no `metrics` port and yields no target. The servicer's listener binds before the engine connects, so a scrape during start-up answers `smg_servicer_state{state="starting"} 1`.
+
 ---
 
 ## Key Metrics by Layer

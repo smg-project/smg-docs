@@ -305,6 +305,10 @@ DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
 
 `DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
 
+On PostgreSQL and Oracle, whatever the auto-migration setting, SMG refuses to start against a database whose recorded schema version is **ahead** of the latest migration the running build knows. This typically follows a rollback of the gateway image after a newer build has migrated the database forward: the older build does not know the shape of the newer schema and would otherwise start, then fail on its first read of a changed column. The refusal comes before any history table is touched, so the database stays as the newer build left it.
+
+To recover, upgrade the gateway to the build that migrated the database. To run the older build against the database anyway, set `version:` in the schema config to the database's recorded version (the refusal names the exact value to set); SMG then starts and logs a warning. A higher `version:` also satisfies the check, but it marks migrations up to that number as already applied, so a later upgrade would skip them.
+
 ---
 
 ## What Gets Stored
@@ -448,6 +452,7 @@ smg --history-backend redis \
 | Symptom | Cause | Solution |
 |---------|-------|----------|
 | Startup fails with `is unreachable at start-up` or `did not answer within the start-up bound` | History store down, not answering, or wrong connection URL | Check that the store is running and verify the connection URL |
+| Startup fails with `ahead of the latest migration this build knows` | Gateway rolled back after a newer build migrated the database | Upgrade the gateway, or set `version:` in the schema config (see [Schema Migrations](#schema-migrations)) |
 | Connection timeouts | Slow network | Increase pool timeout |
 | Pool exhaustion | High concurrency | Increase pool size |
 | Data not persisting | Wrong backend | Verify `--history-backend` setting |

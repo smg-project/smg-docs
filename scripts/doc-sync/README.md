@@ -97,11 +97,15 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   A dependency is accepted only while that subsystem has a proposal tonight, its
   own queued concern (queued concerns record the subsystem that proposed them), or
   an open PR for the commit; otherwise the check stays unfinished. Two subsystems
-  therefore cannot each wait on the other. A deferred check may also name
-  `depends_on` subsystems. The next run assigns the commit to every subsystem an
-  unfinished check waits on, and to every subsystem whose ledger entry for that
-  commit is `blocked`, even outside its paths. Each scan also sees other
-  subsystems' unfinished checks for its commits.
+  therefore cannot each wait on the other. A deferred check whose only open step
+  is another subsystem's correction may also name `depends_on`. Because scans run
+  in parallel, the plan settles such a daily wait as blocked when the named
+  subsystem proposes tonight, or hands it off when that subsystem was not
+  assigned the commit tonight. A named subsystem that was assigned the commit
+  and left no work keeps the check unfinished. The next run assigns the commit to
+  every subsystem a carried daily check waits on, and to every subsystem whose
+  ledger entry for that commit is `blocked`, even outside its paths. Each scan
+  also sees other subsystems' unfinished checks for its commits.
   Blocked checks carry forward until resolved. Missing/deferred checks fail coverage
   without blocking valid sibling publication.
 - A `proposed` check settles only once its concerns have a recorded PR (open,

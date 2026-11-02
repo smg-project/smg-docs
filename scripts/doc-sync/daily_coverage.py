@@ -278,35 +278,55 @@ def validate(result, context, slug, shards=(), expected=None):
     return checks
 
 
-def dependency(check, scan, scans, context):
-    """Accept a cross-subsystem wait only while the other side has live work.
-
-    The owning subsystem's proposal for the same commit must exist tonight, in
-    the queue as that subsystem's own concern, or as an open PR. Otherwise the
-    wait could never end, so the check stays unfinished and coverage fails
-    visibly. Queued concerns without an owner do not count: two subsystems
-    once each waited on the same one, and neither proposed it.
-    """
-    if check['status'] != 'blocked' or not check.get('depends_on'):
-        return check
-    sha = check['source_sha']
+def live_work(name, sha, scans, context):
+    """Whether a subsystem has a proposal tonight, its own queued concern, or an open PR."""
     marker = f'{docs.MARKER}{sha}:'
-    for name in check['depends_on']:
-        if not (any(p['source_sha'] == sha for other in scans if other['shard'] == name
-                    for p in other['concerns'])
-                or any(p['source_sha'] == sha and p.get('shard') == name
-                       for p in context.get('pending_concerns', []))
-                or any(pr['state'] == 'open' and marker in pr['body']
-                       for pr in context['existing_prs'])):
-            return {**check, 'status': 'deferred', 'evidence': check['evidence']
-                    + f' [Unverified dependency: {name} has no proposed, queued or open'
-                    ' documentation work for this commit.]'}
-    return check
+    return (any(p['source_sha'] == sha for other in scans if other['shard'] == name
+                for p in other['concerns'])
+            # Queued concerns without an owner do not count: two subsystems once
+            # each waited on the same one, and neither proposed it.
+            or any(p['source_sha'] == sha and p.get('shard') == name
+                   for p in context.get('pending_concerns', []))
+            or any(pr['state'] == 'open' and marker in pr['body'] for pr in context['existing_prs']))
+
+
+def dependency(check, scan, scans, context, handoff=False):
+    """Settle a cross-subsystem wait only while it can end.
+
+    A blocked wait needs live work from every named subsystem. Scans run in
+    parallel, so a deferred wait whose only open step is another subsystem's
+    correction settles as blocked once that subsystem proposes tonight. With
+    handoff (daily checks), a wait on a subsystem that was not assigned the
+    commit tonight also settles: the next run assigns it the commit. A named
+    subsystem that was assigned the commit and left no work keeps the check
+    unfinished, so coverage fails visibly instead of waiting forever.
+    """
+    depends, sha = check.get('depends_on') or [], check['source_sha']
+    if (check['status'] not in {'blocked', 'deferred'} or not depends
+            or check['status'] == 'deferred' and (check.get('blockers')
+                                                  or sha not in scan['inspected_commits'])):
+        return check
+    assigned = context.get('daily_assignments', {})
+    idle = [name for name in depends if not live_work(name, sha, scans, context)]
+    stalled = [name for name in idle if not handoff or sha in assigned.get(name, [])]
+    if stalled:
+        if check['status'] == 'deferred':
+            return check
+        return {**check, 'status': 'deferred', 'evidence': check['evidence']
+                + f' [Unverified dependency: {stalled[0]} has no proposed, queued or open'
+                ' documentation work for this commit.]'}
+    if check['status'] == 'blocked' and not idle:
+        return check
+    note = (f' [Handed off: the next run assigns this commit to {", ".join(idle)}.]' if idle
+            else f' [Waiting on live work from {", ".join(depends)} for this commit.]')
+    return {**check, 'status': 'blocked', 'evidence': check['evidence'] + note}
 
 
 def report(context, scans, expected):
     daily = [scan for scan in scans if not scan.get('backlog')]
-    checked = {(scan['shard'], c['source_sha']): dependency(c, scan, scans, context)
+    # The next run assigns every subsystem an unfinished daily check waits on
+    # (waiting_on), so only daily checks may hand a commit off.
+    checked = {(scan['shard'], c['source_sha']): dependency(c, scan, scans, context, handoff=True)
                for scan in daily for c in scan.get('daily_commit_checks', [])}
     checks = []
     for slug in expected:

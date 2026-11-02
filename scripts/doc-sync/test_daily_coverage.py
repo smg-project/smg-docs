@@ -399,6 +399,44 @@ class DailyCoverageTests(unittest.TestCase):
         self.assertEqual(daily.assign(self.context, {}, self.assignments,
                                       [{**named, 'kind': 'backlog'}])['operations'], [])
 
+    def test_parallel_scans_settle_a_wait_on_live_or_unassigned_dependencies(self):
+        # Run 41538658516: grpc-multimodal proposed its smg#4721 fix while the
+        # parallel routing scan deferred on it, and routing handed smg#4854's
+        # x-smg-parser fix to parsers-tokenizers, which lacked that commit.
+        own, other = self.dependent_scan()
+        waiting = self.check(status='deferred', depends_on=['grpc-multimodal'],
+                             evidence='The PD guide must follow the multimodal correction.')
+        own['daily_commit_checks'] = [waiting]
+        expected = ['routing-workers', 'grpc-multimodal']
+        self.context['discovery_shard'] = ''
+        result = daily.report(self.context, [own, other], expected)
+        self.assertTrue(result['complete'])
+        self.assertEqual(result['checks'][0]['status'], 'blocked')
+        self.assertIn('Waiting on live work from grpc-multimodal', result['checks'][0]['evidence'])
+        # Assigned tonight but idle: the wait stays unfinished.
+        idle = {**other, 'concerns': [], 'daily_commit_checks': [self.check()]}
+        self.assertEqual(daily.report(self.context, [own, idle], expected)['checks'][0]['status'],
+                         'deferred')
+        # Not assigned tonight: the commit is handed off to the next run.
+        self.context['daily_assignments'] = {'routing-workers': [self.latest]}
+        for status in ['deferred', 'blocked']:
+            with self.subTest(status=status):
+                own['daily_commit_checks'] = [{**waiting, 'status': status}]
+                check = daily.report(self.context, [own], ['routing-workers'])['checks'][0]
+                self.assertEqual(check['status'], 'blocked')
+                self.assertIn('next run assigns this commit to grpc-multimodal', check['evidence'])
+                self.assertEqual(daily.assign(self.context, {}, {**self.assignments,
+                                 'grpc-multimodal': []}, [{**check, 'shard': 'routing-workers'}])
+                                 ['grpc-multimodal'], [self.latest])
+        # Uninspected deferrals and best-effort backlog waits are never settled this way.
+        own['daily_commit_checks'] = [waiting]
+        uninspected = {**own, 'inspected_commits': []}
+        self.assertEqual(daily.report(self.context, [uninspected], ['routing-workers'])['checks'][0]['status'],
+                         'deferred')
+        self.context['backlog_batches'] = [{'shard': 'routing-workers', 'backlog': 1, 'commits': [self.latest]}]
+        backlog = {**own, 'backlog': 1}
+        self.assertEqual(daily.backlog_report(self.context, [backlog])['checks'][0]['status'], 'deferred')
+
     def test_deferred_check_may_name_the_subsystem_it_waits_on(self):
         own, _ = self.dependent_scan()
         names = discovery.SHARD_NAMES

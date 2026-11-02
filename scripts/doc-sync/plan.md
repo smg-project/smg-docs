@@ -68,9 +68,12 @@ An inspected commit still needs its own disposition, including test-only changes
   proposals in concerns. Do not use this for unverified changes or budget limits.
 - deferred: any relevant change remains unverified or a limit prevents a complete
   proposal; explain what remains. Reference any completed partial proposals.
-  When the remaining correction must wait for another subsystem that has no
-  proposal, queued concern or open PR for this commit, list it in depends_on.
-  The next run then assigns this commit to that subsystem.
+  When your part is verified and its only open step is another subsystem's
+  correction for this commit, and that subsystem has no proposal, queued concern
+  or open PR yet, list it in depends_on. Scans run in parallel: the plan settles
+  the check as blocked if that subsystem proposes tonight, or if it was not
+  assigned this commit tonight (the next run assigns it). Leave depends_on empty
+  while any of your own part is unverified or unfinished.
 
 Use empty blockers lists for every status except blocked, and empty depends_on
 lists for every status except blocked and deferred.

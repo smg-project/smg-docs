@@ -493,7 +493,7 @@ Per-request decision whether the router buffers the request body or streams it t
 | Counter | `path`, `reason` |
 
 - `path`: `buffered`, `streamed`
-- `reason` for `buffered`: `routing_key_override`, `policy_needs_text`, `model_ambiguous`, `worker_mutates_body`, `wasm_request_hook`, `no_content_length`, `no_available_worker`, `model_selection`, `retryable` (kept replayable for router retries, within `--max-buffered-request-bytes`), or the router family name (for example `pd` or `grpc`) when the active router always parses bodies
+- `reason` for `buffered`: `routing_key_override`, `policy_needs_text`, `model_ambiguous`, `worker_mutates_body`, `wasm_request_hook`, `tenant_rate_limit` (the tenant rate limiter's input-token estimate is read from the body), `no_content_length`, `no_available_worker`, `model_selection`, `retryable` (kept replayable for router retries, within `--max-buffered-request-bytes`), or the router family name (for example `pd` or `grpc`) when the active router always parses bodies
 - `reason` for `streamed`: `retry_forfeited` (larger than `--max-buffered-request-bytes`, so router retries are given up), `pure_forward` (router retries are off)
 
 ```promql

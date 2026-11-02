@@ -207,7 +207,7 @@ smg launch --worker-urls grpc://worker:50051 --model-path Qwen/Qwen2.5-VL-7B-Ins
 
 The older `SMG_LOG_MM_TIMING` environment variable (`1`, `true`, `yes`, or `on`) still turns the logs on when the flag is absent, but it is deprecated: SMG logs a warning, and support ends in the next minor release.
 
-The timing lines do not record where each request's media is processed; the `smg_mm_processing_total` metric counts that, by model, processing location (`router` or `worker`), and reason. See [Multimodal](../concepts/architecture/multimodal.md) for the processing pipeline.
+The timing lines do not record where each request's media is processed; the `smg_mm_processing_total` metric counts that, labeled with the model, the processing location (`router` or `worker`), and the reason. See the [Metrics Reference](../reference/metrics.md#multimodal-metrics) for the reason values and [Multimodal](../concepts/architecture/multimodal.md) for the processing pipeline.
 
 ---
 

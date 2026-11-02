@@ -282,7 +282,7 @@ smg launch --enable-mesh \
 | Redial backoff after a failed probe of the same peer | 1 second, doubling up to 60 seconds |
 | Sync stream idle timeout | 60 seconds |
 
-These values are fixed; v1.12 has no flags to tune them.
+These values are fixed; there are no flags to tune them.
 
 ---
 
@@ -365,7 +365,7 @@ The `cache_aware` policy keeps an approximate prefix tree per model: a string tr
 2. **Apply**: A peer that already knows that prefix path adds the worker to it in its own tree.
 3. **Repair**: A peer that does not know the path, such as a router that just started, asks a random `ALIVE` peer for its whole tree for that model and tree type and replays it. The tree arrives in pages of up to about 2 MiB; a repair that makes no progress for 5 seconds is retried, preferably with another peer, up to 3 times. Unknown prefixes for the same model and tree type that arrive meanwhile are folded into the repair in flight.
 
-The default policy and per-model cache-aware policies take part, with no flag beyond `--enable-mesh`. In v1.11 the prefill, decode, and encode policies of disaggregated mode do not publish their inserts: the router creates them after the mesh attaches its sync adapter.
+The default policy, per-model cache-aware policies, and the prefill, decode, and encode policies of disaggregated mode all take part, with no flag beyond `--enable-mesh`.
 
 What consistency to expect:
 
@@ -380,7 +380,7 @@ Not synchronized: event-driven cache-aware routing (KV events), which each route
 | Key prefix | Channel | Delivery | Carries |
 |------------|---------|----------|---------|
 | `worker:` | CRDT | Last-writer-wins by Lamport timestamp, then replica. Resent until each peer acknowledges; relayed through peers | One key per worker, written only by the router that owns it |
-| `rl:` | CRDT | Epoch-max-wins | Rate-limit counter shards. Registered, but nothing writes to it in v1.12 |
+| `rl:` | CRDT | Epoch-max-wins | Rate-limit counter shards. Registered, but nothing writes to it |
 | `td:` | Stream, broadcast | Best effort, once per gossip round, to directly connected peers | Cache-tree deltas, one entry per model per round |
 | `tree:req:`, `tree:page:` | Stream, targeted | Retried after 5 seconds without progress, up to 3 times | Cache-tree repair requests and pages |
 
@@ -542,7 +542,7 @@ How Pods map to node status:
 ## Monitoring
 
 !!! note "No HTTP API for mesh state"
-    Earlier releases served mesh state under `/ha/*`. Those routes were removed, and v1.12 has no HTTP endpoint for mesh membership or sync state. Use the metrics below, the router logs, and each router's `GET /workers` list.
+    The router has no HTTP endpoint for mesh membership or sync state (the `/ha/*` routes of earlier releases were removed). Use the metrics below, the router logs, and each router's `GET /workers` list.
 
 ### Mesh Metrics
 

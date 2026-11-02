@@ -173,7 +173,7 @@ User: How do I install it?
 ```
 
 **L0**: Miss (text changed)
-**L1**: **Hit!** → Only tokenize the text after the longest cached boundary; store this turn's deepest boundary, plus the boundary right after the match when more boundaries lie between the match and the deepest
+**L1**: **Hit!** → Only tokenize the text after the longest cached boundary; store this turn's deepest boundary and, speculatively, the boundary right after the match
 
 </div>
 

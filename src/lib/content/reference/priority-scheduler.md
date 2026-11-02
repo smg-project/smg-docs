@@ -148,7 +148,7 @@ At startup the gateway validates, for every class:
 - `starvation_threshold_secs > 0`
 - `reserved_per_slot` finite and ≥ 0
 
-A validation failure is a startup error naming the class and the field: the gateway refuses to start rather than silently falling back to legacy admission.
+A validation failure is a startup error naming the class and the field: the gateway refuses to start rather than falling back to legacy admission.
 
 Capacity is checked separately, against the live fleet. If the effective reservations exceed the fleet's *initial* capacity, the gateway logs at `ERROR` and [falls back to legacy admission](#enabling-the-scheduler) — the one scheduler failure that does not stop startup. A later capacity shrink never triggers that fallback: reservations are recomputed for the new capacity, and if they no longer fit, every class is scaled down proportionally — each keeps the same fraction of what it asked for, with the rounding remainder left unreserved and shared by every class.
 

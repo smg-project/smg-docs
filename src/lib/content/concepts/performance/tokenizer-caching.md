@@ -181,7 +181,7 @@ User: How do I install it?
 
 **Result**: Turn 2 tokenizes only the new messages, not the shared history. The hit also stores a new entry covering Turn 2's prompt up to its own deepest boundary, so Turn 3 matches right after Turn 2's last special token — even when Turn 2's match came from a prefix shared with other conversations, such as a common system prompt.
 
-When more boundaries lie between the match and the deepest one, the hit also stores the boundary right after the match. This is how a shared prefix that spans several special tokens — a long system prompt behind the template's leading token, say — is learned one boundary per request. That extra entry is speculative: eviction removes it ahead of matched entries unless another request matches it first.
+When more boundaries lie between the match and the deepest one, the hit also stores the boundary right after the match. This is how a shared prefix that spans several special tokens — for example, a long system prompt behind the template's leading token — is learned one boundary per request. The extra entry is speculative: eviction removes it ahead of matched entries unless another request matches it first.
 
 ---
 

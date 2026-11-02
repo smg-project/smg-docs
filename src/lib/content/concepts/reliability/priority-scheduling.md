@@ -51,9 +51,10 @@ When a slot frees, the scheduler's dispatcher wakes and tries to admit waiting r
 
 ### Reserved slots
 
-Each class can reserve capacity. A reservation is a hold, not a fixed partition:
+Each class can reserve capacity. A reservation is sized by two knobs: an **absolute floor** (`reserved_floor`, in slots) and a **share of live capacity** (`reserved_per_slot`). The effective reservation is whichever is larger, recomputed whenever the fleet's capacity changes — a share-based reservation grows and shrinks with the fleet.
 
-- A class's reservation is configured as an **absolute floor** (`reserved_floor`, in slots) and a **share of live capacity** (`reserved_per_slot`). The effective reservation is whichever is larger, recomputed whenever the fleet's capacity changes — a share-based reservation grows and shrinks with the fleet.
+Whatever its size, a reservation is a hold, not a fixed partition:
+
 - A higher class's **unused** reservation is held back from lower classes. If `interactive` has reserved slots it is not currently using, `bulk` and `default` cannot consume them — they stay available so an arriving `interactive` request is admitted immediately instead of queueing.
 - Once a higher class **actually uses** a reserved slot, the hold collapses one-for-one; the slot is simply in flight.
 - A class's own reservation never counts against its own headroom.

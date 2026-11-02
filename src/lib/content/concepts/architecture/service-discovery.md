@@ -4,7 +4,7 @@ title: Service Discovery
 
 # Service Discovery
 
-SMG discovers workers from Kubernetes pods and keeps its worker registry in step with the cluster. Pods that match a label selector and are Ready become workers; workers whose pods are deleted, stop matching, or turn unready are drained and removed.
+SMG discovers workers from a provider and keeps its worker registry in step with what the provider reports. The Kubernetes provider, which most of this page describes, watches pods: pods that match a label selector and are Ready become workers; workers whose pods are deleted, stop matching, or turn unready are drained and removed. Outside Kubernetes, [file-based discovery](#file-based-discovery) reads the workers from a JSON manifest on disk; Slurm and Consul providers are configured in the [configuration reference](../../reference/configuration.md#file-consul-and-slurm-providers).
 
 ---
 
@@ -114,7 +114,7 @@ smg \
 | `--model-alias` | - | Extra client-facing model name, `alias=canonical`, repeatable; applies to discovered workers too ([details](../../reference/configuration.md#service-discovery-kubernetes)) |
 
 !!! note "IGW mode"
-    `--service-discovery` turns on IGW mode (`--enable-igw`) automatically, in the `smg` binary and in the Python launcher (`smg launch` from pip, and the container image). PD and EPD deployments keep their disaggregated routing mode under IGW.
+    Selecting any discovery provider — `--service-discovery` or `--discovery-provider` — turns on IGW mode (`--enable-igw`) automatically, in the `smg` binary and in the Python launcher (`smg launch` from pip, and the container image). PD and EPD deployments keep their disaggregated routing mode under IGW.
 
 ### Fleet Scale
 
@@ -492,9 +492,68 @@ With `--service-discovery`, worker auto-recovery (`--remove-unhealthy-workers`, 
 
 ---
 
+## File-Based Discovery
+
+Outside Kubernetes — or wherever another system already knows the fleet — SMG discovers workers from a JSON manifest on disk:
+
+```bash
+smg \
+  --discovery-provider file \
+  --discovery-file /run/smg/workers.json
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--discovery-provider` | — | The worker discovery provider: `kubernetes`, `file`, `slurm`, or `consul`. Give it or `--service-discovery`, not both |
+| `--discovery-file` | — | Path of the worker manifest (required with `--discovery-provider file`). The file may be created after startup |
+| `--discovery-check-interval-secs` | `30` | Seconds between the periodic passes that reread the manifest |
+
+File discovery requires the regular, PD, or EPD routing mode, and turns on IGW mode like every provider.
+
+The manifest is reread in full whenever it changes and on every periodic pass, in case a change went unreported (a manifest behind a symlink into another directory, or on a network filesystem). Every read reconciles the manifest against the registry the same way Kubernetes discovery does: workers are registered through the same startup probing, a registration that failed is submitted again on a later pass, and removed records go through the same drain-then-remove workflow.
+
+### Manifest Format
+
+```json
+{
+  "version": 1,
+  "workers": [
+    { "id": "decode-a", "url": "10.0.0.23:8000", "worker_type": "decode" },
+    { "id": "prefill-a", "url": "10.0.0.22:8000", "worker_type": "prefill",
+      "bootstrap_port": 8998, "kv_connector": "MooncakeConnector" }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `version` | Yes | Manifest version; SMG reads version `1` |
+| `workers[].url` | Yes | The worker's address. `host:port` (IPv6 in brackets) is probed over HTTP and gRPC, keeping the protocol that answers; a `grpc://` URL registers a gRPC worker, and `ipc://` socket paths are accepted. A DP rank suffix (`@rank`) is rejected |
+| `workers[].id` | No | A stable identity for the worker instance, unique within the manifest. Defaults to the URL with any credentials masked |
+| `workers[].worker_type` | In PD and EPD routing | `regular`, `prefill`, `decode`, or `encode`; it must be a type the routing mode uses. In regular routing it defaults to `regular` |
+| `workers[].bootstrap_port` | No | The worker's bootstrap port, `1`–`65535`, on prefill and encode workers only |
+| `workers[].model_id` | No | Overrides the worker's model ID |
+| `workers[].kv_connector`, `workers[].kv_role`, `workers[].kv_engine_id` | No | KV metadata for vLLM PD deployments. `kv_connector` and `kv_engine_id` carry what the [pod annotations](#pod-annotations) carry in Kubernetes; `kv_role` is the engine's `kv_transfer_config.kv_role`, which has no pod annotation |
+
+The parse is strict, and a manifest is applied whole or not at all: an unknown or misspelled field, an unknown worker type, an unsupported version, a duplicate `id`, or two records naming the same endpoint rejects the whole file, with a log line naming the record and the reason. `{"version": 1, "workers": []}` is valid and means an intentionally empty fleet.
+
+### Updating the Manifest
+
+SMG watches the manifest's directory and rereads once a change settles. Write a temporary file in the same directory and rename it over the manifest, so no read ever sees a half-written file. A manifest mounted from a Kubernetes ConfigMap or Secret is picked up when Kubernetes swaps its content. When the directory cannot be watched — it does not exist yet, or was removed — SMG warns once, rereads on the periodic pass alone, and retries the watch every second.
+
+A read that fails never removes a worker. An unreadable manifest (absent, or a permission error) and a manifest that was read but rejected both leave the last good worker list in place, with a warning and a count on `smg_discovery_snapshot_errors_total` (`reason="unreadable"` or `reason="invalid"`). An absent manifest is a retryable error, not an empty fleet.
+
+How an edit maps onto a running worker:
+
+- **Editing a record that keeps its `id`** (for example, correcting its bootstrap port) updates its worker in place with the new settings, without removing or draining it.
+- **A new `id` at a reused address** signals a new instance there: the old worker is removed and the address is registered again.
+- **Removing a record** drains and removes its worker, through the same [removal flow](#removal-flow) as a deleted pod.
+
+---
+
 ## Mesh Router Discovery
 
-`--router-selector` finds peer SMG gateway pods for an HA mesh. It runs as its own task, independent of worker discovery, but it is configured through the service discovery flags: it starts only when `--service-discovery` is set and the mesh is enabled (`--enable-mesh`). Router pods can publish their mesh port in the `sglang.ai/mesh-port` annotation; pods without it are assumed to use this gateway's `--mesh-port`. See [High Availability](high-availability.md).
+`--router-selector` finds peer SMG gateway pods for an HA mesh. It runs as its own task, independent of worker discovery, but it is configured through the service discovery flags: it starts only when Kubernetes worker discovery is selected and the mesh is enabled (`--enable-mesh`). Under the file, Slurm, or Consul provider, `--router-selector` is ignored and router discovery does not run. Router pods can publish their mesh port in the `sglang.ai/mesh-port` annotation; pods without it are assumed to use this gateway's `--mesh-port`. See [High Availability](high-availability.md).
 
 ---
 
@@ -504,12 +563,13 @@ With `--service-discovery`, worker auto-recovery (`--remove-unhealthy-workers`, 
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `smg_discovery_workers_discovered` | Gauge | `source` | Desired workers (Ready pods × ports) seen by the latest reconcile pass |
+| `smg_discovery_workers_discovered` | Gauge | `source` | Desired workers seen by the latest reconcile pass: Ready pods × ports for Kubernetes, the manifest's records for file discovery |
 | `smg_discovery_registrations_total` | Counter | `source`, `result` | `AddWorker` jobs submitted by discovery; `result` is `success` when the job was queued and `failed` when the queue refused it |
 | `smg_discovery_deregistrations_total` | Counter | `source`, `reason` | `RemoveWorker` jobs submitted by discovery; `reason` is `reconciled` |
 | `smg_discovery_sync_duration_seconds` | Histogram | `source` | Duration of reconcile passes that submitted jobs |
+| `smg_discovery_snapshot_errors_total` | Counter | `source`, `reason` | Reads that produced no snapshot and left the last good one in place; for file discovery, a manifest that was `unreadable` or `invalid`. Not emitted by the Kubernetes provider |
 
-`source` is `kubernetes`. The counters record job submissions; whether a registration then succeeded shows up in `GET /workers` and in the worker [health metrics](../reliability/health-checks.md#monitoring).
+`source` names the provider: `kubernetes`, `file`, `slurm`, or `consul`. The counters record job submissions; whether a registration then succeeded shows up in `GET /workers` and in the worker [health metrics](../reliability/health-checks.md#monitoring).
 
 !!! note "Changed in v1.10.0"
     The deregistration reason `pod_deleted` and the registration result `duplicate` are gone; every deregistration reports `reason="reconciled"`. `smg_discovery_workers_discovered` counts workers (pods × ports) instead of pods. Update dashboards that filter on the old values.

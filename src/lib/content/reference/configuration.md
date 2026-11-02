@@ -190,7 +190,7 @@ How the overload settings differ from the other load thresholds:
 
 | Setting | Scope | At the threshold |
 |---------|-------|------------------|
-| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing while another candidate is under the thresholds. If every candidate is overloaded, the request goes to the least-loaded one, or gets an immediate `503` shed under `--worker-overload-shed`. Unless `--worker-overload-shed` is set, a regular request that `consistent_hashing` places by its routing key stays on its ring owner, and a cache-aware prefill pool of a prefill/decode pair is balanced by its spill gate instead (see above). |
+| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing while another candidate is under the thresholds. If every candidate is overloaded, the request goes to the least-loaded one, or gets an immediate `503` shed under `--worker-overload-shed`. Without that flag, a regular request that `consistent_hashing` places by its routing key stays on its ring owner, and a cache-aware prefill pool of a prefill/decode pair is balanced by its spill gate instead (see above). |
 | `--overload-token-usage-threshold` | `cache_aware` only | The hottest backend is de-ranked within cache-aware selection but stays routable. |
 | `--least-load-max-waiting-requests` | `least_load` only | The worker is skipped while at the cap. With every worker at the cap, the policy selects no worker. |
 

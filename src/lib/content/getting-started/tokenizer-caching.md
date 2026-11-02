@@ -96,7 +96,7 @@ L0 caps the number of entries, not their bytes. An entry for a short prompt is s
 | 100 MB | Multi-turn conversation heavy |
 | 200 MB | Long context applications |
 
-On a miss, L1 stores entries for a selection of the input's special-token boundaries, not all of them: geometrically spaced checkpoints — each stored prefix at least doubling the token length of the one before — plus the input's deepest boundary. Each entry holds the token IDs of the whole prefix up to its boundary. On a hit it stores the prefix up to the input's own deepest boundary, so each turn of a conversation leaves the entry its next turn matches; when boundaries lie between the match and the deepest, it also stores a speculative entry at the boundary right after the match, which eviction removes ahead of matched entries unless another request matches it first.
+On a miss, L1 stores entries for a selection of the input's special-token boundaries, not all of them: geometrically spaced checkpoints — each stored prefix at least doubling the token length of the one before — plus the input's deepest boundary. Each entry holds the token IDs of the whole prefix up to its boundary. On a hit it stores the prefix up to the input's own deepest boundary when that boundary lies past the match, so each turn of a conversation leaves the entry its next turn matches; when boundaries lie between the match and the deepest, it also stores a speculative entry at the boundary right after the match, which eviction removes ahead of matched entries unless another request matches it first.
 
 Each entry is charged the prefix's length in bytes plus 4 bytes per token, so a miss charges at most a few times the input's own length, and hits as well as misses grow the cache toward the memory bound.
 

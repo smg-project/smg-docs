@@ -179,7 +179,9 @@ User: How do I install it?
 
 </div>
 
-**Result**: Turn 2 tokenizes only the new messages, not the shared history. The hit also stores a new entry covering Turn 2's prompt up to its own deepest boundary, so Turn 3 matches right after Turn 2's last special token — even when Turn 2's match came from a prefix shared with other conversations, such as a common system prompt. When more boundaries lie between the match and the deepest one, the hit also stores the boundary right after the match — this is how a shared prefix longer than any single match, such as a common system prompt behind the template's leading token, is learned one boundary per request. That extra entry is speculative: eviction removes it ahead of matched entries unless another request matches it first.
+**Result**: Turn 2 tokenizes only the new messages, not the shared history. The hit also stores a new entry covering Turn 2's prompt up to its own deepest boundary, so Turn 3 matches right after Turn 2's last special token — even when Turn 2's match came from a prefix shared with other conversations, such as a common system prompt.
+
+When more boundaries lie between the match and the deepest one, the hit also stores the boundary right after the match. This is how a shared prefix that spans several special tokens — a long system prompt behind the template's leading token, say — is learned one boundary per request. That extra entry is speculative: eviction removes it ahead of matched entries unless another request matches it first.
 
 ---
 
@@ -407,9 +409,9 @@ L1 cache is bounded by total memory:
 | 100 MB | Multi-turn conversation heavy |
 | 200 MB | Long context applications |
 
-On a miss, L1 stores entries for a selection of the input's special-token boundaries, not all of them: geometrically spaced checkpoints — each stored prefix at least doubling the token length of the one before — plus the input's deepest boundary. Each entry holds the token IDs of the whole prefix up to its boundary. On a hit, L1 stores one more entry — the prefix up to the input's own deepest boundary — when that boundary lies past the match, so steady hit traffic also grows the cache. When further boundaries lie between the match and the deepest, the boundary right after the match is stored too, as a speculative entry that eviction removes ahead of matched entries unless another request matches it first.
+On a miss, L1 stores entries for a selection of the input's special-token boundaries, not all of them: geometrically spaced checkpoints — each stored prefix at least doubling the token length of the one before — plus the input's deepest boundary. Each entry holds the token IDs of the whole prefix up to its boundary. On a hit, L1 stores the prefix up to the input's own deepest boundary when that boundary lies past the match, so steady hit traffic also grows the cache. When further boundaries lie between the match and the deepest, the hit also stores the boundary right after the match, as a speculative entry that eviction removes ahead of matched entries unless another request matches it first.
 
-SMG charges each entry the prefix's length in bytes plus 4 bytes per token, so a miss charges at most a few times the input's own length, however many boundaries it has. When new entries would exceed the budget, SMG evicts approximately least recently used entries (sampling 32 at a time) to make room; an entry larger than the whole budget is not stored at all. The budget is an estimate of cache contents, not a cap on process memory.
+SMG charges each entry the prefix's length in bytes plus 4 bytes per token, so a miss charges at most a few times the input's own length no matter how many boundaries it has. When new entries would exceed the budget, SMG evicts approximately least recently used entries (sampling 32 at a time) to make room; an entry larger than the whole budget is not stored at all. The budget is an estimate of cache contents, not a cap on process memory.
 
 ---
 

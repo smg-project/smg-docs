@@ -120,8 +120,8 @@ Each entry under `classes` accepts the following fields. All are per-class.
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `reserved_floor` | integer (slots) | Minimum slots reserved for this class — the value the effective reservation never drops below. A higher class's *unused* reservation is held back from lower classes; a class's own reservation never reduces its own headroom. |
-| `reserved_per_slot` | float (0.0–1.0+) | Share of live capacity reserved for this class. The effective reservation is the greater of the floor or the share-based reservation: `effective = max(reserved_floor, ceil(reserved_per_slot × capacity))`, recomputed as capacity changes so the reservation tracks the fleet. `0.0` (the default) means purely absolute (just the floor). Must be finite and ≥ 0. If the floors + shares exceed the fleet's initial capacity the gateway falls back to legacy admission; a runtime capacity dip instead scales every class's reservation down proportionally (see [Validation](#validation)). |
+| `reserved_floor` | integer (slots) | Minimum slots reserved for this class — the value the effective reservation never drops below while the pool can hold every class's reservation (on a smaller pool the proportional clamp applies; see [Validation](#validation)). A higher class's *unused* reservation is held back from lower classes; a class's own reservation never reduces its own headroom. |
+| `reserved_per_slot` | float (0.0–1.0+) | Share of live capacity reserved for this class. The effective reservation is the greater of the floor or the share-based reservation: `effective = max(reserved_floor, ceil(reserved_per_slot × capacity))`, recomputed as capacity changes so the reservation tracks the fleet. `0.0` (the default) means purely absolute (just the floor). Must be finite and ≥ 0. If the floors + shares exceed the fleet's initial capacity the gateway falls back to legacy admission; a runtime capacity dip instead clamps reservations proportionally (see [Validation](#validation)). |
 | `queue_size` | integer | Per-class queue depth limit. A request that arrives when the queue is full is rejected with **429**. |
 | `queue_timeout_secs` | integer (seconds) | How long a queued request waits before it is rejected with **503** and `Retry-After: 2`. Must be `> 0`. |
 | `starvation_threshold_secs` | integer (seconds) | Head-of-queue age past which the dispatcher promotes a waiter out of normal priority order (and lets it use a reserved-but-unused slot) to avoid starvation. Must be `> 0`. |
@@ -150,7 +150,7 @@ At startup the gateway validates, for every class:
 
 A validation failure is a startup error naming the class and the field: the gateway refuses to start rather than silently falling back to legacy admission.
 
-Capacity is checked separately, against the live fleet. If the effective reservations exceed the fleet's *initial* capacity, the gateway logs at `ERROR` and [falls back to legacy admission](#enabling-the-scheduler) — the one scheduler failure that does not stop startup. A later capacity shrink never triggers that fallback: every class's reservation is scaled down proportionally (each keeps the same fraction of what it asked for), and the rounding remainder is left unreserved, shared by every class.
+Capacity is checked separately, against the live fleet. If the effective reservations exceed the fleet's *initial* capacity, the gateway logs at `ERROR` and [falls back to legacy admission](#enabling-the-scheduler) — the one scheduler failure that does not stop startup. A later capacity shrink never triggers that fallback: reservations are recomputed for the new capacity, and if they no longer fit, every class is scaled down proportionally — each keeps the same fraction of what it asked for, with the rounding remainder left unreserved and shared by every class.
 
 ---
 

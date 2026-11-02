@@ -502,6 +502,20 @@ The constraint travels in the request's `SamplingParams.constraint` oneof (`crat
 
 See [gRPC Workers](../../getting-started/grpc-workers.md) for the launch commands.
 
+### Older XGrammar Releases
+
+The structural tags [Symphony's tables](#constraints-under-symphony) build can carry the `optional`, `plus`, `star` and `token` nodes, which xgrammar compiles from release 0.1.33 on. On an older xgrammar, a tag that carries one is refused at compile time (`Format type not recognized`), and the request fails.
+
+Each [Rust servicer](../../getting-started/grpc-workers.md) reads the version of the xgrammar installed beside its engine once, at launch. When that version predates 0.1.33 and the engine's grammar backend runs xgrammar — the backend is named `xgrammar`, is vLLM's `auto`, or is one the servicer cannot resolve (the engines default to xgrammar where one runs) — the servicer advertises the `structural_tag_vocabulary: older` worker label.
+
+For a worker that carries the label, the gateway spells Symphony's tags without `optional`, `plus` and `star`: the same language, written with the nodes every xgrammar release compiles, so the tag compiles instead of failing the request. One exception: a marker the table writes as a single `token` of the model's vocabulary stays as built, so a tag that carries one still fails on the older compiler.
+
+Without the label — a current xgrammar, another grammar backend, or a servicer that doesn't report it — every tag is sent as the table built it. Only Symphony's tags are respelled; the [legacy parsers' structural tags](#when-a-constraint-is-sent) are always sent as built.
+
+The selected worker's label decides each request (under PD disaggregation, the decode worker's). A forced call's tag is built before a worker is selected, so it takes the older spelling — which every compiler accepts — when any of the model's token-generating workers advertises the label.
+
+The Python servicers and the [ZMQ direct backend](../../getting-started/zmq-workers.md) do not report the label; when such a worker's engine runs an older xgrammar, set `structural_tag_vocabulary: older` among the labels of its [worker spec](../../reference/api/admin.md#worker-spec) yourself.
+
 ---
 
 ## Configuration

@@ -85,7 +85,7 @@ The processor configuration (`config.json`, `preprocessor_config.json`, and, whe
 |------|----------|
 | `auto` (default) | Forward references when the request is forwardable, the model supports worker-side expansion, and every registered worker of the model is a vLLM gRPC worker that advertises a media processor. Otherwise preprocess on the router. |
 | `router` | Always preprocess on the router. |
-| `worker` | Always forward references. A request that cannot be forwarded is refused with 400; when no worker of the model advertises a media processor, SMG returns 503 `no_media_ref_capable_worker`. |
+| `worker` | Forward references. A request with per-item hints (`fps`, `max_long_side_pixel`) is preprocessed on the router instead when SMG can apply the hints itself (it has a processor for the model's family and every media part is an `image_url` or `video_url`), and refused with 400 `multimodal_hint_unsupported_in_worker_mode` when it cannot. Any other request that cannot be forwarded is refused with 400; when no worker of the model advertises a media processor, SMG returns 503 `no_media_ref_capable_worker`. |
 
 A request is forwardable when every media part is an `image_url` or `video_url` without per-item hints (`fps`, `max_long_side_pixel`). Audio parts are never forwarded. The flag falls back to `SMG_MM_PROCESSING` (deprecated; env support ends in the next minor release), then `auto`. An unreadable `SMG_MM_PROCESSING` stops the gateway at startup.
 
@@ -234,7 +234,7 @@ Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer
 | Frame placement | Spread evenly from the first frame to the last. MiniMax-M3 takes one frame per interval from the start and always keeps the last frame, as its reference does (smg-project/smg#2584). | — |
 | Frame size | Set by the model's processor | `video_url.max_long_side_pixel`: a multiple of 28 from 150 to 3584, applied to the decoded frames |
 
-`fps` and `max_long_side_pixel` are MiniMax-M3 extensions to the OpenAI content part, and SMG applies them for any model. A part with any of these hints is never forwarded to a worker.
+`fps` and `max_long_side_pixel` are MiniMax-M3 extensions to the OpenAI content part, and SMG applies them for any model. A part with any of these hints is never forwarded to a worker: even under `--mm-processing worker`, a request carrying one is preprocessed on the router when SMG can apply the hints itself, and refused with 400 `multimodal_hint_unsupported_in_worker_mode` when it cannot (SMG has no processor for the model's family, or the request also carries audio).
 
 `image_url.max_long_side_pixel` caps an image's long side. On MiniMax-M3, any positive value is accepted, and an image without the hint gets the default cap of 2016. SMG plans the output size from the source dimensions, keeping the aspect ratio: an image whose long side exceeds the cap is shrunk to the cap; otherwise an image whose short side is below 112 is enlarged until that side reaches 112, even if its long side then exceeds the cap. Both sides are then rounded to the nearest multiple of 28 to fit the patch grid, which can also leave the final long side slightly above the cap. An image whose planned size exceeds 12,845,056 pixels is refused with `media_too_large` before it is decoded.
 
@@ -299,7 +299,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes do not cover |
 | 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, audio) |
 | 400 | `multimodal_worker_processing_unsupported_model` | `--mm-processing worker`, and vLLM cannot expand the model's anchor |
-| 400 | `multimodal_hint_unsupported_in_worker_mode` | `--mm-processing worker`, and a part carries `fps` or `max_long_side_pixel` |
+| 400 | `multimodal_hint_unsupported_in_worker_mode` | `--mm-processing worker`, and a part carries an `fps` or `max_long_side_pixel` hint that SMG cannot apply itself (it has no processor for the model's family, or the request also carries audio); a hinted request SMG can serve is preprocessed on the router instead |
 | 400 | `media_ref_too_large` | Worker path: an inline `data:` payload is above the byte cap |
 | 400 | `media_ref_scheme_not_accepted` | Worker path: the selected worker does not fetch that URL scheme |
 | 413 | `multimodal_payload_too_large` | The request's media exceed the whole in-flight budget |

@@ -94,8 +94,14 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   Blocked corrections count as assessed only with inspected-source evidence and
   either exact page/PR references validated against the prepared open-PR inventory,
   or `depends_on` subsystems whose correction for the same commit must land first.
-  A dependency is accepted only while that subsystem has a proposal tonight, a
-  queued concern, or an open PR for the commit; otherwise the check stays unfinished.
+  A dependency is accepted only while that subsystem has a proposal tonight, its
+  own queued concern (queued concerns record the subsystem that proposed them), or
+  an open PR for the commit; otherwise the check stays unfinished. Two subsystems
+  therefore cannot each wait on the other. A deferred check may also name
+  `depends_on` subsystems. The next run assigns the commit to every subsystem an
+  unfinished check waits on, and to every subsystem whose ledger entry for that
+  commit is `blocked`, even outside its paths. Each scan also sees other
+  subsystems' unfinished checks for its commits.
   Blocked checks carry forward until resolved. Missing/deferred checks fail coverage
   without blocking valid sibling publication.
 - A `proposed` check settles only once its concerns have a recorded PR (open,
@@ -195,12 +201,14 @@ not replace the production queue. The requested cap is stored separately from
 remaining daily slots, so a production run with no quota left still preserves
 pending work.
 
-When discovery is incomplete (including daily commit coverage) or daily quota reduces the requested proposal budget,
-prior unselected concerns take priority over newly
-deferred concerns. Recorded PR instances and older pending copies of selected
-identities are removed; file-blocked concerns remain pending. Any excess keys are
-listed in `queue_overflow` and the job summary. Complete discovery with its full requested budget may retire old
-concerns it no longer proposes. The queue is best-effort within artifact retention;
+Scans defer a concern whose page is held by an open PR instead of re-proposing it,
+so omission never retires queued work. A queued concern leaves the queue only when
+a run selects it, a PR records it, its commit leaves the source history, it is
+abandoned, or its owning subsystem lists it in `retired_concerns` with evidence
+(merged coverage, removed behavior, or docs already correct). Prior concerns keep
+their queue position ahead of newly deferred ones, and a fresh proposal of the same
+identity replaces the older evidence. Any excess keys are listed in
+`queue_overflow` and the job summary. The queue is best-effort within artifact retention;
 the fixed source window keeps older unfinished work eligible after artifacts expire.
 Pending evidence is never directly published: discovery and publication revalidate
 it against current code, docs, and PRs. The coverage check does not block otherwise

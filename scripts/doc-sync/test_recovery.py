@@ -88,18 +88,51 @@ class RecoveryTests(unittest.TestCase):
                 self.assertTrue(report['complete'])
                 self.assertEqual(report['queued_concerns'], [old])
 
-    def test_full_scan_retires_pending_work_not_reproposed(self):
-        self.context['pending_concerns'] = [docs.validate_item(proposal())]
+    def test_full_scan_keeps_pending_work_it_neither_proposes_nor_retires(self):
+        # Run 41294441894 dropped 65 of 83 queued concerns whose pages were
+        # held by open PRs, because the scans deferred them without re-proposing.
+        old = {**docs.validate_item(proposal()), 'shard': self.scans[0]['shard']}
+        self.context['pending_concerns'] = [old]
         report = self.report(self.scans)
         self.assertTrue(report['complete'])
-        self.assertEqual(report['queued_concerns'], [])
+        self.assertEqual(report['queued_concerns'], [old])
+        retired = [{'concern': 'rollouts/wait-timeout', 'reason': 'Merged PR #355 documents it.'}]
+        self.scans[0]['retired_concerns'] = retired
+        self.assertEqual(self.report(self.scans)['queued_concerns'], [])
+        # A fresh proposal outranks the scan's own retirement.
+        self.propose([proposal(question='Fresh evidence', doc_paths=[docs.DOC_ROOT + 'other.md'])])
+        self.context['existing_prs'] = [pr(docs.validate_item(proposal(concern='holder', doc_paths=[
+            docs.DOC_ROOT + 'other.md'])), number=7)]
+        report = self.report(self.scans)
+        self.assertEqual([q['question'] for q in report['queued_concerns']], ['Fresh evidence'])
+
+    def test_only_the_owner_retires_a_queued_concern_with_evidence(self):
+        item = docs.validate_item(proposal())
+        slug = self.scans[0]['shard']
+        result = {**self.scans[0], 'concerns': [], 'daily_commit_checks': [], 'release_audit_checks': []}
+        for pending, retired in [
+                ([{**item, 'shard': 'operations'}], [{'concern': 'rollouts/wait-timeout', 'reason': 'Done.'}]),
+                ([item], [{'concern': 'rollouts/missing', 'reason': 'Done.'}]),
+                ([item], [{'concern': 'rollouts/wait-timeout', 'reason': ' '}]),
+                ([item], [{'concern': 'rollouts/wait-timeout', 'reason': 'Done.'}] * 2)]:
+            with self.subTest(pending=pending, retired=retired), self.assertRaises(ValueError):
+                discovery.validate_scan(json.dumps({**result, 'retired_concerns': retired}),
+                                        {**self.context, 'pending_concerns': pending}, slug,
+                                        self.context['code_history'])
+        for pending in [[item], [{**item, 'shard': slug}]]:
+            retired = [{'concern': 'rollouts/wait-timeout', 'reason': 'Merged PR #355 documents it.'}]
+            scan = discovery.validate_scan(json.dumps({**result, 'retired_concerns': retired}),
+                                           {**self.context, 'pending_concerns': pending}, slug,
+                                           self.context['code_history'])
+            self.assertEqual(scan['retired_concerns'], retired)
 
     def test_queue_uses_full_key_for_equal_slugs_in_different_areas(self):
         first, second = proposal(), proposal(area='other', question='Different question')
         self.propose([first, second])
         report = self.report(self.scans)
         self.assertEqual(report['selected'][0]['area'], first['area'])
-        self.assertEqual(report['queued_concerns'], [docs.validate_item(second)])
+        self.assertEqual(report['queued_concerns'],
+                         [{**docs.validate_item(second), 'shard': self.scans[0]['shard']}])
 
     def test_queue_keeps_file_blocked_work_but_drops_recorded_instances(self):
         item = docs.validate_item(proposal())
@@ -110,7 +143,8 @@ class RecoveryTests(unittest.TestCase):
             self.assertEqual(self.report(self.scans)['queued_concerns'], [])
         self.context['existing_prs'] = [pr(item, body='Manual change', branch='human')]
         self.assertEqual(discovery.pending_candidates([item], self.context), [item])
-        self.assertEqual(self.report(self.scans)['queued_concerns'], [item])
+        self.assertEqual(self.report(self.scans)['queued_concerns'],
+                         [{**item, 'shard': self.scans[0]['shard']}])
 
     def test_pending_queue_deduplicates_and_enforces_source_window(self):
         item = docs.validate_item(proposal())

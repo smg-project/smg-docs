@@ -33,6 +33,15 @@ def scan_key(scan):
     return scan['shard'], scan.get('backlog') or 0
 
 
+def owners(report):
+    """Map each proposed concern to the subsystem whose scan proposed it."""
+    result = {}
+    for scan in report.get('scans', []):
+        for proposal in scan['concerns']:
+            result.setdefault(identity(proposal), scan['shard'])
+    return result
+
+
 def unpublished_reason(item, prior, feedback):
     deferred = {key: reason for key, reason in prior.get('deferred', [])}
     if item['key'] in deferred:
@@ -94,9 +103,10 @@ def carry_forward(prior, prs, feedback=None, history=None):
 
 def retry_concerns(prior, prs, attempts, feedback=None):
     """Queue selected-but-unpublished concerns with the reason they did not land."""
-    feedback = feedback or {}
+    feedback, owner = feedback or {}, owners(prior)
     return [{**item, 'publication_attempts': attempts[identity(item)],
-             'publication_feedback': unpublished_reason(item, prior, feedback)}
+             'publication_feedback': unpublished_reason(item, prior, feedback),
+             **({'shard': owner[identity(item)]} if identity(item) in owner else {})}
             for item in map(docs.validate_item, prior.get('selected', []))
             if not published(item, prs)
             and attempts.get(identity(item), 0) < MAX_PUBLICATION_ATTEMPTS]
@@ -131,7 +141,27 @@ def record(commit_ledger, checks):
     return {sha: entry for sha, entry in result.items() if entry}
 
 
-def assign(context, prior, assignments, carried=None):
+def waiting_on(carried, commit_ledger):
+    """Return the subsystem/commit pairs an unfinished daily check waits on.
+
+    A named dependency must keep working on the commit while another subsystem
+    waits for it. A stuck check also reopens other subsystems' blocked entries
+    for the same commit: blocked is never final, and a wait recorded only in
+    prose (smg#4721) must not leave both sides parked forever.
+    """
+    pairs = set()
+    for check in carried:
+        if check.get('kind') == 'backlog':
+            continue
+        sha = check['source_sha']
+        pairs.update((name, sha) for name in check.get('depends_on', []))
+        if check['status'] not in COMPLETE:
+            pairs.update((slug, sha) for slug, status in commit_ledger.get(sha, {}).items()
+                         if status == 'blocked' and slug != check['shard'])
+    return pairs
+
+
+def assign(context, prior, assignments, carried=None, commit_ledger=None):
     """Require the past day, gaps between runs, and unfinished prior checks."""
     history = [line.split()[0] for line in context['code_history']]
     required = set(context['daily_window']['commits'])
@@ -143,12 +173,15 @@ def assign(context, prior, assignments, carried=None):
     if carried is None:
         carried = [c for c in prior_checks(prior) if c['status'] not in SETTLED]
     pending = {(c['shard'], c['source_sha']) for c in carried if c.get('kind') != 'backlog'}
+    pending |= waiting_on(carried, commit_ledger or {})
     assigned = {line.split()[0] for lines in assignments.values() for line in lines}
     if not required <= assigned:
         raise ValueError('Required daily commits lack discovery assignments')
-    return {slug: [line.split()[0] for line in lines
-                   if line.split()[0] in required or (slug, line.split()[0]) in pending]
-            for slug, lines in assignments.items()}
+    # Pending pairs stay required even outside the subsystem's paths: a
+    # dependency can own cross-cutting wiring its path filter does not see.
+    owned = {slug: {line.split()[0] for line in lines} & required for slug, lines in assignments.items()}
+    return {slug: [sha for sha in history if sha in owned[slug] or (slug, sha) in pending]
+            for slug in assignments}
 
 
 def backlog(context, commit_ledger, carried, assignments, shards, jobs=BACKLOG_JOBS, size=BACKLOG_COMMITS):
@@ -212,8 +245,12 @@ def validate(result, context, slug, shards=(), expected=None):
             raise ValueError('Daily commit check needs source/documentation evidence')
         blockers = check.get('blockers', [])
         depends = check.get('depends_on', [])
+        # A deferred check may name the subsystems it waits on, so the next run
+        # assigns them the commit; only blocked checks cite open-PR pages.
         if (not isinstance(blockers, list) or not isinstance(depends, list)
-                or (status == 'blocked') != bool(blockers or depends)):
+                or status == 'blocked' and not (blockers or depends)
+                or status != 'blocked' and blockers
+                or status not in {'blocked', 'deferred'} and depends):
             raise ValueError('Blocked daily checks need explicit open-PR page or subsystem blockers')
         if (len(set(map(str, depends))) != len(depends)
                 or any(name not in shards or name == slug for name in depends)):
@@ -245,17 +282,19 @@ def dependency(check, scan, scans, context):
     """Accept a cross-subsystem wait only while the other side has live work.
 
     The owning subsystem's proposal for the same commit must exist tonight, in
-    the queue, or as an open PR. Otherwise the wait could never end, so the
-    check stays unfinished and coverage fails visibly.
+    the queue as that subsystem's own concern, or as an open PR. Otherwise the
+    wait could never end, so the check stays unfinished and coverage fails
+    visibly. Queued concerns without an owner do not count: two subsystems
+    once each waited on the same one, and neither proposed it.
     """
     if check['status'] != 'blocked' or not check.get('depends_on'):
         return check
-    sha, own = check['source_sha'], {p['concern'] for p in scan['concerns']}
+    sha = check['source_sha']
     marker = f'{docs.MARKER}{sha}:'
     for name in check['depends_on']:
         if not (any(p['source_sha'] == sha for other in scans if other['shard'] == name
                     for p in other['concerns'])
-                or any(p['source_sha'] == sha and p['concern'] not in own
+                or any(p['source_sha'] == sha and p.get('shard') == name
                        for p in context.get('pending_concerns', []))
                 or any(pr['state'] == 'open' and marker in pr['body']
                        for pr in context['existing_prs'])):

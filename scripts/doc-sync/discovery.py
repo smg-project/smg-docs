@@ -91,6 +91,7 @@ def resolve_scan(raw, history):
                                                 'source_sha': resolve(check['source_commit'])}
                                                for check in daily],
                        "release_audit_checks": result.get("release_audit_checks", []),
+                       "retired_concerns": result.get("retired_concerns", []),
                        "remaining_work": result["remaining_work"]})
 
 
@@ -125,11 +126,34 @@ def validate_scan(raw, context, slug, history, backlog=0):
             raise ValueError("Unknown backlog scan")
         audit_context = {**context, 'release_audit_candidates': []}
     checks = release_handoff.validate_checks({**result, 'concerns': concerns}, audit_context, slug)
+    retired = result.get('retired_concerns', [])
+    allowed = retirable(visible_pending(context, slug, backlog), slug)
+    if (not isinstance(retired, list)
+            or any(not isinstance(entry, dict) or entry.get('concern') not in allowed
+                   or not isinstance(entry.get('reason'), str) or not entry['reason'].strip()
+                   for entry in retired)
+            or len({entry['concern'] for entry in retired}) != len(retired)):
+        raise ValueError("Retired concerns must name this subsystem's queued concerns with evidence")
     return {"shard": slug, "base_sha": context["base_sha"], "concerns": concerns,
             "daily_commit_checks": daily_coverage.validate(result, context, slug, SHARD_NAMES, expected),
-            "release_audit_checks": checks,
+            "release_audit_checks": checks, "retired_concerns": retired,
             "inspected_commits": inspected, "remaining_work": result["remaining_work"],
             **({"backlog": backlog} if backlog else {})}
+
+
+def visible_pending(context, slug, backlog=0):
+    """Queued concerns a scan receives; audit identities go only to their owning scan."""
+    # A queued audit identity can only be re-proposed by its owning scan, which
+    # receives the candidate evidence required by validate_checks.
+    audit_candidates = [] if backlog else release_handoff.assigned(context, slug)
+    return [p for p in context.get('pending_concerns', [])
+            if not p['concern'].startswith('release-audit-') or any(
+                p['concern'].startswith('release-audit-' + c['id'] + '-') for c in audit_candidates)]
+
+
+def retirable(pending, slug):
+    """Only the owning subsystem retires a queued concern; legacy entries have no owner."""
+    return [daily_coverage.identity(p) for p in pending if p.get('shard') in (None, slug)]
 
 
 def scan_names(context):
@@ -212,7 +236,7 @@ def combine(scans, context, allow_partial=False):
 
 
 def deferred_queue(scans, deferred, prs):
-    """Queue file-blocked concerns without reviving merged or declined work."""
+    """Queue file-blocked concerns, with their owner, without reviving merged or declined work."""
     queued = {key for key, reason in deferred
               if reason in {'overlapping documentation files', 'UTC daily/run PR cap', 'existing PR'}}
     queued_concerns = []
@@ -226,7 +250,7 @@ def deferred_queue(scans, deferred, prs):
             if any(docs.same_concern(item, pr)
                    for pr in prs):
                 continue
-            queued_concerns.append(item)
+            queued_concerns.append({**item, 'shard': scan['shard']})
     return queued_concerns
 
 
@@ -238,16 +262,21 @@ def build_report(scans, context):
     missing = [name for name in expected if name not in received]
     daily = daily_coverage.report(context, scans, expected)
     backlog = daily_coverage.backlog_report(context, scans)
-    queued = deferred_queue(scans, deferred, context['existing_prs'])
-    # Daily quota can reduce each scan's proposal budget even when every scan
-    # succeeds. Such a run cannot retire prior work merely by omitting it.
-    quota_limited = context.get('max_prs', docs.MAX_PRS) < context.get('requested_max_prs', docs.MAX_PRS)
-    if missing or not daily['complete'] or quota_limited:
-        selected_ids = {(item['area'], item['concern']) for item in selected}
-        prior = [item for item in context.get('pending_concerns', [])
-                 if (item['area'], item['concern']) not in selected_ids]
-        queued = prior + queued
-    queued = pending_candidates(queued, context)
+    fresh = {daily_coverage.identity(item): item
+             for item in deferred_queue(scans, deferred, context['existing_prs'])}
+    # Scans defer concerns whose pages are held by open PRs instead of
+    # re-proposing them, so omission never retires queued work (run 41294441894
+    # dropped 65 of 83 that way). A concern leaves the queue when it is
+    # selected, a PR records it, its commit leaves history, it was abandoned,
+    # or its owning scan retires it with evidence. A fresh proposal keeps the
+    # queued position but replaces the older evidence.
+    gone = ({daily_coverage.identity(item) for item in selected}
+            | {entry['concern'] for scan in scans for entry in scan.get('retired_concerns', [])}
+            | {entry['concern'] for entry in context.get('abandoned_concerns', [])})
+    retained = [fresh.pop(daily_coverage.identity(item), item)
+                for item in context.get('pending_concerns', [])
+                if daily_coverage.identity(item) not in gone]
+    queued = pending_candidates(retained + list(fresh.values()), context)
     return {'base_sha': context['base_sha'], 'source_sha': context['source_sha'],
             'source_release': context.get('source_release'), 'source_target': context.get('source_target'),
             'source_repo': docs.SOURCE_REPO, 'initial_since': docs.INITIAL_SINCE,
@@ -290,7 +319,13 @@ def pending_candidates(proposals, context):
 
 def pending_from_report(report, context):
     """Carry a bounded queue as evidence for fresh discovery."""
-    return pending_candidates(report.get('queued_concerns', []), context)[:docs.MAX_PRS]
+    # Reports written before queued concerns recorded an owner still name the
+    # scan that proposed them.
+    owner = daily_coverage.owners(report)
+    return pending_candidates([
+        {**item, **({'shard': owner[daily_coverage.identity(item)]}
+                    if 'shard' not in item and daily_coverage.identity(item) in owner else {})}
+        for item in report.get('queued_concerns', [])], context)[:docs.MAX_PRS]
 
 
 def previous_report(repo, branch, context):
@@ -378,19 +413,16 @@ def scan_context(context, slug, assignments, backlog=0):
     else:
         required = set(context.get('daily_assignments', {}).get(slug, []))
         audit_candidates = release_handoff.assigned(context, slug)
-    # A queued audit identity can only be re-proposed by its owning scan, which
-    # receives the candidate evidence required by validate_checks.
-    pending = [p for p in context.get('pending_concerns', [])
-               if not p['concern'].startswith('release-audit-') or any(
-                   p['concern'].startswith('release-audit-' + c['id'] + '-') for c in audit_candidates)]
     # The ledger and backlog plan are bookkeeping, not discovery evidence.
     shared = {k: v for k, v in context.items()
               if k not in ('commit_ledger', 'backlog_batches', 'publication_attempts')}
     return {**shared, "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
             "release_audit_candidates": audit_candidates,
-            "pending_concerns": pending,
+            "pending_concerns": visible_pending(context, slug, backlog),
+            # Other subsystems' unfinished checks for the same commits show who
+            # is waiting on whom, so neither side parks the commit for the other.
             "pending_commit_checks": [c for c in context.get('pending_commit_checks', [])
-                                      if c['shard'] == slug and c['source_sha'] in required],
+                                      if c['source_sha'] in required],
             "required_commit_ids": [i for i, line in enumerate(history, 1)
                                     if line.split()[0] in required],
             "focus_commit_ids": [i for i, line in enumerate(history, 1) if line.split()[0] in primary],
@@ -412,6 +444,12 @@ def scan_schema(scoped):
         properties={number: {'$ref': '#/definitions/daily_check'} for number in ids}, required=ids)
     schema['definitions']['daily_check']['properties']['depends_on']['items']['enum'] = [
         name for name in SHARD_NAMES if name != scoped.get('shard')]
+    retired = schema['properties']['retired_concerns']
+    owned = retirable(scoped.get('pending_concerns', []), scoped.get('shard'))
+    if owned:
+        retired['items']['properties']['concern']['enum'] = owned
+    else:
+        retired['maxItems'] = 0
     return schema
 
 
@@ -431,6 +469,7 @@ def main():
         prs = context['existing_prs']
         carried, attempts, abandoned = daily_coverage.carry_forward(
             prior, prs, feedback, {line.split()[0] for line in context['code_history']})
+        context['commit_ledger'] = daily_coverage.ledger(prior, carried, abandoned, context['code_history'])
         # Rejected or unpublished selections return first, with the reason.
         context['pending_concerns'] = pending_candidates(
             daily_coverage.retry_concerns(prior, prs, attempts, feedback)
@@ -438,8 +477,8 @@ def main():
         context['publication_attempts'] = attempts
         context['abandoned_concerns'] = abandoned
         assignments = partition(context)
-        context['daily_assignments'] = daily_coverage.assign(context, prior, assignments, carried)
-        context['commit_ledger'] = daily_coverage.ledger(prior, carried, abandoned, context['code_history'])
+        context['daily_assignments'] = daily_coverage.assign(context, prior, assignments, carried,
+                                                             context['commit_ledger'])
         context['backlog_batches'], context['backlog_remaining'] = daily_coverage.backlog(
             context, context['commit_ledger'], carried, assignments, names, jobs, size)
         assigned = {(slug, sha) for slug, shas in context['daily_assignments'].items() for sha in shas}
@@ -503,7 +542,9 @@ def main():
             if report['missing_shards']:
                 summary.write("**Incomplete discovery**: missing validated scans from "
                               + ", ".join(report['missing_shards']) + ".\n\n")
-            summary.write(f"Retained {len(report['queued_concerns'])} pending concerns.\n\n")
+            retired = [entry for scan in scans for entry in scan.get('retired_concerns', [])]
+            summary.write(f"Retained {len(report['queued_concerns'])} pending concerns; "
+                          f"retired {len(retired)} with evidence.\n\n")
             daily = report['daily_coverage']
             if daily['window']:
                 window = daily['window']

@@ -344,11 +344,72 @@ class DailyCoverageTests(unittest.TestCase):
         self.assertEqual(lonely['checks'][0]['status'], 'deferred')
         self.assertIn('Unverified dependency', lonely['checks'][0]['evidence'])
         queued = docs.validate_item(proposal(source_sha=self.latest, concern='queued-fix'))
-        for live in [{'pending_concerns': [queued]},
+        for live in [{'pending_concerns': [{**queued, 'shard': 'grpc-multimodal'}]},
                      {'existing_prs': [pr(queued, number=380)]}]:
             with self.subTest(live=list(live)):
                 context = {**self.context, **live}
                 self.assertTrue(daily.report(context, [own], ['routing-workers'])['complete'])
+        # Only the named subsystem's own queued concern keeps the wait alive.
+        for pending in [queued, {**queued, 'shard': 'routing-workers'}]:
+            with self.subTest(owner=pending.get('shard')):
+                context = {**self.context, 'pending_concerns': [pending]}
+                self.assertFalse(daily.report(context, [own], ['routing-workers'])['complete'])
+
+    def test_subsystems_cannot_wait_on_each_other_through_an_unowned_queue_entry(self):
+        # Run 41294441894: routing-workers and grpc-multimodal each blocked
+        # smg#4721 on the other, citing one queued concern neither proposed.
+        # The queue then dropped it and run 41423149922 failed coverage.
+        own, other = self.dependent_scan()
+        other.update(concerns=[], daily_commit_checks=[self.check(
+            status='blocked', depends_on=['routing-workers'],
+            evidence='The multimodal correction is queued with the routing scan.')])
+        queued = docs.validate_item(proposal(source_sha=self.latest, concern='pd-media-identity'))
+        self.context.update(discovery_shard='', pending_concerns=[queued])
+        result = daily.report(self.context, [own, other], ['routing-workers', 'grpc-multimodal'])
+        self.assertFalse(result['complete'])
+        self.assertEqual([c['status'] for c in result['checks']], ['deferred', 'deferred'])
+        # With an owner, exactly the side waiting on that owner may stay blocked.
+        self.context['pending_concerns'] = [{**queued, 'shard': 'grpc-multimodal'}]
+        result = daily.report(self.context, [own, other], ['routing-workers', 'grpc-multimodal'])
+        self.assertEqual([c['status'] for c in result['checks']], ['blocked', 'deferred'])
+
+    def test_waiting_check_assigns_its_commit_to_the_subsystems_it_waits_on(self):
+        self.context['daily_window']['commits'] = []
+        self.assignments['routing-workers'] = self.history
+        deferred = {'shard': 'routing-workers', **self.check(
+            self.old, status='deferred', depends_on=['api-protocols'])}
+        # Outside its paths, the named dependency still reassesses the commit.
+        self.assertEqual(daily.assign(self.context, {}, self.assignments, [deferred])['operations'], [])
+        named = {**deferred, 'depends_on': ['operations']}
+        self.assertEqual(daily.assign(self.context, {}, self.assignments, [named])['operations'],
+                         [self.old])
+        # A wait recorded only in evidence reopens the other side's blocked entry.
+        stuck = {**deferred, 'depends_on': []}
+        ledger = {self.old: {'api-protocols': 'blocked', 'operations': 'covered'}}
+        assigned = daily.assign(self.context, {}, self.assignments, [stuck], ledger)
+        self.assertEqual((assigned['api-protocols'], assigned['operations']), ([self.old], []))
+        self.assertEqual(assigned['routing-workers'], [self.old])
+        # A settled or blocked check, or best-effort backlog work, wakes nobody
+        # through the ledger.
+        for check in [{**stuck, 'status': 'blocked', 'blockers': [{'pr': 1, 'path': 'x'}]},
+                      {**stuck, 'kind': 'backlog'}]:
+            with self.subTest(check=check['status'], kind=check.get('kind')):
+                assigned = daily.assign(self.context, {}, self.assignments, [check], ledger)
+                self.assertEqual(assigned['api-protocols'], [])
+        self.assertEqual(daily.assign(self.context, {}, self.assignments,
+                                      [{**named, 'kind': 'backlog'}])['operations'], [])
+
+    def test_deferred_check_may_name_the_subsystem_it_waits_on(self):
+        own, _ = self.dependent_scan()
+        names = discovery.SHARD_NAMES
+        waiting = self.check(status='deferred', depends_on=['grpc-multimodal'])
+        self.assertEqual(daily.validate({**own, 'daily_commit_checks': [waiting]}, self.context,
+                                        'routing-workers', names), [waiting])
+        page = [{'pr': 338, 'path': proposal()['doc_paths'][0]}]
+        for check in [{**waiting, 'blockers': page}, {**waiting, 'depends_on': ['routing-workers']}]:
+            with self.subTest(check=check), self.assertRaises(ValueError):
+                daily.validate({**own, 'daily_commit_checks': [check]}, self.context,
+                               'routing-workers', names)
 
     def prior_proposal(self, **report):
         item = docs.validate_item(proposal(source_sha=self.latest))
@@ -508,6 +569,31 @@ class DailyCoverageTests(unittest.TestCase):
         with patch.object(docs, 'run', side_effect=error):
             self.assertEqual(discovery.publication_feedback('o/r', report), {})
 
+    def test_scan_sees_other_subsystems_unfinished_checks_for_its_commits(self):
+        self.context['daily_assignments']['grpc-multimodal'] = [self.latest]
+        waiting = {'shard': 'routing-workers', **self.check(status='deferred', depends_on=['grpc-multimodal'])}
+        unrelated = {'shard': 'routing-workers', **self.check(self.old, status='deferred')}
+        self.context['pending_commit_checks'] = [waiting, unrelated]
+        scoped = discovery.scan_context(self.context, 'grpc-multimodal', self.assignments)
+        self.assertEqual(scoped['pending_commit_checks'], [waiting])
+
+    def test_queued_concerns_record_and_recover_their_owner(self):
+        page = proposal()['doc_paths']
+        held = proposal(concern='held-page', question='Held page', doc_paths=page)
+        self.scans[1].update(concerns=[proposal(), held], inspected_commits=[self.old])
+        selected, deferred = discovery.combine(self.scans, self.context)
+        queued = discovery.deferred_queue(self.scans, deferred, [])
+        self.assertEqual([(q['concern'], q['shard']) for q in queued], [('held-page', 'routing-workers')])
+        # Reports written before owners were recorded still name the proposer.
+        legacy = {'queued_concerns': [{k: v for k, v in queued[0].items() if k != 'shard'}],
+                  'scans': self.scans}
+        self.assertEqual(discovery.pending_from_report(legacy, self.context)[0]['shard'], 'routing-workers')
+        self.assertNotIn('shard', discovery.pending_from_report(
+            {**legacy, 'scans': []}, self.context)[0])
+        prior = {'scans': self.scans, 'selected': selected}
+        attempts = {daily.identity(selected[0]): 1}
+        self.assertEqual(daily.retry_concerns(prior, [], attempts)[0]['shard'], 'routing-workers')
+
     def test_schema_offers_only_other_subsystems_as_dependencies(self):
         schema = discovery.scan_schema({'required_commit_ids': [1], 'shard': 'routing-workers'})
         check = schema['definitions']['daily_check']
@@ -515,6 +601,16 @@ class DailyCoverageTests(unittest.TestCase):
         enum = check['properties']['depends_on']['items']['enum']
         self.assertNotIn('routing-workers', enum)
         self.assertEqual(len(enum), len(discovery.SHARD_NAMES) - 1)
+        self.assertIn('retired_concerns', schema['required'])
+        self.assertEqual(schema['properties']['retired_concerns']['maxItems'], 0)
+        owned, legacy, foreign = (docs.validate_item(proposal(concern=c)) for c in ('owned', 'legacy', 'foreign'))
+        schema = discovery.scan_schema({'required_commit_ids': [1], 'shard': 'routing-workers',
+                                        'pending_concerns': [{**owned, 'shard': 'routing-workers'}, legacy,
+                                                             {**foreign, 'shard': 'operations'}]})
+        retired = schema['properties']['retired_concerns']
+        self.assertNotIn('maxItems', retired)
+        self.assertEqual(retired['items']['properties']['concern']['enum'],
+                         ['rollouts/owned', 'rollouts/legacy'])
 
     def test_partition_plans_backlog_scans_end_to_end(self):
         with tempfile.TemporaryDirectory() as directory:

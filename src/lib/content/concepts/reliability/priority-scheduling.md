@@ -51,7 +51,7 @@ When a slot frees, the scheduler's dispatcher wakes and tries to admit waiting r
 
 ### Reserved slots
 
-Each class can reserve capacity. A reservation is sized by two knobs: an **absolute floor** (`reserved_floor`, in slots) and a **share of live capacity** (`reserved_per_slot`). The effective reservation is whichever is larger, recomputed whenever the fleet's capacity changes — a share-based reservation grows and shrinks with the fleet.
+Each class can reserve capacity. A reservation is sized by two knobs: an **absolute floor** (`reserved_floor`, in slots) and a **share of live capacity** (`reserved_per_slot`). The effective reservation is whichever yields more slots, recomputed whenever the fleet's capacity changes — a share-based reservation grows and shrinks with the fleet.
 
 Whatever its size, a reservation is a hold, not a fixed partition:
 

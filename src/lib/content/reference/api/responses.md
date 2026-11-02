@@ -869,10 +869,19 @@ An unknown ID — or another tenant's response — returns `404` with code `not_
 
 Conversations provide persistent storage for multi-turn interactions, enabling chat history to be maintained across multiple requests.
 
-The conversation endpoints report errors as `{"error": "<message>"}`, except for two
-structured errors: `item_already_in_conversation` under
-[Create Conversation Items](#create-conversation-items) and the `invalid_value` rejection
-of a bad `include` query under [Get Conversation Item](#get-conversation-item).
+The conversation endpoints report errors in the gateway envelope
+(`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).
+An invalid request answers `400` with code `invalid_request`; an unknown conversation
+or item answers `404` with code `not_found`. The one exception is
+[Delete Conversation Item](#delete-conversation-item), which answers `200`, not `404`,
+for an item that is not in the conversation.
+
+Three `400` rejections carry their own `code` and `param`: under
+[Create Conversation Items](#create-conversation-items), `item_already_in_conversation`
+for an item the conversation already holds (`param` is `items`) and
+`string_above_max_length` for an item `id` over 64 bytes (`param` is `items[].id`);
+under [Get Conversation Item](#get-conversation-item), `invalid_value` for a bad
+`include` value (`param` names the offending entry, such as `include[0]`).
 
 A conversation is scoped to the tenant that created it: on every route below, and as
 the `conversation` of a new response, another tenant's conversation ID answers `404`,
@@ -1108,6 +1117,10 @@ belongs to another tenant's item is rejected with `400` (`Item id '...' cannot b
 neither serving nor overwriting it (see
 [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
+A supplied item `id` — an item's own or an `item_reference`'s — may be at most 64 bytes;
+a longer one is rejected with `400` (`string_above_max_length` on `items[].id`) before
+any item of the request is stored.
+
 ### Example Request
 
 ```bash
@@ -1200,7 +1213,9 @@ curl -X DELETE http://localhost:30000/v1/conversations/conv_abc123/items/msg_abc
 
 ### Response
 
-Returns the updated conversation object.
+Returns the conversation object. An item that is not in the conversation, including an
+unknown item ID, is ignored: the request answers `200`, not `404`. An unknown
+conversation still answers `404`.
 
 ---
 
@@ -1383,7 +1398,7 @@ vocabulary.
 | 401 | — | Invalid or missing API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |
 | 404 | `conversation_not_found` | The `conversation` does not exist, or belongs to another tenant |
-| 404 | `not_found` | Unknown or another tenant's response ID on get, delete, or input items |
+| 404 | `not_found` | Unknown or another tenant's ID: a response on get, delete, or input items, or a conversation or item on the conversation routes |
 | 404 | `response_not_found` | Unknown or another tenant's response ID on cancel |
 | 424 | `connect_mcp_server_failed` | A declared MCP server could not be reached |
 | 429 | `admission_queue_full`, `scheduler_queue_full` | Admission control; see [Rate Limiting](openai.md#rate-limiting) |

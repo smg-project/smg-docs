@@ -75,14 +75,15 @@ For an eligible request, the first matching rule wins:
 | 3 | Workers for more than one model are registered | Buffer | `model_ambiguous` |
 | 4 | A worker rewrites request bodies (DP-aware workers, `--dp-aware`) | Buffer | `worker_mutates_body` |
 | 5 | WASM is enabled and a module is attached at `OnRequest` | Buffer | `wasm_request_hook` |
-| 6 | The request has no valid `Content-Length` header (for example, a chunked upload) | Buffer | `no_content_length` |
-| 7 | Router retries are enabled and `Content-Length` ≤ `--max-buffered-request-bytes` | Buffer | `retryable` |
-| 8 | Router retries are enabled and the body is larger | Stream | `retry_forfeited` |
-| 9 | Router retries are disabled | Stream, at any size | `pure_forward` |
+| 6 | The [tenant rate limiter](../reliability/tenant-rate-limiting.md) is enabled (`--tenant-rate-limit-enabled`) | Buffer | `tenant_rate_limit` |
+| 7 | The request has no valid `Content-Length` header (for example, a chunked upload) | Buffer | `no_content_length` |
+| 8 | Router retries are enabled and `Content-Length` ≤ `--max-buffered-request-bytes` | Buffer | `retryable` |
+| 9 | Router retries are enabled and the body is larger | Stream | `retry_forfeited` |
+| 10 | Router retries are disabled | Stream, at any size | `pure_forward` |
 
-Rules 1–6 always buffer, at any size up to `--max-payload-size`. In the first five, something must read the body: the sticky-session key comes from the body's `rid`, the policy routes on the prompt, the model name is inside the body, the request must be edited for the worker, or a plugin inspects it.
+Rules 1–7 always buffer, at any size up to `--max-payload-size`. In the first six, something must read the body: the sticky-session key comes from the body's `rid`, the policy routes on the prompt, the model name is inside the body, the request must be edited for the worker, a plugin inspects it, or the tenant reservation's input-token estimate is read from it.
 
-Rules 7–9 apply when the only reason to buffer is to keep the request retryable. Router retries count as enabled when `--retry-max-retries` is greater than `1` and `--disable-retries` is not set. (A worker spec's `resilience` fields apply to its model since v1.12.0, and a per-model override that still allows retries counts as enabled here, since the model sits inside the unread body; see [Per-Worker Overrides](../reliability/retries.md#per-worker-overrides).)
+Rules 8–10 apply when the only reason to buffer is to keep the request retryable. Router retries count as enabled when `--retry-max-retries` is greater than `1` and `--disable-retries` is not set. (A worker spec's `resilience` fields apply to its model since v1.12.0, and a per-model override that still allows retries counts as enabled here, since the model sits inside the unread body; see [Per-Worker Overrides](../reliability/retries.md#per-worker-overrides).)
 
 Once a request is headed for the streamed path, the router selects a worker from the headers alone. If no worker can be selected that way, or the fleet changed in the meantime (a body-rewriting worker or a second model registered), the request falls back to the buffered path, counted as `no_available_worker`, `worker_mutates_body`, or `model_ambiguous`.
 

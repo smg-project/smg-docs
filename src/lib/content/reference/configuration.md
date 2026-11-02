@@ -174,13 +174,15 @@ These apply wherever `least_load` is the policy, including as `--prefill-policy`
 
 Absolute per-worker ceilings, evaluated once per load report rather than per request, on by default. A worker at or above a ceiling leaves routing, while another candidate is under the ceilings, until its load report drops below it. When every candidate worker is overloaded, the request goes to the least-loaded of them; with `--worker-overload-shed` it is shed immediately with `503` and error code `worker_overload_protection_shed` instead of queueing. The shed carries `Retry-After` set to `--load-monitor-interval` (at least 1 second), and the gateway does not retry it. See [Overload Protection](../concepts/reliability/overload-protection.md).
 
+Unless `--worker-overload-shed` is set, two placements are not steered by the thresholds: a cache-aware prefill pool of a prefill/decode pair is balanced by the policy's spill gate instead, and a regular (non-prefill/decode) request that `consistent_hashing` places by its routing key stays on its ring owner even while the owner is over the thresholds. In both cases only the overload veto is lifted: a worker that is also unhealthy, stalled or behind an open circuit breaker is still excluded, and a keyed request leaves such an owner. A request placed by `X-SMG-Target-Worker`, or keyed only by the implicit `X-Forwarded-For`/`Cookie` client key, keeps the veto.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--worker-overload-protection` | `true` | Protection is on by default; the flag is still accepted so that command lines written for earlier releases parse unchanged. |
 | `--disable-worker-overload-protection` | `false` | Switch protection off: no worker is left out of routing for its waiting queue or KV usage. Per-worker `overload` blocks still apply. |
 | `--worker-overload-waiting-requests` | `8` | Queued (waiting) requests, summed across DP ranks, at or above which a worker is overloaded. Must be at least `1`, because `0` would veto every worker. |
 | `--worker-overload-token-usage` | `0.8` | Mean KV-cache token usage across DP ranks, in `(0.0, 1.0]`, at or above which a worker is overloaded. The backend must report `token_usage`. `0.0` is rejected because it would veto every worker. |
-| `--worker-overload-shed` | `false` | Refuse a request with `503 worker_overload_protection_shed` (`Retry-After` the load poll interval) when every worker it could use is overloaded, instead of routing it to the least-loaded one; also refuses it the same way when the worker chosen for it crossed a threshold between selection and dispatch. |
+| `--worker-overload-shed` | `false` | Refuse a request with `503 worker_overload_protection_shed` (`Retry-After` the load poll interval) when every worker it could use is overloaded, instead of routing it to the least-loaded one (or, for a cache-aware prefill pool or a regular request that `consistent_hashing` places by its routing key, placing it by its policy); also refuses it the same way when the worker chosen for it crossed a threshold between selection and dispatch. |
 
 An `overload` block on a worker spec overrides these values per signal, and keeps protection on for that worker even under `--disable-worker-overload-protection`. Protection needs load reports, so the load monitor keeps polling workers that have it on (see [Load Monitoring Configuration](#load-monitoring-configuration)).
 
@@ -188,7 +190,7 @@ How the overload settings differ from the other load thresholds:
 
 | Setting | Scope | At the threshold |
 |---------|-------|------------------|
-| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing while another candidate is under the thresholds. If every candidate is overloaded, the request goes to the least-loaded one, or gets an immediate `503` shed under `--worker-overload-shed`. |
+| `--worker-overload-token-usage`, `--worker-overload-waiting-requests` | Every policy | The worker leaves routing while another candidate is under the thresholds. If every candidate is overloaded, the request goes to the least-loaded one, or gets an immediate `503` shed under `--worker-overload-shed`. Without that flag, a regular request that `consistent_hashing` places by its routing key stays on its ring owner, and a cache-aware prefill pool of a prefill/decode pair is balanced by its spill gate instead (see above). |
 | `--overload-token-usage-threshold` | `cache_aware` only | The hottest backend is de-ranked within cache-aware selection but stays routable. |
 | `--least-load-max-waiting-requests` | `least_load` only | The worker is skipped while at the cap. With every worker at the cap, the policy selects no worker. |
 

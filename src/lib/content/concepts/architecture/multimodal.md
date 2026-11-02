@@ -118,8 +118,8 @@ The servicer reads each setting below from its `--mm-*` flag when the launcher p
 | `--mm-max-inflight` | `SMG_VLLM_MM_MAX_INFLIGHT` | `64` | Multimodal jobs the worker runs at once, whichever processor runs; once as many are waiting, further requests are shed with a retryable error |
 | `--mm-max-items` | `SMG_VLLM_MM_MAX_ITEMS` | unset | Overrides the per-modality item limits the worker takes from vLLM's `--limit-mm-per-prompt` |
 | `--mm-max-item-bytes` | `SMG_VLLM_MM_MAX_ITEM_BYTES` | 32 MiB | Cap on one inline `data:` payload |
-| `--mm-fetch-timeout-ms` | `SMG_VLLM_MM_FETCH_TIMEOUT_MS` | `10000` | Download budget per image or audio URL, in milliseconds; must be positive (`smg` processor only) |
-| `--mm-video-fetch-timeout-ms` | `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS` | `30000` | Download budget per video URL, in milliseconds; must be positive (`smg` processor only) |
+| `--mm-fetch-timeout-ms` | `SMG_VLLM_MM_FETCH_TIMEOUT_MS` | `10000` | Download budget per image or audio URL; must be positive (`smg` processor only) |
+| `--mm-video-fetch-timeout-ms` | `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS` | `30000` | Download budget per video URL; must be positive (`smg` processor only) |
 | `--mm-redis-url` | `SMG_VLLM_MM_REDIS_URL` | `redis://127.0.0.1:6379/0` | Sidecar Redis (`redis` mode) |
 | `--mm-sidecar-timeout-ms` | `SMG_VLLM_MM_SIDECAR_TIMEOUT_MS` | `30000` | How long the worker waits for a sidecar result |
 | `--mm-sidecar-max-queue` | `SMG_VLLM_MM_SIDECAR_MAX_QUEUE` | `256` | Fail fast once this many jobs are queued for the sidecar |

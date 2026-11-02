@@ -320,11 +320,10 @@ answers mid-stream keeps the `type` it would carry in an error body (see
 rejects the request after its first chunk, or `rate_limit_error` for capacity pushback.
 `internal_error` means the failure was in SMG's own processing.
 
-Starting with v1.13.0, a quiet open SSE response can contain `: ping` comments
-between events. SMG sends them after 15 seconds of silence by default, including
-while waiting for the first token. SSE clients should ignore comment lines.
-Configure or disable them with
-[`--sse-keepalive-secs`](../configuration.md#streaming-keepalives).
+A quiet open SSE response can contain `: ping` comments between events. SMG
+sends them after 15 seconds of silence by default, including while waiting for
+the first token. SSE clients should ignore comment lines. Configure or disable
+them with [`--sse-keepalive-secs`](../configuration.md#streaming-keepalives).
 
 #### Stream Usage
 
@@ -427,8 +426,6 @@ carries a probability distribution.
 ```
 POST /v1/decisions
 ```
-
-Decisions is available since v1.12.0.
 
 Requests are always treated as non-streaming: there is no `stream` field, and SMG returns
 a single JSON body.
@@ -1042,7 +1039,7 @@ Header names are case-insensitive. SMG reads the following request headers:
 | `X-SMG-MCP` | `enabled` makes SMG run the MCP tool loop itself for `/v1/messages` requests with MCP toolsets sent to an Anthropic provider, instead of forwarding them as-is | [Messages API](messages.md) |
 | Names set with `--storage-context-headers` | Copied into the storage hook request context | [Configuration Reference](../configuration.md) |
 
-When SMG proxies a request to an HTTP worker, it forwards only these client headers: `Authorization`, `anthropic-version`, `anthropic-beta`, `X-Request-ID`, `X-Correlation-ID`, headers starting with `X-Request-ID-`, `traceparent`, `tracestate`, `X-SMG-Routing-Key`, and `x-override-priority` (SGLang's request priority, read by an engine started with `SGLANG_ENABLE_REQUEST_HEADER_OVERRIDES=true` and not by SMG; newer than v1.13.0).
+When SMG proxies a request to an HTTP worker, it forwards only these client headers: `Authorization`, `anthropic-version`, `anthropic-beta`, `X-Request-ID`, `X-Correlation-ID`, headers starting with `X-Request-ID-`, `traceparent`, `tracestate`, `X-SMG-Routing-Key`, and `x-override-priority` (SGLang's request priority, read by an engine started with `SGLANG_ENABLE_REQUEST_HEADER_OVERRIDES=true` and not by SMG).
 
 ### Routing Hint Headers
 

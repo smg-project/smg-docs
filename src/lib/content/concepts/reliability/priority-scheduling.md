@@ -61,7 +61,7 @@ Whatever its size, a reservation is a hold, not a fixed partition:
 
 By default every class except `bulk` reserves capacity: `system` keeps a fixed floor of 32 slots, `interactive` reserves 128 slots or 25% of capacity (whichever is larger), and `default` reserves 10% of capacity. Interactive traffic should almost never wait behind a batch burst, and even unlabeled traffic keeps a slice a bulk flood cannot squeeze out. The exact per-class defaults and knobs are in the [reference page](../../reference/priority-scheduler.md#per-class-knobs).
 
-The sum of all reservations must fit under capacity; if it does not at startup, the scheduler refuses to build and the gateway falls back to legacy admission. A capacity dip *after* startup never triggers that fallback: the scheduler scales every reservation down proportionally — each class keeps the same fraction of what it asked for, so a small pool is never reserved whole for one class — and restores them automatically when capacity recovers.
+The sum of all reservations must fit under capacity; if it does not at startup, the scheduler refuses to build and the gateway falls back to legacy admission. A capacity dip *after* startup never triggers that fallback: reservations are recomputed for the smaller fleet, and if they no longer fit, the scheduler scales them down proportionally — each class keeps the same fraction of what it asked for, so a small pool is never reserved whole for one class — and restores them automatically when capacity recovers.
 
 ---
 

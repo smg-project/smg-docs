@@ -20,7 +20,7 @@ SMG endpoint auth is route-group based:
 
 With control-plane auth configured, a missing or invalid credential gets `401` and a valid credential whose role does not allow the operation gets `403`. The shared `--api-key` is not accepted on control-plane routes in that mode.
 
-If JWT validation fails to initialize at startup (for example, when OIDC discovery fails), the control-plane rules stay in force: keys from `--control-plane-api-keys` keep working, and JWTs and every other token get `401` until the gateway is restarted with a working JWT setup. This holds on current main; in released versions the same failure instead disables control-plane auth, and SMG logs an error and applies the `--api-key` rules above.
+If JWT validation fails to initialize at startup (for example, when OIDC discovery fails), the control-plane rules stay in force: keys from `--control-plane-api-keys` keep working, and JWTs and every other token get `401` until the gateway is restarted with a working JWT setup.
 
 ---
 

@@ -298,7 +298,9 @@ Missing signals degrade gracefully:
 
 ### Waiting-Queue Cap
 
-`--least-load-max-waiting-requests N` skips a worker once its reported waiting requests, plus the requests this gateway has sent it since that report, reach `N`. Workers without a load report stay eligible. When every worker is at the cap, `least_load` selects nothing and the request fails with `503` (`no_available_workers`) instead of deepening a backlog. The router does not retry the refusal internally ([Never Retried](../reliability/retries.md#never-retried)); the response's `Retry-After: 1` paces client retries. Set `N` below the engine's max batch size. The default `0` turns the cap off.
+`--least-load-max-waiting-requests N` skips a worker once its reported waiting requests, plus the requests this gateway has sent it since that report, reach `N`. Workers without a load report stay eligible. Set `N` below the engine's max batch size. The default `0` turns the cap off.
+
+When every worker is at the cap, `least_load` selects nothing and the request fails with `503` (`no_available_workers`) instead of deepening a backlog. The router does not retry the refusal internally ([Never Retried](../reliability/retries.md#never-retried)); the response's `Retry-After: 1` paces client retries.
 
 For a per-worker ceiling that applies under every policy, see [Overload Protection](../reliability/overload-protection.md).
 

@@ -90,10 +90,10 @@ The TTFT boundary is the rule that makes this safe:
 - **Victim selection minimizes wasted work.** Among eligible victims the scheduler prefers the **lowest class** (cheapest to cancel) and, within that class, the **most-recently-admitted** request (the least upstream work thrown away).
 - **At most one victim per admission.** No cascading preemptions.
 
-A preempted request receives **503** with `Retry-After: 1` and an `X-SMG-Preempted: true` header, so clients and proxies can tell a preemption apart from an ordinary overload and retry promptly. If the victim's slot does not free within a short budget, the preemptor simply falls through to the queue — the cancel has already fired, so the slot frees shortly regardless.
+A victim preempted before it has produced a response receives **503** with `Retry-After: 1` and an `X-SMG-Preempted: true` header, so clients and proxies can tell a preemption apart from an ordinary overload and retry promptly. If the victim's slot does not free within a short budget, the preemptor simply falls through to the queue — the cancel has already fired, so the slot frees shortly regardless.
 
-!!! warning "Preemption requires cancel-aware handlers"
-    A victim only actually unwinds if its request handler honors the scheduler's cancel signal. Until every long-running handler is wired to that signal, `can_preempt` is expected to stay off in practice even though the machinery is in place — a marked-but-not-unwound victim has its first data frame truncated rather than its upstream work stopped.
+!!! note "How a victim unwinds"
+    The gateway's request handlers run their upstream work against the scheduler's cancel signal. A victim that has not yet produced a response has that work dropped — cancelling the upstream call — and answers the preemption **503** immediately. A victim preempted after its response headers have gone out but before its first body byte cannot carry the 503; instead the response wrapper ends its body before that first frame, and the slot frees just the same.
 
 ---
 

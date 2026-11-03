@@ -111,7 +111,7 @@ smg \
 
 Without `--jwt-jwks-uri`, SMG fetches the discovery document at startup. Either way, SMG fetches the key set on first use and caches it for an hour.
 
-Tokens must carry a `kid` header that names a key in the set. When a token names a key the cached set doesn't have, SMG fetches the set again, which is how a rotated key gets picked up — but at most once a minute, and a failed fetch also counts against the minute. Until the minute has passed, tokens naming unknown keys are rejected without a request to the identity provider.
+Tokens must carry a `kid` header that names a key in the set. When a token names a key the cached set doesn't have, SMG fetches the set again, which is how a rotated key gets picked up. This refetch happens at most once a minute, and a failed fetch also counts against the minute. Until the minute has passed, tokens naming unknown keys are rejected without a request to the identity provider.
 
 The discovery URL and the JWKS URI must use HTTPS (plain HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`), must not point at a private, loopback, link-local, or other internal IP address literal, and must not use a host name ending in `.internal` or `.local`. SMG does not follow redirects on these requests.
 

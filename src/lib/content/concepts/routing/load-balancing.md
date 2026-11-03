@@ -18,7 +18,7 @@ Whatever the policy, only available workers are candidates: healthy, not blocked
 
 ### :material-cached: Cache-Aware
 
-**Production default.** Sends each request to a worker that already holds its prefix, and to the lowest expected wait when no worker does or the holder is far busier than the rest.
+**Production default.** Sends each request to a worker that already holds its prefix; when no worker does, or the holder is far busier than the rest, it picks the lowest expected wait among the workers that are not themselves far busier than the rest.
 
 </div>
 
@@ -98,7 +98,7 @@ In `least_load`, `power_of_two` and `cache_aware`, scores that tie exactly are b
 
 ## Cache-Aware
 
-The **recommended policy** for production LLM inference, and the default. It keeps a per-model prefix tree of the requests it has routed to each worker (for gRPC workers that publish KV-cache events, the engines' reported cache contents instead) and sends each request to a worker that already holds its prefix. When no worker holds enough of it (`--cache-threshold` in tree mode), or every holder is far busier than the fleet mean (over `--balance-rel-threshold` times the mean, and above it by an absolute margin sized to the pool's load and capped by `--balance-abs-threshold`), it picks by the same expected-wait score as [`least_load`](#least-load).
+The **recommended policy** for production LLM inference, and the default. It keeps a per-model prefix tree of the requests it has routed to each worker (for gRPC workers that publish KV-cache events, the engines' reported cache contents instead) and sends each request to a worker that already holds its prefix. When no worker holds enough of it (`--cache-threshold` in tree mode), or every holder is far busier than the fleet mean (over `--balance-rel-threshold` times the mean, and above it by an absolute margin sized to the pool's load and capped by `--balance-abs-threshold`), it picks by the same expected-wait score as [`least_load`](#least-load), among the workers under those same margins.
 
 ```bash
 smg --policy cache_aware --worker-urls http://w1:8000 http://w2:8000
@@ -111,7 +111,7 @@ smg --policy cache_aware --worker-urls http://w1:8000 http://w2:8000
 #### :material-check-circle: Advantages
 
 - Reuses KV cache across requests that share a prefix
-- Falls back to the lowest expected wait on a cache miss
+- Falls back to the lowest expected wait on a cache miss, skipping workers over its spill margins
 - Spills requests off a holder that is far busier than the fleet
 
 </div>

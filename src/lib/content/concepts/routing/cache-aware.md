@@ -4,7 +4,7 @@ title: Cache-Aware Routing
 
 # Cache-Aware Routing
 
-`cache_aware` is SMG's default routing policy. For each request it looks up which workers are likely to hold the request's prefix in their KV cache and sends the request to one of them, unless that worker is already much busier than the rest of the fleet. Requests with no usable cached prefix go to the worker with the lowest expected wait.
+`cache_aware` is SMG's default routing policy. For each request it looks up which workers are likely to hold the request's prefix in their KV cache and sends the request to one of them, unless that worker is already much busier than the rest of the fleet. Requests with no usable cached prefix go to the worker with the lowest expected wait, again skipping workers already much busier than the rest.
 
 ---
 
@@ -32,7 +32,7 @@ Warm-cache workers keep receiving their prefixes until they heat up. A per-reque
 
 ### :material-timer-sand: Expected-Wait Fallback
 
-Cache misses, spills and ties between equally good holders go to the worker with the lowest expected wait, scored the same way as the `least_load` policy.
+Cache misses, spills and ties between equally good holders go to the worker with the lowest expected wait, scored the same way as the `least_load` policy. Misses and spills skip workers the spill gate counts as hot.
 
 </div>
 
@@ -160,7 +160,7 @@ smg launch \
 - A request's *applicable* boundaries are the `--cache-boundaries` positions its token IDs reach. At each one, the gateway hashes the request's head (its first N token IDs).
 - Selection probes the deepest applicable boundary first and stops at the first head with a live, eligible holder: a worker that was sent the same head within `--cache-ttl-secs` (default 180). The [spill gate](#decision-flow) then applies to those holders.
 - Every dispatch records the chosen worker at each applicable boundary. A head keeps at most three holders; recording a fourth evicts the stalest. A short first turn and its longer follow-up that share a boundary-aligned head therefore land on the same worker.
-- Requests without token IDs, and requests shorter than the smallest boundary, are load-balanced and not recorded.
+- Requests without token IDs, and requests shorter than the smallest boundary, route like a cache miss and are not recorded.
 - Expired holders are dropped when read and by a sweep every `--eviction-interval` seconds, which also updates the `smg_cache_placement_entries` gauge.
 
 `--cache-boundaries` takes positive, strictly ascending token positions, comma-separated, and SMG refuses to start with `--cache-index hash` and no boundaries. Set `--cache-ttl-secs` close to how long your engines keep cached prefixes. The same `--cache-boundaries` setting also controls the hashing depth of the `prefix_hash` policy. In hash mode the trees, the KV-event index, `--cache-threshold`, `--overlap-decay` and `--selection-temperature` are not used.
@@ -192,12 +192,12 @@ Every request goes through the same steps. Cache affinity comes first; load deci
     - *Hash index:* the eligible live holders of the deepest head that has any.
 4. **Rank candidates** (tree and KV-event modes). With `--overlap-decay` above 0, a candidate's score shrinks with its waiting-prefill backlog. The top-scoring group is kept; with `--selection-temperature` above 0, a group is sampled instead, weighted toward higher scores. With both at their default of 0, the tree keeps every matched tenant and the KV-event index keeps the workers with the most cached blocks.
 5. **Apply the spill gate.** A candidate is *hot* when its in-flight request count exceeds both `--balance-rel-threshold` times the fleet mean (default 1.5) and the fleet mean plus an absolute margin sized to the pool's load — the in-flight count's natural swing at that mean, raised when `--balance-prefix-margin-tokens` prices the prefix the candidate holds, and capped by `--balance-abs-threshold` (default 64; [Spill Gate](#spill-gate) details the sizing). The request goes to the lowest-expected-wait candidate that is not hot. If every candidate is hot, the request spills to the lowest-expected-wait eligible worker that is not hot (or to the lowest-expected-wait eligible worker when every worker is hot).
-6. **Cache miss:** the request goes to the lowest-expected-wait eligible worker.
+6. **Cache miss:** the request goes to the lowest-expected-wait eligible worker that is not hot by the same gate (or to the lowest-expected-wait eligible worker when every worker is hot), so a burst of misses is bounded by the same margins a hit spills at.
 7. **Record.** Tree and hash modes record the final worker as a holder of the request's prefix, so a spill makes the spill target an additional holder: a hot prefix replicates instead of queueing behind one worker. The gateway never records its routing decisions in the KV-event index, which changes only through engine events and worker removal.
 
 ### Expected-Wait Selection
 
-Misses, spills, KV-pressure fallbacks and ties among equally good candidates are all resolved by the scorer the `least_load` policy uses: the worker's queued and in-flight token work divided by its reported throughput, plus a penalty that grows as its KV cache fills. Each dispatch is credited to the chosen worker until its next load report, so a burst of arrivals does not all land on the worker that looked idlest at the last poll. When no worker reports load, the scorer compares in-flight request counts. `cache_aware` runs the scorer with its built-in defaults; the `--least-load-*` flags configure only `--policy least_load`. See [Load Balancing](load-balancing.md) for the scoring details.
+Misses, spills, KV-pressure fallbacks and ties among equally good candidates are all resolved by the scorer the `least_load` policy uses: the worker's queued and in-flight token work divided by its reported throughput, plus a penalty that grows as its KV cache fills. Misses and spills score only the eligible workers that are not hot by the spill gate; the KV-pressure fallback scores every eligible worker. Each dispatch is credited to the chosen worker until its next load report, so a burst of arrivals does not all land on the worker that looked idlest at the last poll. When no worker reports load, the scorer compares in-flight request counts. `cache_aware` runs the scorer with its built-in defaults; the `--least-load-*` flags configure only `--policy least_load`. See [Load Balancing](load-balancing.md) for the scoring details.
 
 ### Tuning Knobs
 
@@ -298,7 +298,7 @@ The worker spec's `kv_block_size` field seeds the model's block size until the K
 
 ### Spill Gate
 
-`--balance-abs-threshold` and `--balance-rel-threshold` decide how busy a holder may get before its requests spill. Both margins must be exceeded, so the gate ignores small fluctuations at low load (absolute margin) without missing a deep queue at high load (relative margin).
+`--balance-abs-threshold` and `--balance-rel-threshold` decide how busy a holder may get before its requests spill. Both margins must be exceeded, so the gate ignores small fluctuations at low load (absolute margin) without missing a deep queue at high load (relative margin). The same margins bound cache misses, which pick only among the workers under the gate.
 
 The absolute margin adapts to the pool's load rather than sitting at the flag's value. It is the in-flight count's natural swing at the current fleet mean — two standard deviations, that is twice the square root of the mean, rounded up to whole requests — with a floor of 4 requests so a handful of requests on an otherwise idle fleet keep their affinity. `--balance-abs-threshold` caps the margin: the default of 64 leaves the swing in charge in most pools, a lower value spills sooner under heavy load, a value below 4 becomes the margin itself, and `0` disables the absolute test so the relative one decides alone. Because the margin shrinks with the mean, small pools balance too: at a fleet mean of 16 in-flight requests the margin is 8, so a holder spills above 24 in flight instead of above 80.
 

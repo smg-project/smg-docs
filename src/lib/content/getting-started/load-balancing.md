@@ -40,7 +40,7 @@ smg --worker-urls http://w1:8000 http://w2:8000 --policy cache_aware
 
 ## Cache-Aware (Recommended)
 
-The production default. Routes each request to a worker that already holds its prefix; when no worker holds enough of it, or the holder is far busier than the rest, it routes to the worker with the lowest expected wait (the [`least_load`](#least-load) score).
+The production default. Routes each request to a worker that already holds its prefix; when no worker holds enough of it, or the holder is far busier than the rest, it routes to the worker with the lowest expected wait (the [`least_load`](#least-load) score) among the workers that are not themselves far busier than the rest.
 
 ```bash
 smg \
@@ -53,7 +53,7 @@ smg \
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--cache-threshold` | `0.3` | Minimum matched-prefix share (0.0–1.0) before a request is pinned to a worker that holds the prefix. At or below it, the request goes to the worker with the lowest expected wait |
+| `--cache-threshold` | `0.3` | Minimum matched-prefix share (0.0–1.0) before a request is pinned to a worker that holds the prefix. At or below it, the request goes to the lowest-expected-wait worker among those under the spill gate (the two balance thresholds below) |
 | `--balance-abs-threshold` | `64` | Spill gate, absolute part: caps how many in-flight requests above the mean across available workers a matched worker may hold before it is skipped. The margin sizes itself to the pool's load (two standard deviations of the in-flight count at the mean, never under four requests unless this value is lower), so small pools spill well below this cap |
 | `--balance-rel-threshold` | `1.5` | Spill gate, relative part: a multiple of that mean (at least `1.0`); fires only together with the absolute part |
 | `--eviction-interval` | `120` (Python launcher: `60`) | Seconds between cache-tree eviction cycles. The Python launcher behind `pip install smg` and the container images names the flag `--eviction-interval-secs` |

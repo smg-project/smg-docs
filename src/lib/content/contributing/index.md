@@ -194,7 +194,7 @@ Reviews follow [REVIEW.md](https://github.com/smg-project/smg/blob/main/REVIEW.m
 - Focus on logic errors, security problems, missing error handling (swallowed errors, silent fallbacks to defaults), incorrect defaults or config values, and broken cross-references. Skip formatting-only changes and dependency bumps with no code changes.
 - Approve small, clean PRs fast. The faster the turnaround, the fewer giant PRs reviewers face later.
 
-REVIEW.md also lists the subsystem pitfalls reviewers look for; config changes, for example, must reach the CLI arguments, `config/types.rs`, `main.rs`, the Python bindings, and the Go SDK. Automated reviewers comment on PRs as well: CodeRabbit, and, for branches pushed to smg-project/smg rather than forks, a Claude-based review that uses the same severity markers.
+REVIEW.md also lists the subsystem pitfalls reviewers look for; config changes, for example, must reach the CLI arguments (`main.rs`), `config/types.rs`, the two conversion paths in `cli/configure.rs`, the Python bindings, and the Go SDK. Automated reviewers comment on PRs as well: CodeRabbit, and, for branches pushed to smg-project/smg rather than forks, a Claude-based review that uses the same severity markers.
 
 ---
 

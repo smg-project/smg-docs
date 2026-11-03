@@ -175,6 +175,7 @@ smg/
 ├── model_gateway/              # The gateway: package `smg`, binaries `smg` and `amg`
 │   ├── src/
 │   │   ├── main.rs             # CLI parsing and startup
+│   │   ├── cli/                # Flag value parsers, secrets resolution, and flag-to-config assembly
 │   │   ├── lib.rs              # Library root
 │   │   ├── server.rs           # HTTP server and route table
 │   │   ├── app_context.rs      # Shared application state
@@ -565,10 +566,11 @@ Routing policies implement the `LoadBalancingPolicy` trait from `model_gateway/s
 | 2 | `model_gateway/src/policies/mod.rs` | `mod <name>;` and a `pub use` |
 | 3 | `model_gateway/src/config/types.rs` | A `PolicyConfig` variant with its serialized name and options |
 | 4 | `model_gateway/src/policies/factory.rs` | Construct it in `PolicyFactory::create_from_config` and `create_by_name` |
-| 5 | `model_gateway/src/main.rs` | Add the name to the `--policy` value list (and to `--prefill-policy`/`--decode-policy` if it applies to PD) and map it in `parse_policy` |
-| 6 | `bindings/python/src/lib.rs`, `bindings/python/src/smg/router.py`, `bindings/python/src/smg/router_args.py` | Mirror it in `PolicyType` and its config conversion, the `policy_from_str` map, and the CLI choices, then run `make python-dev` |
-| 7 | `model_gateway/tests/routing/` | An integration test through the router |
-| 8 | smg-docs | The [configuration reference](../reference/configuration.md) and [load balancing](../concepts/routing/load-balancing.md) pages |
+| 5 | `model_gateway/src/main.rs` | Add the name to the `--policy` value list (and to `--prefill-policy`/`--decode-policy` if it applies to PD) |
+| 6 | `model_gateway/src/cli/configure.rs` | Map it in `parse_policy` |
+| 7 | `bindings/python/src/lib.rs`, `bindings/python/src/smg/router.py`, `bindings/python/src/smg/router_args.py` | Mirror it in `PolicyType` and its config conversion, the `policy_from_str` map, and the CLI choices, then run `make python-dev` |
+| 8 | `model_gateway/tests/routing/` | An integration test through the router |
+| 9 | smg-docs | The [configuration reference](../reference/configuration.md) and [load balancing](../concepts/routing/load-balancing.md) pages |
 
 The trait requires `select_worker`, `name`, and `as_any`. The other methods (`on_request_complete`, `needs_request_text`, `update_loads`, `needs_backend_loads`, `remove_worker`, and `reset`) have no-op defaults that stateful or load-aware policies override. An illustrative skeleton:
 
@@ -602,7 +604,7 @@ impl LoadBalancingPolicy for MyPolicy {
 }
 ```
 
-[REVIEW.md](https://github.com/smg-project/smg/blob/main/REVIEW.md) calls config changes the number one source of bugs: a new option has to reach the CLI arguments, `config/types.rs`, both conversion paths in `main.rs`, the Python bindings, and the Go SDK.
+Config changes are the number one source of bugs: a new option has to reach the CLI arguments in `main.rs`, `config/types.rs`, both conversion paths in `cli/configure.rs`, the Python bindings, and the Go SDK.
 
 ---
 

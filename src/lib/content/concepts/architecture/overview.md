@@ -259,7 +259,7 @@ Self-hosted workers (HTTP, gRPC and ZMQ) are placed by the policy set with `--po
 The default `cache_aware` policy balances KV cache reuse against load:
 
 1. Match the request's prefix (text or token IDs) against a per-model tree of the prefixes routed to each worker, or against the engines' own KV-cache events when gRPC workers publish them
-2. If a worker holds enough of the prefix (above `--cache-threshold` in tree mode), the workers holding it are the candidates; otherwise the candidates are the available workers that pass the next step's load check (all of them, when none passes)
+2. If a worker holds enough of the prefix (above `--cache-threshold` in tree mode), the workers holding it are the candidates; otherwise the candidates are the available workers that pass the next step's load check, or every available worker when none passes
 3. Skip a holder whose in-flight requests exceed `--balance-rel-threshold` × the mean across available workers and also exceed that mean by an absolute margin sized to the pool's load (two standard deviations of the in-flight count at the mean, never under four requests, capped by `--balance-abs-threshold`); if every holder is skipped, the other available workers that pass the same check become the candidates
 4. Route to the candidate with the lowest expected wait (the `least_load` score), breaking exact ties at random
 

@@ -32,7 +32,7 @@ Warm-cache workers keep receiving their prefixes until they heat up. A per-reque
 
 ### :material-timer-sand: Expected-Wait Fallback
 
-Cache misses, spills and ties between equally good holders go to the worker with the lowest expected wait, scored the same way as the `least_load` policy. Misses and spills pick only among workers the spill gate does not count as hot.
+Cache misses, spills and ties between equally good holders go to the worker with the lowest expected wait, scored the same way as the `least_load` policy. Misses and spills skip workers the spill gate counts as hot.
 
 </div>
 

@@ -4,7 +4,7 @@ title: Cache-Aware Routing
 
 # Cache-Aware Routing
 
-`cache_aware` is SMG's default routing policy. For each request it looks up which workers are likely to hold the request's prefix in their KV cache and sends the request to one of them, unless that worker is already much busier than the rest of the fleet. Requests with no usable cached prefix go to the worker with the lowest expected wait among those not already much busier than the rest.
+`cache_aware` is SMG's default routing policy. For each request it looks up which workers are likely to hold the request's prefix in their KV cache and sends the request to one of them, unless that worker is already much busier than the rest of the fleet. Requests with no usable cached prefix go to the worker with the lowest expected wait, again skipping workers already much busier than the rest.
 
 ---
 

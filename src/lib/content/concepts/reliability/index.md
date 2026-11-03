@@ -14,5 +14,5 @@ SMG provides several mechanisms to ensure high availability and stability.
 *   **[Tenant Rate Limiting](./tenant-rate-limiting.md)**: Cap per-tenant LLM token and request consumption per minute, independent of worker concurrency.
 *   **[Priority Scheduling](./priority-scheduling.md)**: Admit higher-priority traffic first with reserved slots, per-class queues, and TTFT-aware preemption.
 *   **[Overload Protection](./overload-protection.md)**: Exclude workers whose engines report saturation from routing, and shed requests immediately when every candidate worker is saturated.
-*   **[Health Checks](./health-checks.md)**: Active and passive monitoring of worker health to remove unhealthy nodes from the rotation.
+*   **[Health Checks](./health-checks.md)**: Background probes that take unhealthy workers out of the rotation without waiting for requests to fail, and return them when they recover.
 *   **[Graceful Shutdown](./graceful-shutdown.md)**: Ensure in-flight requests complete before the server stops.

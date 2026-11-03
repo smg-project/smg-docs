@@ -197,7 +197,7 @@ SMG picks the block size per model, in this order:
 1. **Learned from events** (highest priority): the first stored block a worker's subscription receives replaces the provisional size, and a larger block raises it; a smaller block never lowers it (hybrid engines publish, beside their full blocks, partial entries at their hash granularity, and a request chunked at that size would never match a full block).
 2. **`--block-size`** (router-wide default).
 
-The `kv_block_size` field of a worker spec registered through the [admin API](../reference/api/admin.md) (`POST /workers`) seeds the model's block size until the events name it (since v1.12.0; v1.11.0 accepted it without applying it). In practice, keep the engine's page size (SGLang `--page-size`, vLLM `--block-size`, TokenSpeed `--prefix-granularity`) and SMG's `--block-size` equal, and let SMG correct itself once events arrive. The approximate token tree always uses `--block-size`. Serve each model with one page size: with mixed sizes, the model's block size is whichever a worker reported last.
+The `kv_block_size` field of a worker spec registered through the [admin API](../reference/api/admin.md) (`POST /workers`) seeds the model's block size until the events name it (since v1.12.0; v1.11.0 accepted it without applying it). In practice, keep the engine's page size (SGLang `--page-size`, vLLM `--block-size`, TokenSpeed `--prefix-granularity`) and SMG's `--block-size` equal, and let SMG correct itself once events arrive. The approximate token tree always uses `--block-size`. Serve each model with one page size: with mixed sizes, requests are chunked at the largest block size any worker's events have stored, so the blocks of workers with smaller pages are never matched.
 
 ---
 
@@ -261,6 +261,8 @@ Workers running a [Rust servicer](grpc-workers.md) keep more. Its relay follows 
 
 SMG logs `Sequence gap detected, reconnecting for replay from seq N` on a gap, and `KV event replay cursor expired; clearing worker state and requesting a current snapshot` or `KV event subscriber fell behind; clearing worker state and requesting a current snapshot` when it drops a worker's entries. A restart of the engine's own publisher (its sequence numbers start over) also clears the worker's entries — the engine's cache is empty again — and the stream continues from the new sequence.
 
+A clear — an `AllBlocksCleared` event, a publisher restart or a resync — also resets what the gateway knows about that worker's page size, so an engine restarted with a different page size has its fresh stores indexed at their new width as they come. When the first store after a clear names a narrower block than the worker stored before, the gateway logs a warning (`the first KV event store after a clear names a narrower block than the worker's previous record`). The model's learned block size is separate: it only rises and is dropped only when the model's last worker is removed, so requests keep being chunked at the old, larger size and the restarted worker's narrower blocks, though indexed, are not matched. A model redeployed at a smaller page size therefore matches at the new size only once all its workers have left the gateway and the size is learned again from the new workers' events.
+
 ---
 
 ## Index size
@@ -304,7 +306,7 @@ The stream metrics of the subscriptions (`smg_kv_event_*`, `smg_kv_events_unavai
 ## Caveats
 
 - **gRPC only.** Events stream over gRPC through `smg-grpc-servicer`. HTTP workers use the approximate string tree, ZMQ (`ipc://`) workers use the approximate token tree, and MLX workers do not implement `SubscribeKvEvents`.
-- **One block size per model.** If workers serving the same model use different page sizes, the policy uses whichever block size a worker reported last. Keep page sizes homogeneous within a model.
+- **One block size per model.** If workers serving the same model use different page sizes, requests are chunked at the largest block size any worker's events have stored — the learned size only rises while the model has workers — so the blocks of workers with smaller pages are never matched. Keep page sizes homogeneous within a model.
 - **Per-gateway index.** Each gateway subscribes to every worker itself. With `--enable-mesh`, gateways synchronize the approximate trees, not the event index.
 - **No cache partitions.** The event index ignores the `cache_salt`, `extra_key` and LoRA fields that partition the approximate trees.
 - **Unaligned stores are skipped.** The servicers drop any `BlockStored` event whose token count is not its block count times its block size (vLLM can emit these for Mamba models); those blocks never reach the index.

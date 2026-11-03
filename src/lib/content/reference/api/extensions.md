@@ -66,8 +66,6 @@ These run behind protected-route auth middleware:
 
 Before relaying, SMG checks that `model` names a served model (unknown models answer `404`), that `state` is text or structured JSON, and that `questions` maps at least one name to a question, with at least one criterion on each `score` question; a body that fails these checks answers `400`.
 
-`/v1/systemone` is available since v1.12.0.
-
 These pages cover the other inference endpoints, which use the same auth:
 
 - [OpenAI-Compatible API](openai.md): `/v1/chat/completions`, `/v1/completions`, `/v1/decisions`, `/v1/audio/transcriptions`, and the `/v1/realtime` routes
@@ -145,7 +143,7 @@ Both are control-plane routes. See [Diagnostics](admin.md#diagnostics) for the r
 
 ## HA / Mesh Management Endpoints
 
-SMG has no HTTP endpoints for mesh management. The `/ha/*` routes of earlier releases were removed in v1.5.0 (smg-project/smg#1476), so a request to one gets `404`. Mesh routers talk to each other over gRPC on `--mesh-port`. To inspect a mesh, use the mesh metrics, the router logs, and each router's `GET /workers`; see [High Availability](../../concepts/architecture/high-availability.md#monitoring).
+SMG has no HTTP endpoints for mesh management; a request to any `/ha/*` path gets `404`. Mesh routers talk to each other over gRPC on `--mesh-port`. To inspect a mesh, use the mesh metrics, the router logs, and each router's `GET /workers`; see [High Availability](../../concepts/architecture/high-availability.md#monitoring).
 
 ---
 

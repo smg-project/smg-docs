@@ -18,7 +18,7 @@ Whatever the policy, only available workers are candidates: healthy, not blocked
 
 ### :material-cached: Cache-Aware
 
-**Production default.** Sends each request to a worker that already holds its prefix; when no worker does, or the holder is far busier than the rest, it picks the lowest expected wait among the workers that are not.
+**Production default.** Sends each request to a worker that already holds its prefix; when no worker does, or the holder is far busier than the rest, it picks the lowest expected wait among the workers that are not themselves far busier than the rest.
 
 </div>
 

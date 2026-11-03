@@ -109,7 +109,9 @@ smg \
   --jwt-jwks-uri "https://auth.example.com/.well-known/jwks.json"
 ```
 
-Without `--jwt-jwks-uri`, SMG fetches the discovery document at startup. It fetches the key set on first use, caches it for an hour, and fetches it again when a token names a key it doesn't have. The discovery URL and the JWKS URI must use HTTPS (plain HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`), must not point at a private, loopback, link-local, or other internal IP address literal, and must not use a host name ending in `.internal` or `.local`. SMG does not follow redirects on these requests. Tokens must carry a `kid` header that names a key in the set.
+Without `--jwt-jwks-uri`, SMG fetches the discovery document at startup. Either way, SMG fetches the key set on first use and caches it for an hour. Tokens must carry a `kid` header that names a key in the set; when a token names a key the cached set doesn't have, SMG fetches the set again — at most once a minute, a failed fetch also counting against the minute. Until the minute has passed, tokens naming unknown keys are rejected without a request to the identity provider.
+
+The discovery URL and the JWKS URI must use HTTPS (plain HTTP is allowed only for `localhost`, `127.0.0.1`, and `::1`), must not point at a private, loopback, link-local, or other internal IP address literal, and must not use a host name ending in `.internal` or `.local`. SMG does not follow redirects on these requests.
 
 If SMG cannot set up JWT validation at startup (for example, OIDC discovery fails or a URL is rejected), control plane authentication stays required: SMG logs `Failed to initialize JWT authentication: <error>` and runs with JWT validation unavailable. Keys from `--control-plane-api-keys` keep working, while JWTs, the shared `--api-key`, and any other token get `401` on control plane routes. SMG does not retry JWT initialization while running; restart the gateway after correcting the configuration or restoring the identity provider.
 

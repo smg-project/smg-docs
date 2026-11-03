@@ -1449,7 +1449,12 @@ Where they take effect:
 
 - **HTTP workers** receive them with the request.
 - **gpt-oss (Harmony) models on gRPC**: all but `stop` are applied; `stop` is not passed to the engine.
-- **Other models on gRPC**: the request is converted to a chat request without these fields, so they have no effect.
+- **Other models on gRPC**: all six fields are passed to the engine on every model turn
+  of the tool loop; which of them affect sampling is up to the serving engine. `top_k`,
+  `min_p`, and `repetition_penalty` sent at their default values (`-1`, `0.0`, and `1.0`
+  respectively) count as unset, the same as omitting them: the model's own sampling
+  defaults apply. A matched `stop` sequence ends generation and is trimmed from the
+  output, as on Chat Completions.
 
 Example:
 

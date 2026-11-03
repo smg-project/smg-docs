@@ -112,6 +112,22 @@
 			"properties": {},
 			"additionalProperties": false,
 			"required": []
+		},
+		"retired_concerns": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"additionalProperties": false,
+				"properties": {
+					"concern": {
+						"type": "string"
+					},
+					"reason": {
+						"type": "string"
+					}
+				},
+				"required": ["concern", "reason"]
+			}
 		}
 	},
 	"required": [
@@ -119,7 +135,8 @@
 		"inspected_commits",
 		"remaining_work",
 		"release_audit_checks",
-		"daily_commit_checks"
+		"daily_commit_checks",
+		"retired_concerns"
 	],
 	"definitions": {
 		"daily_check": {

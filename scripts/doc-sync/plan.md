@@ -20,6 +20,19 @@ cause, for example by adding every related page the reviewer named to
 doc_paths, or explain why the commit is now covered or not applicable.
 pending_concerns may carry publication_feedback with the same reason; reuse
 their identity when re-proposing.
+pending_commit_checks also shows other subsystems' unfinished checks for your
+required commits (see their shard). If one names you in depends_on, or its
+evidence waits on your correction, do your part now: propose it, or explain in
+your own check why your subsystem has no correction to make. Never wait on a
+subsystem that is waiting on you.
+
+Each pending concern's shard is the subsystem that owns it. A pending concern
+stays queued until a run selects it, a PR records it, or its owner retires it.
+Re-propose your own pending concerns once their pages are free. List one in
+retired_concerns ("area/concern" plus evidence) only when it is obsolete: a
+merged PR already covers it, the behavior was removed, or the current docs are
+already correct. Do not retire a concern because its page is held by an open PR
+or because the budget ran out; leave it queued instead.
 
 When scan_mode is "backlog", required_commit_ids are older mainline commits that
 never received an assessment for your subsystem. Assess each exactly like a
@@ -48,14 +61,22 @@ An inspected commit still needs its own disposition, including test-only changes
   for this same commit. Name the stale/missing contract and source evidence.
   List each page blocker as {pr: number, path: canonical_doc_path}; each PR must
   be open and hold that exact page in existing_prs. List each subsystem whose
-  correction must land first in depends_on (scan_responsibilities names); that
-  subsystem must have a proposal, queued pending concern or open PR for this
-  commit, otherwise the check stays unfinished. Reference any other completed
+  correction must land first in depends_on (scan_responsibilities names). That
+  subsystem needs a proposal tonight, its own queued pending concern (shard is
+  that subsystem) or an open PR for this commit; otherwise the check stays
+  unfinished. Reference any other completed
   proposals in concerns. Do not use this for unverified changes or budget limits.
 - deferred: any relevant change remains unverified or a limit prevents a complete
   proposal; explain what remains. Reference any completed partial proposals.
+  When your part is verified and its only open step is another subsystem's
+  correction for this commit, and that subsystem has no proposal, queued concern
+  or open PR yet, list it in depends_on. Scans run in parallel: the plan settles
+  the check as blocked if that subsystem proposes tonight, or if it was not
+  assigned this commit tonight (the next run assigns it). Leave depends_on empty
+  while any of your own part is unverified or unfinished.
 
-Use empty blockers and depends_on lists for every status except blocked.
+Use empty blockers lists for every status except blocked, and empty depends_on
+lists for every status except blocked and deferred.
 Verified blockers count as assessed but carry forward until the pages are
 available or already corrected. Missing/deferred checks keep coverage incomplete and carry forward. Do not label
 unfinished work covered to satisfy the check. One commit can need several
@@ -170,7 +191,8 @@ specific distinct user task and new_page_reason explaining why existing sections
 cannot host it. Keep new_page_reason empty otherwise. Search all related pages
 for conflicting defaults, examples and claims before finalizing the allowlist.
 If a required page is held by an open PR, defer the entire concern; do not omit
-that page and knowingly propose an incomplete correction. Existing PRs (open,
+that page and knowingly propose an incomplete correction. A deferred pending
+concern stays queued, so do not retire it. Existing PRs (open,
 merged or declined) prevent duplicates, except release_deferred proposals can
 now be considered for main docs. Leave remaining_work for deferred concerns.
 Do not write files, publish, comment or invoke agents.

@@ -1,0 +1,220 @@
+---
+title: Control Plane Operations
+---
+
+# Control Plane Operations
+
+This guide covers day-2 admin workflows backed by control-plane endpoints: workers, tokenizers, WASM modules, parser utilities, and cache/load operations.
+
+<div class="prerequisites" markdown>
+
+#### Before you begin
+
+- Completed [Control Plane Auth](control-plane-auth.md)
+- Set an admin bearer token (JWT or API key), for example:
+  `export ADMIN_TOKEN=super-secret-key`
+
+</div>
+
+---
+
+## Auth Header
+
+Use the same header for all control-plane calls:
+
+```bash
+-H "Authorization: Bearer ${ADMIN_TOKEN}"
+```
+
+Control-plane middleware requires the admin role for every method; a credential with the `user` role may make only the read-only (`GET` and `HEAD`) calls, such as listing workers or tokenizers. Without control-plane auth configured, use the shared `--api-key` as `ADMIN_TOKEN`; see [Without Control Plane Auth](control-plane-auth.md#without-control-plane-auth).
+
+The examples below call the data port (`30000`). With `--admin-port` set, these control-plane routes answer on the admin listener instead, together with the health probes, and the data port answers `404` for them; the public `/loads` stays on the data port. See [Listeners](../reference/configuration.md#listeners).
+
+---
+
+## 1. Worker Management
+
+Create worker:
+
+```bash
+curl http://localhost:30000/workers \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -d '{
+    "url": "grpc://localhost:50051",
+    "models": [{ "id": "meta-llama/Llama-3.1-8B-Instruct" }],
+    "worker_type": "regular",
+    "runtime": "sglang"
+  }'
+```
+
+List workers:
+
+```bash
+curl http://localhost:30000/workers \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+```
+
+Get worker by ID:
+
+```bash
+curl http://localhost:30000/workers/<worker_id> \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+```
+
+Patch worker (partial update — only the fields you specify change):
+
+```bash
+curl -X PATCH http://localhost:30000/workers/<worker_id> \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -d '{"priority": 100}'
+```
+
+`PUT /workers/<worker_id>` replaces the worker with a full `WorkerSpec`
+(including the original `url`) and re-runs the registration workflow. Use
+`PATCH` when you only need to change a few fields like `priority`, `cost`,
+`labels`, `api_key`, or `health`.
+
+A worker registered by a service-discovery provider is owned by its source: a
+`PUT`, or a `PATCH` that includes `labels`, is refused with `409` — make the
+change at the discovery source. A `PATCH` of the fields no provider publishes
+(`priority`, `cost`, `api_key`, `health`) still works, and `DELETE` is allowed,
+though the provider re-adds the worker while it still publishes it. Label names
+under the `smg.ai/discovery-` prefix are reserved for discovery and refused
+with `400` on any create or update.
+
+Delete worker:
+
+```bash
+curl -X DELETE http://localhost:30000/workers/<worker_id> \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+```
+
+---
+
+## 2. Tokenizer Registry
+
+Add tokenizer:
+
+```bash
+curl -X POST http://localhost:30000/v1/tokenizers \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -d '{
+    "name": "llama3-main",
+    "source": "meta-llama/Llama-3.1-8B-Instruct"
+  }'
+```
+
+List/get/status/delete:
+
+```bash
+curl http://localhost:30000/v1/tokenizers \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+
+curl http://localhost:30000/v1/tokenizers/<tokenizer_id> \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+
+curl http://localhost:30000/v1/tokenizers/<tokenizer_id>/status \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+
+curl -X DELETE http://localhost:30000/v1/tokenizers/<tokenizer_id> \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+```
+
+---
+
+## 3. WASM Module Management
+
+Enable WASM support at startup:
+
+```bash
+smg launch \
+  --worker-urls http://worker:8000 \
+  --enable-wasm
+```
+
+Register module:
+
+```bash
+curl -X POST http://localhost:30000/wasm \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -d '{
+    "modules": [
+      {
+        "name": "audit-middleware",
+        "file_path": "/opt/wasm/audit.wasm",
+        "module_type": "Middleware",
+        "attach_points": [{"Middleware":"OnRequest"}]
+      }
+    ]
+  }'
+```
+
+List/remove modules:
+
+```bash
+curl http://localhost:30000/wasm \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+
+curl -X DELETE http://localhost:30000/wasm/<module_uuid> \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+```
+
+---
+
+## 4. Parser Utilities
+
+Function call parsing:
+
+```bash
+curl -X POST http://localhost:30000/parse/function_call \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -d '{
+    "text": "{\"name\":\"get_weather\",\"arguments\":{\"city\":\"SF\"}}",
+    "tool_call_parser": "json",
+    "tools": []
+  }'
+```
+
+Reasoning separation:
+
+```bash
+curl -X POST http://localhost:30000/parse/reasoning \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -d '{
+    "text": "<think>internal</think>answer",
+    "reasoning_parser": "deepseek_r1"
+  }'
+```
+
+---
+
+## 5. Cache and Load Operations
+
+Flush worker KV caches:
+
+```bash
+curl -X POST http://localhost:30000/flush_cache \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+```
+
+Inspect engine load. `/loads` is a public route, so it needs no auth header. Add `?model=<model_id>` to limit it to one model's workers:
+
+```bash
+curl http://localhost:30000/loads
+```
+
+The answer comes from the gateway's cached load snapshot, so no request reaches a worker. `/get_loads` is a deprecated alias that still requires control-plane auth. See [Get Loads](../reference/api/admin.md#get-loads) for the response fields.
+
+---
+
+## Next Steps
+
+- [Admin API Reference](../reference/api/admin.md)
+- [Extension API Reference](../reference/api/extensions.md)
+- [Configuration Reference](../reference/configuration.md#control-plane-authentication)

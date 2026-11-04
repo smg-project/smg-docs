@@ -132,9 +132,9 @@ This error means a `Cargo.toml` changed without a matching `Cargo.lock` update. 
 
 `smg --version` (or `-V`) prints the version from `model_gateway/Cargo.toml`. `smg --version-verbose` adds the details the gateway's build script baked in when it last ran: the build time, build mode, and target platform; the git branch, commit, and clean/dirty status of the checkout; and the rustc and cargo versions.
 
-Cargo re-runs that build script only when a declared trigger changes, and by default its only trigger is `model_gateway/Cargo.toml`. In a reused target directory the baked details therefore go stale: after checking out another commit and rebuilding, `--version-verbose` still reports the first build's commit, branch, and build time. The version number itself never goes stale, because a version bump edits `Cargo.toml`.
+Cargo re-runs that build script only when a declared trigger changes, and by default its only file trigger is `model_gateway/Cargo.toml`. In a reused target directory the baked details therefore go stale: after checking out another commit and rebuilding, `--version-verbose` still reports the first build's commit, branch, and build time. The version number itself never goes stale, because a version bump edits `Cargo.toml`.
 
-Set `SMG_VERSION_FOLLOWS_HEAD` to any non-empty value to also register as rebuild triggers the git files that change when `HEAD` comes to name another commit (worktrees are handled), so the baked details follow the checked-out commit. Setting or clearing the variable itself rebakes on the next build:
+When `SMG_VERSION_FOLLOWS_HEAD` is set to any non-empty value, the build script also watches the git files that change when `HEAD` comes to name another commit (worktrees are handled), so the baked details follow the checked-out commit. Setting or clearing the variable itself rebakes on the next build:
 
 ```bash
 SMG_VERSION_FOLLOWS_HEAD=1 cargo build --locked --bin smg

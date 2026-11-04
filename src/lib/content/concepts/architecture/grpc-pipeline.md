@@ -169,7 +169,7 @@ Some checkpoints ship a Python prompt encoder instead of a Jinja template. For t
 
 | Renderer | Selected when `config.json` has | Thinking key (renderer default) | Native `reasoning_effort` values | Notes |
 |----------|----------------------------------|--------------|----------------------------------|-------|
-| DeepSeek-V3.2 | architecture `DeepseekV32ForCausalLM` | `thinking` (default off) | None | Tools are attached to the leading system or developer message |
+| DeepSeek-V3.2 | architecture `DeepseekV32ForCausalLM` | `thinking` or its `enable_thinking` alias (default off) | None | Tools are attached to the leading system or developer message |
 | DeepSeek-V4 | architecture `DeepseekV4ForCausalLM` | `thinking` or its `enable_thinking` alias (default on) | `low`, `high`, `max` | Thinking stays on for every `reasoning_effort` except `"none"` |
 | DeepSeek-V4.1 | architecture `DeepseekV41ForCausalLM` or `model_type: deepseek_v41` | `thinking` or its `enable_thinking` alias (default on) | `low`, `medium`, `high`, `xhigh`, `max`, or an integer budget from 1 to 100 | Continues a trailing assistant message natively with `continue_final_message`; reads tool-call `arguments` as written |
 | Kimi-K3 | architecture `KimiK3ForConditionalGeneration` or `model_type: kimi_k3` | `thinking` or its `enable_thinking` alias (default on) | `low`, `high`, `max` (default `max`; rendered only while thinking is on) | Encodes the prompt piece by piece, so control-token text inside a message stays text; reads tool-call `arguments` as written |

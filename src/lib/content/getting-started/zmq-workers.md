@@ -410,7 +410,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | No rank pinning | See [Rank Selection](#rank-selection) |
 | vLLM multimodal | Mixed image and video in one request: `400`, `the vLLM ZMQ backend takes one modality per request ...`. Worker-side media processing (media references) needs a gRPC vLLM worker: `400`, `multimodal_not_supported` |
 | TokenSpeed logprobs | `top_logprobs` above 1, or `token_ids_logprob`: `400`, `... not supported over the TokenSpeed ZMQ backend` |
-| TokenSpeed MRoPE models | Outside the Qwen3.5 lineage: `400`, `MRoPE position tensors of this model are not derivable over the TokenSpeed ZMQ wire (the Qwen3.5 lineage's are); use the gRPC transport for this model`. A Qwen3.5-lineage engine whose handshake declares no layout facts refuses every multimodal request: `400`, `... need its MRoPE position table, which the launcher's model facts (spatial_merge_size, image_token_id, video_token_id) did not provide ...` |
+| TokenSpeed MRoPE models | Outside the Qwen3.5 lineage: `400`, `MRoPE position tensors of this model are not derivable over the TokenSpeed ZMQ wire (the Qwen3.5 lineage's are); use the gRPC transport for this model`. Any multimodal request to a Qwen3.5-lineage engine whose handshake omits the layout facts: `400`, `... need its MRoPE position table, which the launcher's model facts (spatial_merge_size, image_token_id, video_token_id) did not provide ...` |
 | SGLang multimodal, hidden states, `token_ids_logprob` | `400` naming the feature, such as `multimodal inputs are not supported over the SGLang ZMQ backend yet` |
 | SGLang data parallelism | The wire has no DP yet; `smg serve` refuses it (see [Data-Parallel Engines](#data-parallel-engines)) |
 

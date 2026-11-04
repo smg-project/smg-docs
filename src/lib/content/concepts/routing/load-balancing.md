@@ -286,13 +286,16 @@ score = (queued_tokens + in_flight_tokens) / throughput
 |------|---------|
 | `queued_tokens` | Uncached tokens waiting in the worker's queue, from its load report (summed across DP ranks). An engine that reports a queue depth but no token count, such as one scraped from Prometheus `/metrics`, is estimated at waiting requests × `--least-load-mean-prefill-tokens` |
 | `in_flight_tokens` | Work this gateway has sent the worker since its last load report: each request's token count when its token IDs are known (gRPC workers, pre-tokenized requests), otherwise `--least-load-mean-prefill-tokens`. Every new report resets it |
-| `throughput` | The worker's reported generation throughput in tokens/s, or `--least-load-default-throughput` when it reports none. Dividing by it turns token work into seconds, so faster workers take proportionally more |
+| `throughput` | The worker's live generation rate: its reported generation throughput in tokens/s, summed over the DP ranks that have requests running. Dividing by it turns token work into seconds, so faster workers take proportionally more. Prefill workers and workers without a live rate fall back as described below |
 | `k` | KV-cache usage from 0 to 1 (mean across DP ranks). `k / (1 - k)` stays small until the cache is nearly full, then climbs steeply |
 
 Both terms are in seconds, so they add directly. Ties are broken uniformly at random.
 
+On a PD prefill leg, `throughput` is always `--least-load-default-throughput`, read as input tokens/s: prefill work consumes input tokens, which a generation rate cannot price.
+
 Missing signals degrade gracefully:
 
+- A DP rank with no requests running contributes no rate — its throughput gauge holds whatever its last decode interval left behind, which is not a live rate. A worker with no live rate on any rank is priced at the mean live rate of the candidates that have one, so an idle worker beside busy peers reads as fast as they are, not slower; `--least-load-default-throughput` stands in only when no candidate reports a live rate.
 - A worker that has not reported a load yet, such as one that just joined, scores as the best-scoring reporting worker plus its own in-flight requests, so it neither attracts every request nor gets starved.
 - When no worker reports at all (a cold start, or engines that never report), the policy picks the worker with the fewest in-flight requests.
 
@@ -309,7 +312,7 @@ For a per-worker ceiling that applies under every policy, see [Overload Protecti
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--least-load-kv-pressure-weight` | `0.15` | Weight of the KV-pressure term, in seconds. Raise it to steer harder away from nearly full KV caches; `0` removes the term |
-| `--least-load-default-throughput` | `2000` | Tokens/s assumed for a worker that reports no generation throughput. Set it to your measured per-replica generation rate; it co-tunes with the KV-pressure weight |
+| `--least-load-default-throughput` | `2000` | Input throughput (tokens/s) assumed for prefill workers, and the fallback generation throughput for other workers when no candidate reports a live rate. Set it to your measured per-replica rate; it co-tunes with the KV-pressure weight |
 | `--least-load-mean-prefill-tokens` | `1024` | Tokens assumed per request when the real count is unknown |
 | `--least-load-max-waiting-requests` | `0` | Per-worker waiting-queue cap; `0` disables it |
 

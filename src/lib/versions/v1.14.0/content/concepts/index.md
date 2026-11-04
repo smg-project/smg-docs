@@ -104,7 +104,7 @@ Understand how SMG is structured internally:
 - [Architecture Overview](architecture/overview.md) — High-level system design
 - [Service Discovery](architecture/service-discovery.md) — Kubernetes integration and worker registration
 - [gRPC Pipeline](architecture/grpc-pipeline.md) — Token-level streaming implementation
-- [Multimodal Pipeline](architecture/multimodal.md) — How images and video reach gRPC workers
+- [Multimodal Pipeline](architecture/multimodal.md) — How images, video, and audio reach gRPC workers
 - [High Availability](architecture/high-availability.md) — Multi-instance mesh networking
 
 ### Routing

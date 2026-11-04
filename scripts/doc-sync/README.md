@@ -378,7 +378,7 @@ missing approvals, or changed page bytes fail closed; no writer or model reviewe
 runs. This preserves a successful correction instead of starting a new generation.
 The original resume mode remains dry-run-only and still requires fresh reviews.
 
-Full release stages and selected diagnostic batches run at most sixteen jobs
+Full release stages and selected diagnostic batches run at most forty jobs
 concurrently. They share the runner pool; any excess jobs wait for a runner. This changes scheduling, not source coverage, model effort, review
 requirements or publication gates.
 

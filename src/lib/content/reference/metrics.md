@@ -330,7 +330,7 @@ Metrics for request routing and processing.
 
 ### `smg_router_requests_total`
 
-Requests processed by the router, counted once at request entry. A request the gateway retries still counts once, however many attempts it takes: the retries show in the [retry metrics](#retry-metrics) and each dispatch in [`smg_worker_requests_total`](#smg_worker_requests_total).
+Requests processed by the router, counted once at request entry. A request the gateway retries still counts once, however many attempts it takes: retries are counted in the [retry metrics](#retry-metrics) and each dispatch attempt in [`smg_worker_requests_total`](#smg_worker_requests_total).
 
 | Type | Labels |
 |------|--------|

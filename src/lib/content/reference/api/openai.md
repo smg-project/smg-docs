@@ -626,13 +626,20 @@ JSON [error envelope](#error-format) with the code `no_models_available`.
 
 The endpoint needs no key. If the caller does send a bearer token (or an `x-api-key`
 header) that is not one of the gateway's own keys, SMG treats it as the caller's own
-provider key: it asks the registered external providers' `/v1/models` with that token and
-returns the first non-empty list, falling back to the self-hosted list. On that provider
-list, `owned_by` is the provider name for the recognized provider hosts (`openai`,
-`anthropic`, `xai`, `gemini`) and `self_hosted` for a provider at any other host. A
-gateway key (`--api-key` or `--tenant-api-key`) is never forwarded to a provider.
+provider key: it calls `/v1/models` on the registered external providers of the caller's
+API family with that token and returns the first non-empty list, falling back to the
+self-hosted list. A request carrying `anthropic-version` reaches the Anthropic providers
+alone; every other request reaches the OpenAI-compatible ones — OpenAI, xAI, custom
+providers, and external workers that name no provider — so a key presented in one
+family's API never reaches another family's provider, and a Gemini provider is asked by
+neither. A gateway key (`--api-key` or `--tenant-api-key`) is never forwarded to a
+provider.
 
-A request carrying an `anthropic-version` header gets the same inventory in the Anthropic
+On that provider list, `owned_by` is the provider name for the recognized provider hosts
+(`openai`, `anthropic`, `xai`, `gemini`) and `self_hosted` for a provider at any other
+host.
+
+A request carrying an `anthropic-version` header gets its inventory in the Anthropic
 Messages shape instead: a single page with `has_more` (always `false`), `first_id`, and
 `last_id`, whose `data` entries carry `type`, `id`, `display_name` (the model ID when no
 display name is known), and `created_at` (`1970-01-01T00:00:00Z`, the counterpart of

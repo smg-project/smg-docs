@@ -370,7 +370,9 @@ vLLM workers receive the pixel tensor as float32 unless `SMG_VLLM_ENCODER_INPUT_
 
 ### Direct ZMQ Backends
 
-vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-preprocessed media, sent inline. Media references, shared memory, and RDMA are not available on this wire. TokenSpeed over ZMQ refuses media whose tensors include `image_grid_thw` or `video_grid_thw`; the M-RoPE families (such as Qwen-VL) and Muse Spark images and video carry them, so serve those models over gRPC.
+vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-preprocessed media, sent inline. Media references, shared memory, and RDMA are not available on this wire.
+
+On TokenSpeed, media whose `image_grid_thw` or `video_grid_thw` tensors feed M-RoPE positions are served only for the Qwen3.5 lineage (Qwen3.5, Qwen3.5-MoE, Qwen4-Exp): SMG computes the lineage's M-RoPE position table itself, as the engine's input processor would, provided the engine's handshake declares the checkpoint's `spatial_merge_size`, `image_token_id`, and `video_token_id`. A lineage engine whose handshake does not declare them refuses every multimodal request. Media of other M-RoPE families (such as Qwen3-VL or Qwen3-Omni) are refused with a 400; serve those models over gRPC. Muse Spark's grid tensors only describe the vision patch layout, so its images and video pass.
 
 SGLang workers reached over the direct ZMQ backend take no media: a request with images — the one modality SGLang takes over gRPC — is refused with a 400 (`multimodal inputs are not supported over the SGLang ZMQ backend yet`). Serve vision SGLang models over gRPC. See [ZMQ Workers](../../getting-started/zmq-workers.md).
 

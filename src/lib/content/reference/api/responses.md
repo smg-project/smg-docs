@@ -611,7 +611,10 @@ Before the terminal event, SMG closes every item that is still open, exactly onc
 when generation fails. Partial output stays in the terminal response with its unfinished
 status. gpt-oss (Harmony) streams end with `response.completed`, with `response.failed`
 when the tool-call limit is reached (see [Tool Call Limits](#tool-call-limits)), or with
-an `error` event when their pipeline fails.
+an `error` event when their pipeline fails. For every model, a response whose record
+could not be written because the history store is down or past its per-call bound ends
+with `response.failed` carrying the code `storage_unavailable` (see
+[Common Errors](#common-errors)).
 
 **MCP-specific streaming events:**
 
@@ -1403,7 +1406,8 @@ vocabulary.
 | 424 | `connect_mcp_server_failed` | A declared MCP server could not be reached |
 | 429 | `admission_queue_full`, `scheduler_queue_full` | Admission control; see [Rate Limiting](openai.md#rate-limiting) |
 | 429 | `background_responses_limit_reached` | The gateway already runs `--max-background-responses` background responses; see [Background Mode](#background-mode) |
-| 500 | `load_previous_response_chain_failed`, `check_conversation_failed`, `storage_error` | Storage failures |
+| 500 | `load_previous_response_chain_failed`, `check_conversation_failed`, `storage_error` | A failure the history store itself answered: a refused statement, a record that cannot be decoded, an invalid chain. Retrying does not help |
+| 503 | `storage_unavailable` | The history store is down or did not answer within its per-call bound (`--postgres-op-timeout-secs` / `--redis-op-timeout-secs`, default 5 seconds); retry once the store answers again. See [Store Failures While Serving](../../concepts/data/chat-history.md#store-failures-while-serving) |
 | 503 | `no_available_workers` | No healthy workers available |
 
 ### Validation Errors

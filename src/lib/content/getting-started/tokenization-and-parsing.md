@@ -167,7 +167,7 @@ To reproduce a gateway's token IDs, load what that gateway loads: its `--tokeniz
 | `bos_token`, `eos_token`, `pad_token`, `unk_token`, and their `*_id` counterparts | The checkpoint's special tokens; `None` when it has none |
 | `special_tokens` | All roles (`bos_token`, `eos_token`, `unk_token`, `sep_token`, `pad_token`, `cls_token`, `mask_token`) plus `additional_special_tokens`: every added token marked special, sorted by ID |
 | `eos_token_ids` | The IDs SMG stops generation at: `eos_token_id` from `config.json` and `generation_config.json` merged with the tokenizer's own EOS, deduplicated and sorted |
-| `token_to_id(token)`, `id_to_token(id)` | Vocabulary lookups in the vocabulary's own spelling (`Ġthe` for byte-level vocabularies); `None` on a miss |
+| `token_to_id(token)`, `id_to_token(id)` | Vocabulary lookups in the vocabulary's own spelling (`Ġthe` for byte-level vocabularies); `None` on a miss. The built-in encoding an OpenAI model name loads has no vocabulary map, so every lookup is `None` |
 | `source` | The absolute path of the loaded checkpoint or Hub snapshot, or the OpenAI model name |
 | `Tokenizer.smg_build` | The smg release and commit the library was built from |
 

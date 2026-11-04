@@ -108,6 +108,21 @@ class CollectorTests(unittest.TestCase):
         evidence = (self.root / 'evidence' / item['file']).read_text()
         self.assertIn('\n-Unsupported feature\n', evidence)
 
+    def test_release_branch_tag_needs_shared_history_not_ancestry(self):
+        # v1.14.0 was tagged on release/1.14, so it is not an ancestor of main.
+        self.git(self.source, 'checkout', '-qb', 'release', self.source_release)
+        (self.source / 'code').write_text('release-branch fix\n')
+        self.state['source_release']['sha'] = self.commit(self.source)
+        self.write(self.marker, json.dumps(self.state))
+        self.commit(self.repo)
+        self.assertEqual(len(self.collect()), 1)
+        self.git(self.source, 'checkout', '-q', '--orphan', 'unrelated')
+        self.state['source_release']['sha'] = self.commit(self.source)
+        self.write(self.marker, json.dumps(self.state))
+        self.commit(self.repo)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.collect()
+
     def test_invalid_source_ancestry_and_marker_fail_closed(self):
         with patch.object(docs, 'source_git', side_effect=ValueError('not ancestor')):
             with self.assertRaisesRegex(ValueError, 'not ancestor'):

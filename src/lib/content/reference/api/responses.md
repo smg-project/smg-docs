@@ -611,7 +611,10 @@ Before the terminal event, SMG closes every item that is still open, exactly onc
 when generation fails. Partial output stays in the terminal response with its unfinished
 status. gpt-oss (Harmony) streams end with `response.completed`, with `response.failed`
 when the tool-call limit is reached (see [Tool Call Limits](#tool-call-limits)), or with
-an `error` event when their pipeline fails.
+an `error` event when their pipeline fails. For every model, a response whose record
+could not be written because the history store is down or past its per-call bound ends
+with `response.failed` carrying the code `storage_unavailable` (see
+[Common Errors](#common-errors)).
 
 **MCP-specific streaming events:**
 

@@ -286,7 +286,7 @@ score = (queued_tokens + in_flight_tokens) / throughput
 |------|---------|
 | `queued_tokens` | Uncached tokens waiting in the worker's queue, from its load report (summed across DP ranks). An engine that reports a queue depth but no token count, such as one scraped from Prometheus `/metrics`, is estimated at waiting requests × `--least-load-mean-prefill-tokens` |
 | `in_flight_tokens` | Work this gateway has sent the worker since its last load report: each request's token count when its token IDs are known (gRPC workers, pre-tokenized requests), otherwise `--least-load-mean-prefill-tokens`. Every new report resets it |
-| `throughput` | The worker's live generation rate: its reported generation throughput in tokens/s, summed over the DP ranks that have requests running. Dividing by it turns token work into seconds, so faster workers take proportionally more. Prefill workers and workers without a live rate fall back as described below |
+| `throughput` | The worker's live generation rate: its reported generation throughput in tokens/s, summed over the DP ranks that have requests running. Dividing by it turns token work into seconds, so faster workers take proportionally more. Prefill workers and workers without a live rate are priced as described below |
 | `k` | KV-cache usage from 0 to 1 (mean across DP ranks). `k / (1 - k)` stays small until the cache is nearly full, then climbs steeply |
 
 Both terms are in seconds, so they add directly. Ties are broken uniformly at random.

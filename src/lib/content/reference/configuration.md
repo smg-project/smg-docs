@@ -278,7 +278,7 @@ These flags cap how many Prefill requests the gateway keeps in flight on each pr
 
 ### Worker Startup Configuration
 
-These govern every worker registration, not only PD workers, although `--help` lists them under PD Disaggregation.
+These govern every worker registration, not only PD workers. `--help` lists them under Worker Configuration.
 
 | Option | Default | Description |
 |--------|---------|-------------|

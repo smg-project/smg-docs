@@ -568,9 +568,15 @@ Slurm discovery requires the regular, PD, or EPD routing mode, and turns on IGW 
 
 ### Polling
 
-Slurm discovery polls — nothing pushes a change to SMG — so a job that starts, ends, or is requeued shows up on a later poll rather than immediately. At startup and then every `--discovery-check-interval-secs` seconds (default `30`), SMG asks `squeue --json` for the running jobs with the mapped names, scoped to one user's jobs (`--slurm-user`, defaulting to the user the gateway runs as) and, when set, to `--slurm-account` and `--slurm-partition`; expands each job's allocation (such as `gpu[01-04]`) with `scontrol show hostnames`; and resolves every node named with one `scontrol --json show nodes`. The commands run without a shell and each is given 30 seconds, so run the gateway somewhere `squeue` and `scontrol` are on `PATH` and can reach the cluster.
+Slurm discovery polls — nothing pushes a change to SMG — so a job that starts, ends, or is requeued shows up on a later poll rather than immediately. At startup and then every `--discovery-check-interval-secs` seconds (default `30`), a poll runs three commands:
 
-Each node of a selected job becomes one worker on `--slurm-port` at the node's `NodeAddr` (which Slurm defaults to `NodeHostname`) — never at the bare node name, which need not resolve. Discovered workers go through the same reconciler as the other providers: registration probes HTTP and gRPC on the address and keeps the protocol that answers, and a worker whose job is gone is drained and removed through the same [removal flow](#removal-flow) as a deleted pod.
+1. `squeue --json` lists the running jobs with the mapped names, scoped to one user's jobs (`--slurm-user`, defaulting to the user the gateway runs as) and, when set, to `--slurm-account` and `--slurm-partition`.
+2. `scontrol show hostnames` expands each job's allocation (such as `gpu[01-04]`) into its node names.
+3. One `scontrol --json show nodes` resolves every node named.
+
+The commands run without a shell, each within 30 seconds, so run the gateway somewhere `squeue` and `scontrol` are on `PATH` and can reach the cluster.
+
+Each node of a selected job becomes one worker on `--slurm-port` at the node's `NodeAddr`. Slurm defaults `NodeAddr` to `NodeHostname` and that to the bare node name, so on a cluster whose node names do not resolve from the gateway, set `NodeAddr`. Discovered workers go through the same reconciler as the other providers: registration probes HTTP and gRPC on the address and keeps the protocol that answers, and a worker whose job is gone is drained and removed through the same [removal flow](#removal-flow) as a deleted pod.
 
 A worker's identity is its job's cluster, job ID, start time, and restart count, plus the node and the worker type. A requeued job keeps its job ID but starts again, so its workers are removed and registered again as new instances at the same addresses.
 
@@ -582,7 +588,7 @@ Every discovered worker listens on `--slurm-port`, so two jobs' workers cannot s
 
 A poll SMG cannot read is rejected whole and leaves the last good worker list in place, so a broken Slurm never removes a worker. Each rejected poll logs a warning and counts on `smg_discovery_snapshot_errors_total`: `reason="unreadable"` for a command that failed or timed out, `reason="invalid"` for an answer that could not be used — including one from a Slurm release older than 23.11 (see [below](#cluster-scope-and-releases)).
 
-A job that cannot be placed is left out alone (`reason="invalid"`), and the rest of the poll stands: one running with no start time, with an allocation that does not expand, or on a node `scontrol` does not know or that has no usable address. Everything a poll leaves out — such a job, or a worker whose node another job holds (`reason="conflict"`) — is counted on `smg_discovery_skipped_total` on every poll and logged when it first appears.
+A job that cannot be placed — running with no start time, with an allocation that does not expand, or on a node `scontrol` does not know or that has no usable address — is left out alone (`reason="invalid"`), and the rest of the poll stands. Everything a poll leaves out — such a job, or a worker whose node another job holds (`reason="conflict"`) — is counted on `smg_discovery_skipped_total` on every poll and logged when it first appears.
 
 ### Cluster Scope and Releases
 

@@ -20,7 +20,7 @@ The existing [concurrency limiter](rate-limiting.md) answers "how many requests 
 
 The core mechanic is a two-phase commit against a tenant's budget:
 
-1. **Reserve.** Before dispatching to a worker, the gateway estimates the request's input token count — the gRPC router from its own tokenizer, the HTTP routers from the request body itself (see [Current scope](#current-scope)) — and debits that estimate from the tenant's bucket. If the bucket cannot afford it, the request is denied immediately — no worker or external provider is ever contacted.
+1. **Reserve.** Before dispatching to a worker, the gateway estimates the request's input token count — the gRPC router from its own tokenizer, the HTTP routers from the request body itself (see [Estimating without a tokenizer](#estimating-without-a-tokenizer)) — and debits that estimate from the tenant's bucket. If the bucket cannot afford it, the request is denied immediately — no worker or external provider is ever contacted.
 2. **Settle.** Once the response is known — the backend's real, reported `prompt_tokens` plus `completion_tokens` — the gateway trues up the reservation: the difference between the estimate and the real total is applied as a signed delta. A response that used *more* than estimated pushes the bucket further down (even temporarily negative, i.e. into debt); a response that used less refunds the difference. A response whose real usage the gateway never learns — on the HTTP routers, every streamed success — keeps the reserved estimate as the final charge instead.
 
 Settling always uses the backend's own reported usage, never the gateway's own estimate — the estimate only exists to gate admission before any real cost has been incurred.
@@ -51,7 +51,7 @@ So the reservation is made **once**, before the first attempt, and the same rese
 
 The model a reservation is scoped to is pinned the same way: the router resolves the request's model to its canonical ID once, up front, and both the reservation and every dispatch attempt use that ID, even if the alias mapping changes mid-request. Without that, a request could be reserved against one model's budget and settled against another's.
 
-A Responses request on the gRPC router is the one case where a single client request can contain several of these logical requests: each iteration of its MCP tool loop is a generation of its own, with a reservation of its own (see [Current scope](#current-scope)). The reserved-once rule holds per iteration, not per client request. On the HTTP routers, a Responses request takes one reservation, like any other request.
+A Responses request on the gRPC router is the one case where a single client request can contain several of these logical requests: each iteration of its MCP tool loop is a generation of its own, with a reservation of its own (see [Responses and Decisions](#responses-and-decisions)). The reserved-once rule holds per iteration, not per client request. On the HTTP routers, a Responses request takes one reservation, like any other request.
 
 ---
 
@@ -75,7 +75,7 @@ See the [reference page](../../reference/tenant-rate-limiting.md) for the exact 
 A few accounting details avoid over- or under-charging a tenant:
 
 - **A shared prompt is charged once, not per choice.** When a request asks for `n>1` completions, every choice shares the same input prompt. The reservation counts the prompt once, and settlement takes a single prompt count from the reported usage, not the sum — the *maximum* across choices on the gRPC router's chat endpoint; each prompt counted once across its `n` answer entries on the HTTP routers' `/generate` route. Only completion tokens, which really are distinct per sample, are summed.
-- **A streaming response never settles with partial usage.** On the gRPC router, a streaming response settles only once every expected choice has actually finished: a clean end-of-stream partway through an `n>1` request (some choices completed, others didn't) is not treated as full, trustworthy usage — it closes the reservation at the estimate instead of settling with an understated real count. On the HTTP routers, a streamed response is never parsed at all and always keeps its reserved estimate (see [Current scope](#current-scope)).
+- **A streaming response never settles with partial usage.** On the gRPC router, a streaming response settles only once every expected choice has actually finished: a clean end-of-stream partway through an `n>1` request (some choices completed, others didn't) is not treated as full, trustworthy usage — it closes the reservation at the estimate instead of settling with an understated real count. On the HTTP routers, a streamed response is never parsed at all and always keeps its reserved estimate (see [What settles, per router](#what-settles-per-router)).
 
 ---
 

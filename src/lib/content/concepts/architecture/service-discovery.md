@@ -4,7 +4,7 @@ title: Service Discovery
 
 # Service Discovery
 
-SMG discovers workers from a provider and keeps its worker registry in step with what the provider reports. The Kubernetes provider, which most of this page describes, watches pods: pods that match a label selector and are Ready become workers; workers whose pods are deleted, stop matching, or turn unready are drained and removed. Outside Kubernetes, [file-based discovery](#file-based-discovery) reads the workers from a JSON manifest on disk; Slurm and Consul providers are configured in the [configuration reference](../../reference/configuration.md#file-consul-and-slurm-providers).
+SMG discovers workers from a provider and keeps its worker registry in step with what the provider reports. The Kubernetes provider, which most of this page describes, watches pods: pods that match a label selector and are Ready become workers; workers whose pods are deleted, stop matching, or turn unready are drained and removed. Outside Kubernetes, [file-based discovery](#file-based-discovery) reads the workers from a JSON manifest on disk, [Slurm discovery](#slurm-discovery) polls a Slurm cluster for the nodes of running worker jobs, and the Consul provider is configured in the [configuration reference](../../reference/configuration.md#file-consul-and-slurm-providers).
 
 ---
 
@@ -551,6 +551,53 @@ How an edit maps onto a running worker:
 
 ---
 
+## Slurm Discovery
+
+On a Slurm cluster, SMG discovers a worker on every node of each running job whose name maps to a worker type:
+
+```bash
+smg \
+  --discovery-provider slurm \
+  --slurm-job-name smg-worker \
+  --slurm-port 8000
+```
+
+`--slurm-job-name` names jobs whose nodes are regular workers; `--slurm-prefill-job-name`, `--slurm-decode-job-name`, and `--slurm-encode-job-name` map jobs to the disaggregated roles, and `--slurm-bootstrap-port` sets the bootstrap port of the discovered prefill and encode workers. The full flag list, including the `--slurm-user`, `--slurm-account`, and `--slurm-partition` scopes, is in the [configuration reference](../../reference/configuration.md#file-consul-and-slurm-providers).
+
+Slurm discovery requires the regular, PD, or EPD routing mode, and turns on IGW mode like every provider. Each job-name flag is repeatable, a name can map to only one worker type, and the names must fit the mode: regular routing needs a regular job name, PD a prefill or a decode one, and EPD all three of encode, prefill, and decode.
+
+### Polling
+
+Slurm discovery polls — nothing pushes a change to SMG — so a job that starts, ends, or is requeued shows up on a later poll rather than immediately. At startup and then every `--discovery-check-interval-secs` seconds (default `30`), a poll runs three commands:
+
+1. `squeue --json` lists the running jobs with the mapped names, scoped to one user's jobs (`--slurm-user`, defaulting to the user the gateway runs as) and, when set, to `--slurm-account` and `--slurm-partition`.
+2. `scontrol show hostnames` expands each job's allocation (such as `gpu[01-04]`) into its node names.
+3. One `scontrol --json show nodes` resolves every node named.
+
+The commands run without a shell, each within 30 seconds, so run the gateway somewhere `squeue` and `scontrol` are on `PATH` and can reach the cluster.
+
+Each node of a selected job becomes one worker on `--slurm-port` at the node's `NodeAddr`. Slurm defaults `NodeAddr` to `NodeHostname` and that to the bare node name, so on a cluster whose node names do not resolve from the gateway, set `NodeAddr`.
+
+Discovered workers go through the same reconciler as the other providers: registration probes HTTP and gRPC on the address and keeps the protocol that answers, and a worker whose job is gone is drained and removed through the same [removal flow](#removal-flow) as a deleted pod.
+
+A worker's identity is its job's cluster, job ID, start time, and restart count, plus the node and the worker type. A requeued job keeps its job ID but starts again, so its workers are removed and registered again as new instances at the same addresses.
+
+### One Job per Node
+
+Every discovered worker listens on `--slurm-port`, so two jobs' workers cannot share a node. Submit worker jobs with `--exclusive`, or run them on nodes of their own; Slurm otherwise shares a node between jobs. When two selected jobs do claim one node, the address stays with the job that started first, whose server holds the port since a later one cannot bind it, and the later job's worker there is left out.
+
+### Failed Polls and Skipped Jobs
+
+A poll SMG cannot read is rejected whole and leaves the last good worker list in place, so a broken Slurm never removes a worker. Each rejected poll logs a warning and counts on `smg_discovery_snapshot_errors_total`: `reason="unreadable"` for a command that failed or timed out, `reason="invalid"` for an answer that could not be used — including one from a Slurm release older than 23.11 (see [below](#cluster-scope-and-releases)).
+
+A job that cannot be placed — running with no start time, with an allocation that does not expand, or on a node `scontrol` does not know or that has no usable address — is left out alone (`reason="invalid"`), and the rest of the poll stands. Everything a poll leaves out — such a job, or a worker whose node another job holds (`reason="conflict"`) — is counted on `smg_discovery_skipped_total` on every poll and logged when it first appears.
+
+### Cluster Scope and Releases
+
+Slurm discovery reads Slurm 23.11 and later; `squeue` reports its release, and a poll of an older one is rejected. Discovery stays within the local cluster, the one `squeue` runs in: a federation's remote jobs are not discovered, because `scontrol` resolves node names in the local cluster only, and a remote job's `gpu01` would otherwise take the local `gpu01`'s address.
+
+---
+
 ## Mesh Router Discovery
 
 `--router-selector` finds peer SMG gateway pods for an HA mesh. It runs as its own task, independent of worker discovery, but it is configured through the service discovery flags: it starts only when Kubernetes worker discovery is selected and the mesh is enabled (`--enable-mesh`). Under the file, Slurm, or Consul provider, `--router-selector` is ignored and router discovery does not run. Router pods can publish their mesh port in the `sglang.ai/mesh-port` annotation; pods without it are assumed to use this gateway's `--mesh-port`. See [High Availability](high-availability.md).
@@ -563,11 +610,12 @@ How an edit maps onto a running worker:
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `smg_discovery_workers_discovered` | Gauge | `source` | Desired workers seen by the latest reconcile pass: Ready pods × ports for Kubernetes, the manifest's records for file discovery |
+| `smg_discovery_workers_discovered` | Gauge | `source` | Desired workers seen by the latest reconcile pass: Ready pods × ports for Kubernetes, the manifest's records for file discovery, one per node of each selected job for Slurm |
 | `smg_discovery_registrations_total` | Counter | `source`, `result` | `AddWorker` jobs submitted by discovery; `result` is `success` when the job was queued and `failed` when the queue refused it |
 | `smg_discovery_deregistrations_total` | Counter | `source`, `reason` | `RemoveWorker` jobs submitted by discovery; `reason` is `reconciled` |
 | `smg_discovery_sync_duration_seconds` | Histogram | `source` | Duration of reconcile passes that submitted jobs |
-| `smg_discovery_snapshot_errors_total` | Counter | `source`, `reason` | Reads that produced no snapshot and left the last good one in place; for file discovery, a manifest that was `unreadable` or `invalid`. Not emitted by the Kubernetes provider |
+| `smg_discovery_snapshot_errors_total` | Counter | `source`, `reason` | Reads that produced no snapshot and left the last good one in place: for file discovery, a manifest that was `unreadable` or `invalid`; for Slurm, a poll with a failed or timed-out command (`unreadable`) or an answer that could not be used (`invalid`). Not emitted by the Kubernetes provider |
+| `smg_discovery_skipped_total` | Counter | `source`, `reason` | Workers left out of an otherwise good snapshot, counted on every read: `invalid` for a record that cannot become a worker, such as a [Slurm job that cannot be placed](#failed-polls-and-skipped-jobs), and `conflict` for an address another record holds. Emitted by the Slurm and Consul providers |
 
 `source` names the provider: `kubernetes`, `file`, `slurm`, or `consul`. The counters record job submissions; whether a registration then succeeded shows up in `GET /workers` and in the worker [health metrics](../reliability/health-checks.md#monitoring).
 

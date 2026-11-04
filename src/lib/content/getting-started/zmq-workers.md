@@ -392,7 +392,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | Structured outputs (`response_format`, constrained `tool_choice`, regex, grammar) | Yes | Yes, with `--grammar-backend` set on the engine | Yes |
 | String stops and EOS | Yes | Yes | Yes |
 | Harmony (gpt-oss) stop strings | Yes | Yes | Yes |
-| Multimodal inputs | Yes, one modality per request | Yes; models whose `image_grid_thw`/`video_grid_thw` grids feed MRoPE positions are refused, except the Qwen3.5 lineage (Qwen3.5, Qwen3.5-MoE, Qwen4-Exp), which is served when the engine's handshake declares the checkpoint's `spatial_merge_size`, `image_token_id`, and `video_token_id`; patch-layout grids (Muse Spark) pass | No |
+| Multimodal inputs | Yes, one modality per request | Yes; media whose `image_grid_thw`/`video_grid_thw` grids feed MRoPE positions are refused, except for the Qwen3.5 lineage (Qwen3.5, Qwen3.5-MoE, Qwen4-Exp), served when the engine's handshake declares the checkpoint's `spatial_merge_size`, `image_token_id`, and `video_token_id`; patch-layout grids (Muse Spark) pass | No |
 | Output logprobs | Yes, including `top_logprobs` | Sampled-token logprobs, with `--enable-output-logprobs`; `top_logprobs` above 1 is rejected | Yes, including `top_logprobs` |
 | Prompt logprobs | Forwarded to the engine, but no API field requests them | Not supported; `token_ids_logprob` is rejected | Yes, requested through `/generate`'s `logprob_start_len`; `token_ids_logprob` is rejected |
 | `n > 1` and sampling `seed` | Yes | Yes | `n > 1` yes; the SGLang wire carries no `seed` |
@@ -410,7 +410,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | No rank pinning | See [Rank Selection](#rank-selection) |
 | vLLM multimodal | Mixed image and video in one request: `400`, `the vLLM ZMQ backend takes one modality per request ...`. Worker-side media processing (media references) needs a gRPC vLLM worker: `400`, `multimodal_not_supported` |
 | TokenSpeed logprobs | `top_logprobs` above 1, or `token_ids_logprob`: `400`, `... not supported over the TokenSpeed ZMQ backend` |
-| TokenSpeed MRoPE models | Outside the Qwen3.5 lineage: `400`, `MRoPE position tensors of this model are not derivable over the TokenSpeed ZMQ wire (the Qwen3.5 lineage's are); use the gRPC transport for this model`. Any multimodal request to a Qwen3.5-lineage engine whose handshake omits the layout facts: `400`, `... need its MRoPE position table, which the launcher's model facts (spatial_merge_size, image_token_id, video_token_id) did not provide ...` |
+| TokenSpeed MRoPE models | Outside the Qwen3.5 lineage: `400`, `... MRoPE position tensors of this model are not derivable over the TokenSpeed ZMQ wire (the Qwen3.5 lineage's are); use the gRPC transport for this model`. Any multimodal request to a Qwen3.5-lineage engine whose handshake omits the layout facts: `400`, `... need its MRoPE position table, which the launcher's model facts (spatial_merge_size, image_token_id, video_token_id) did not provide ...` |
 | SGLang multimodal, hidden states, `token_ids_logprob` | `400` naming the feature, such as `multimodal inputs are not supported over the SGLang ZMQ backend yet` |
 | SGLang data parallelism | The wire has no DP yet; `smg serve` refuses it (see [Data-Parallel Engines](#data-parallel-engines)) |
 

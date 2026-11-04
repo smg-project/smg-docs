@@ -1403,7 +1403,8 @@ vocabulary.
 | 424 | `connect_mcp_server_failed` | A declared MCP server could not be reached |
 | 429 | `admission_queue_full`, `scheduler_queue_full` | Admission control; see [Rate Limiting](openai.md#rate-limiting) |
 | 429 | `background_responses_limit_reached` | The gateway already runs `--max-background-responses` background responses; see [Background Mode](#background-mode) |
-| 500 | `load_previous_response_chain_failed`, `check_conversation_failed`, `storage_error` | Storage failures |
+| 500 | `load_previous_response_chain_failed`, `check_conversation_failed`, `storage_error` | A failure the history store itself answered: a refused statement, a record that cannot be decoded, an invalid chain. Retrying does not help |
+| 503 | `storage_unavailable` | The history store is down or did not answer within its per-call bound (`--postgres-op-timeout-secs` / `--redis-op-timeout-secs`, default 5 s); retry once the store answers again. See [Store Failures While Serving](../../concepts/data/chat-history.md#store-failures-while-serving) |
 | 503 | `no_available_workers` | No healthy workers available |
 
 ### Validation Errors

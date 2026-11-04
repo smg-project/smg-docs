@@ -271,6 +271,7 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 
 - `FlushCache` and profiling answer UNIMPLEMENTED on a TokenSpeed whose handshake declares no control reply; one that declares it gets them as control calls, each scheduler rank's own handler answering.
 - Ranked `top_logprobs` and prompt logprobs are refused per request.
+- The msgpack wire bypasses the engine's input processor, which computes a multimodal item's MRoPE position table on the Python path. Items of the Qwen3.5 lineage (Qwen3.5, Qwen3.5-MoE, Qwen4-Exp) are served anyway: the Rust servicer computes the table itself from the checkpoint's `vision_config.spatial_merge_size`, `image_token_id`, and `video_token_id`; on a lineage checkpoint missing any of those facts, every multimodal request is refused. Items of other MRoPE families (for example Qwen3-VL or Qwen3-Omni) are refused per request; the Python servicer serves those models through the engine's own input processor.
 - PD and EPD disaggregation stay with the Python servicer.
 - The [RL control plane](rl-control-plane.md) extras stay with the Python servicer: the `rl.*` capability advertisement, the live `weight_version` on generate responses, and `is_paused`.
 

@@ -128,6 +128,22 @@ error: cannot update the lock file .../Cargo.lock because --locked was passed to
 
 This error means a `Cargo.toml` changed without a matching `Cargo.lock` update. When you add or bump a dependency on purpose, run cargo once without `--locked` (or run `cargo update -p <crate>`) and commit the updated `Cargo.lock` in the same PR. The `make` targets, CI's clippy and `cargo test` runs, and the `clippy` pre-commit hook all call cargo without `--locked`; the flag is fail-fast protection for your own builds.
 
+### Baked Version Information
+
+`smg --version` (or `-V`) prints the version from `model_gateway/Cargo.toml`. `smg --version-verbose` adds the details the gateway's build script baked in when it last ran: the build time, build mode, and target platform; the git branch, commit, and clean/dirty status of the checkout; and the rustc and cargo versions.
+
+Cargo re-runs that build script only when a declared trigger changes, and by default its only file trigger is `model_gateway/Cargo.toml`. In a reused target directory the baked details therefore go stale: after checking out another commit and rebuilding, `--version-verbose` still reports the first build's commit, branch, and build time. The version number itself never goes stale, because a version bump edits `Cargo.toml`.
+
+When `SMG_VERSION_FOLLOWS_HEAD` is set to any non-empty value, the build script also watches the git files that change when `HEAD` comes to name another commit (worktrees are handled), so the baked details follow the checked-out commit. Setting or clearing the variable itself rebakes on the next build:
+
+```bash
+SMG_VERSION_FOLLOWS_HEAD=1 cargo build --locked --bin smg
+```
+
+The variable is meant for a local or self-hosted pipeline that builds consecutive commits in one warm target directory; the repository's CI checks out fresh and does not need it. It is off by default on purpose: the watched files include the `HEAD` reflog, which also moves on a `git stash`, a bare `git reset --hard`, and a checkout of the branch you are already on, each of which would recompile the gateway's library, binary, and test targets with no commit change.
+
+Two limits remain even with the variable set. The index and the working tree are not watched, so the clean/dirty status is only as fresh as the last build-script run: editing a file and rebuilding does not flip it to `dirty`. And outside a git checkout (a source archive, for example), the git fields fall back to `unknown`.
+
 ### Cargo Features
 
 Features of the `smg` package (`model_gateway/Cargo.toml`):
@@ -737,6 +753,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 ### `cannot update the lock file ... because --locked was passed`
 
 A `Cargo.toml` changed without a matching `Cargo.lock` update. See [Cargo.lock and `--locked`](#cargolock-and---locked).
+
+### `--version-verbose` Shows an Old Commit After Rebuilding
+
+In a reused target directory the baked build details are cached until a rebuild trigger changes. See [Baked Version Information](#baked-version-information).
 
 ### Tests Fail with "Address already in use"
 

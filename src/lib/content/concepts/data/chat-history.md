@@ -451,9 +451,9 @@ smg --history-backend redis \
 
 ## Store Failures While Serving
 
-Every call to a PostgreSQL or Redis store is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (default 5 seconds). The bound covers one store call as a whole — the wait for a pooled connection, the connect, and the statement or command itself — so a store that accepts connections but does not answer cannot hold a request for as long as the client waits.
+Every call to a PostgreSQL or Redis store is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (default 5 seconds). The bound covers one store call as a whole — the wait for a pooled connection, the connect, and the statement or command itself — so a request cannot hang on a store that accepts connections but does not answer.
 
-A store that is down, or slower than the per-call bound, fails the request with `503` and the code `storage_unavailable` on every endpoint that stores or reads history: creating a response that is stored or continues history (`store: true`, `previous_response_id`, or `conversation`), getting, deleting, or cancelling a stored response, listing its input items, and every `/v1/conversations` operation. The request can be retried once the store answers again.
+A store that is down, or slower than the per-call bound, fails the request with `503` and the code `storage_unavailable` on every endpoint that stores or reads history: creating a response that is stored or continues history (`store` unset or `true`, `previous_response_id`, or `conversation`), getting, deleting, or cancelling a stored response, listing its input items, and every `/v1/conversations` operation. On a streaming create the response record is written before the terminal event, so a record that could not be written ends the stream with a `response.failed` event carrying the same `storage_unavailable` code rather than a `503` answer. The request can be retried once the store answers again.
 
 A failure the store itself answered — a refused statement, a record that cannot be decoded — keeps the endpoint's own `500` answer (for example `storage_error`), which a retry would not fix. See the [Responses API errors](../../reference/api/responses.md#common-errors) for the per-route codes.
 

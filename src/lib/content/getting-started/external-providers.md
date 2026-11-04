@@ -86,10 +86,12 @@ If the call fails or returns no models, the worker isn't registered. Without any
 
 ### `GET /v1/models`
 
-SMG supports fan-out model discovery across all registered external workers. When a caller sends a `GET /v1/models` request with a bearer token (or an `x-api-key` header), SMG:
+SMG supports fan-out model discovery across the registered external workers of the caller's API family. The `anthropic-version` header selects the family: a request carrying it reaches the Anthropic providers alone, and every other request reaches the OpenAI-compatible providers — OpenAI, xAI, custom providers, and external workers that name no provider. A worker's provider is read the same way as at registration: the `provider` its spec declares, else the provider recognized from its URL host. A Gemini worker belongs to neither family and is never asked on this route.
 
-1. Fans out the request to all healthy external workers concurrently
-2. Forwards the caller's token to each upstream provider, in that provider's header format
+When a caller sends a `GET /v1/models` request with a bearer token (or an `x-api-key` header), SMG:
+
+1. Fans out the request to the family's healthy external workers concurrently
+2. Forwards the caller's token to each of those providers, in that provider's header format
 3. Returns the first non-empty model inventory from the fanned-out upstream responses
 
 ```bash
@@ -97,7 +99,7 @@ curl http://localhost:30000/v1/models \
   -H "Authorization: Bearer sk-..."
 ```
 
-This supports BYOK (bring your own key) — the caller's token is forwarded to the upstream providers, so each caller can discover models available under their own account. If no upstream returns models, or the token is one of the gateway's own keys (`--api-key` or `--tenant-api-key`), SMG answers with the models of its self-hosted workers instead. A request without a token also gets the self-hosted models only.
+This supports BYOK (bring your own key) — the caller's token is forwarded to the upstream providers of its own API family and never to another family's, so each caller can discover models available under their own account. If no upstream returns models, or the token is one of the gateway's own keys (`--api-key` or `--tenant-api-key`), SMG answers with the models of its self-hosted workers instead. A request without a token also gets the self-hosted models only.
 
 ---
 
@@ -121,8 +123,8 @@ How the two combine depends on the router:
 
     Callers can still bring their own provider key under gateway authentication by sending it as `x-api-key` or `x-goog-api-key` on the endpoints that read those headers (`/v1/responses`, `/v1/interactions`, `/v1/messages`). `/v1/chat/completions` reads only `Authorization`, which the gateway key occupies, so it always uses the stored key.
 
-!!! warning "Caller keys can reach every registered provider"
-    `GET /v1/models` sends the caller's token to every healthy external worker, whatever its provider. When the OpenAI-compatible router finds no worker for a requested model, it also refreshes the model lists of the healthy external workers with the caller's token before it answers. Register only providers you trust with your callers' keys.
+!!! warning "Caller keys can reach every provider of their API family"
+    `GET /v1/models` sends the caller's token to every healthy external worker of the caller's API family: a request carrying `anthropic-version` sends it to the Anthropic providers, and any other request to the OpenAI, xAI, and custom providers and the external workers that name no provider — never to another family's. When the OpenAI-compatible router finds no worker for a requested model, it also refreshes the model lists of its own family's healthy external workers with the caller's token before it answers. Register only providers you trust with your callers' keys.
 
 ---
 

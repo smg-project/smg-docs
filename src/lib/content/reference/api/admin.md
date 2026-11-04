@@ -813,7 +813,7 @@ Query model and server information. These are public routes and need no authenti
 GET /v1/models
 ```
 
-Returns the models that the registered self-hosted workers serve, read from the gateway's worker registry rather than from the workers. A caller that sends its own provider key gets the external providers' model list instead, fetched with that key; a gateway key (`--api-key` or `--tenant-api-key`) is never forwarded to a provider.
+Returns the models that the registered self-hosted workers serve, read from the gateway's worker registry rather than from the workers. A caller that sends its own provider key gets the model list of its API family's external providers instead, fetched with that key — the Anthropic providers for a request carrying `anthropic-version`, the OpenAI-compatible ones otherwise; a gateway key (`--api-key` or `--tenant-api-key`) is never forwarded to a provider.
 
 A request carrying an `anthropic-version` header gets the list, and its errors, in the Anthropic Messages shape. See [List Models](openai.md#list-models) for the details.
 

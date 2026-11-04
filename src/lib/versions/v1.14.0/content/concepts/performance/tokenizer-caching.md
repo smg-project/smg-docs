@@ -1,0 +1,623 @@
+---
+title: Tokenizer Caching
+---
+
+# Tokenizer Caching
+
+SMG implements a two-level tokenizer cache that reduces tokenization overhead for repeated content. It applies where the gateway tokenizes prompts itself: requests to gRPC and ZMQ workers, and `/v1/tokenize`. HTTP workers tokenize on the engine, so the cache doesn't affect their requests.
+
+---
+
+## Overview
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+### :material-lightning-bolt: L0 Cache (Exact Match)
+
+Hash-based O(1) lookup for complete tokenization results. Hits only when an entire input repeats exactly, such as identical prompts in a batch or a resent request.
+
+</div>
+
+<div class="card" markdown>
+
+### :material-layers: L1 Cache (Prefix Match)
+
+Boundary-aligned prefix matching that tokenizes only the suffix on hit. Ideal for multi-turn conversations with growing context.
+
+</div>
+
+<div class="card" markdown>
+
+### :material-memory: Bounded Memory
+
+L0 is capped by entry count and by a byte budget; L1 by an approximate byte budget. An L0 entry holds the whole input and its encoding, so its size grows with prompt length.
+
+</div>
+
+<div class="card" markdown>
+
+### :material-chart-line: Observable
+
+Prometheus counters for lookups (hits and misses), evictions, and reused input bytes, per layer. There are no memory or cache-size metrics.
+
+</div>
+
+</div>
+
+---
+
+## Why Cache Tokenization?
+
+The gateway tokenizes—converts text to token IDs—every request it sends to a gRPC or ZMQ worker. Each tokenization is fast, but the cost grows with prompt length and adds up at scale.
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+### :material-robot: System Prompts
+
+Same instructions sent with every request. L1 reuses the tokens up to the last special token the prompts share; L0 helps only when the whole prompt repeats.
+
+</div>
+
+<div class="card" markdown>
+
+### :material-forum: Multi-Turn Conversations
+
+Growing context with shared prefix. L1 cache tokenizes only new messages.
+
+</div>
+
+<div class="card" markdown>
+
+### :material-file-document-multiple: RAG Applications
+
+Queries that share leading context (instructions or documents placed first) reuse it through L1, up to the last special token before the prompts differ.
+
+</div>
+
+<div class="card" markdown>
+
+### :material-tray-full: Batch Processing
+
+Identical prompts repeated across a batch hit L0. Prompts that share a template but vary inside it can hit L1 only up to the last special token before the first difference.
+
+</div>
+
+</div>
+
+---
+
+## Cache Architecture
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+### :material-lightning-bolt: L0 Cache (Exact Match)
+
+**Gateway-side cache** storing complete tokenization results for exact string matches.
+
+- Hash-based O(1) lookup, keyed on the whole input text
+- Entry size grows with input length
+- Bounded by an entry cap and a byte budget
+- Approximate LRU eviction when full (samples 8 entries and evicts the least recently used)
+
+**Best for**: Identical requests, repeated batch inputs
+
+</div>
+
+<div class="card" markdown>
+
+### :material-layers: L1 Cache (Prefix Match)
+
+**Gateway-side cache** storing tokens at special token boundaries for prefix reuse.
+
+- Tokenize only the suffix on hit
+- Cross-request deduplication
+- Memory-bounded (configurable)
+- Automatic boundary detection
+
+**Best for**: Multi-turn conversations, growing contexts, incremental content
+
+</div>
+
+</div>
+
+Each tokenizer SMG loads (from `--model-path` or `--tokenizer-path`, or for a gRPC or ZMQ worker's model) gets its own L0 and L1 caches with the configured limits. Tokenizers added through `POST /v1/tokenizers` are not cached. Decoding is never cached.
+
+---
+
+## Special Token Boundaries (L1)
+
+L1 splits inputs right after every special token the tokenizer declares: its BOS, EOS, UNK, SEP, PAD, CLS, and MASK tokens, and every added token marked special. An input without special tokens always misses L1. For example:
+
+| Model Family | Boundary Tokens | Example |
+|--------------|-----------------|---------|
+| **ChatML** (Qwen, Yi) | `<\|im_start\|>`, `<\|im_end\|>` | Each message boundary |
+| **Llama 3** | `<\|begin_of_text\|>`, `<\|eot_id\|>`, `<\|start_header_id\|>` | Text start, turn end |
+| **GPT** | `<\|endoftext\|>` | Document end |
+
+---
+
+## Multi-Turn Conversation Example
+
+Consider how caching helps a typical chat application:
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+#### Turn 1 (Cold)
+
+```
+System: You are a helpful assistant.
+User: What is Python?
+```
+
+**L0**: Miss → Full tokenization
+**L1**: Miss → Store a prefix entry at every special-token boundary
+
+</div>
+
+<div class="card" markdown>
+
+#### Turn 2 (Warm)
+
+```
+System: You are a helpful assistant.
+User: What is Python?
+Assistant: Python is a programming language...
+User: How do I install it?
+```
+
+**L0**: Miss (text changed)
+**L1**: **Hit!** → Only tokenize the text after the longest cached boundary; store this turn's deepest boundary and, speculatively, the boundary right after the match
+
+</div>
+
+</div>
+
+**Result**: Turn 2 tokenizes only the new messages, not the shared history. The hit also stores a new entry covering Turn 2's prompt up to its own deepest boundary, so Turn 3 matches right after Turn 2's last special token — even when Turn 2's match came from a prefix shared with other conversations, such as a common system prompt.
+
+When more boundaries lie between the match and the deepest one, the hit also stores the boundary right after the match. This is how a shared prefix that spans several special tokens — for example, a long system prompt behind the template's leading token — is learned one boundary per request. The extra entry is speculative: eviction removes it ahead of matched entries unless another request matches it first.
+
+---
+
+## Configuration
+
+### Model & Tokenizer Paths
+
+#### `--model-path`
+
+HuggingFace model ID or local path to load the tokenizer from.
+
+| Option | `--model-path` |
+|--------|----------------|
+| Default | None |
+
+**Usage**:
+
+```bash
+# HuggingFace model ID (downloads automatically)
+smg --model-path meta-llama/Llama-3.1-8B-Instruct ...
+
+# Local path to model directory
+smg --model-path /models/llama-3.1-8b-instruct ...
+
+# Local path to tokenizer.json file
+smg --model-path /models/llama-3.1-8b-instruct/tokenizer.json ...
+```
+
+When pointing to a local directory, SMG looks for a HuggingFace
+`tokenizer.json`, a `vocab.json` plus `merges.txt` pair, or a tiktoken file
+(`tiktoken.model` or `*.tiktoken`). When pulling from the HuggingFace Hub,
+SMG looks for the same files in the downloaded snapshot: `tokenizer.json`,
+then a tiktoken file, then the `vocab.json` plus `merges.txt` pair. A
+`tokenizer_config.json` alone is not a tokenizer.
+
+#### `--tokenizer-path`
+
+Explicit path to a tokenizer file. Overrides `--model-path` for tokenizer loading.
+
+| Option | `--tokenizer-path` |
+|--------|-------------------|
+| Default | None |
+
+**When to use**:
+
+- When the tokenizer is stored separately from the model
+- When using a custom tokenizer with a standard model
+- When the model directory structure is non-standard
+
+```bash
+# Load the tokenizer from its own file (--tokenizer-path wins over --model-path)
+smg \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --tokenizer-path /custom/tokenizers/llama3-tokenizer.json \
+  ...
+```
+
+---
+
+### Chat Templates
+
+Chat templates convert structured messages (system, user, assistant roles) into the prompt format expected by specific models. SMG uses Jinja2 templates, the same format used by HuggingFace Transformers.
+
+#### `--chat-template`
+
+Path to a Jinja2 chat template file.
+
+| Option | `--chat-template` |
+|--------|-------------------|
+| Default | Auto-discovered from model |
+
+**Template discovery priority**:
+
+1. An explicit template: a model card's `chat_template` path first, then `--chat-template`
+2. `chat_template.jinja` in model directory
+3. `chat_template` field in `tokenizer_config.json` — a string, or a list of named templates (the `default` entry renders plain requests, the `tool_use` entry renders requests that declare tools)
+4. Legacy `chat_template.json` in model directory (used only when `tokenizer_config.json` carries no template)
+5. Any other `.jinja` file in model directory
+
+A checkpoint may ship a processor `chat_template.json` beside the tokenizer's template; requests without tools can render through it. See [Chat Templates and Native Renderers](../architecture/grpc-pipeline.md#chat-templates-and-native-renderers).
+
+#### Template Variables
+
+Chat templates use Jinja2 syntax with access to:
+
+| Variable | Description |
+|----------|-------------|
+| `messages` | Array of message objects with `role` and `content` |
+| `add_generation_prompt` | Boolean to add assistant prompt prefix |
+| `tools` | Optional array of tool definitions |
+| `documents` | Optional array of document context |
+| `bos_token`, `eos_token`, `unk_token`, `pad_token` | The tokenizer's special tokens, when it defines them |
+| `strftime_now` | Function writing the current date and time with a strftime format (see below) |
+| `dict` | Function building a map from a mapping or from key/value pairs, as Python's `dict` does (see below) |
+
+Keys in a request's `chat_template_kwargs` are passed to the template as extra variables.
+
+`strftime_now` matches the function HuggingFace Transformers provides to chat templates: `{{ strftime_now('%Y-%m-%d') }}` writes today's date in the server's local time, like Python's `datetime.now().strftime(format)`. Every call in one render writes the same instant. An invalid strftime format fails the render with an error naming `strftime_now`.
+
+To make a prompt that writes the date reproducible, set `SOURCE_DATE_EPOCH` in SMG's environment to the desired instant as seconds since the Unix epoch (the reproducible-builds convention). SMG reads it once, at the first render, and every render then writes that instant instead of the clock. A value that is not a whole number of seconds is ignored, and the clock is used.
+
+`dict` matches Python's built-in: `dict()` builds an empty map, `dict(mapping)` copies a mapping, and `dict(pairs)` builds a map from an iterable of key/value pairs — the form templates use to merge maps, as in `dict((a | items | list) + (b | items | list))`. Keyword arguments are written over the result, and a repeated key keeps its first position with its last value. An argument that is not a mapping or iterable, or an element that is not a two-item key/value pair, fails the render as it would in Python.
+
+#### Template Examples
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+**ChatML** (Qwen, Yi)
+
+```jinja
+{%- for message in messages %}
+<|im_start|>{{ message.role }}
+{{ message.content }}<|im_end|>
+{% endfor %}
+{%- if add_generation_prompt %}
+<|im_start|>assistant
+{% endif %}
+```
+
+</div>
+
+<div class="card" markdown>
+
+**Llama 3**
+
+```jinja
+<|begin_of_text|>{% for message in messages %}
+<|start_header_id|>{{ message.role }}<|end_header_id|>
+
+{{ message.content }}<|eot_id|>
+{% endfor %}
+{% if add_generation_prompt %}<|start_header_id|>assistant<|end_header_id|>
+
+{% endif %}
+```
+
+</div>
+
+</div>
+
+---
+
+### L0 Cache Configuration
+
+The L0 cache stores complete tokenization results for exact string matches.
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+#### `--tokenizer-cache-enable-l0`
+
+Enable the L0 exact match cache.
+
+| Option | `--tokenizer-cache-enable-l0` |
+|--------|-------------------------------|
+| Default | `false` |
+
+</div>
+
+<div class="card" markdown>
+
+#### `--tokenizer-cache-l0-max-entries`
+
+Maximum number of entries in the L0 cache.
+
+| Option | `--tokenizer-cache-l0-max-entries` |
+|--------|-----------------------------------|
+| Default | `10000` |
+
+</div>
+
+<div class="card" markdown>
+
+#### `--tokenizer-cache-l0-max-memory`
+
+Byte budget of the L0 cache, counting each entry's input text, its token IDs and a fixed per-entry overhead.
+
+| Option | `--tokenizer-cache-l0-max-memory` |
+|--------|----------------------------------|
+| Default | `268435456` (256 MB) |
+
+</div>
+
+</div>
+
+### L1 Cache Configuration
+
+The L1 cache stores tokenization results at special token boundaries.
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+#### `--tokenizer-cache-enable-l1`
+
+Enable the L1 prefix matching cache.
+
+| Option | `--tokenizer-cache-enable-l1` |
+|--------|-------------------------------|
+| Default | `false` |
+
+</div>
+
+<div class="card" markdown>
+
+#### `--tokenizer-cache-l1-max-memory`
+
+Maximum memory for the L1 cache in bytes.
+
+| Option | `--tokenizer-cache-l1-max-memory` |
+|--------|----------------------------------|
+| Default | `52428800` (50 MB) |
+
+</div>
+
+</div>
+
+---
+
+## Memory Planning
+
+### L0 Cache Sizing
+
+L0 is bounded two ways: by `--tokenizer-cache-l0-max-entries` and by the `--tokenizer-cache-l0-max-memory` byte budget. Each entry is charged its input text's bytes, 4 bytes per token, and a fixed per-entry overhead; an entry keeps the full input text and its encoding, so its size grows with the input, from small for a short prompt to megabytes for a large one. An input whose entry would exceed a quarter of the byte budget is not cached at all. Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that actually repeat in your traffic; the byte budget then caps what those entries can hold.
+
+### L1 Cache Sizing
+
+L1 cache is bounded by total memory:
+
+| Memory | Recommended For |
+|--------|-----------------|
+| 25 MB | Memory-constrained environments |
+| 50 MB | Standard deployments (default) |
+| 100 MB | Multi-turn conversation heavy |
+| 200 MB | Long context applications |
+
+On a miss, L1 stores a cumulative prefix entry at every special-token boundary of the input. Each entry holds the token IDs of the whole prefix up to its boundary, so one long input with many boundaries can charge the budget several times its own length. On a hit, L1 stores the prefix up to the input's own deepest boundary when that boundary lies past the match, so steady hit traffic also grows the cache. When further boundaries lie between the match and the deepest, the hit also stores the prefix up to the boundary right after the match, as a speculative entry that eviction removes ahead of matched entries unless another request matches it first.
+
+SMG charges each entry the prefix's length in bytes plus 4 bytes per token. When new entries would exceed the budget, SMG evicts approximately least recently used entries (sampling 32 at a time) to make room; an entry larger than the whole budget is not stored at all. The budget is an estimate of cache contents, not a cap on process memory.
+
+---
+
+## Recommended Configurations
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+### :material-flash: High-Throughput Chat
+
+For workloads that resend identical prompts, such as batch jobs and client retries.
+
+```bash
+smg \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --tokenizer-cache-enable-l0 \
+  --tokenizer-cache-l0-max-entries 50000
+```
+
+**Expected**: hits on exact repeats of a whole prompt
+
+</div>
+
+<div class="card" markdown>
+
+### :material-forum: Multi-Turn Conversations
+
+For chat applications with varying conversation lengths.
+
+```bash
+smg \
+  --model-path Qwen/Qwen2.5-7B-Instruct \
+  --tokenizer-cache-enable-l0 \
+  --tokenizer-cache-l0-max-entries 20000 \
+  --tokenizer-cache-enable-l1 \
+  --tokenizer-cache-l1-max-memory 104857600
+```
+
+**Expected**: L0 catches exact repeats, L1 accelerates prefix sharing
+
+</div>
+
+<div class="card" markdown>
+
+### :material-memory: Memory-Constrained
+
+For deployments with limited memory.
+
+```bash
+smg \
+  --model-path meta-llama/Llama-3.1-8B-Instruct \
+  --tokenizer-cache-enable-l0 \
+  --tokenizer-cache-l0-max-entries 5000
+```
+
+**Expected**: a lower entry cap bounds L0 memory; hits only on exact repeats
+
+</div>
+
+<div class="card" markdown>
+
+### :material-close-circle: No Caching
+
+For stateless deployments or when memory is critical.
+
+```bash
+smg \
+  --model-path meta-llama/Llama-3.1-8B-Instruct
+# Caching is disabled by default
+```
+
+**Use when**: Diverse, unique requests dominate
+
+</div>
+
+</div>
+
+---
+
+## Complete Example
+
+Production configuration with tokenizer and caching:
+
+```bash
+smg \
+  --worker-urls grpc://worker1:50051 grpc://worker2:50051 \
+  --policy cache_aware \
+  --model-path meta-llama/Llama-3.1-70B-Instruct \
+  --chat-template /templates/llama3.jinja \
+  --tokenizer-cache-enable-l0 \
+  --tokenizer-cache-l0-max-entries 25000 \
+  --tokenizer-cache-enable-l1 \
+  --tokenizer-cache-l1-max-memory 104857600 \
+  --host 0.0.0.0 \
+  --port 8080
+```
+
+---
+
+## Monitoring & Observability
+
+The gateway exports cache activity on its Prometheus `/metrics` endpoint:
+
+| Metric | Labels | Meaning |
+|--------|--------|---------|
+| `smg_tokenizer_cache_lookups_total` | `layer` (`l0`, `l1`), `result` (`hit`, `miss`) | One outcome per lookup |
+| `smg_tokenizer_cache_evictions_total` | `layer` | Entries removed to make room (clears and replacements excluded) |
+| `smg_tokenizer_cache_reused_bytes_total` | `layer` | Input bytes served by hits: whole inputs for L0, matched prefixes for L1 |
+
+The counters are totals across all tokenizers in the process, with no model
+label, and a disabled layer reports zeros. An L0 hit never reaches L1, and L1
+counts inputs without special-token boundaries as misses, so compute each
+layer's hit ratio against its own lookups:
+
+```promql
+sum by (layer) (rate(smg_tokenizer_cache_lookups_total{result="hit"}[5m]))
+/
+sum by (layer) (rate(smg_tokenizer_cache_lookups_total[5m]))
+```
+
+See the [Metrics Reference](../../reference/metrics.md#tokenizer-cache-metrics)
+for details.
+
+### Sizing Signals to Watch
+
+Use these signals when tuning `--tokenizer-cache-l0-max-entries` and
+`--tokenizer-cache-l1-max-memory`:
+
+- A low L0 hit ratio with a steady L0 eviction rate
+  (`rate(smg_tokenizer_cache_evictions_total{layer="l0"}[5m])`) means more
+  distinct inputs arrive than L0 holds; raise `max-entries` if the workload
+  repeats inputs at all.
+- L1 evictions mean the prefix cache is at its memory bound. Multi-turn chat
+  traffic with growing context benefits from a larger L1 budget; see
+  [L1 Cache Sizing](#l1-cache-sizing).
+- `smg_tokenizer_cache_reused_bytes_total` separates many small prefix hits
+  from reuse of large prompts: a high hit ratio with little reused volume
+  saves little tokenization work.
+- Each L0 entry keeps the full input text and its encoding, so entry size
+  grows with prompt length and large inputs can reach megabytes per entry.
+  `--tokenizer-cache-l0-max-memory` bounds the total; watch
+  `smg_allocator_allocated_bytes` when raising it or `max-entries`.
+
+---
+
+## Integration with Other Caching Layers
+
+Tokenizer caching is part of SMG's **three-level caching strategy**:
+
+| Layer | What's Cached | Benefit |
+|-------|--------------|---------|
+| **Tokenizer L0/L1** | Token IDs | Skip tokenization |
+| **Router radix tree** | Prefix → worker mapping | Consistent routing decisions |
+| **Worker KV cache** | Attention states | Skip prefill computation |
+
+!!! info "Synergy with Cache-Aware Routing"
+    With gRPC or ZMQ workers, the `cache_aware` policy routes on the token IDs the gateway produced for the request, so a tokenizer cache hit also shortens the work before routing. HTTP requests route on text (or on an `x-smg-routing-tokens` hint) and don't use the tokenizer cache.
+
+---
+
+## What's Next?
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+### :material-routes: Cache-Aware Routing
+
+Maximize KV cache hits with prefix-based worker affinity.
+
+[Cache-Aware Routing →](../routing/cache-aware.md)
+
+</div>
+
+<div class="card" markdown>
+
+### :material-chart-box: Metrics Reference
+
+Complete list of cache-related metrics.
+
+[Metrics Reference →](../../reference/metrics.md)
+
+</div>
+
+<div class="card" markdown>
+
+### :material-scale-balance: Load Balancing
+
+Compare all available routing policies.
+
+[Load Balancing →](../routing/load-balancing.md)
+
+</div>
+
+</div>

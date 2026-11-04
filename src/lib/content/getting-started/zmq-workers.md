@@ -392,7 +392,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | Structured outputs (`response_format`, constrained `tool_choice`, regex, grammar) | Yes | Yes, with `--grammar-backend` set on the engine | Yes |
 | String stops and EOS | Yes | Yes | Yes |
 | Harmony (gpt-oss) stop strings | Yes | Yes | Yes |
-| Multimodal inputs | Yes, one modality per request | Yes; media whose `image_grid_thw`/`video_grid_thw` grids feed MRoPE positions are refused, except for the Qwen3.5 lineage (Qwen3.5, Qwen3.5-MoE, Qwen4-Exp), served when the engine's handshake declares the checkpoint's `spatial_merge_size`, `image_token_id`, and `video_token_id`; patch-layout grids (Muse Spark) pass | No |
+| Multimodal inputs | Yes, one modality per request | Yes; media whose `image_grid_thw`/`video_grid_thw` grids feed MRoPE positions are served only for the Qwen3.5 lineage (Qwen3.5, Qwen3.5-MoE, Qwen4-Exp), and only when the engine's handshake declares the checkpoint's `spatial_merge_size`, `image_token_id`, and `video_token_id`; patch-layout grids (Muse Spark) pass | No |
 | Output logprobs | Yes, including `top_logprobs` | Sampled-token logprobs, with `--enable-output-logprobs`; `top_logprobs` above 1 is rejected | Yes, including `top_logprobs` |
 | Prompt logprobs | Forwarded to the engine, but no API field requests them | Not supported; `token_ids_logprob` is rejected | Yes, requested through `/generate`'s `logprob_start_len`; `token_ids_logprob` is rejected |
 | `n > 1` and sampling `seed` | Yes | Yes | `n > 1` yes; the SGLang wire carries no `seed` |

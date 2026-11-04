@@ -754,6 +754,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 A `Cargo.toml` changed without a matching `Cargo.lock` update. See [Cargo.lock and `--locked`](#cargolock-and---locked).
 
+### `--version-verbose` Shows an Old Commit After Rebuilding
+
+In a reused target directory the baked build details are cached until a rebuild trigger changes. See [Baked Version Information](#baked-version-information).
+
 ### Tests Fail with "Address already in use"
 
 The integration tests bind fixed local ports. Make sure no other test run (from another worktree, for example) or local service is using them, and run one `cargo test` process at a time.

@@ -330,7 +330,7 @@ Metrics for request routing and processing.
 
 ### `smg_router_requests_total`
 
-Requests processed by the router. The gRPC router records every retry attempt as another request, and each failed attempt in `smg_router_request_errors_total`.
+Requests processed by the router, counted once at request entry. A request the gateway retries still counts once, however many attempts it takes: retries are counted in the [retry metrics](#retry-metrics) and each dispatch attempt in [`smg_worker_requests_total`](#smg_worker_requests_total).
 
 | Type | Labels |
 |------|--------|
@@ -354,7 +354,7 @@ sum by (streaming) (rate(smg_router_requests_total[5m]))
 
 ### `smg_router_request_duration_seconds`
 
-Total router request duration.
+Total router request duration, measured from the request's start: a retried request's sample spans all its attempts, including the backoffs between them.
 
 | Type | Labels |
 |------|--------|
@@ -364,7 +364,7 @@ Total router request duration.
 
 ### `smg_router_request_errors_total`
 
-Router errors by type.
+Router errors by type. Only the failure that becomes the request's response is counted; a failed attempt that the gateway retries is not an error here.
 
 | Type | Labels |
 |------|--------|

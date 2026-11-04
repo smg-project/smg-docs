@@ -343,7 +343,10 @@ To repair a completed full run that failed final content review, set
 `release_resume_run` to that run and `release_resume_batches` to every failed
 batch plus any related page owners identified in the findings. Resume requires
 complete final bundle coverage and all final review records from the same frozen
-release/base/seed/batch layout. It reconstructs each batch from the retained
+release/base/seed/batch layout. A run cancelled during final review may be
+resumed from the final review records it kept, as long as at least one of them
+is a rejection. Missing records only omit repair guidance, because every page is
+reviewed again from scratch. It reconstructs each batch from the retained
 baseline, writer output, first repair and second repair, in that order; repair
 stages may cover only selected batches. Final review hashes must match the
 reconstructed proposal. If main advanced only through edits to existing

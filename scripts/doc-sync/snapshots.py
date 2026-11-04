@@ -339,13 +339,14 @@ def prepare_diagnostic(ctx, directory):
     print('Diagnostic only: selected pages will be rewritten and reviewed; publication is disabled')
 
 
-def checkpoint_findings(ctx, values, records, diagnostic):
+def checkpoint_findings(ctx, values, records, diagnostic, batches=None):
     """Validate historic content binding; return negative guidance, never approvals."""
-    if len(values) != len(ctx['batches']) or len(records) != len(values):
+    batches = list(range(len(values))) if batches is None else batches
+    if len(values) != len(ctx['batches']) or len(records) != len(batches):
         raise ValueError('Incomplete checkpoint coverage')
     whole = snapshot_hash(values)
     findings = []
-    for index, result in enumerate(records):
+    for index, result in zip(batches, records):
         if (result.get('diagnostic') is not diagnostic or result.get('batch') != index
                 or result.get('bundle_sha') != bundle_hash(values[index])
                 or result.get('snapshot_sha') != whole):
@@ -394,16 +395,20 @@ def checkpoint_bundles(ctx, checkpoint, artifacts):
     return values
 
 
-def import_resume(ctx, directory, checkpoint, artifacts, selection):
+def import_resume(ctx, directory, checkpoint, artifacts, selection, cancelled=False):
     """Resume a full failed audit with scoped corrections and fresh all-page review."""
     if (checkpoint / 'diagnostic.json').exists():
         raise ValueError('A diagnostic cannot resume full validation')
     ctx = checkpoint_context(ctx, checkpoint)
     matrix = diagnostic_matrix(ctx, selection)
     values = checkpoint_bundles(ctx, checkpoint, artifacts)
-    records = [read_json(artifacts / f'release-final-review-{i}' / f'review-{i}.json')
-               for i in range(len(values))]
-    findings = checkpoint_findings(ctx, values, records, diagnostic=False)
+    paths = [artifacts / f'release-final-review-{i}' / f'review-{i}.json' for i in range(len(values))]
+    # Cancelling a run stops unfinished final reviews. Only rejections cross
+    # this boundary and every page is reviewed again, so a missing record can
+    # only omit guidance; a failed run must still record every final review.
+    batches = [i for i, path in enumerate(paths) if path.exists()] if cancelled else None
+    records = [read_json(paths[i]) for i in (range(len(values)) if batches is None else batches)]
+    findings = checkpoint_findings(ctx, values, records, diagnostic=False, batches=batches)
     selected = {row['batch'] for row in matrix['include']}
     if not {finding['batch'] for finding in findings} <= selected:
         raise ValueError('Resume selection must include every rejected batch and related page owners')
@@ -426,10 +431,11 @@ def prepare_resume(ctx, directory):
     if (run.get('head_repository', {}).get('full_name') != repo
             or run.get('path') != '.github/workflows/nightly-doc-sync.yml'
             or run.get('event') not in ('workflow_dispatch', 'schedule')
-            or run.get('status') != 'completed' or run.get('conclusion') != 'failure'):
+            or run.get('status') != 'completed' or run.get('conclusion') not in ('failure', 'cancelled')):
         raise ValueError('Resume checkpoint must be a completed failed nightly run from this repository')
     frozen = import_resume(ctx, directory, directory.parent / 'release-resume-context',
-                           directory.parent / 'release-resume-artifacts', os.environ.get('RESUME_BATCHES', ''))
+                           directory.parent / 'release-resume-artifacts', os.environ.get('RESUME_BATCHES', ''),
+                           cancelled=run['conclusion'] == 'cancelled')
     outputs(base=frozen['base'])
 
 

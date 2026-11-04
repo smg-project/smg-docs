@@ -80,8 +80,12 @@ class AuditBatchTests(unittest.TestCase):
             api.return_value = run
             s.prepare_resume({}, Path('/tmp/release-docs'))
             imported.assert_called_once_with({}, Path('/tmp/release-docs'),
-                Path('/tmp/release-resume-context'), Path('/tmp/release-resume-artifacts'), '1')
+                Path('/tmp/release-resume-context'), Path('/tmp/release-resume-artifacts'), '1',
+                cancelled=False)
             out.assert_called_once_with(base='a' * 40)
+            api.return_value = dict(run, conclusion='cancelled')
+            s.prepare_resume({}, Path('/tmp/release-docs'))
+            self.assertIs(imported.call_args.kwargs['cancelled'], True)
 
     def test_diagnostic_selection_cannot_expand_or_duplicate_scopes(self):
         ctx = {'batches': [['one.md'], ['two.md']], 'matrix': {'include': [
@@ -582,6 +586,28 @@ class RepairTests(unittest.TestCase):
         Path(self.paths[0]).write_text('# Related correction\n')
         with self.assertRaisesRegex(ValueError, 'outside its page allowlist'):
             s.export(ctx, 1, s.assembled_data(ctx, destination), destination / 'bad-bundle.json')
+
+    def test_cancelled_resume_uses_recorded_rejections_and_reviews_every_page_again(self):
+        ctx, checkpoint, destination, artifacts, values = self.resume_checkpoint()
+        (artifacts / 'release-final-review-0/review-0.json').unlink()
+        with self.assertRaises(FileNotFoundError):
+            s.import_resume(ctx, destination, checkpoint, artifacts, '1')
+        self.assertEqual(list(destination.iterdir()), [])
+        s.import_resume(ctx, destination, checkpoint, artifacts, '1', cancelled=True)
+        self.assertEqual(s.proposal_hash(ctx, destination), s.snapshot_hash(values))
+        self.assertEqual(list(destination.glob('review-*.json')), [])
+        self.assertEqual([v['batch'] for v in s.read_json(destination / 'repair-findings.json')], [1])
+
+    def test_cancelled_resume_still_needs_a_bound_rejection(self):
+        ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()
+        (artifacts / 'release-final-review-1/review-1.json').unlink()
+        with self.assertRaisesRegex(ValueError, 'no rejected findings'):
+            s.import_resume(ctx, destination, checkpoint, artifacts, '1', cancelled=True)
+        (artifacts / 'release-final-review-0/review-0.json').write_text(
+            (artifacts / 'release-final-review-0/review-0.json').read_text().replace('"batch": 0', '"batch": 1'))
+        with self.assertRaisesRegex(ValueError, 'stale checkpoint review'):
+            s.import_resume(ctx, destination, checkpoint, artifacts, '1', cancelled=True)
+        self.assertEqual(list(destination.iterdir()), [])
 
     def test_resume_cannot_omit_a_failed_batch_or_resume_a_diagnostic(self):
         ctx, checkpoint, destination, artifacts, _ = self.resume_checkpoint()

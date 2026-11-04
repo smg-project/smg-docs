@@ -27,7 +27,7 @@ on:
         type: string
         default: ''
       release_resume_run:
-        description: Optional failed full nightly run to resume from its final snapshot (dry-run validation)
+        description: Optional failed or cancelled full nightly run to resume from its final snapshot (dry-run validation)
         type: string
         default: ''
       release_resume_batches:

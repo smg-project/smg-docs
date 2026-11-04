@@ -304,7 +304,7 @@ jobs:
           claude_args: >-
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
-            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"related_fixes":{"type":"array","items":{"type":"string"}},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","related_fixes","regression_checks"]}'
       - name: Accept only a successful trace within the round budget
         id: review-trace
         env:
@@ -544,7 +544,7 @@ jobs:
           claude_args: >-
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
-            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"related_fixes":{"type":"array","items":{"type":"string"}},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","related_fixes","regression_checks"]}'
       - name: Accept only a successful trace within the round budget
         id: review-trace
         env:
@@ -777,7 +777,7 @@ jobs:
           claude_args: >-
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
-            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
+            --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"related_fixes":{"type":"array","items":{"type":"string"}},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","related_fixes","regression_checks"]}'
       - name: Accept only a successful trace within the round budget
         id: review-trace
         env:

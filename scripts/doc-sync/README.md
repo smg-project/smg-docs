@@ -360,8 +360,22 @@ the selected batches enter the existing repair stage. Every page then gets a
 fresh independent review against the changed whole snapshot, followed by the
 existing optional second correction pass, site/build checks and dry-run
 publication. The initial proposal must change; prior approvals cannot authorize
-it. Resume is manual, forces dry-run, and cannot be combined with diagnostic
-mode. It avoids regenerating accepted content, not the final validation gates.
+it. Resume forces dry-run and cannot be combined with diagnostic mode. It avoids
+regenerating accepted content, not the final validation gates. Unlike a
+diagnostic, it may select any number of batches.
+
+A publishing audit (a scheduled run, or a dispatch with `dry_run: false`) continues
+on its own. When its final review rejects batches, the `release-continue` job
+queues a resume run for the rejected batches plus the owners of every page their
+reviewers listed in `related_fixes`, marked with `release_auto_round`. When such
+an automatic round passes, it queues `release_publish_run` for itself with
+`dry_run: false`, which opens the release PR. After four automatic rounds, or
+when the audit failed before every final review recorded a verdict, the job
+only prints the manual resume inputs. Never cancel a run during final review:
+the unfinished reviews' findings are lost. Queued runs wait behind the current
+run in the same concurrency group; GitHub keeps only the newest waiting run, so
+a scheduled nightly queued meanwhile replaces a waiting automatic round and
+starts a fresh audit.
 
 To publish a successful full audit without regenerating its documentation, set
 `release_publish_run` to that run ID. Keep `dry_run: true` to test the publication
@@ -411,9 +425,16 @@ All writer batches are assembled before reviewers check cross-page consistency.
 Deterministic reader checks cover the complete release pages, including inherited
 PR/source citations and unreleased narration. These findings are appended to the
 review and cannot be overridden by an accepting model verdict.
-Valid negative verdicts allow at most two correction passes in separate writer jobs. Local
-findings select rejected batches; a cross-page inconsistency selects every batch
-because another page's reviewer may have missed the defect. Each writer reads all
+Each batch's `batch.json` lists `related_pages`: pages in other batches that link
+to or from its pages in the current snapshot. Writers, repairers and reviewers
+check every shared contract against them, because parallel writers otherwise
+leave contradictions for final review. Reviewers name pages outside their batch
+that must change in `related_fixes`.
+Valid negative verdicts allow at most two correction passes in separate writer jobs.
+Repair selects the rejected batches plus the owners of pages named in
+`related_fixes`. An older review that reports a cross-page inconsistency
+without that field still selects every batch, because the affected page is not
+inferred from prose. Each writer reads all
 validated negative findings and corrects only implicated claims on its assigned
 pages, including failed source-pinned checks. Unrelated paragraphs and tables stay
 unchanged; correction is not another rewrite or completeness audit. Missing,

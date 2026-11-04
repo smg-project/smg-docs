@@ -31,7 +31,11 @@ on:
         type: string
         default: ''
       release_resume_batches:
-        description: Failed batches plus related page owners to repair (one to eight comma-separated numbers)
+        description: Failed batches plus related page owners to repair (comma-separated numbers)
+        type: string
+        default: ''
+      release_auto_round:
+        description: Set by the workflow for an automatic resume round of a publishing audit; leave empty
         type: string
         default: ''
       dry_run:
@@ -113,6 +117,51 @@ jobs:
       resume-run-id: ${{ inputs.release_resume_run || '' }}
       resume-batches: ${{ inputs.release_resume_batches || '' }}
     secrets: inherit
+
+  release-continue:
+    # A publishing audit continues on its own: a final-review rejection queues
+    # the next bounded resume round, and a passing automatic round queues
+    # publication of that run. Each queued run waits behind this one.
+    needs: [release-check, release-snapshot]
+    if: >-
+      always() && !cancelled() && needs.release-snapshot.result != 'skipped' &&
+      inputs.release_diagnostic_run == '' && inputs.release_publish_run == '' &&
+      ((inputs.release_resume_run == '' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)) ||
+      inputs.release_auto_round != '')
+    permissions:
+      actions: write
+      contents: read
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_RESULT: ${{ needs.release-snapshot.result }}
+      AUTO_ROUND: ${{ inputs.release_auto_round || '0' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        # Missing when the audit failed before preparing; continue then warns.
+        continue-on-error: true
+        with:
+          name: release-context
+          path: ${{ runner.temp }}/release-docs
+      - if: needs.release-snapshot.result == 'failure'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: release-final-review-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - name: Queue the next automatic release step
+        run: |
+          if [ ! -f "$RUNNER_TEMP/release-docs/context.json" ]; then
+            echo '::warning::No release context to continue from; inspect the run'
+            exit 0
+          fi
+          python3 scripts/doc-sync/snapshots.py continue
 
   prepare:
     # Run main discovery on release days too, after the release publisher so

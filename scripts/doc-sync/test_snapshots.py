@@ -171,6 +171,16 @@ class SelectionTests(unittest.TestCase):
         for path in ['', '../reference/a.md', 'reference/../../a.md', '/reference/a.md', 'reference/x.py']:
             self.assertFalse(s.page_path(path))
 
+    def test_resume_may_select_more_batches_than_a_diagnostic(self):
+        ctx = {'batches': [[f'{i}.md'] for i in range(12)],
+               'matrix': {'include': [{'batch': i, 'max_turns': 240} for i in range(12)]}}
+        selection = ','.join(map(str, range(10)))
+        with self.assertRaisesRegex(ValueError, 'one to eight'):
+            s.diagnostic_matrix(ctx, selection)
+        self.assertEqual(len(s.diagnostic_matrix(ctx, selection, limit=12)['include']), 10)
+        with self.assertRaisesRegex(ValueError, 'distinct'):
+            s.diagnostic_matrix(ctx, '1,1', limit=12)
+
     def test_main_source_is_pinned_once_not_resolved_as_a_release(self):
         releases.main_source.cache_clear()
         self.addCleanup(releases.main_source.cache_clear)
@@ -272,6 +282,23 @@ class SnapshotGitTests(unittest.TestCase):
         Path(self.paths[1]).unlink()
         s.batch_evidence(ctx, 0, directory)
         self.assertIn('-# Main feature', (directory / 'main-to-snapshot.diff').read_text())
+
+    def test_related_pages_follow_links_both_ways_across_batches(self):
+        ctx, _ = self.context()
+        index, feature = self.paths
+        ctx['batches'] = [[index], [feature]]
+        Path(index).write_text('# Reference\n\nSee [Feature](feature.md#flags) and [docs](https://x/y.md).\n')
+        Path(feature).write_text('# Feature\n')
+        self.assertEqual(s.related_pages(ctx, 0), [{'path': feature, 'batch': 1, 'direction': 'links-to'}])
+        self.assertEqual(s.related_pages(ctx, 1), [{'path': index, 'batch': 0, 'direction': 'linked-from'}])
+        directory = Path(self.evidence.name)
+        s.batch_evidence(ctx, 1, directory)
+        self.assertEqual(s.read_json(directory / 'batch.json')['related_pages'],
+                         [{'path': index, 'batch': 0, 'direction': 'linked-from'}])
+        Path(feature).write_text('# Feature\n\nBack to [Reference](index.md).\n')
+        self.assertEqual(s.related_pages(ctx, 1)[0]['direction'], 'both')
+        self.assertEqual(s.page_links('a/b/c.md', '[x](../d.md) [y](./e.md#z) [z](/abs.md)'),
+                         {'a/d.md', 'a/b/e.md'})
 
     def test_new_snapshot_copies_main_manifest_assets_and_preserves_old_release(self):
         ctx, seed = self.context()
@@ -966,6 +993,58 @@ class RepairTests(unittest.TestCase):
         values[0] = result
         self.records(ctx, directory, values)
         s.finalize(ctx, directory)
+
+    def test_named_related_fixes_select_only_their_owner(self):
+        ctx, directory, _ = self.proposal()
+        prefix = s.root(RELEASE['tag']) + 'content/'
+        finding = s.read_json(directory / 'review-1.json')
+        for fixes, expected in [([], [1]), ([self.paths[0].removeprefix(prefix)], [0, 1]),
+                                ([self.paths[0]], [0, 1]), (['reference/unknown.md'], [1])]:
+            with self.subTest(fixes=fixes):
+                finding['verdict']['related_fixes'] = fixes
+                s.write_json(directory / 'review-1.json', finding)
+                with patch.object(s, 'outputs') as out:
+                    s.plan_repair(ctx, directory)
+                self.assertEqual([row['batch'] for row in out.call_args.kwargs['matrix']['include']], expected)
+        for invalid in ['reference/index.md', [1]]:
+            finding['verdict']['related_fixes'] = invalid
+            s.write_json(directory / 'review-1.json', finding)
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, 'related page fixes'):
+                s.plan_repair(ctx, directory)
+
+    def test_continuation_needs_every_final_review_and_adds_named_owners(self):
+        ctx, directory, values = self.proposal()
+        self.assertEqual(s.continuation_batches(ctx, directory), [1])
+        finding = s.read_json(directory / 'review-1.json')
+        finding['verdict']['related_fixes'] = [self.paths[0]]
+        s.write_json(directory / 'review-1.json', finding)
+        self.assertEqual(s.continuation_batches(ctx, directory), [0, 1])
+        self.records(ctx, directory, values)
+        self.assertEqual(s.continuation_batches(ctx, directory), [])
+        (directory / 'review-0.json').unlink()
+        self.assertIsNone(s.continuation_batches(ctx, directory))
+
+    def test_continue_queues_bounded_resume_rounds_then_publication(self):
+        ctx, directory, values = self.proposal()
+        env = {'RELEASE_RESULT': 'failure', 'AUTO_ROUND': '0', 'GITHUB_RUN_ID': '77'}
+        with patch.dict(os.environ, env), patch.object(s, 'dispatch_nightly') as dispatch:
+            s.continue_release(ctx, directory)
+            dispatch.assert_called_once_with(release_resume_run='77', release_resume_batches='1',
+                                             release_auto_round='1')
+            dispatch.reset_mock()
+            with patch.dict(os.environ, AUTO_ROUND=str(s.AUTO_RESUME_ROUNDS)):
+                s.continue_release(ctx, directory)
+            dispatch.assert_not_called()
+            (directory / 'review-0.json').unlink()
+            s.continue_release(ctx, directory)
+            dispatch.assert_not_called()
+            for result, round_ in [('success', '0'), ('cancelled', '1'), ('skipped', '2')]:
+                with patch.dict(os.environ, RELEASE_RESULT=result, AUTO_ROUND=round_):
+                    s.continue_release(ctx, directory)
+            dispatch.assert_not_called()
+            with patch.dict(os.environ, RELEASE_RESULT='success', AUTO_ROUND='2'):
+                s.continue_release(ctx, directory)
+            dispatch.assert_called_once_with(release_publish_run='77', dry_run='false')
 
     def test_all_accepted_reviews_skip_repair(self):
         ctx, directory, _ = self.proposal(rejected=())

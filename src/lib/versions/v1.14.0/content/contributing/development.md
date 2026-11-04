@@ -1,0 +1,761 @@
+---
+title: Development Guide
+---
+
+# Development Guide
+
+This guide covers setting up a development environment, building and testing SMG, and the checks CI runs. For the contribution workflow (commits, pull requests, and review), see [Contributing](index.md).
+
+---
+
+## Prerequisites
+
+| Tool | Version | Used for |
+|------|---------|----------|
+| Rust | 1.98.0 | Building the workspace. Pinned by the checked-in `rust-toolchain.toml`; the CI runners install the same version through `scripts/ci_install_rust.sh` |
+| Rust nightly with `rustfmt` | nightly | Formatting only: `rustfmt.toml` uses unstable options |
+| `protoc` | — | Compiling the gRPC (`crates/grpc_client`) and mesh (`crates/mesh`) protobuf definitions at build time |
+| C toolchain, `pkg-config`, OpenSSL headers | — | Native dependencies |
+| Python with `maturin` | 3.12+ | The Python bindings (`make python-dev`), Python lint, and the e2e harness |
+| `pre-commit` | — | Git hooks |
+| OpenCV and libclang | optional | `--all-features` builds; install with `make opencv-deps` |
+| Docker | optional | Running the Postgres storage tests locally |
+| Go | 1.24 (optional) | The Go bindings in `bindings/golang` |
+
+The Python bindings themselves support Python 3.9 and later, but ruff and mypy target 3.12 and the e2e harness requires it. Building and testing smg needs no Node.js; only `make generate-java-types`, which runs the OpenAPI generator through `npx`, and the [documentation site](#documentation) do.
+
+---
+
+## Setting Up
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/smg-project/smg.git
+cd smg
+```
+
+To contribute, clone your fork instead (see [Quick Start](index.md#quick-start)).
+
+### 2. Install Rust
+
+```bash
+# Install rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Nightly, used only for rustfmt
+rustup toolchain install nightly --profile minimal --component rustfmt
+```
+
+The checked-in `rust-toolchain.toml` pins Rust 1.98.0 with the `clippy` and `rustfmt` components: rustup installs and selects that toolchain on your first `cargo` command in the checkout, so there is no stable toolchain to install by hand.
+
+A directory override (`rustup override set`) takes precedence over the pin, and newer stable toolchains can report clippy lints that 1.98.0 does not. If your clippy results differ from CI's, remove the override with `rustup override unset`.
+
+### 3. Install System Packages
+
+=== "Debian/Ubuntu"
+
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y build-essential libssl-dev pkg-config protobuf-compiler
+    ```
+
+=== "macOS"
+
+    ```bash
+    xcode-select --install
+    brew install protobuf pkg-config openssl@3
+    ```
+
+The Debian packages are the ones CI installs (`scripts/ci_install_rust.sh`). For `--all-features` builds, also run `make opencv-deps` (see [Linting and Formatting](#linting-and-formatting)).
+
+### 4. Install the Git Hooks
+
+```bash
+pip install pre-commit
+pre-commit install                          # hooks that run on every commit
+pre-commit install --hook-type commit-msg   # DCO sign-off and no-AI-attribution checks
+pre-commit install --hook-type pre-push     # optional: branch-name check before pushing
+```
+
+| Hook | Runs on | Checks |
+|------|---------|--------|
+| `rustfmt` | commit (Rust files) | `cargo +nightly fmt --all`; a second hook formats the Symphony fuzz crate, a workspace of its own |
+| `clippy` | commit (Rust files) | `cargo clippy --workspace --all-targets --all-features -- -D warnings`, which needs OpenCV |
+| `ruff`, `ruff-format` | commit (Python files) | Python lint with `--fix`, and formatting |
+| `codespell` and file-hygiene hooks | commit | Spelling, trailing whitespace, final newlines, YAML and TOML syntax, merge-conflict markers, private keys, and large files; `no-commit-to-branch` blocks commits on `main` |
+| `dco-check` | commit message | A `Signed-off-by` line that exactly matches your `git config` `user.name` and `user.email` |
+| `no-ai-co-author` | commit message | No `Co-authored-by` or `Signed-off-by` lines naming Claude or `noreply@anthropic.com` |
+| `branch-name-check` | push | `<type>/<description>` or `<username>/<description>`, in lowercase |
+
+With the pre-push hook installed, the commit-stage hooks run again at push time. CI's `pre-commit` job runs the same hooks on all files, except `rustfmt`, `clippy`, and the branch and commit-message hooks, which CI checks in other jobs.
+
+### 5. Cache Compilation (Optional)
+
+The Makefile uses [sccache](https://github.com/mozilla/sccache) automatically when it is on your `PATH`. `make setup-sccache` installs it; to use it with plain `cargo` as well, export `RUSTC_WRAPPER=sccache` in your shell profile.
+
+---
+
+## Building
+
+```bash
+# Debug build of the whole workspace
+cargo build --locked
+
+# Only the gateway binary: target/debug/smg
+cargo build --locked --bin smg
+
+# Optimized build (`make build` runs `cargo build --release`)
+cargo build --locked --release
+```
+
+The gateway is the `smg` package in `model_gateway/`. It builds two binaries from the same `src/main.rs`, `smg` and `amg`, so `cargo run` needs `--bin smg`. Both `smg launch [OPTIONS]` and plain `smg [OPTIONS]` start the gateway.
+
+| Profile | Select with | Settings | Notes |
+|---------|-------------|----------|-------|
+| `dev` | default | `opt-level = 0` for workspace crates, `opt-level = 2` for dependencies | Day-to-day development |
+| `dev-opt` | `--profile dev-opt` | `dev` with `opt-level = 1` | A lightly optimized debug build |
+| `release` | `--release` | `opt-level = 3`, fat LTO, `codegen-units = 1`, symbols kept | Slow to compile; symbols stay so CPU profiles are readable |
+| `ci` | `--profile ci` | `opt-level = 2`, thin LTO, 16 codegen units, stripped | What CI builds wheels with; a faster optimized build |
+| `bench` | `cargo bench` | `opt-level = 3`, thin LTO | Benchmarks |
+
+### Cargo.lock and `--locked`
+
+`Cargo.lock` is committed, so every build resolves the same dependency graph. Pass `--locked` to `cargo build`, `cargo test`, `cargo clippy`, and `cargo run`: cargo then fails instead of silently re-resolving dependencies.
+
+```text
+error: cannot update the lock file .../Cargo.lock because --locked was passed to prevent this
+```
+
+This error means a `Cargo.toml` changed without a matching `Cargo.lock` update. When you add or bump a dependency on purpose, run cargo once without `--locked` (or run `cargo update -p <crate>`) and commit the updated `Cargo.lock` in the same PR. The `make` targets, CI's clippy and `cargo test` runs, and the `clippy` pre-commit hook all call cargo without `--locked`; the flag is fail-fast protection for your own builds.
+
+### Cargo Features
+
+Features of the `smg` package (`model_gateway/Cargo.toml`):
+
+| Feature | Default | Effect |
+|---------|---------|--------|
+| `grpc-client` | yes | Marker feature that gates no code; gRPC worker support is always compiled in. The non-default `grpc-server` is also a marker |
+| `jemalloc-stats` | yes | Exports jemalloc allocator gauges: `smg_allocator_allocated_bytes`, `smg_allocator_active_bytes`, `smg_allocator_resident_bytes`, and `smg_allocator_metadata_bytes` |
+| `providers` | yes | Umbrella for the three provider features below |
+| `provider-openai` | via `providers` | The OpenAI-compatible router, which also serves xAI and custom providers |
+| `provider-anthropic` | via `providers` | The Anthropic router |
+| `provider-gemini` | via `providers` | The Gemini router |
+| `opencv-video` | no | Video decoding through system OpenCV for multimodal requests |
+| `mm-rdma` | no | The real NIXL transport for multimodal pixel RDMA; without it the gateway compiles a no-op stub |
+| `jemalloc-profiling` | no | Builds jemalloc with heap-profiling support |
+| `vendored-openssl` | no | Builds OpenSSL from source instead of linking the system library; `make python-build` uses it for wheels |
+| `tokenizers-v1` | no | Encode acceleration: supported BPE tokenizers encode through the `tokenizers` 1.0 release candidate's pipeline, and full ByteLevel decodes speed up too; streaming decode is unchanged. A tokenizer the pipeline declines falls back to the tokenizer crate's direct byte-level encoder, then to `tokenizers` 0.23 — the only encode paths in a build without this feature. The `Bellwether Fixtures` CI workflow runs its tests with this feature (see [Bellwether Fixture Tests](#bellwether-fixture-tests)) |
+| `test-util` | no | A client-injection seam for the crate's own Kubernetes discovery tests. The crate's test targets turn it on automatically; production builds never do |
+
+The provider routers live in `crates/external_router` and are compiled per provider. IGW mode registers every router the build contains. To build a gateway for self-hosted engines only:
+
+```bash
+# Self-hosted engines only: no third-party provider routers
+cargo build --locked -p smg --no-default-features --features grpc-client,jemalloc-stats --bin smg
+
+# Self-hosted engines plus Anthropic
+cargo build --locked -p smg --no-default-features \
+  --features grpc-client,jemalloc-stats,provider-anthropic --bin smg
+```
+
+A build without a provider's router refuses that provider. Registering a worker whose traffic needs a missing router returns `400` with the error code `PROVIDER_NOT_COMPILED`, and selecting the router with `--backend` fails at startup. For `--backend anthropic` on a self-hosted-only build:
+
+```text
+Anthropic routing is not compiled into this build; rebuild with the `provider-anthropic` Cargo feature
+```
+
+CI lints both of these reduced builds in addition to the all-features one (see [Linting and Formatting](#linting-and-formatting)).
+
+---
+
+## Repository Layout
+
+```text
+smg/
+├── model_gateway/              # The gateway: package `smg`, binaries `smg` and `amg`
+│   ├── src/
+│   │   ├── main.rs             # CLI parsing, flag-to-config assembly, and startup
+│   │   ├── cli/                # Flag value parsers and secrets resolution
+│   │   ├── lib.rs              # Library root
+│   │   ├── server.rs           # HTTP server and route table
+│   │   ├── app_context.rs      # Shared application state
+│   │   ├── clients/            # HTTP client factory and the process TLS provider
+│   │   ├── config/             # RouterConfig types, builder, and validation
+│   │   ├── routers/            # HTTP, gRPC and ZMQ, PD, and external-provider routing
+│   │   ├── policies/           # Load-balancing policies
+│   │   ├── worker/             # Worker registry, health, circuit breakers, load monitoring, and the RL control plane's view of the registry
+│   │   ├── service_discovery/  # Worker discovery: Kubernetes, file, Consul, Slurm
+│   │   ├── mesh/               # HA mesh adapters and router-peer discovery (crates/mesh does the gossip)
+│   │   ├── middleware/         # Auth, request IDs, concurrency limits, admission scheduler, tenant resolution
+│   │   ├── rate_limit/         # Per-tenant token and request rate limiting
+│   │   ├── endpoints/          # Non-inference endpoints: models, tokenize, parse, conversations, responses
+│   │   ├── workflow/           # Registration workflows for workers, tokenizers, MCP servers, WASM modules
+│   │   ├── observability/      # Logging, metrics, and tracing
+│   │   ├── wasm/               # WASM plugin support
+│   │   ├── health.rs           # Liveness and readiness endpoints
+│   │   ├── tenant/             # Tenant identity, keys, and per-request metadata
+│   │   └── version.rs          # Version information
+│   ├── tests/                  # Integration tests
+│   ├── test_harness/           # smg-test-harness: shared helpers for the tests and benches
+│   └── benches/                # Criterion benchmarks
+├── crates/                     # Library crates (directory: package name)
+│   ├── auth/                   # smg-auth: control-plane authentication and authorization
+│   ├── data_connector/         # data-connector: conversation and response storage backends
+│   ├── engine_servicer/        # engine-servicer: Rust gRPC servicers for each engine's own proto, reaching the engine over same-host ZMQ
+│   ├── engine_zmq_adapter/     # engine-zmq-adapter: translates each engine's gRPC proto to the same-host ZMQ engine wire
+│   ├── engine_zmq_client/      # engine-zmq-client: ZMQ transport for same-host engine connections
+│   ├── external_router/        # smg-external-router: third-party provider routers
+│   ├── grpc_client/            # smg-grpc-client: engine gRPC clients, .proto files, Python and Go packages
+│   ├── kv_index/               # kv-index: radix trees for cache-aware routing
+│   ├── mcp/                    # smg-mcp: Model Context Protocol client
+│   ├── mesh/                   # smg-mesh: HA mesh gossip and state synchronization
+│   ├── mm_rdma/                # smg-mm-rdma: multimodal pixel RDMA (NIXL) transport
+│   ├── mock_worker/            # mock-worker: mock HTTP, gRPC, and ZMQ workers for local and scale testing
+│   ├── multimodal/             # llm-multimodal: image, video, and audio preprocessing
+│   ├── protocols/              # openai-protocol: OpenAI-compatible API types
+│   ├── radix_tree/             # smg-radix-tree: prefix-membership radix tree
+│   ├── reasoning_parser/       # reasoning-parser: reasoning output extraction
+│   ├── response_template/      # smg-response-template: Rust port of the transformers response-template parser
+│   ├── rl/                     # smg-rl: RL control plane
+│   ├── symphony/               # smg-symphony: parses model output into content, reasoning, and tool-call events
+│   ├── tokenizer/              # llm-tokenizer: tokenizers, caching, and chat templates
+│   ├── tool_parser/            # tool-parser: tool-call parsing
+│   ├── wasm/                   # smg-wasm: WebAssembly runtime for plugins
+│   └── workflow/               # wfaas: workflow engine for multi-step operations
+├── bindings/
+│   ├── python/                 # PyPI package `smg`: `smg launch` / `smg serve` and the Rust extension
+│   └── golang/                 # Go SDK over a Rust FFI library
+├── clients/
+│   ├── rust/                   # smg-client: Rust HTTP client
+│   ├── python/                 # smg-client: Python client (types generated from OpenAPI)
+│   ├── java/                   # Generated Java types
+│   └── openapi-gen/            # Generates the OpenAPI spec from the protocol types
+├── grpc_servicer/              # smg-grpc-servicer: Python gRPC servicers for vLLM, SGLang, TokenSpeed, MLX
+├── e2e_test/                   # End-to-end tests against real engines (pytest)
+├── deploy/helm/smg/            # Helm chart
+├── docker/                     # Dockerfiles for the gateway and engine images
+├── examples/                   # RL and WASM plugin examples
+├── scripts/                    # Dev and CI scripts (e2e-test.sh, install_opencv.sh, ci_*.sh, ...)
+├── Cargo.toml                  # Workspace manifest and shared lints
+├── Cargo.lock                  # Committed lockfile
+├── rust-toolchain.toml         # Pinned Rust toolchain and components
+├── clippy.toml, rustfmt.toml   # Rust lint and format configuration
+├── ruff.toml, mypy.ini         # Python lint configuration
+└── Makefile                    # Development shortcuts (make help)
+```
+
+The documentation is not part of this tree: it lives in [smg-project/smg-docs](https://github.com/smg-project/smg-docs) and is published at [lightseek.org/smg](https://lightseek.org/smg).
+
+---
+
+## Running Locally
+
+You don't need a GPU to exercise the gateway: `crates/mock_worker` serves canned responses on the same HTTP surface the engines expose.
+
+```bash
+# Terminal 1: two mock HTTP workers on 127.0.0.1:9000 and 127.0.0.1:9001
+cargo run --locked -p mock-worker -- --http-count 2
+
+# Terminal 2: the gateway, round-robin across them
+cargo run --locked --bin smg -- launch \
+  --worker-urls http://127.0.0.1:9000 http://127.0.0.1:9001 \
+  --policy round_robin --log-level debug
+
+# Terminal 3: a request
+curl http://127.0.0.1:30000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "mock-model", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+The gateway listens on port `30000` and serves Prometheus metrics on port `29000` by default. The mock worker also has gRPC and ZMQ modes and a realistic engine simulator (`--engine realistic`) that exercises load- and cache-aware routing; see `crates/mock_worker/README.md`.
+
+---
+
+## Linting and Formatting
+
+### Rust
+
+```bash
+# Format (nightly, because rustfmt.toml uses unstable options)
+cargo +nightly fmt --all
+
+# Check formatting without changing files, as CI does
+cargo +nightly fmt --all -- --check
+
+# Lint the way CI and the pre-commit hook do
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Apply clippy's machine-applicable fixes, then re-run the lint above
+cargo clippy --all-targets --all-features --fix --allow-dirty
+```
+
+After clippy, the same CI job, `rust-lint (all-features)`, builds the workspace's public documentation with rustdoc warnings as errors, so a dangling or private intra-doc link — for example, one left behind by a moved or renamed item — fails the pull request:
+
+```bash
+RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --all-features
+```
+
+CI also lints two reduced builds, so code that only one provider router uses cannot hide behind the default feature set:
+
+```bash
+# Self-hosted-only build (no provider routers)
+cargo clippy -p smg -p smg-external-router --no-default-features \
+  --features smg/grpc-client,smg/jemalloc-stats --all-targets -- -D warnings
+
+# Anthropic-only build
+cargo clippy -p smg -p smg-external-router --no-default-features \
+  --features smg/grpc-client,smg/jemalloc-stats,smg/provider-anthropic --all-targets -- -D warnings
+```
+
+A fourth CI leg runs `cargo check` on the default feature set (`llm-multimodal` with and without its default features, and the two binding crates) on a machine without OpenCV installed, so the default build keeps compiling without it.
+
+Clippy runs with `-D warnings`, so every workspace lint set to `warn` fails CI too; see [Code Style](code-style.md#linting).
+
+!!! note "`--all-features` needs OpenCV and libclang"
+    `--all-features` turns on `opencv-video`, which links system OpenCV, and `mm-rdma`, whose NIXL bindings are generated with bindgen; both need libclang at build time. `make opencv-deps` runs `scripts/install_opencv.sh`, which installs `opencv` and `pkg-config` with Homebrew on macOS (libclang comes with the Xcode Command Line Tools), or `clang`, `libclang-dev`, `cmake`, `ninja-build`, `pkg-config`, and `libopencv-dev` with apt on Debian/Ubuntu. To run these checks without them, drop `--all-features`:
+
+    ```bash
+    cargo clippy --workspace --all-targets -- -D warnings
+    RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
+    ```
+
+### Python
+
+Python code in `e2e_test/`, `bindings/python/`, and `scripts/` is linted and formatted with [ruff](https://docs.astral.sh/ruff/); `e2e_test/` and `bindings/python/` are also type-checked with [mypy](https://mypy-lang.org/). CI's `python-lint` job runs:
+
+```bash
+ruff check e2e_test/ bindings/python/ scripts/
+ruff format --check e2e_test/ bindings/python/ scripts/
+mypy e2e_test/ --config-file mypy.ini
+mypy bindings/python/ --config-file mypy.ini
+```
+
+`ruff check --fix` and `ruff format` (without `--check`) apply the fixes. The configuration lives in `ruff.toml` and `mypy.ini` at the repository root. The pre-commit hooks run ruff on every commit; mypy runs only in CI or by hand.
+
+---
+
+## DCO Sign-Off
+
+Every commit needs a `Signed-off-by` line certifying the [Developer Certificate of Origin](https://developercertificate.org/):
+
+```bash
+git commit -s -m "feat(policies): add a weighted policy"
+```
+
+`-s` appends `Signed-off-by: Your Name <you@example.com>` from your git `user.name` and `user.email`. The `dco-check` hook rejects a commit whose sign-off does not exactly match your git config, and the required `DCO` check rejects a PR with unsigned commits. To sign off commits you already made:
+
+```bash
+git rebase HEAD~N --signoff   # N = the number of commits to sign
+git push --force-with-lease
+```
+
+---
+
+## Testing
+
+### Rust Unit and Integration Tests
+
+Unit tests sit next to the code in `#[cfg(test)] mod tests` blocks. Integration tests live in `model_gateway/tests/`: each top-level `.rs` file there is a separate test binary, and `api_tests.rs`, `reliability_tests.rs`, `routing_tests.rs`, and `security_tests.rs` each pull in the matching subdirectory and re-export the shared `smg-test-harness` crate (`model_gateway/test_harness/`) as `common`.
+
+```bash
+# Everything (what `make test` and CI run)
+cargo test
+
+# The gateway's unit tests only
+cargo test --locked -p smg --lib
+
+# One integration test binary: routing_tests.rs and tests/routing/
+cargo test --locked -p smg --test routing_tests
+
+# Tests whose names contain a string, with their output shown
+cargo test --locked -p smg round_robin -- --nocapture
+```
+
+A unit test, from `model_gateway/src/policies/round_robin.rs` (abridged):
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::worker::{BasicWorkerBuilder, WorkerType};
+
+    #[test]
+    fn test_round_robin_selection() {
+        let policy = RoundRobinPolicy::new();
+        let workers: Vec<Arc<dyn Worker>> = vec![/* three BasicWorkerBuilder workers */];
+
+        // Should select workers in order: 0, 1, 2, 0, 1, 2, ...
+        let info = SelectWorkerInfo::default();
+        assert_eq!(policy.select_worker(&workers, &info), Some(0));
+        assert_eq!(policy.select_worker(&workers, &info), Some(1));
+        assert_eq!(policy.select_worker(&workers, &info), Some(2));
+        assert_eq!(policy.select_worker(&workers, &info), Some(0));
+    }
+}
+```
+
+An integration test drives the full router against in-process mock workers, from `model_gateway/tests/routing/load_balancing_test.rs` (abridged):
+
+```rust
+use crate::common::{AppTestContext, TestRouterConfig, TestWorkerConfig};
+
+#[tokio::test]
+async fn test_round_robin_distribution() {
+    let config = TestRouterConfig::round_robin(3100);
+    let ctx =
+        AppTestContext::new_with_config(config, TestWorkerConfig::healthy_workers(19001, 3))
+            .await;
+
+    let app = ctx.create_app();
+    // ... send 30 POST /generate requests through `app` and count the 200s ...
+
+    assert_eq!(
+        success_count, num_requests,
+        "All requests should succeed with round robin"
+    );
+
+    ctx.shutdown().await;
+}
+```
+
+These tests bind fixed local ports for their mock workers (this one uses 19001 to 19003; the router itself runs in-process through `app`), so run one test process at a time on a machine.
+
+### Postgres Storage Tests
+
+The Postgres backend tests are `#[ignore]`d because they need a live database. CI runs them against a database it creates on a shared instance; locally:
+
+```bash
+docker run -d -e POSTGRES_PASSWORD=test -e POSTGRES_DB=smg_test -p 5432:5432 postgres:16
+DATA_CONNECTOR_TEST_POSTGRES_URL=postgres://postgres:test@localhost:5432/smg_test \
+  cargo test --locked -p data-connector --test postgres_integration -- --ignored --test-threads=1
+```
+
+`--test-threads=1` matters: each test runs schema migrations against the same fresh database.
+
+### WASM Fixtures
+
+The storage-hook tests in `crates/wasm/tests/` skip silently unless their guest fixture is built. CI builds the fixtures first; locally:
+
+```bash
+bash crates/wasm/tests/fixtures/build_fixtures.sh   # adds the wasm32-wasip2 target if missing
+cargo test --locked -p smg-wasm
+```
+
+### Bellwether Fixture Tests
+
+The tests named `bellwether_*` in `crates/tokenizer/tests/`, `crates/symphony/tests/`, and `model_gateway/tests/` compare the tokenizer's encode and incremental decode, Symphony's output parsers, and the gateway's chat-template rendering with reference fixtures recorded by [bellwether](https://github.com/smg-project/bellwether): for each model at a pinned Hugging Face revision, what the checkpoint's own template and tokenizer produce. The tests are opt-in: without the `BELLWETHER_FIXTURES` environment variable each one prints a skip notice and passes, so a plain `cargo test` never exercises them.
+
+CI runs them in the `Bellwether Fixtures` workflow when a PR touches the code they cover — `crates/protocols/`, `crates/tokenizer/`, `crates/symphony/`, `crates/response_template/`, `model_gateway/src/routers/grpc/`, or the `bellwether_*` test files — or `Cargo.toml`, `Cargo.lock`, or the fixture pin. The fixtures come from the bellwether commit in `.github/versions/bellwether.ref`; a PR that changes that hash runs against the new fixtures.
+
+To reproduce the lane locally, check out bellwether at the pinned commit and unpack the fixture tree with [uv](https://docs.astral.sh/uv/); bellwether is public, so no token is needed. The unpack step fetches the compressed sets through [Git LFS](https://git-lfs.com/), so install `git-lfs` and run `git lfs install` once first.
+
+CI runs the tests with the `smg/tokenizers-v1` feature (see [Cargo Features](#cargo-features)), so pass it too — without it, the BPE tokenizers the feature accelerates take a different encode path than the one CI tests:
+
+```bash
+# Check out bellwether at the commit CI pins. GIT_LFS_SKIP_SMUDGE keeps the
+# clone from downloading the compressed sets; the unpack step fetches just
+# the ones it writes
+export GIT_LFS_SKIP_SMUDGE=1
+git clone https://github.com/smg-project/bellwether.git .bellwether
+git -C .bellwether checkout "$(cat .github/versions/bellwether.ref)"
+
+# Unpack the fixture tree into the plain JSON Lines the tests read, with
+# CI's flags: --plain writes the hand-written sets and --sample-sets 5000
+# every 5,000th benchmark set, the same ones on every run of the same pin.
+# Without the flags the whole tree unpacks: hundreds of GB of benchmark sets
+uv run --locked --project .bellwether bellwether unpack \
+  --fixtures .bellwether/fixtures --out .bellwether/fixtures-plain \
+  --plain --sample-sets 5000
+
+# Run every bellwether_* test against the unpacked tree, with the feature CI enables
+BELLWETHER_FIXTURES=$PWD/.bellwether/fixtures-plain \
+  cargo test --locked -p llm-tokenizer -p smg -p smg-symphony \
+  --features smg/tokenizers-v1 --test 'bellwether_*' -- --nocapture
+```
+
+Keep the three packages in one `cargo test` invocation, as CI does, so every `bellwether_*` target builds with the same features (the `smg/tokenizers-v1` spelling also needs `smg` among the selected packages).
+
+On the first run the tests download each model's tokenizer files from Hugging Face into the gitignored `.tokenizer_cache/bellwether/`.
+
+Pointing `BELLWETHER_FIXTURES` at bellwether's raw `fixtures/` directory fails the run: its benchmark sets are compressed, and the tests read the unpacked tree only.
+
+### Python Bindings
+
+The Python package in `bindings/python` wraps the gateway (`smg launch`, `smg serve`). Build it into a virtualenv and run its unit tests:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install maturin pytest
+make python-dev          # maturin develop: a debug build of bindings/python
+
+cd bindings/python
+pytest -q tests
+```
+
+CI runs the same tests against the wheel it builds and requires 80% coverage (`--cov=smg --cov-fail-under=80`). `make python-test` is a different suite: it runs the GPU e2e tests in `e2e_test/`. The Python gRPC servicers in `grpc_servicer/` have their own tests (CI runs `pytest -q grpc_servicer/tests -rs`) and development notes in `grpc_servicer/DEVELOPMENT.md`.
+
+### End-to-End Tests
+
+The harness in `e2e_test/` starts real inference engines and the gateway, then drives them with the OpenAI SDK and `smg-client`. It needs GPUs, the engine under test installed in the same environment (CI uses `scripts/ci_install_<engine>.sh`), and the model weights.
+
+```bash
+# One-time setup, in the virtualenv that has the engine installed
+make python-dev                       # the harness launches `python3 -m smg.launch_router`
+make generate-python-types            # generate the smg_client types (uses uvx)
+bash scripts/ci_install_e2e_deps.sh   # pip install e2e_test/ and clients/python/
+
+# One suite, on vLLM, 1-GPU tests only
+E2E_RUNTIME=vllm E2E_ENGINE=vllm E2E_GPU_TIER=1 ROUTER_LOCAL_MODEL_PATH=$HOME/models \
+  pytest e2e_test/chat_completions -s -vv
+```
+
+`scripts/e2e-test.sh <suite>` wraps pytest with two reruns per failure for the `router`, `chat`, `responses`, `embeddings`, `realtime`, `benchmarks`, and `go` suites; without an argument it runs the router, embeddings, chat, and responses suites.
+
+| Variable | Effect |
+|----------|--------|
+| `E2E_RUNTIME` | Engine for local workers: `sglang` (default), `vllm`, `trtllm`, `tokenspeed`, `mlx` (Apple silicon), or `mock` (the scripted mock worker from `crates/mock_worker`, CPU only) |
+| `E2E_ENGINE` | Keep only the tests marked for this engine |
+| `E2E_GPU_TIER` | Keep only the tests for this GPU count (`1`, `2`, `4`, ...); unmarked tests count as 1 |
+| `E2E_CONNECTION_MODE` | Run the local cases over `http`, `grpc`, or `zmq`; PD and EPD cases keep their own transport |
+| `ROUTER_LOCAL_MODEL_PATH` | Directory of downloaded models, laid out as `<path>/<org>/<model>`; a missing model falls back to its Hugging Face ID |
+| `SHOW_ROUTER_LOGS`, `SHOW_WORKER_LOGS` | Set to `1` to stream gateway or worker logs |
+
+The harness also has CPU-only unit tests of its own:
+
+```bash
+pip install ./e2e_test
+PYTHONPATH=e2e_test pytest -q --noconftest e2e_test/infra e2e_test/fixtures
+```
+
+On pull requests, CI runs each e2e lane only when the files it covers change:
+
+| GPUs | Lanes (engines) |
+|------|-----------------|
+| 1 | Chat (SGLang, vLLM, TensorRT-LLM, TokenSpeed); the chat suite pinned to the Symphony parser (SGLang, vLLM) and on the Rust gRPC servicer (SGLang, vLLM, TokenSpeed); chat over ZMQ (SGLang, vLLM, TokenSpeed); worker-side multimodal processing (vLLM); completions and embeddings (SGLang, vLLM); realtime (vLLM); router suite (SGLang, vLLM); Responses API (SGLang); Go bindings (SGLang) |
+| 2 | PD disaggregation (SGLang, vLLM with NIXL or Mooncake, TokenSpeed); PD multimodal (vLLM); ZMQ data-parallel chat (vLLM, TokenSpeed) |
+| 4 | Chat (SGLang, vLLM, TensorRT-LLM); router suite (SGLang); EPD multimodal (TokenSpeed); PD topologies (SGLang, vLLM, TokenSpeed) |
+| Other | The chat classes marked for the scripted mock worker, on a CPU runner with no engine; third-party provider lanes on CPU runners (Anthropic Messages, OpenAI Responses and Realtime, xAI Responses); Kubernetes discovery on a kind cluster and MLX on Apple silicon, in separate workflows |
+
+### Go Bindings
+
+```bash
+cd bindings/golang
+make test   # builds the Rust FFI library (release), then runs go test ./...
+```
+
+### Benchmarks
+
+Criterion benchmarks live in `model_gateway/benches/` and in a few crates, such as `crates/kv_index` and `crates/multimodal`. Run one by name:
+
+```bash
+cargo bench --locked --bench manual_policy_benchmark
+cargo bench --locked --bench tool_parser_benchmark
+```
+
+When a PR touches benchmarked code, the matching `benchmark-*` workflow (manual policy, radix tree, request processing, tokenizer, or tool parser) runs its benchmark. The GPU `benchmarks` job (`e2e_test/benchmarks`, driven by genai-bench) is advisory: a missed latency threshold is reported as a warning and does not block merge.
+
+---
+
+## Adding a New Feature
+
+### Example: Adding a Routing Policy
+
+Routing policies implement the `LoadBalancingPolicy` trait from `model_gateway/src/policies/mod.rs`. A new policy touches these files:
+
+| Step | File | Change |
+|------|------|--------|
+| 1 | `model_gateway/src/policies/<name>.rs` | Implement `LoadBalancingPolicy`, with unit tests |
+| 2 | `model_gateway/src/policies/mod.rs` | `mod <name>;` and a `pub use` |
+| 3 | `model_gateway/src/config/types.rs` | A `PolicyConfig` variant with its serialized name and options |
+| 4 | `model_gateway/src/policies/factory.rs` | Construct it in `PolicyFactory::create_from_config` and `create_by_name` |
+| 5 | `model_gateway/src/main.rs` | Add the name to the `--policy` value list (and to `--prefill-policy`/`--decode-policy` if it applies to PD), and map it in `parse_policy` |
+| 6 | `bindings/python/src/lib.rs`, `bindings/python/src/smg/router.py`, `bindings/python/src/smg/router_args.py` | Mirror it in `PolicyType` and its config conversion, the `policy_from_str` map, and the CLI choices, then run `make python-dev` |
+| 7 | `model_gateway/tests/routing/` | An integration test through the router |
+| 8 | smg-docs | The [configuration reference](../reference/configuration.md) and [load balancing](../concepts/routing/load-balancing.md) pages |
+
+The trait requires `select_worker`, `name`, and `as_any`. The other methods (`on_request_complete`, `needs_request_text`, `needs_request_text_with_tokens`, `set_load_receiver`, `needs_backend_loads`, `balances_load_against_affinity`, `remove_worker`, `reconcile_in_flight`, and `reset`) have no-op or constant defaults that stateful or load-aware policies override. An illustrative skeleton:
+
+```rust
+// model_gateway/src/policies/my_policy.rs (illustrative)
+use std::sync::Arc;
+
+use super::{get_healthy_worker_indices, LoadBalancingPolicy, SelectWorkerInfo};
+use crate::worker::Worker;
+
+#[derive(Debug, Default)]
+pub struct MyPolicy;
+
+impl LoadBalancingPolicy for MyPolicy {
+    fn select_worker(
+        &self,
+        workers: &[Arc<dyn Worker>],
+        info: &SelectWorkerInfo,
+    ) -> Option<usize> {
+        // Return an index into `workers`, or None when no worker is available.
+        get_healthy_worker_indices(workers, info).first().copied()
+    }
+
+    fn name(&self) -> &'static str {
+        "my_policy"
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+```
+
+Config changes are the number one source of bugs: a new option has to reach the CLI arguments and their conversion to `RouterConfig` in `main.rs`, `config/types.rs`, the Python bindings, and the Go SDK.
+
+---
+
+## Debugging
+
+### Logging
+
+```bash
+# --log-level takes debug, info (default), warn, or error
+cargo run --locked --bin smg -- launch --worker-urls http://127.0.0.1:9000 --log-level debug
+
+# RUST_LOG replaces the whole filter, which allows per-module and trace levels
+RUST_LOG=info,smg::policies=trace \
+  cargo run --locked --bin smg -- launch --worker-urls http://127.0.0.1:9000
+```
+
+Without `RUST_LOG`, `--log-level` applies to the crates listed in `WORKSPACE_CRATES` in `model_gateway/src/observability/logging.rs`, and everything else logs at `warn`. Add a new workspace crate to that list.
+
+### Debugger
+
+```bash
+cargo build --locked --bin smg
+lldb target/debug/smg -- launch --worker-urls http://127.0.0.1:9000
+```
+
+The `dev` profile builds workspace crates with line tables only (what a panic location or a backtrace needs to name a file and line) and dependencies without debug info.
+
+### Profiling
+
+Release builds keep their symbols (`strip = false`), so CPU profiles of a release binary are readable:
+
+```bash
+cargo install flamegraph
+cargo flamegraph --bin smg -- launch --worker-urls http://127.0.0.1:9000
+```
+
+For memory, the gateway uses jemalloc as its global allocator (except on MSVC and musl targets). Default builds export the `smg_allocator_*_bytes` gauges on the metrics endpoint. `--features jemalloc-profiling` compiles in jemalloc's heap profiler, which reads its options from the `_RJEM_MALLOC_CONF` environment variable because SMG's jemalloc uses prefixed symbols.
+
+---
+
+## Documentation
+
+These docs live in [smg-project/smg-docs](https://github.com/smg-project/smg-docs) and are published at [lightseek.org/smg](https://lightseek.org/smg); the smg repository itself has no `docs/` folder. The site is built with SvelteKit: pages are Markdown files in `src/lib/content/<section>/`, and navigation is defined in `src/lib/config/*-nav.ts`.
+
+```bash
+git clone https://github.com/smg-project/smg-docs.git
+cd smg-docs
+pnpm install
+pnpm dev     # local dev server
+pnpm lint    # prettier + eslint
+pnpm check   # type checks
+pnpm build   # production build
+```
+
+The docs site needs Node 22 and pnpm 10 (`pnpm node:use` installs Node with fnm). CI runs lint, type checks, and a production build on every docs PR.
+
+### Writing Documentation
+
+- Put each page where readers look for it: **Getting Started** for task guides, **Concepts** for how things work, **Reference** for flags, APIs, and metrics.
+- Verify every flag, default, endpoint, and metric name against the smg source (or `smg launch --help`) for the release you document.
+- Include runnable examples, and run them.
+- The Markdown pipeline supports mkdocs-material admonitions, collapsible blocks, content tabs, and card grids; copy the syntax from a neighboring page.
+
+---
+
+## Release Process
+
+Releases are cut by the core maintainers from `main` onto a `release/<x.y>` branch, tagged there, and published only by manually dispatched workflows. Nothing publishes on a merge or a push, and `main` never pauses for a release. The `make release-*` targets drive each step; `scripts/release/README.md` in the smg repository holds the step-by-step detail.
+
+1. `make release-cut VERSION=X.Y.Z-rc.1` creates `release/<x.y>` from `main` and commits the version bump on it. After the cut, the branch moves only by pull requests: `make release-pick` cherry-picks fixes from `main`, and `make release-bump` opens the version-bump PR for the next candidate or the final.
+2. `make release-check VERSION=X.Y.Z` prints the release gate: CI green on the branch head itself, consistent versions, and a recorded verifier run for each of the four model providers (DeepSeek, GLM, Kimi, MiniMax). The `PR Test (SMG)` matrix runs on pushes to `release/**` and on pull requests against it, as it does for `main`. While two release lines are live, the release owner also checks every crate or package a bump moves against crates.io and PyPI before tagging: a version a registry already holds is skipped by its publish dispatch, and a version-bump PR against the release branch moves such a crate or package past it. Once the gate is green, `make release-tag VERSION=X.Y.Z` tags the branch head; it refuses when the versions are inconsistent or a crate changed since the previous tag has no version bump.
+3. Publishing is a set of manual dispatches against the tag; `make release-publish-plan` prints the dispatches to run and the artifacts they produce. `release-pypi`, `release-helm`, `release-crates`, and `release-grpc` run on `workflow_dispatch` only; a crate publishes when its exact version is not on crates.io yet, and a PyPI version that is already complete (wheel and sdist) is skipped. The two image workflows have extra triggers that never publish: `release-engine-docker` runs as a dry run on a pull request that touches the engine image's build files, and `release-docker` builds the gateway image on a push to `main` or `release/**` that touches the Dockerfile. Both push images only on a dispatch, and the gateway image's `latest` tag moves only for a final release.
+4. After a final, `make release-bump-main` opens the PR that moves `main`'s version files to the release's versions; `main` keeps the last final's versions between releases and never carries an `-rc` suffix.
+
+A bump, whether from `release-cut` or `release-bump`, writes the same version string to every version file (`model_gateway/Cargo.toml`, both binding `Cargo.toml` files, `bindings/python/pyproject.toml`, `bindings/python/src/smg/version.py`, `deploy/helm/smg/Chart.yaml`, and the `SMG_RELEASE_TAG` line of the `release-engine-docker` workflow) and raises the version of every workspace crate and gRPC Python package changed since the previous tag.
+
+Crate versions follow [Semantic Versioning](https://semver.org/). `make check-versions` checks that every workspace crate changed since the previous tag has a version bump, and derives the required level from conventional commits: a `!` after any type (such as `feat!` or `fix!`) or `BREAKING CHANGE` in the message for major, `feat` for minor, anything else for patch.
+
+---
+
+## CI at a Glance
+
+| Workflow or job | What it checks | Run it locally |
+|-----------------|----------------|----------------|
+| `pre-commit` | The pre-commit hooks on all files, minus rustfmt, clippy, and the branch and commit-message hooks | `pre-commit run --all-files` |
+| `python-lint` | ruff and mypy | [Python](#python) |
+| `rust-lint` | Clippy (all features, self-hosted-only, and Anthropic-only builds), the workspace rustdoc with warnings as errors, `cargo +nightly fmt -- --check`, and a no-OpenCV `cargo check` of the default build | [Linting and Formatting](#linting-and-formatting) |
+| `rust-tests` | `cargo test` and the Postgres tests, split into shards that each group crates | [Rust tests](#rust-unit-and-integration-tests) |
+| `rust-aarch64` | Clippy and tests of the crates with AArch64-only code (`llm-multimodal`, `kv-index`) on an arm64 runner | — |
+| `grpc-proto-build-check` | The gRPC Python proto package builds from the checked-in `.proto` files, imports, and passes its tests | `pytest -q crates/grpc_client/python/tests` |
+| `cargo-audit` | `Cargo.lock` against the [RustSec advisory database](https://rustsec.org/), when the dependency graph changes (`Cargo.lock`, any `Cargo.toml`, `.cargo/audit.toml`, the audit script, or the workflow) | `bash scripts/ci_cargo_audit.sh` |
+| `build-wheel`, `python-unit-tests` | The Python wheel and Go FFI library; binding, servicer, and e2e-harness unit tests | [Python Bindings](#python-bindings) |
+| `e2e-*` | GPU lanes against real engines, and CPU lanes against third-party providers and the scripted mock worker | [End-to-End Tests](#end-to-end-tests) |
+| `go-unit-tests`, `go-bindings-e2e` | The Go bindings | [Go Bindings](#go-bindings) |
+| `finish` | Fails if any job above failed; required for merge | — |
+| `Bellwether Fixtures` | The `bellwether_*` fixture tests, when the protocol, tokenizer, Symphony, or response-template crates, the gRPC router, or the dependency manifests change | [Bellwether Fixture Tests](#bellwether-fixture-tests) |
+| `benchmark-*`, `benchmarks` | Performance; advisory | [Benchmarks](#benchmarks) |
+
+`cargo-audit` fails on any vulnerability that `.cargo/audit.toml` does not ignore, and passes when only warnings (unmaintained or yanked crates) remain. Every ignore entry needs a reason and is removed once the fixed release is in the lockfile. `scripts/ci_cargo_audit.sh` downloads the same pinned `cargo-audit` release that CI uses, so running the script from the repository root reproduces the job. A nightly workflow runs the same audit against `main`, catching advisories published after the last dependency change.
+
+On pull requests, a `detect-changes` job skips work whose inputs did not change: the `rust-lint` legs run only when Rust code, manifests, or lint configuration change, each `rust-tests` shard only when a path that can affect what it tests does, and each e2e lane only when its paths do. Forks can run CI on their own runners by setting repository variables such as `SMG_RUNNER_CPU` and `SMG_RUNNER_GPU_1`; the "Running CI on your own runners" section of `CONTRIBUTING.md` in the smg repository describes the setup.
+
+---
+
+## Common Issues
+
+### `protoc` Not Found
+
+The `smg-grpc-client` and `smg-mesh` build scripts compile `.proto` files and fail when `protoc` is missing. Install `protobuf-compiler` (apt) or `protobuf` (Homebrew), or point the `PROTOC` environment variable at the binary.
+
+### OpenSSL Not Found on macOS
+
+```bash
+brew install openssl@3
+export OPENSSL_DIR="$(brew --prefix openssl@3)"
+```
+
+Alternatively, build OpenSSL from source with the `vendored-openssl` feature: `cargo build --locked -p smg --features vendored-openssl`.
+
+### `Failed to find installed OpenCV package`
+
+The `--all-features` build (used by `make check`, `make pre-commit`, the `clippy` pre-commit hook, and CI's lint step) enables `opencv-video`, which links system OpenCV. Install it, or lint without `--all-features`:
+
+```bash
+# Install OpenCV (Homebrew on macOS, apt on Debian/Ubuntu)
+make opencv-deps
+
+# ...or skip the feature for a quick lint
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+### `cannot update the lock file ... because --locked was passed`
+
+A `Cargo.toml` changed without a matching `Cargo.lock` update. See [Cargo.lock and `--locked`](#cargolock-and---locked).
+
+### Tests Fail with "Address already in use"
+
+The integration tests bind fixed local ports. Make sure no other test run (from another worktree, for example) or local service is using them, and run one `cargo test` process at a time.
+
+### Clippy Passes Locally but Fails in CI
+
+- CI uses Rust 1.98.0, the version `rust-toolchain.toml` pins for the checkout. A `rustup override` or a `+<toolchain>` argument bypasses the pin and can report different lints.
+- CI lints with `--all-features` and also lints the self-hosted-only and Anthropic-only builds.
+- `-D warnings` turns every `warn`-level workspace lint into an error.
+
+---
+
+## Getting Help
+
+- **Stuck?** Open a [Discussion](https://github.com/smg-project/smg/discussions) or ask in `#sig-smg` on [Slack](https://slack.lightseek.org)
+- **Found a bug?** Open an [Issue](https://github.com/smg-project/smg/issues)
+- **Questions about a PR?** Ask its reviewers or the code owners of the files it changes

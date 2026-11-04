@@ -83,7 +83,7 @@ Best for large or heterogeneous fleets where cache locality doesn't matter.
 
 ## Least Load
 
-Routes to the worker with the lowest expected wait: the token work queued on it divided by its generation throughput, plus a penalty that grows as its KV cache fills. Work sent since the worker's last load report is counted too, so bursts spread out between polls. It is intended for gRPC workers, where each request's token count is known.
+Routes to the worker with the lowest expected wait: the token work queued on it divided by its live generation rate, plus a penalty that grows as its KV cache fills. Work sent since the worker's last load report is counted too, so bursts spread out between polls. It is intended for gRPC workers, where each request's token count is known.
 
 ```bash
 smg launch \
@@ -95,7 +95,7 @@ smg launch \
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--least-load-kv-pressure-weight` | `0.15` | Weight (seconds) of the KV-pressure penalty. Raise it to avoid nearly full KV caches more aggressively; `0` turns the penalty off |
-| `--least-load-default-throughput` | `2000` | Generation throughput (tokens/s) assumed for a worker that reports none. Set it to your measured per-replica rate |
+| `--least-load-default-throughput` | `2000` | Input throughput (tokens/s) assumed for prefill workers, and the generation rate assumed when no candidate reports a live one. A worker missing only its own live rate is scored at the candidates' mean live rate. Set it to your measured per-replica rate |
 | `--least-load-mean-prefill-tokens` | `1024` | Tokens assumed per request when the real count is unknown (HTTP requests without token IDs, and queues reported only as request counts) |
 | `--least-load-max-waiting-requests` | `0` | Skip a worker once its waiting requests, plus requests sent to it since its last load report, reach this count; `0` disables. Set it below the engine's max batch size |
 

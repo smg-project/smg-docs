@@ -247,7 +247,9 @@ An engine whose handshake declares no control reply — its wire carries generat
 
 `pause_modes` lists the `mode` values the engine's pause route accepts, `update_from` lists the weight sources it can refit from, and `reports_weight_version` says whether it reports a weight version after a refit.
 
-TokenSpeed refits are trainer-driven over NCCL: send `init_weights_update_group`, `update_weights_from_distributed`, and `destroy_weights_update_group` to each worker through the [per-worker route](#call-one-worker). `update_weights_from_disk` and `update_weights_from_tensor` answer `501` on TokenSpeed.
+TokenSpeed `distributed` refits are trainer-driven over NCCL: send `init_weights_update_group`, `update_weights_from_distributed`, and `destroy_weights_update_group` to each worker through the [per-worker route](#call-one-worker).
+
+Which other weight sources a TokenSpeed engine accepts depends on its build: the engine advertises the full list in its `rl.update_from` label and answers `501` for a source its build does not implement. Discovery reports the advertised list as given, including values outside the table above such as `mooncake`; a build that advertises nothing keeps the static row, `distributed` only. Current TokenSpeed nightlies advertise `disk,distributed,mooncake`. With `disk` advertised, `update_weights_from_disk` answers `200` with `success: true`, the engine keeps serving, and the next `/generate` reports the new `weight_version` in `meta_info`. `tensor` is not advertised on these builds, so `update_weights_from_tensor` answers `501`.
 
 Worker labels override the table. `rl.pause_modes` and `rl.update_from` take comma-separated lists. `rl.abort`, `rl.flush_cache`, `rl.sleep_wake`, and `rl.reports_weight_version` are `true` when the value is `true` (in any case) and `false` for any other value. `source` is `static`, or `label` when at least one `rl.*` label overrode the table. A TokenSpeed gRPC engine advertises its own `rl.*` labels in server info alongside `rl.control_url`, so an engine that supports more than its static row (for example a `keep` pause mode) reports that itself.
 

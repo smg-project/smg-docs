@@ -56,7 +56,9 @@ A directive matches every target that starts with it, so `smg` covers the gatewa
 | `info` | Informational messages, including a line for each request and response | Production (verbose) |
 | `debug` | Debug information, including routing decisions | Development, troubleshooting |
 
-`trace` is not accepted by `--log-level`; set it through `RUST_LOG`. With OpenTelemetry tracing enabled, keep SMG at `info` or more verbose: the request spans are INFO-level, and the same filter applies to them. At `warn` and `error` the request span is filtered out, so log lines also carry no span fields such as `request_id`.
+`trace` is not accepted by `--log-level`; set it through `RUST_LOG`.
+
+The log level does not gate [OpenTelemetry tracing](monitoring.md#opentelemetry-tracing): with `--enable-trace`, the trace layer has its own filter, so the request spans are exported at every log level — `warn` and `error` included — and under any `RUST_LOG`. The log output still follows the log filter, so at `warn` and `error` the INFO-level request span does not appear in the logs, and log lines carry no span fields such as `request_id`.
 
 ### Set Log Level
 

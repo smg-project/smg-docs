@@ -47,7 +47,7 @@ SMG's gRPC pipeline runs its ingress stages once per logical request: preparatio
 
 The HTTP routers (regular, disaggregated, and external) follow the same contract: the reservation is taken once, before the first dispatch, every retry attempt runs under it, and the request's final answer resolves it.
 
-So the reservation is made **once**, before the first attempt, and the same reservation is settled or closed after the last one: no repeat reservation, no repeat denial check against the backend. A rate-limit denial happens during ingress, before the retry loop, so it is never retried: retrying immediately against the same exhausted budget would just defeat the wait time the gateway already told the client about.
+So the reservation is made **once**, before the first attempt, and the same reservation is settled or closed after the last one: no repeat reservation, no repeat denial check against the backend. A rate-limit denial happens before the retry loop, so it is never retried: retrying immediately against the same exhausted budget would just defeat the wait time the gateway already told the client about.
 
 The model a reservation is scoped to is pinned the same way: the router resolves the request's model to its canonical ID once, up front, and both the reservation and every dispatch attempt use that ID, even if the alias mapping changes mid-request. Without that, a request could be reserved against one model's budget and settled against another's.
 
@@ -103,7 +103,11 @@ Tenant rate limiting is wired into every router that serves inference traffic. E
 
 ### Estimating without a tokenizer
 
-The gRPC router tokenizes input itself, so its estimate is the prepared request's real input token count. The HTTP routers (regular, PD, and external) have no tokenizer: a pre-tokenized request reserves exactly the token ids it carries, and text is estimated at **1.3 tokens per whitespace-separated word, rounded up**. The estimate reads the request's own content, including input that routing ignores: a chat history's tool-call arguments, a Messages history's tool inputs and tool-result text, a Responses request's instructions and its function and custom tool calls with their outputs, an Interactions request's system instruction, and every sequence of a `/generate` batch (on the PD router, a completions batch is charged for every prompt even when a text-reading policy routed on the first alone). Images, files, and built-in tool items are not counted. An `x-smg-routing-tokens` hint never sets the estimate — a hint says nothing the gateway can hold a tenant to. Because the estimate is read from the body, enabling the limiter buffers every request on the regular HTTP router's otherwise streamable path (see [Request Streaming](../performance/request-streaming.md)).
+The gRPC router tokenizes input itself, so its estimate is the prepared request's real input token count. The HTTP routers (regular, PD, and external) have no tokenizer: a pre-tokenized request reserves exactly the token ids it carries, and text is estimated at **1.3 tokens per whitespace-separated word, rounded up**.
+
+The estimate reads the request's own content, including input that routing ignores: a chat history's tool-call arguments, a Messages history's tool inputs and tool-result text, a Responses request's instructions and its function and custom tool calls with their outputs, an Interactions request's system instruction, and every prompt of a batch — every sequence of a `/generate` batch, and on the PD router every prompt of a completions batch, even when a text-reading policy routed on the first alone. Images, files, and built-in tool items are not counted. An `x-smg-routing-tokens` hint never sets the estimate — a hint says nothing the gateway can hold a tenant to.
+
+Because the estimate is read from the body, enabling the limiter buffers every request on the regular HTTP router's otherwise streamable path (see [Request Streaming](../performance/request-streaming.md)).
 
 ### What settles, per router
 

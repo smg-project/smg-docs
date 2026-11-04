@@ -576,7 +576,9 @@ Slurm discovery polls — nothing pushes a change to SMG — so a job that start
 
 The commands run without a shell, each within 30 seconds, so run the gateway somewhere `squeue` and `scontrol` are on `PATH` and can reach the cluster.
 
-Each node of a selected job becomes one worker on `--slurm-port` at the node's `NodeAddr`. Slurm defaults `NodeAddr` to `NodeHostname` and that to the bare node name, so on a cluster whose node names do not resolve from the gateway, set `NodeAddr`. Discovered workers go through the same reconciler as the other providers: registration probes HTTP and gRPC on the address and keeps the protocol that answers, and a worker whose job is gone is drained and removed through the same [removal flow](#removal-flow) as a deleted pod.
+Each node of a selected job becomes one worker on `--slurm-port` at the node's `NodeAddr`. Slurm defaults `NodeAddr` to `NodeHostname` and that to the bare node name, so on a cluster whose node names do not resolve from the gateway, set `NodeAddr`.
+
+Discovered workers go through the same reconciler as the other providers: registration probes HTTP and gRPC on the address and keeps the protocol that answers, and a worker whose job is gone is drained and removed through the same [removal flow](#removal-flow) as a deleted pod.
 
 A worker's identity is its job's cluster, job ID, start time, and restart count, plus the node and the worker type. A requeued job keeps its job ID but starts again, so its workers are removed and registered again as new instances at the same addresses.
 

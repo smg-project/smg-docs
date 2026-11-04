@@ -563,10 +563,61 @@ Scope: **{item["area"]} / {item["concern"]}**. Other concerns are deferred.
             summary.write(f'- {item["title"]}: {url}\n')
 
 
+def successful_trace(path, action_outcome='success', max_rounds=200, label='Claude', details=None):
+    """Return a successful, bounded result; never infer approval from step status.
+
+    The action's post-hoc guard compares tool-result counts with SDK API rounds
+    (anthropics/claude-code-action#1795). Recover only that mismatch, after
+    checking distinct assistant message IDs and the result's success fields.
+    Callers clear the execution path before invoking the action.
+    """
+    messages = json.loads(Path(path).read_text())
+    if not isinstance(messages, list) or not messages:
+        raise ValueError(f'Missing {label.lower()} execution result')
+    result = messages[-1]
+    if (not isinstance(result, dict) or result.get('type') != 'result'
+            or result.get('subtype') != 'success' or result.get('is_error') is not False):
+        raise ValueError(f'{label} did not finish successfully')
+    assistants = [m.get('message', {}).get('id') for m in messages
+                  if isinstance(m, dict) and m.get('type') == 'assistant']
+    if (not assistants or any(not isinstance(i, str) or not i for i in assistants)
+            or type(max_rounds) is not int or max_rounds < 1):
+        raise ValueError(f'{label} trace lacks a verifiable assistant-round count')
+    rounds = len(set(assistants))
+    if rounds > max_rounds:
+        raise ValueError(f'{label} exceeded its API-round budget: {rounds} > {max_rounds}')
+    reported = result.get('num_turns')
+    if action_outcome != 'success':
+        if (action_outcome != 'failure' or type(reported) is not int or reported <= max_rounds):
+            raise ValueError(f'{label} action failed without the known turn-counter mismatch')
+        print(f'Recovered upstream turn-counter mismatch: {reported} reported turns, '
+              f'{rounds} assistant rounds within the {max_rounds}-round limit.')
+    else:
+        print(f'Validated {label.lower()} trace: {rounds} assistant rounds within the {max_rounds}-round limit.')
+    if details is not None:
+        details.update(assistant_rounds=rounds, max_rounds=max_rounds, reported_turns=reported,
+                       action_outcome=action_outcome, recovered=action_outcome == 'failure')
+    return result
+
+
+def accept_trace():
+    """Gate a continue-on-error Claude step on its own trace, then consume it."""
+    path = Path(os.environ['EXECUTION_FILE'])
+    result = successful_trace(path, os.environ['ACTION_OUTCOME'], int(os.environ['MAX_TURNS']))
+    output = result.get('structured_output')
+    if output is not None:
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+            out.write('structured_output=' + json.dumps(output, separators=(',', ':')) + '\n')
+    # A later Claude step in the same job must never be judged by this trace.
+    path.unlink()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["context", "plan", "evidence", "check", "preflight", "export", "import", "review", "publish"])
+    parser.add_argument("command", choices=["context", "plan", "evidence", "check", "preflight", "export", "import", "review", "publish", "trace"])
     args = parser.parse_args()
+    if args.command == "trace":
+        return accept_trace()
     repo = os.environ["GITHUB_REPOSITORY"]
     if args.command == "context":
         prepare(repo, os.environ["NIGHTLY_CONTEXT"])

@@ -133,8 +133,8 @@ class AuditBatchTests(unittest.TestCase):
                  'c.md': (b'small',)}
         batches = s.audit_batches(pages)
         self.assertEqual(s.audit_matrix(pages, batches), {'include': [
-            {'batch': 0, 'max_turns': 180}, {'batch': 1, 'max_turns': 300},
-            {'batch': 2, 'max_turns': 180}]})
+            {'batch': 0, 'max_turns': 240}, {'batch': 1, 'max_turns': 400},
+            {'batch': 2, 'max_turns': 240}]})
 
 
 class SelectionTests(unittest.TestCase):

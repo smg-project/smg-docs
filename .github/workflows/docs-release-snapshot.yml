@@ -164,7 +164,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -198,6 +198,10 @@ jobs:
             python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" seed
           fi
       - name: Audit each assigned page against the published release
+        id: audit
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
@@ -212,6 +216,13 @@ jobs:
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Accept only a successful trace within the round budget
+        id: audit-trace
+        env:
+          ACTION_OUTCOME: ${{ steps.audit.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: ${{ matrix.max_turns }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Export Markdown data with strict page isolation
         env:
           DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
@@ -235,7 +246,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -277,6 +288,9 @@ jobs:
           fi
       - name: Independently review every assigned release page
         id: review
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
@@ -291,10 +305,17 @@ jobs:
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
             --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
+      - name: Accept only a successful trace within the round budget
+        id: review-trace
+        env:
+          ACTION_OUTCOME: ${{ steps.review.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: ${{ matrix.max_turns }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Record validated findings for the bounded repair pass
         env:
           DIAGNOSTIC_RUN_ID: ${{ inputs.diagnostic-run-id }}
-          REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
+          REVIEW_JSON: ${{ steps.review.outputs.structured_output || steps.review-trace.outputs.structured_output }}
         run: |
           if [ -n "$DIAGNOSTIC_RUN_ID" ]; then
             python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" review
@@ -375,7 +396,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.assess.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -421,6 +442,10 @@ jobs:
             python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repair
           fi
       - name: Correct independently identified documentation defects
+        id: repair
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
@@ -437,6 +462,13 @@ jobs:
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Accept only a successful trace within the round budget
+        id: repair-trace
+        env:
+          ACTION_OUTCOME: ${{ steps.repair.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: ${{ matrix.max_turns }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Export repaired Markdown with the original batch allowlist
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" export-repair
       - uses: actions/upload-artifact@v4
@@ -456,7 +488,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -496,6 +528,9 @@ jobs:
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repaired
       - name: Independently review every assigned release page
         id: review
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
@@ -510,9 +545,16 @@ jobs:
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
             --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
+      - name: Accept only a successful trace within the round budget
+        id: review-trace
+        env:
+          ACTION_OUTCOME: ${{ steps.review.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: ${{ matrix.max_turns }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Record fresh findings after the first repair
         env:
-          REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
+          REVIEW_JSON: ${{ steps.review.outputs.structured_output || steps.review-trace.outputs.structured_output }}
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" record-review
       - uses: actions/upload-artifact@v4
         if: always()
@@ -585,7 +627,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.assess-followup.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -628,6 +670,10 @@ jobs:
       - name: Assemble the rejected proposal in an isolated repair job
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repair
       - name: Correct independently identified documentation defects
+        id: repair
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
@@ -644,6 +690,13 @@ jobs:
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Accept only a successful trace within the round budget
+        id: repair-trace
+        env:
+          ACTION_OUTCOME: ${{ steps.repair.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: ${{ matrix.max_turns }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Export repaired Markdown with the original batch allowlist
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" export-repair
       - uses: actions/upload-artifact@v4
@@ -663,7 +716,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -708,6 +761,9 @@ jobs:
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" assemble-repaired
       - name: Independently review every assigned release page
         id: review
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
@@ -722,9 +778,16 @@ jobs:
             --model claude-fable-5 --effort xhigh --max-turns ${{ matrix.max_turns }}
             --tools "Read,Glob,Grep" --allowedTools "Read,Glob,Grep"
             --json-schema '{"type":"object","additionalProperties":false,"properties":{"accurate":{"type":"boolean"},"complete":{"type":"boolean"},"reader_focused":{"type":"boolean"},"related_docs_consistent":{"type":"boolean"},"reviewed_pages":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"regression_checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"satisfied":{"type":"boolean"},"evidence":{"type":"string"}},"required":["id","satisfied","evidence"]}}},"required":["accurate","complete","reader_focused","related_docs_consistent","reviewed_pages","reason","regression_checks"]}'
+      - name: Accept only a successful trace within the round budget
+        id: review-trace
+        env:
+          ACTION_OUTCOME: ${{ steps.review.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: ${{ matrix.max_turns }}
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Require independent review and exact page coverage
         env:
-          REVIEW_JSON: ${{ steps.review.outputs.structured_output }}
+          REVIEW_JSON: ${{ steps.review.outputs.structured_output || steps.review-trace.outputs.structured_output }}
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" review
       - uses: actions/upload-artifact@v4
         if: always()

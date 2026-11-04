@@ -383,6 +383,10 @@ jobs:
         run: |
           python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" evidence
       - name: Update documentation for this concern only
+        id: write
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
@@ -394,13 +398,24 @@ jobs:
             --max-turns 120
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Accept only a successful trace within the round budget
+        id: write-trace
+        env:
+          ACTION_OUTCOME: ${{ steps.write.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: 120
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Check reader-facing documentation before export
         id: writing
         env:
           READER_REPORT: ${{ runner.temp }}/reader-docs-report.json
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" preflight
       - name: Polish reader-facing documentation once
+        id: polish
         if: steps.writing.outputs.changed == 'true'
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           allowed_bots: 'claude,coderabbitai,github-actions'
@@ -415,9 +430,17 @@ jobs:
           claude_args: >-
             --model claude-fable-5
             --effort xhigh
-            --max-turns 60
+            --max-turns 90
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Accept only a successful trace within the round budget
+        id: polish-trace
+        if: steps.writing.outputs.changed == 'true'
+        env:
+          ACTION_OUTCOME: ${{ steps.polish.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: 90
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Preserve writing diagnostics
         if: always() && steps.writing.outcome == 'success'
         uses: actions/upload-artifact@v7

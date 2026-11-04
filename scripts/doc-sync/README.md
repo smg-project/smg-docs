@@ -192,6 +192,10 @@ execution trace. It recovers only a failed action with that specific overcount,
 a successful structured result and a verified round count within the limit.
 Missing traces, real budget errors, other action failures and invalid proposals
 still fail; the execution file is cleared before each invocation.
+Release writers, reviewers and repairers, and the Document writer and polish
+steps, use the same check: each Claude step continues on error and the next step
+passes it only for that mismatch, then consumes the trace. A recovered review's
+structured verdict is read from the trace.
 The old `automation/doc-sync-state` branch is retained as history and is no longer
 written. Eligibility comes from the fixed source window and live PR history, so
 legacy incomplete work remains discoverable.
@@ -371,9 +375,8 @@ missing approvals, or changed page bytes fail closed; no writer or model reviewe
 runs. This preserves a successful correction instead of starting a new generation.
 The original resume mode remains dry-run-only and still requires fresh reviews.
 
-Full release stages and selected diagnostic batches run at most eight jobs
-concurrently. They share the runner pool capped at ten; any excess jobs wait for
-a runner. This changes scheduling, not source coverage, model effort, review
+Full release stages and selected diagnostic batches run at most sixteen jobs
+concurrently. They share the runner pool; any excess jobs wait for a runner. This changes scheduling, not source coverage, model effort, review
 requirements or publication gates.
 
 Before ordinary discovery, `snapshots.py detect` resolves GitHub's latest published
@@ -387,8 +390,8 @@ does not record the same verified release identity. It preserves existing snapsh
 Markdown and images, copies missing pages/assets from main, and freezes navigation
 and aliases. Writers audit at most two pages per batch, with a 48 KiB reading
 budget based on the larger of each snapshot/main page; larger pages run alone.
-Ordinary batches have a 180-turn hard limit; isolated oversized pages receive
-300 turns for both writing and independent review, with completion headroom.
+Ordinary batches have a 240-turn hard limit; isolated oversized pages receive
+400 turns for both writing and independent review, with completion headroom.
 They audit against the immutable release
 checkout: remove main-only behavior, correct stale claims, and add missing released
 behavior. Every page, including unchanged pages, requires independent review.

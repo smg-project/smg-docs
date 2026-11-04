@@ -188,8 +188,8 @@ def audit_batches(pages):
 def audit_matrix(pages, batches):
     """Keep ordinary audits bounded; give isolated oversized pages headroom."""
     return {'include': [
-        {'batch': index, 'max_turns': 300 if sum(max(map(len, pages[path]))
-         for path in batch) > MAX_BATCH_BYTES else 180}
+        {'batch': index, 'max_turns': 400 if sum(max(map(len, pages[path]))
+         for path in batch) > MAX_BATCH_BYTES else 240}
         for index, batch in enumerate(batches)
     ]}
 

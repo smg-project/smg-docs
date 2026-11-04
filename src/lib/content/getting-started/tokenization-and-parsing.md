@@ -6,7 +6,7 @@ title: Tokenization and Parsing APIs
 
 SMG exposes utility endpoints for tokenization, detokenization, function-call parsing, and reasoning separation. They use the gateway's own tokenizers and the same legacy parser registries as the [gRPC pipeline](../concepts/architecture/grpc-pipeline.md). You can use them to see exactly how SMG tokenizes a prompt or splits a model's raw output.
 
-To get the same token ids in Python without a running gateway, the `smg` package also ships the gateway's tokenizer as a library; see [Python Library](#python-library).
+To get the same token IDs in Python without a running gateway, the `smg` package also ships the gateway's tokenizer as a library; see [Python Library](#python-library).
 
 <div class="prerequisites" markdown>
 
@@ -114,7 +114,7 @@ Errors use the body `{"error": {"message": "...", "type": "..."}}`:
 
 ## Python Library
 
-`smg.tokenizer.Tokenizer` encodes and decodes in Python with the tokenizer SMG serves with: the same Rust code loads the checkpoint, so a training or evaluation pipeline gets the token ids the gateway feeds the model, without running a gateway. It ships in the `smg` package:
+`smg.tokenizer.Tokenizer` encodes and decodes in Python with the tokenizer SMG serves with: the same Rust code loads the checkpoint, so a training or evaluation pipeline gets the token IDs the gateway feeds the model, without running a gateway. It ships in the `smg` package:
 
 ```bash
 pip install smg
@@ -136,12 +136,12 @@ batch = tokenizer.encode_batch(["Hello", "World"])  # parallel, on a Rust thread
 | `source` | Behavior |
 |---|---|
 | Checkpoint directory or tokenizer file | Loaded in place |
-| Hugging Face model id | Downloaded as the gateway downloads it: `HF_TOKEN`, `HF_HOME` and `HF_ENDPOINT` are honored, and the revision is always `main`. To pin a revision or run offline, download with `huggingface_hub.snapshot_download` and pass the directory |
+| Hugging Face model ID | Downloaded as the gateway downloads it: `HF_TOKEN`, `HF_HOME` and `HF_ENDPOINT` are honored, and the revision is always `main`. To pin a revision or run offline, download with `huggingface_hub.snapshot_download` and pass the directory |
 | OpenAI model name (`gpt-4o`) | tiktoken's encoding, which ships with the package; nothing is downloaded |
 
 A name that can only be a path — an absolute path, one starting with `.` or `~`, or one with more than two `/`-separated segments — raises `FileNotFoundError` when it doesn't exist, instead of being read as a model name.
 
-To reproduce a gateway's token ids, load what that gateway loads: its `--tokenizer-path` if set, otherwise its `--model-path`. `config.json` and `generation_config.json` beside the tokenizer files supply the stop ids (`eos_token_ids` below). Builds must match too: `Tokenizer.smg_build` names the smg release and commit the library was built from, and the gateway prints its own with `--version-verbose`.
+To reproduce a gateway's token IDs, load what that gateway loads: its `--tokenizer-path` if set, otherwise its `--model-path`. `config.json` and `generation_config.json` beside the tokenizer files supply the stop IDs (`eos_token_ids` below). Builds must match too: `Tokenizer.smg_build` names the smg release and commit the library was built from, and the gateway prints its own with `--version-verbose`.
 
 ### Encode and Decode
 
@@ -152,9 +152,9 @@ To reproduce a gateway's token ids, load what that gateway loads: its `--tokeniz
 | `decode(token_ids, *, skip_special_tokens=False)` | `str` |
 | `decode_batch(sequences, *, skip_special_tokens=False)` | `list[str]`, one per sequence |
 
-- `add_special_tokens=True` adds what the tokenizer's post-processor adds — a BOS for Llama-style checkpoints, nothing for most byte-level ones — as `transformers` does by default. SMG encodes `/v1/completions`, `/generate` and `/v1/tokenize` text with `add_special_tokens=False` and embedding input with `True`, so pass `False` to match the prompt ids of a generation request (and the output of [`/v1/tokenize`](#tokenize) above).
+- `add_special_tokens=True` adds what the tokenizer's post-processor adds — a BOS for Llama-style checkpoints, nothing for most byte-level ones — as `transformers` does by default. SMG encodes `/v1/completions`, `/generate` and `/v1/tokenize` text with `add_special_tokens=False` and embedding input with `True`, so pass `False` to match the prompt IDs of a generation request (and the output of [`/v1/tokenize`](#tokenize) above).
 - Special-token text in the input, such as `<|im_end|>`, encodes to the special token.
-- `decode` takes a list or tuple of ids, a numpy array, or a torch tensor (`decode_batch` also takes a 2-D one) and does not apply `transformers`' `clean_up_tokenization_spaces`.
+- `decode` takes a list or tuple of IDs, a numpy array, or a torch tensor (`decode_batch` also takes a 2-D one) and does not apply `transformers`' `clean_up_tokenization_spaces`.
 - `skip_special_tokens` defaults to `False` — special tokens stay in the decoded text — while [`/v1/detokenize`](#detokenize) above defaults it to `true`.
 - A legacy-format Llama-class `tokenizer.json` (one with a `Prepend` normalizer) is encoded as `transformers`' `LlamaTokenizer` class builds it — the pipeline the engines load — which can differ from `transformers` 4.x in leading-space pieces.
 
@@ -165,15 +165,15 @@ To reproduce a gateway's token ids, load what that gateway loads: its `--tokeniz
 | `vocab_size` | The base vocabulary without added tokens, as `transformers` reports `vocab_size` |
 | `len(tokenizer)` | The vocabulary with added tokens |
 | `bos_token`, `eos_token`, `pad_token`, `unk_token`, and their `*_id` counterparts | The checkpoint's special tokens; `None` when it has none |
-| `special_tokens` | All roles (`bos_token`, `eos_token`, `unk_token`, `sep_token`, `pad_token`, `cls_token`, `mask_token`) plus `additional_special_tokens`: every added token marked special, sorted by id |
-| `eos_token_ids` | The ids SMG stops generation at: `eos_token_id` from `config.json` and `generation_config.json` merged with the tokenizer's own EOS, deduplicated and sorted |
+| `special_tokens` | All roles (`bos_token`, `eos_token`, `unk_token`, `sep_token`, `pad_token`, `cls_token`, `mask_token`) plus `additional_special_tokens`: every added token marked special, sorted by ID |
+| `eos_token_ids` | The IDs SMG stops generation at: `eos_token_id` from `config.json` and `generation_config.json` merged with the tokenizer's own EOS, deduplicated and sorted |
 | `token_to_id(token)`, `id_to_token(id)` | Vocabulary lookups in the vocabulary's own spelling (`Ġthe` for byte-level vocabularies); `None` on a miss |
 | `source` | The absolute path of the loaded checkpoint or Hub snapshot, or the OpenAI model name |
 | `Tokenizer.smg_build` | The smg release and commit the library was built from |
 
 ### Threads and Worker Processes
 
-An encode of less than 16 KiB of text, or a decode of fewer than 4096 ids, runs on the calling thread with the GIL held, like a single encode in Hugging Face's `tokenizers`; longer calls release it. The batch methods, long encodes, and loading run on the library's own thread pool, one per process:
+An encode of less than 16 KiB of text, or a decode of fewer than 4096 IDs, runs on the calling thread with the GIL held, like a single encode in Hugging Face's `tokenizers`; longer calls release it. The batch methods, long encodes, and loading run on the library's own thread pool, one per process:
 
 - `SMG_TOKENIZER_THREADS` sets the pool size; it must be a positive integer.
 - Without it, the pool has one thread when `TOKENIZERS_PARALLELISM` is off (read as Hugging Face's `tokenizers` reads it), and otherwise `RAYON_NUM_THREADS` threads, or one per CPU when that is unset too.

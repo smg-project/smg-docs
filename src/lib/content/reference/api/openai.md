@@ -626,7 +626,7 @@ JSON [error envelope](#error-format) with the code `no_models_available`.
 
 The endpoint needs no key. If the caller does send a bearer token (or an `x-api-key`
 header) that is not one of the gateway's own keys, SMG treats it as the caller's own
-provider key: it asks `/v1/models` of the registered external providers of the caller's
+provider key: it calls `/v1/models` on the registered external providers of the caller's
 API family with that token and returns the first non-empty list, falling back to the
 self-hosted list. A request carrying `anthropic-version` reaches the Anthropic providers
 alone; every other request reaches the OpenAI-compatible ones — OpenAI, xAI, custom

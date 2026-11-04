@@ -86,7 +86,7 @@ If the call fails or returns no models, the worker isn't registered. Without any
 
 ### `GET /v1/models`
 
-SMG supports fan-out model discovery across the registered external workers of the caller's API family. The `anthropic-version` header selects the family: a request carrying it reaches the Anthropic providers alone, and every other request reaches the OpenAI-compatible providers — OpenAI, xAI, custom providers, and external workers that name no provider. A worker's provider is read the same way as at registration: the `provider` its spec declares, else the provider recognized from its URL host. A Gemini worker belongs to neither family and is never asked on this route.
+SMG supports fan-out model discovery across the registered external workers of the caller's API family. The `anthropic-version` header selects the family: a request carrying it reaches the Anthropic providers alone, and every other request reaches the OpenAI-compatible providers — OpenAI, xAI, custom providers, and external workers that name no provider. A worker's provider is the `provider` its spec declares, else the provider recognized from its URL host. A Gemini worker belongs to neither family and is never asked on this route.
 
 When a caller sends a `GET /v1/models` request with a bearer token (or an `x-api-key` header), SMG:
 
@@ -124,7 +124,11 @@ How the two combine depends on the router:
     Callers can still bring their own provider key under gateway authentication by sending it as `x-api-key` or `x-goog-api-key` on the endpoints that read those headers (`/v1/responses`, `/v1/interactions`, `/v1/messages`). `/v1/chat/completions` reads only `Authorization`, which the gateway key occupies, so it always uses the stored key.
 
 !!! warning "Caller keys can reach every provider of their API family"
-    `GET /v1/models` sends the caller's token to every healthy external worker of the caller's API family: a request carrying `anthropic-version` sends it to the Anthropic providers, and any other request to the OpenAI, xAI, and custom providers and the external workers that name no provider — never to another family's. When the OpenAI-compatible router finds no worker for a requested model, it also refreshes the model lists of its own family's healthy external workers with the caller's token before it answers. Register only providers you trust with your callers' keys.
+    `GET /v1/models` sends the caller's token to every healthy external worker of the caller's API family, never to another family's: a request carrying `anthropic-version` sends it to the Anthropic providers, and any other request sends it to the OpenAI-compatible ones — OpenAI, xAI, custom providers, and external workers that name no provider.
+
+    When a provider router finds no worker for a requested model, it also refreshes the model lists of its own family's healthy external workers with the caller's `Authorization` token before it answers. Unlike the `GET /v1/models` fan-out, that refresh reads only the `provider` a worker's spec declares, never its URL, so a worker that declares no provider is refreshed by the OpenAI-compatible router even when its URL names another provider.
+
+    Register only providers you trust with your callers' keys.
 
 ---
 

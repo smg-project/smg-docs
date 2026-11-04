@@ -78,7 +78,7 @@ smg launch \
 
 Spans are batched and exported over OTLP gRPC with the service name `smg`. The gateway exports its own request spans: `http_request` for each HTTP request that matches a route (method, path, request ID, status code, and latency in microseconds) and `grpc_execute` for each dispatch through the gRPC pipeline (request type, request ID, model, and mode). The recorded path never includes the query string, so a credential a client mistakenly puts in a query parameter stays out of spans and [request logs](logging.md#request-and-response-logs).
 
-The log level does not gate span export: the trace layer has its own filter, so the spans are exported at `--log-level warn` and `error`, and under any `RUST_LOG`. The log level and `RUST_LOG` still govern what appears in the logs; see [Log Levels](logging.md#log-levels).
+The log level does not gate span export: the trace layer has its own filter, so the spans are exported even at `--log-level warn` and `error`, and under any `RUST_LOG`. The log level and `RUST_LOG` still govern what appears in the logs; see [Log Levels](logging.md#log-levels).
 
 ### Trace propagation
 
@@ -512,7 +512,7 @@ curl -s http://localhost:30000/loads | jq '.aggregate'
 
     3. Verify the collector is receiving spans. Requests to HTTP and gRPC workers carry trace context; requests to ZMQ direct workers do not, so their engine-side spans cannot join the trace.
 
-    4. The log level does not gate span export: the spans are exported at `--log-level warn` and `error`, and under any `RUST_LOG`. The level still governs the log output, so log lines missing span fields such as `request_id` do not mean tracing is off.
+    4. The log level does not gate span export: the spans are exported even at `--log-level warn` and `error`, and under any `RUST_LOG`. The level still governs the log output, so log lines missing span fields such as `request_id` do not mean tracing is off.
 
 ??? question "Missing metrics"
 

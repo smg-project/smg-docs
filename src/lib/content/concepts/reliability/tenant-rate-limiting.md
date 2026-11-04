@@ -74,7 +74,7 @@ See the [reference page](../../reference/tenant-rate-limiting.md) for the exact 
 
 A few accounting details avoid over- or under-charging a tenant:
 
-- **A shared prompt is charged once, not per choice.** When a request asks for `n>1` completions, every choice shares the same input prompt. The reservation counts the prompt once, and settlement takes a single prompt count from the reported usage, not the sum — the *maximum* across choices on the gRPC router's chat endpoint; each prompt counted once across its `n` answer entries on the HTTP routers' `/generate` route. Only completion tokens, which really are distinct per sample, are summed.
+- **A shared prompt is charged once, not per choice.** When a request asks for `n>1` completions, every choice shares the same input prompt. The reservation counts the prompt once, and settlement takes a single prompt count from the reported usage, not the sum — the *maximum* across choices on the gRPC router's chat endpoint; each prompt counted once across its `n` samples on the HTTP routers' `/generate` route. Only completion tokens, which really are distinct per sample, are summed.
 - **A streaming response never settles with partial usage.** On the gRPC router, a streaming response settles only once every expected choice has actually finished: a clean end-of-stream partway through an `n>1` request (some choices completed, others didn't) is not treated as full, trustworthy usage — it closes the reservation at the estimate instead of settling with an understated real count. On the HTTP routers, a streamed response is never parsed at all and always keeps its reserved estimate (see [What settles, per router](#what-settles-per-router)).
 
 ---
@@ -94,7 +94,7 @@ A denied reservation returns **429** with the gateway's standard JSON error enve
 
 ## Current scope
 
-Tenant rate limiting is wired into every router that serves inference traffic. Each reserves once per logical request, before any dispatch, and answers a denial with the same 429 (see [Response codes](#response-codes)) — no worker or external provider ever sees a denied request:
+Tenant rate limiting is wired into every router that serves inference traffic. Each reserves once per logical request, before any dispatch, and returns the same **429** on a denial (see [Response codes](#response-codes)) — no worker or external provider ever sees a denied request:
 
 - **The gRPC router** covers the Chat, Generate, Completion, Messages, Decisions, Embeddings, Classify, Audio Transcriptions, and Responses endpoints (Chat and Responses in regular and Harmony mode alike). It serves [ZMQ-connected workers](../../getting-started/zmq-workers.md) too — `--connection-mode zmq` builds the same router and pipeline — and the reservation happens before a worker is even selected, so for every covered endpoint except Decisions, enforcement is identical whichever transport the workers use.
 - **The regular HTTP router** covers `/generate`, `/v1/chat/completions`, `/v1/completions`, `/v1/messages`, `/v1/responses`, `/v1/embeddings`, and `/v1/classify`. Its `/v1/messages/count_tokens`, `/v1/decisions`, `/v1/systemone`, and `/v1/rerank` routes, the audio transcription route, and the realtime routes take no reservation.
@@ -105,7 +105,7 @@ Tenant rate limiting is wired into every router that serves inference traffic. E
 
 The gRPC router tokenizes input itself, so its estimate is the prepared request's real input token count. The HTTP routers (regular, PD, and external) have no tokenizer: a pre-tokenized request reserves exactly the token ids it carries, and text is estimated at **1.3 tokens per whitespace-separated word, rounded up**.
 
-The estimate reads the request's own content, including input that routing ignores: a chat history's tool-call arguments, a Messages history's tool inputs and tool-result text, a Responses request's instructions and its function and custom tool calls with their outputs, an Interactions request's system instruction, and every prompt of a batch — every sequence of a `/generate` batch and every prompt of a completions batch, on the PD router even when a text-reading policy routed on the first prompt alone. Images, files, and built-in tool items are not counted. An `x-smg-routing-tokens` hint never sets the estimate — a hint says nothing the gateway can hold a tenant to.
+The estimate reads the request's own content, including input that routing ignores: a chat history's tool-call arguments, a Messages history's tool inputs and tool-result text, a Responses request's instructions and its function and custom tool calls with their outputs, an Interactions request's system instruction, and every prompt of a batch (every sequence of a `/generate` batch, every prompt of a completions batch). On the PD router that holds even when a text-reading routing policy routed on the first prompt alone. Images, files, and built-in tool items are not counted. An `x-smg-routing-tokens` hint never sets the estimate — a hint says nothing the gateway can hold a tenant to.
 
 Because the estimate is read from the body, enabling the limiter buffers every request on the regular HTTP router's otherwise streamable path (see [Request Streaming](../performance/request-streaming.md)).
 

@@ -94,7 +94,7 @@ The gateway layer handles cross-cutting concerns before requests reach the route
 | **Metrics** | Records latency, throughput, error rates |
 | **OpenTelemetry** | Distributed tracing spans |
 
-Per-tenant token and request budgets ([tenant rate limiting](../reliability/tenant-rate-limiting.md)) are enforced later, inside the gRPC router, not in this middleware.
+Per-tenant token and request budgets ([tenant rate limiting](../reliability/tenant-rate-limiting.md)) are enforced later, inside the routers — the gRPC router reserves in its ingress stage, and the HTTP, PD, and external routers before dispatch — not in this middleware.
 
 ---
 

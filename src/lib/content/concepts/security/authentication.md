@@ -473,7 +473,7 @@ Each audit event is an `INFO` log record with target `smg::audit` and message `c
 | `role` | Role of the principal (`admin`, `user`) |
 | `method` | HTTP method (GET, POST, DELETE, etc.) |
 | `path` | Request path |
-| `resource` | Not filled in v1.11.0 |
+| `resource` | Not filled; the field is left out of the record |
 | `outcome` | Result (`success`, `denied`) |
 | `request_id` | Correlation ID for request tracing |
 | `details` | Why the request was denied or failed authentication |

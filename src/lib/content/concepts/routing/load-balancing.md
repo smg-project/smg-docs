@@ -291,7 +291,7 @@ score = (queued_tokens + in_flight_tokens) / throughput
 
 Both terms are in seconds, so they add directly. Ties are broken uniformly at random.
 
-On a PD prefill leg, `throughput` is always `--least-load-default-throughput`, read as input tokens/s: prefill work consumes input tokens, which a generation rate cannot price.
+For prefill workers, `throughput` is always `--least-load-default-throughput`, read as input tokens/s: prefill work consumes input tokens, which a generation rate cannot price.
 
 Missing signals degrade gracefully:
 

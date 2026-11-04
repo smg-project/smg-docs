@@ -114,7 +114,7 @@ Errors use the body `{"error": {"message": "...", "type": "..."}}`:
 
 ## Python Library
 
-`smg.tokenizer.Tokenizer` encodes and decodes in Python with the tokenizer SMG serves with: the same Rust code loads the checkpoint, so a training or evaluation pipeline gets the token ids the gateway feeds the model without running a gateway. It ships in the `smg` package:
+`smg.tokenizer.Tokenizer` encodes and decodes in Python with the tokenizer SMG serves with: the same Rust code loads the checkpoint, so a training or evaluation pipeline gets the token ids the gateway feeds the model, without running a gateway. It ships in the `smg` package:
 
 ```bash
 pip install smg
@@ -155,6 +155,7 @@ To reproduce a gateway's token ids, load what that gateway loads: its `--tokeniz
 - `add_special_tokens=True` adds what the tokenizer's post-processor adds — a BOS for Llama-style checkpoints, nothing for most byte-level ones — as `transformers` does by default. SMG encodes `/v1/completions`, `/generate` and `/v1/tokenize` text with `add_special_tokens=False` and embedding input with `True`, so pass `False` to match the prompt ids of a generation request (and the output of [`/v1/tokenize`](#tokenize) above).
 - Special-token text in the input, such as `<|im_end|>`, encodes to the special token.
 - `decode` takes a list or tuple of ids, a numpy array, or a torch tensor (`decode_batch` also takes a 2-D one) and does not apply `transformers`' `clean_up_tokenization_spaces`.
+- `skip_special_tokens` defaults to `False` — special tokens stay in the decoded text — while [`/v1/detokenize`](#detokenize) above defaults it to `true`.
 - A legacy-format Llama-class `tokenizer.json` (one with a `Prepend` normalizer) is encoded as `transformers`' `LlamaTokenizer` class builds it — the pipeline the engines load — which can differ from `transformers` 4.x in leading-space pieces.
 
 ### Vocabulary and Special Tokens

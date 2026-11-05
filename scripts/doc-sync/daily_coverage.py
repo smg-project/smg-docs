@@ -279,10 +279,24 @@ def validate(result, context, slug, shards=(), expected=None):
 
 
 def live_work(name, sha, scans, context):
-    """Whether a subsystem has a proposal tonight, its own queued concern, or an open PR."""
+    """Whether a subsystem has a proposal tonight, its own queued concern, or an open PR.
+
+    A reused queued concern keeps its original source identity, so the
+    subsystem's own validated check for this commit counts too: proposed with
+    a concern from its scan, or blocked on an open PR holding the page. A
+    blocked check that only names other subsystems does not, so two
+    subsystems cannot keep each other's waits alive.
+    """
     marker = f'{docs.MARKER}{sha}:'
+    own = [check for other in scans if other['shard'] == name
+           for check in other.get('daily_commit_checks', []) if check.get('source_sha') == sha]
     return (any(p['source_sha'] == sha for other in scans if other['shard'] == name
                 for p in other['concerns'])
+            # Run 41924813590: grpc-multimodal proposed its queued concern for
+            # smg#4944 under the concern's older source; routing-workers' check
+            # for smg#4971 was blocked on open PR #364.
+            or any(check.get('status') == 'proposed' and check.get('concerns')
+                   or check.get('status') == 'blocked' and check.get('blockers') for check in own)
             # Queued concerns without an owner do not count: two subsystems once
             # each waited on the same one, and neither proposed it.
             or any(p['source_sha'] == sha and p.get('shard') == name

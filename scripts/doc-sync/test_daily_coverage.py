@@ -437,6 +437,32 @@ class DailyCoverageTests(unittest.TestCase):
         backlog = {**own, 'backlog': 1}
         self.assertEqual(daily.backlog_report(self.context, [backlog])['checks'][0]['status'], 'deferred')
 
+    def test_a_dependency_check_for_the_commit_keeps_the_wait_alive(self):
+        # Run 41924813590: grpc-multimodal proposed a reused queued concern,
+        # which keeps its older source, for the commit operations waited on;
+        # deploy-config waited on routing-workers, itself blocked on open PR #364.
+        own, other = self.dependent_scan()
+        own['daily_commit_checks'] = [self.check(status='deferred', depends_on=['grpc-multimodal'],
+                                                 evidence='The guide follows the multimodal fix.')]
+        expected = ['routing-workers', 'grpc-multimodal']
+        self.context['discovery_shard'] = ''
+        reused = {**other, 'concerns': [proposal(source_sha=self.old)]}
+        page = [{'pr': 364, 'path': proposal()['doc_paths'][0]}]
+        blocked = {**other, 'concerns': [], 'daily_commit_checks': [
+            self.check(status='blocked', blockers=page, evidence='Open PR #364 holds the page.')]}
+        for scan in [reused, blocked]:
+            with self.subTest(status=scan['daily_commit_checks'][0]['status']):
+                check = daily.report(self.context, [own, scan], expected)['checks'][0]
+                self.assertEqual(check['status'], 'blocked')
+                self.assertIn('Waiting on live work from grpc-multimodal', check['evidence'])
+        # Not-applicable, deferred, or a block on another subsystem leaves it unfinished.
+        for status, extra in [('not_applicable', {}), ('deferred', {}),
+                              ('blocked', {'depends_on': ['routing-workers']})]:
+            idle = {**other, 'concerns': [], 'daily_commit_checks': [self.check(status=status, **extra)]}
+            with self.subTest(idle=status, **extra):
+                self.assertEqual(daily.report(self.context, [own, idle], expected)['checks'][0]['status'],
+                                 'deferred')
+
     def test_deferred_check_may_name_the_subsystem_it_waits_on(self):
         own, _ = self.dependent_scan()
         names = discovery.SHARD_NAMES

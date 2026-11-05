@@ -100,8 +100,10 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   or `depends_on` subsystems whose correction for the same commit must land first.
   A dependency is accepted only while that subsystem has a proposal tonight, its
   own queued concern (queued concerns record the subsystem that proposed them), or
-  an open PR for the commit; otherwise the check stays unfinished. Two subsystems
-  therefore cannot each wait on the other. A deferred check whose only open step
+  an open PR for the commit. Its own check for the commit also counts when it is
+  proposed (a reused queued concern keeps its older source) or blocked on an open
+  PR holding the page; otherwise the check stays unfinished. A check blocked only
+  on other subsystems never counts, so two subsystems cannot each wait on the other. A deferred check whose only open step
   is another subsystem's correction may also name `depends_on`. Because scans run
   in parallel, the plan settles such a daily wait as blocked when the named
   subsystem proposes tonight, or hands it off when that subsystem was not

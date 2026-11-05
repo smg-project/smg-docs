@@ -32,7 +32,11 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    commit is missing from the inspected list, or a release-audit proposal on
    neither the pinned main source nor its queued identity, is left out with a
    warning. Every commit check or release-audit disposition naming it becomes
-   deferred, so one slip no longer discards the rest of the scan. Recent commits are mandatory
+   deferred, so one slip no longer discards the rest of the scan. Release-audit
+   dispositions get the same treatment: one for a candidate not assigned to the
+   scan is left out, repeated ones become a single deferral, and an assigned
+   candidate without one is deferred. A release-audit proposal that no
+   disposition of its own candidate names is then left out. Recent commits are mandatory
    checks before older backlog and audit work. Up to eight extra **backlog
    scans** (25 commits each by default) assess older commits that never received
    a disposition, largest subsystem backlog first.

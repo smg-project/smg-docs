@@ -249,6 +249,49 @@ class DiscoveryHandoffTests(unittest.TestCase):
                          ('deferred', ['ordinary-change'], []))
         self.assertEqual(second, daily[1])
 
+    def settle(self, result, slug='routing-workers'):
+        raw, context, history = self.scan_inputs(result)
+        context['release_audit_candidates'] = self.context['release_audit_candidates'] + [
+            {'id': 'fedcba0987654321', 'shard': 'routing-workers', 'doc_path': self.path}]
+        with self.assertRaises(ValueError):
+            discovery.validate_scan(raw, context, slug, history)
+        raw, settled = discovery.settle_release_audit_checks(raw, context, slug)
+        raw, dropped = discovery.defer_unsupported_proposals(raw, context)
+        scan = discovery.validate_scan(raw, context, slug, history)
+        return scan, settled, dropped
+
+    def test_unknown_repeated_or_missing_audit_candidates_are_deferred(self):
+        # Run 42109877615 lost the routing-workers scan, with its 55
+        # candidates, to one unknown or repeated candidate ID.
+        other = {'candidate_id': 'fedcba0987654321', 'status': 'covered', 'concerns': [],
+                 'evidence': 'The page already states this.'}
+        cases = [
+            ('unknown', [self.check, other, {**other, 'candidate_id': 'not-a-candidate'}],
+             {'not-a-candidate': 'not assigned'}, [self.item['concern']]),
+            ('repeated', [self.check, {**self.check, 'status': 'deferred'}, other],
+             {self.identity: 'returned 2 dispositions'}, []),
+            ('mistyped', [{**self.check, 'candidate_id': '1234567890abcdee'}, other],
+             {'1234567890abcdee': 'not assigned', self.identity: 'no disposition'}, []),
+        ]
+        for name, checks, reasons, concerns in cases:
+            with self.subTest(name):
+                scan, settled, dropped = self.settle({'concerns': [self.item], 'release_audit_checks': checks})
+                self.assertEqual({e['candidate_id']: next(r for r in reasons.values() if r in e['reason'])
+                                  for e in settled}, reasons)
+                self.assertEqual([c['concern'] for c in scan['concerns']], concerns)
+                self.assertEqual([d['concern'] for d in dropped],
+                                 [] if concerns else [self.item['concern']])
+                status = {c['candidate_id']: c['status'] for c in scan['release_audit_checks']}
+                self.assertEqual(status, {self.identity: 'proposed' if concerns else 'deferred',
+                                          'fedcba0987654321': 'covered'})
+
+    def test_complete_audit_dispositions_are_not_settled(self):
+        raw, context, _ = self.scan_inputs({'concerns': [self.item], 'release_audit_checks': [self.check]})
+        self.assertEqual(discovery.settle_release_audit_checks(raw, context, 'routing-workers'), (raw, []))
+        # Backlog scans own no candidates, so their dispositions are all left out.
+        _, settled = discovery.settle_release_audit_checks(raw, context, 'routing-workers', backlog=1)
+        self.assertEqual([e['candidate_id'] for e in settled], [self.identity])
+
     def test_existing_concern_references_preserve_source_and_dedup_identity(self):
         for slug, sha in [('version-context-routing', self.context['source_sha']),
                           ('bootstrap-port-probe-at-registration', 'b' * 40)]:

@@ -108,6 +108,21 @@ class CollectorTests(unittest.TestCase):
         evidence = (self.root / 'evidence' / item['file']).read_text()
         self.assertIn('\n-Unsupported feature\n', evidence)
 
+    def test_release_branch_tag_needs_shared_history_not_ancestry(self):
+        # v1.14.0 was tagged on release/1.14, so it is not an ancestor of main.
+        self.git(self.source, 'checkout', '-qb', 'release', self.source_release)
+        (self.source / 'code').write_text('release-branch fix\n')
+        self.state['source_release']['sha'] = self.commit(self.source)
+        self.write(self.marker, json.dumps(self.state))
+        self.commit(self.repo)
+        self.assertEqual(len(self.collect()), 1)
+        self.git(self.source, 'checkout', '-q', '--orphan', 'unrelated')
+        self.state['source_release']['sha'] = self.commit(self.source)
+        self.write(self.marker, json.dumps(self.state))
+        self.commit(self.repo)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.collect()
+
     def test_invalid_source_ancestry_and_marker_fail_closed(self):
         with patch.object(docs, 'source_git', side_effect=ValueError('not ancestor')):
             with self.assertRaisesRegex(ValueError, 'not ancestor'):
@@ -177,6 +192,62 @@ class DiscoveryHandoffTests(unittest.TestCase):
         raw = json.dumps({**result, 'inspected_commits': [line.split()[0] for line in history],
                           'remaining_work': 'Other corrections remain deferred.'})
         return discovery.validate_scan(raw, context, 'routing-workers', history)
+
+    def scan_inputs(self, result, inspected=None):
+        history = [self.context['source_sha'] + ' current', 'b' * 40 + ' original change']
+        context = {**self.context, 'base_sha': 'c' * 40, 'code_history': history,
+                   'existing_prs': [], 'doc_inventory': [{'path': self.path}]}
+        raw = json.dumps({**result, 'remaining_work': 'Other corrections remain deferred.',
+                          'inspected_commits': [line.split()[0] for line in history]
+                          if inspected is None else inspected})
+        return raw, context, history
+
+    def test_unsupported_audit_proposal_is_deferred_without_discarding_the_scan(self):
+        # Run 41809694574 lost two whole scans to one proposal each: a queued
+        # audit with a changed identity, and a concern whose source was not inspected.
+        ordinary = {**self.item, 'concern': 'ordinary-change', 'question': 'Ordinary question?'}
+        cases = [({'source_sha': 'b' * 40}, None, 'neither the pinned main source'),
+                 ({}, [], 'not reported as inspected')]
+        for changes, inspected, reason in cases:
+            with self.subTest(reason=reason):
+                audit = {**self.item, **changes}
+                kept = ordinary if inspected is None else {**ordinary, 'source_sha': 'b' * 40}
+                raw, context, history = self.scan_inputs(
+                    {'concerns': [audit, kept], 'release_audit_checks': [self.check]},
+                    inspected if inspected is None else ['b' * 40])
+                with self.assertRaises(ValueError):
+                    discovery.validate_scan(raw, context, 'routing-workers', history)
+                fixed, dropped = discovery.defer_unsupported_proposals(raw, context)
+                scan = discovery.validate_scan(fixed, context, 'routing-workers', history)
+                self.assertEqual([c['concern'] for c in scan['concerns']], ['ordinary-change'])
+                check, = scan['release_audit_checks']
+                self.assertEqual((check['status'], check['concerns']), ('deferred', []))
+                self.assertIn(self.item['concern'], check['evidence'])
+                self.assertEqual([(d['concern'], reason in d['reason']) for d in dropped],
+                                 [(self.item['concern'], True)])
+
+    def test_valid_and_queued_proposals_are_not_deferred(self):
+        old = docs.validate_item({**self.item, 'source_sha': 'b' * 40})
+        for pending, item in [([], self.item), ([old], old)]:
+            with self.subTest(pending=bool(pending)):
+                raw, context, _ = self.scan_inputs({'concerns': [item], 'release_audit_checks': [self.check]})
+                context['pending_concerns'] = pending
+                self.assertEqual(discovery.defer_unsupported_proposals(raw, context), (raw, []))
+
+    def test_deferring_a_proposal_defers_every_daily_check_naming_it(self):
+        audit = {**self.item, 'source_sha': 'b' * 40}
+        other = {**self.item, 'concern': 'ordinary-change'}
+        daily = [{'source_sha': 'b' * 40, 'status': 'blocked', 'evidence': 'Waits on a PR.',
+                  'concerns': [audit['concern'], 'ordinary-change'], 'blockers': [{'pr': 1, 'path': self.path}]},
+                 {'source_sha': self.item['source_sha'], 'status': 'proposed', 'evidence': 'Covered.',
+                  'concerns': ['ordinary-change']}]
+        raw, context, _ = self.scan_inputs({'concerns': [audit, other], 'daily_commit_checks': daily,
+                                            'release_audit_checks': [self.check]})
+        result = json.loads(discovery.defer_unsupported_proposals(raw, context)[0])
+        first, second = result['daily_commit_checks']
+        self.assertEqual((first['status'], first['concerns'], first['blockers']),
+                         ('deferred', ['ordinary-change'], []))
+        self.assertEqual(second, daily[1])
 
     def test_existing_concern_references_preserve_source_and_dedup_identity(self):
         for slug, sha in [('version-context-routing', self.context['source_sha']),

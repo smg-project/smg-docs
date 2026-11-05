@@ -7,7 +7,12 @@ implementation/tests for proof. Main may contain later unreleased changes.
 
 Return the required JSON: accurate, complete, reader_focused,
 related_docs_consistent (booleans), reviewed_pages (every assigned path exactly
-once), reason (specific source evidence and any defects), and regression_checks.
+once), reason (specific source evidence and any defects), related_fixes, and
+regression_checks. related_fixes lists every snapshot page outside your batch
+that must change to fix a defect you report, such as the other side of a
+contradiction; use paths relative to the snapshot content folder, for example
+reference/metrics.md. Return an empty array when every fix belongs on your own
+pages. Repair is scheduled only for your batch and the pages you list here.
 Return exactly one regression_checks object per check ID in batch.json, with id,
 satisfied (boolean), and evidence (specific source path/symbol and documentation
 section checked). Return an empty array when no checks apply. A false result is
@@ -22,6 +27,12 @@ obsolete limitations, code-change links or shorthand PR references (including
 inherited citations), old bug narratives and unnecessary
 SMG release qualifiers. Keep actionable command/tag/engine-version requirements.
 
+batch.json lists related_pages: pages in other batches that link to or from
+your pages. Compare every shared contract on them (flags, defaults, URL schemes,
+metric names and labels, error codes, precedence rules) with your pages, and
+name the side that is wrong in related_fixes when it is not yours. Hub pages can list dozens of related pages: search them for the
+shared flags, metrics, anchors and terms your pages use (Grep), and read only the
+matching sections, not every related page in full.
 Check related pages in this assembled target snapshot for contradictions. Main
 and older snapshots can legitimately differ. This is one release lifecycle PR;
 its mechanical copy and reconciliation can exceed the ordinary 999-line cap.

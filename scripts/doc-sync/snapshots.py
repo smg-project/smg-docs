@@ -19,6 +19,10 @@ SECTIONS = {'getting-started', 'concepts', 'reference', 'contributing'}
 BATCH_SIZE = 2
 MAX_BATCH_BYTES = 48 * 1024
 REVIEW_GATES = ('accurate', 'complete', 'reader_focused', 'related_docs_consistent')
+# Automatic resume rounds after a final-review rejection before an operator
+# must look; each round repairs only named batches and reviews every page again.
+AUTO_RESUME_ROUNDS = 4
+MARKDOWN_LINK = re.compile(r'\]\(([^)\s#?]+\.md)(?:#[^)\s]*)?\)')
 DIAGNOSTIC_ARTIFACT_PREFIXES = {
     'write': 'release-bundle',
     'repair': 'release-repaired-bundle',
@@ -188,8 +192,8 @@ def audit_batches(pages):
 def audit_matrix(pages, batches):
     """Keep ordinary audits bounded; give isolated oversized pages headroom."""
     return {'include': [
-        {'batch': index, 'max_turns': 300 if sum(max(map(len, pages[path]))
-         for path in batch) > MAX_BATCH_BYTES else 180}
+        {'batch': index, 'max_turns': 400 if sum(max(map(len, pages[path]))
+         for path in batch) > MAX_BATCH_BYTES else 240}
         for index, batch in enumerate(batches)
     ]}
 
@@ -232,12 +236,13 @@ def batch_paths(ctx, index):
     return ctx['batches'][index]
 
 
-def diagnostic_matrix(ctx, selection):
+def diagnostic_matrix(ctx, selection, limit=8):
     if not re.fullmatch(r'\d+(,\d+)*', selection):
         raise ValueError('Diagnostic batches must be comma-separated batch numbers')
     selected = [int(value) for value in selection.split(',')]
-    if len(selected) > 8 or len(set(selected)) != len(selected):
-        raise ValueError('Choose one to eight distinct diagnostic batches')
+    if len(selected) > limit or len(set(selected)) != len(selected):
+        raise ValueError('Choose one to eight distinct diagnostic batches' if limit == 8
+                         else 'Choose distinct batches')
     for index in selected:
         batch_paths(ctx, index)
     return {'include': [item for item in ctx['matrix']['include'] if item['batch'] in selected]}
@@ -339,13 +344,14 @@ def prepare_diagnostic(ctx, directory):
     print('Diagnostic only: selected pages will be rewritten and reviewed; publication is disabled')
 
 
-def checkpoint_findings(ctx, values, records, diagnostic):
+def checkpoint_findings(ctx, values, records, diagnostic, batches=None):
     """Validate historic content binding; return negative guidance, never approvals."""
-    if len(values) != len(ctx['batches']) or len(records) != len(values):
+    batches = list(range(len(values))) if batches is None else batches
+    if len(values) != len(ctx['batches']) or len(records) != len(batches):
         raise ValueError('Incomplete checkpoint coverage')
     whole = snapshot_hash(values)
     findings = []
-    for index, result in enumerate(records):
+    for index, result in zip(batches, records):
         if (result.get('diagnostic') is not diagnostic or result.get('batch') != index
                 or result.get('bundle_sha') != bundle_hash(values[index])
                 or result.get('snapshot_sha') != whole):
@@ -394,16 +400,20 @@ def checkpoint_bundles(ctx, checkpoint, artifacts):
     return values
 
 
-def import_resume(ctx, directory, checkpoint, artifacts, selection):
+def import_resume(ctx, directory, checkpoint, artifacts, selection, cancelled=False):
     """Resume a full failed audit with scoped corrections and fresh all-page review."""
     if (checkpoint / 'diagnostic.json').exists():
         raise ValueError('A diagnostic cannot resume full validation')
     ctx = checkpoint_context(ctx, checkpoint)
-    matrix = diagnostic_matrix(ctx, selection)
+    matrix = diagnostic_matrix(ctx, selection, limit=len(ctx['batches']))
     values = checkpoint_bundles(ctx, checkpoint, artifacts)
-    records = [read_json(artifacts / f'release-final-review-{i}' / f'review-{i}.json')
-               for i in range(len(values))]
-    findings = checkpoint_findings(ctx, values, records, diagnostic=False)
+    paths = [artifacts / f'release-final-review-{i}' / f'review-{i}.json' for i in range(len(values))]
+    # Cancelling a run stops unfinished final reviews. Only rejections cross
+    # this boundary and every page is reviewed again, so a missing record can
+    # only omit guidance; a failed run must still record every final review.
+    batches = [i for i, path in enumerate(paths) if path.exists()] if cancelled else None
+    records = [read_json(paths[i]) for i in (range(len(values)) if batches is None else batches)]
+    findings = checkpoint_findings(ctx, values, records, diagnostic=False, batches=batches)
     selected = {row['batch'] for row in matrix['include']}
     if not {finding['batch'] for finding in findings} <= selected:
         raise ValueError('Resume selection must include every rejected batch and related page owners')
@@ -426,10 +436,11 @@ def prepare_resume(ctx, directory):
     if (run.get('head_repository', {}).get('full_name') != repo
             or run.get('path') != '.github/workflows/nightly-doc-sync.yml'
             or run.get('event') not in ('workflow_dispatch', 'schedule')
-            or run.get('status') != 'completed' or run.get('conclusion') != 'failure'):
+            or run.get('status') != 'completed' or run.get('conclusion') not in ('failure', 'cancelled')):
         raise ValueError('Resume checkpoint must be a completed failed nightly run from this repository')
     frozen = import_resume(ctx, directory, directory.parent / 'release-resume-context',
-                           directory.parent / 'release-resume-artifacts', os.environ.get('RESUME_BATCHES', ''))
+                           directory.parent / 'release-resume-artifacts', os.environ.get('RESUME_BATCHES', ''),
+                           cancelled=run['conclusion'] == 'cancelled')
     outputs(base=frozen['base'])
 
 
@@ -528,7 +539,7 @@ def resume_findings(ctx, directory):
         raise ValueError('Resume guidance cannot contain old approval records or diagnostic state')
     matrix = marker['matrix']
     selected = [row['batch'] for row in matrix['include']]
-    if matrix != diagnostic_matrix(ctx, ','.join(map(str, selected))):
+    if matrix != diagnostic_matrix(ctx, ','.join(map(str, selected)), limit=len(ctx['batches'])):
         raise ValueError('Resume matrix changed original scopes or budgets')
     if proposal_hash(ctx, directory) != marker['input_sha']:
         raise ValueError('Resume baseline changed before repair')
@@ -567,6 +578,58 @@ def regression_checks(ctx, index):
             if case['source_sha'] == ctx['release']['sha'] and assigned.intersection(case['pages'])]
 
 
+def page_links(path, text):
+    """Snapshot pages a page links to with relative Markdown links."""
+    folder = PurePosixPath(path).parent
+    targets = set()
+    for target in MARKDOWN_LINK.findall(text):
+        if '://' in target or target.startswith('/'):
+            continue
+        parts = []
+        for part in (folder / target).parts:
+            if part == '..':
+                if parts:
+                    parts.pop()
+            elif part != '.':
+                parts.append(part)
+        targets.add('/'.join(parts))
+    return targets
+
+
+def page_owners(ctx):
+    return {path: index for index, batch in enumerate(ctx['batches']) for path in batch}
+
+
+def related_pages(ctx, index):
+    """Other batches' pages that link to or from this batch in the current snapshot.
+
+    Writers work in parallel, so a contract shared with these pages is the most
+    common source of cross-page contradictions at review.
+    """
+    own = set(batch_paths(ctx, index))
+    owners = page_owners(ctx)
+    texts = {path: Path(path).read_text() for path in owners if Path(path).is_file()}
+    outgoing = {target for path in own if path in texts for target in page_links(path, texts[path])}
+    incoming = {path for path, text in texts.items() if path not in own and page_links(path, text) & own}
+    direction = {path: 'both' if path in incoming else 'links-to' for path in outgoing}
+    direction.update({path: 'linked-from' for path in incoming - outgoing})
+    return [{'path': path, 'batch': owners[path], 'direction': direction[path]}
+            for path in sorted(set(direction) - own) if path in owners]
+
+
+def related_fix_batches(ctx, index, raw):
+    """Batches owning the other pages a reviewer says must change."""
+    prefix = root(ctx['release']['tag']) + 'content/'
+    owners = page_owners(ctx)
+    selected = set()
+    for path in raw.get('related_fixes') or []:
+        path = path.strip().lstrip('./')
+        for candidate in (path, prefix + path.removeprefix(prefix)):
+            if candidate in owners and owners[candidate] != index:
+                selected.add(owners[candidate])
+    return selected
+
+
 def batch_evidence(ctx, index, directory):
     """Show omissions explicitly, including when an existing release page was stale."""
     paths = batch_paths(ctx, index)
@@ -580,7 +643,8 @@ def batch_evidence(ctx, index, directory):
         differences.extend(difflib.unified_diff(original, current, fromfile=counterpart, tofile=path))
     (directory / 'main-to-snapshot.diff').write_text(''.join(differences))
     write_json(directory / 'batch.json', {'paths': paths, 'release': ctx['release'],
-               'regression_checks': regression_checks(ctx, index)})
+               'regression_checks': regression_checks(ctx, index),
+               'related_pages': related_pages(ctx, index)})
 
 
 def validate_bundle(ctx, index, value):
@@ -684,6 +748,10 @@ def validate_review_evidence(ctx, index, raw):
     if any(type(check.get('satisfied')) is not bool or not isinstance(check.get('evidence'), str)
            or not check['evidence'].strip() for check in checks):
         raise ValueError('Missing source evidence for regression check')
+    # Older review records predate this field; when present it must be paths.
+    fixes = raw.get('related_fixes', [])
+    if not isinstance(fixes, list) or any(not isinstance(path, str) for path in fixes):
+        raise ValueError('Invalid related page fixes')
 
 
 def validate_review(ctx, index, raw):
@@ -747,10 +815,15 @@ def repair_findings(ctx, directory):
 def plan_repair(ctx, directory):
     findings = repair_findings(ctx, directory)
     selected = {finding['batch'] for finding in findings}
-    if any(not finding['verdict']['related_docs_consistent'] for finding in findings):
-        # A reviewer can find a defect on another batch's page. Its own reviewer
-        # may have accepted it; do not infer affected paths from free-form prose.
-        selected = set(range(len(ctx['batches'])))
+    for finding in findings:
+        raw = finding['verdict']
+        if 'related_fixes' in raw:
+            # The reviewer names other batches' pages that must change; their
+            # own reviewers may have accepted them.
+            selected |= related_fix_batches(ctx, finding['batch'], raw)
+        elif not raw['related_docs_consistent']:
+            # Without named pages, never infer affected paths from free-form prose.
+            selected = set(range(len(ctx['batches'])))
     matrix = {'include': [item for item in ctx['matrix']['include'] if item['batch'] in selected]}
     if {item['batch'] for item in matrix['include']} != selected:
         raise ValueError('Repair plan did not cover every rejected batch')
@@ -765,6 +838,65 @@ def require_repair_change(ctx, directory, previous_sha):
         raise ValueError('Missing trusted pre-repair snapshot hash')
     if proposal_hash(ctx, directory) == previous_sha:
         raise ValueError('Repair left the rejected snapshot unchanged')
+
+
+def continuation_batches(ctx, directory):
+    """Batches to repair in the next resume round, or None without complete final reviews."""
+    paths = [directory / f'review-{index}.json' for index in range(len(ctx['batches']))]
+    if not all(path.is_file() for path in paths):
+        return None
+    selected = set()
+    for index, path in enumerate(paths):
+        result = read_json(path)
+        if result.get('batch') != index or result.get('diagnostic'):
+            raise ValueError('Invalid final review record')
+        raw = result['verdict']
+        validate_review_evidence(ctx, index, raw)
+        if all(raw[gate] for gate in REVIEW_GATES) and all(c['satisfied'] for c in raw['regression_checks']):
+            continue
+        selected.add(index)
+        selected |= related_fix_batches(ctx, index, raw)
+    return sorted(selected)
+
+
+def dispatch_nightly(**inputs):
+    command = ['gh', 'workflow', 'run', 'nightly-doc-sync.yml', '--repo', os.environ['GITHUB_REPOSITORY'],
+               '--ref', os.environ['GITHUB_REF_NAME']]
+    for key, value in inputs.items():
+        command += ['-f', f'{key}={value}']
+    docs.run(*command)
+
+
+def continue_release(ctx, directory):
+    """Queue the next automatic step of a publishing release audit.
+
+    A final-review rejection starts a resume round for the rejected batches and
+    the owners of pages reviewers named; a passing automatic round starts
+    publication of that exact run. Both queue behind this run.
+    """
+    result = os.environ['RELEASE_RESULT']
+    round_ = int(os.environ.get('AUTO_ROUND') or 0)
+    run_id = os.environ['GITHUB_RUN_ID']
+    if result == 'success':
+        if round_:
+            dispatch_nightly(release_publish_run=run_id, dry_run='false')
+            print(f'Automatic round {round_} passed; queued publication of run {run_id}')
+        return
+    if result != 'failure':
+        return
+    selection = continuation_batches(ctx, directory)
+    if not selection:
+        print('::warning::Release audit failed before complete final-review rejections; '
+              'inspect the run and resume manually')
+        return
+    batches = ','.join(map(str, selection))
+    if round_ >= AUTO_RESUME_ROUNDS:
+        print(f'::warning::{AUTO_RESUME_ROUNDS} automatic resume rounds used; resume manually with '
+              f'release_resume_run={run_id} release_resume_batches={batches}')
+        return
+    dispatch_nightly(release_resume_run=run_id, release_resume_batches=batches,
+                     release_auto_round=str(round_ + 1))
+    print(f'Queued automatic resume round {round_ + 1} for batches {batches}')
 
 
 def finalize(ctx, directory):
@@ -909,6 +1041,8 @@ def main():
         prepare_resume(ctx, directory)
     elif command == 'plan-resume':
         plan_resume(ctx, directory)
+    elif command == 'continue':
+        continue_release(ctx, directory)
     elif command == 'seed':
         seed_context(ctx)
         batch_evidence(ctx, index, directory)

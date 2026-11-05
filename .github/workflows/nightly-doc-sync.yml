@@ -27,11 +27,15 @@ on:
         type: string
         default: ''
       release_resume_run:
-        description: Optional failed full nightly run to resume from its final snapshot (dry-run validation)
+        description: Optional failed or cancelled full nightly run to resume from its final snapshot (dry-run validation)
         type: string
         default: ''
       release_resume_batches:
-        description: Failed batches plus related page owners to repair (one to eight comma-separated numbers)
+        description: Failed batches plus related page owners to repair (comma-separated numbers)
+        type: string
+        default: ''
+      release_auto_round:
+        description: Set by the workflow for an automatic resume round of a publishing audit; leave empty
         type: string
         default: ''
       dry_run:
@@ -113,6 +117,51 @@ jobs:
       resume-run-id: ${{ inputs.release_resume_run || '' }}
       resume-batches: ${{ inputs.release_resume_batches || '' }}
     secrets: inherit
+
+  release-continue:
+    # A publishing audit continues on its own: a final-review rejection queues
+    # the next bounded resume round, and a passing automatic round queues
+    # publication of that run. Each queued run waits behind this one.
+    needs: [release-check, release-snapshot]
+    if: >-
+      always() && !cancelled() && needs.release-snapshot.result != 'skipped' &&
+      inputs.release_diagnostic_run == '' && inputs.release_publish_run == '' &&
+      ((inputs.release_resume_run == '' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)) ||
+      inputs.release_auto_round != '')
+    permissions:
+      actions: write
+      contents: read
+    runs-on: smg-org-runner-cpu
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_RESULT: ${{ needs.release-snapshot.result }}
+      AUTO_ROUND: ${{ inputs.release_auto_round || '0' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        # Missing when the audit failed before preparing; continue then warns.
+        continue-on-error: true
+        with:
+          name: release-context
+          path: ${{ runner.temp }}/release-docs
+      - if: needs.release-snapshot.result == 'failure'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: release-final-review-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-docs
+      - name: Queue the next automatic release step
+        run: |
+          if [ ! -f "$RUNNER_TEMP/release-docs/context.json" ]; then
+            echo '::warning::No release context to continue from; inspect the run'
+            exit 0
+          fi
+          python3 scripts/doc-sync/snapshots.py continue
 
   prepare:
     # Run main discovery on release days too, after the release publisher so
@@ -383,6 +432,10 @@ jobs:
         run: |
           python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" evidence
       - name: Update documentation for this concern only
+        id: write
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ env.ANTHROPIC_API_KEY }}
@@ -394,13 +447,24 @@ jobs:
             --max-turns 120
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Accept only a successful trace within the round budget
+        id: write-trace
+        env:
+          ACTION_OUTCOME: ${{ steps.write.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: 120
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Check reader-facing documentation before export
         id: writing
         env:
           READER_REPORT: ${{ runner.temp }}/reader-docs-report.json
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" preflight
       - name: Polish reader-facing documentation once
+        id: polish
         if: steps.writing.outputs.changed == 'true'
+        # Upstream #1795 compares tool-result counts with an API-round budget.
+        # The next step accepts only that mismatch with a successful bounded trace.
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           allowed_bots: 'claude,coderabbitai,github-actions'
@@ -415,9 +479,17 @@ jobs:
           claude_args: >-
             --model claude-fable-5
             --effort xhigh
-            --max-turns 60
+            --max-turns 90
             --tools "Read,Glob,Grep,Edit,Write"
             --allowedTools "Read,Glob,Grep,Edit,Write"
+      - name: Accept only a successful trace within the round budget
+        id: polish-trace
+        if: steps.writing.outputs.changed == 'true'
+        env:
+          ACTION_OUTCOME: ${{ steps.polish.outcome }}
+          EXECUTION_FILE: ${{ runner.temp }}/claude-execution-output.json
+          MAX_TURNS: 90
+        run: python3 "$RUNNER_TEMP/nightly-docs-tools/nightly_docs.py" trace
       - name: Preserve writing diagnostics
         if: always() && steps.writing.outcome == 'success'
         uses: actions/upload-artifact@v7

@@ -28,7 +28,11 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    canonical page needing correction, with justification for any new page.
    Each has a 200-turn hard ceiling with an 80-turn investigation target,
    reserving headroom for tool batches and structured output. Scans report
-   inspected commits, proposals, and remaining work. Recent commits are mandatory
+   inspected commits, proposals, and remaining work. A proposal whose source
+   commit is missing from the inspected list, or a release-audit proposal on
+   neither the pinned main source nor its queued identity, is left out with a
+   warning. Every commit check or release-audit disposition naming it becomes
+   deferred, so one slip no longer discards the rest of the scan. Recent commits are mandatory
    checks before older backlog and audit work. Up to eight extra **backlog
    scans** (25 commits each by default) assess older commits that never received
    a disposition, largest subsystem backlog first.
@@ -96,8 +100,10 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   or `depends_on` subsystems whose correction for the same commit must land first.
   A dependency is accepted only while that subsystem has a proposal tonight, its
   own queued concern (queued concerns record the subsystem that proposed them), or
-  an open PR for the commit; otherwise the check stays unfinished. Two subsystems
-  therefore cannot each wait on the other. A deferred check whose only open step
+  an open PR for the commit. Its own check for the commit also counts when it is
+  proposed (a reused queued concern keeps its older source) or blocked on an open
+  PR holding the page; otherwise the check stays unfinished. A check blocked only
+  on other subsystems never counts, so two subsystems cannot each wait on the other. A deferred check whose only open step
   is another subsystem's correction may also name `depends_on`. Because scans run
   in parallel, the plan settles such a daily wait as blocked when the named
   subsystem proposes tonight, or hands it off when that subsystem was not
@@ -192,6 +198,10 @@ execution trace. It recovers only a failed action with that specific overcount,
 a successful structured result and a verified round count within the limit.
 Missing traces, real budget errors, other action failures and invalid proposals
 still fail; the execution file is cleared before each invocation.
+Release writers, reviewers and repairers, and the Document writer and polish
+steps, use the same check: each Claude step continues on error and the next step
+passes it only for that mismatch, then consumes the trace. A recovered review's
+structured verdict is read from the trace.
 The old `automation/doc-sync-state` branch is retained as history and is no longer
 written. Eligibility comes from the fixed source window and live PR history, so
 legacy incomplete work remains discoverable.
@@ -339,7 +349,10 @@ To repair a completed full run that failed final content review, set
 `release_resume_run` to that run and `release_resume_batches` to every failed
 batch plus any related page owners identified in the findings. Resume requires
 complete final bundle coverage and all final review records from the same frozen
-release/base/seed/batch layout. It reconstructs each batch from the retained
+release/base/seed/batch layout. A run cancelled during final review may be
+resumed from the final review records it kept, as long as at least one of them
+is a rejection. Missing records only omit repair guidance, because every page is
+reviewed again from scratch. It reconstructs each batch from the retained
 baseline, writer output, first repair and second repair, in that order; repair
 stages may cover only selected batches. Final review hashes must match the
 reconstructed proposal. If main advanced only through edits to existing
@@ -353,8 +366,22 @@ the selected batches enter the existing repair stage. Every page then gets a
 fresh independent review against the changed whole snapshot, followed by the
 existing optional second correction pass, site/build checks and dry-run
 publication. The initial proposal must change; prior approvals cannot authorize
-it. Resume is manual, forces dry-run, and cannot be combined with diagnostic
-mode. It avoids regenerating accepted content, not the final validation gates.
+it. Resume forces dry-run and cannot be combined with diagnostic mode. It avoids
+regenerating accepted content, not the final validation gates. Unlike a
+diagnostic, it may select any number of batches.
+
+A publishing audit (a scheduled run, or a dispatch with `dry_run: false`) continues
+on its own. When its final review rejects batches, the `release-continue` job
+queues a resume run for the rejected batches plus the owners of every page their
+reviewers listed in `related_fixes`, marked with `release_auto_round`. When such
+an automatic round passes, it queues `release_publish_run` for itself with
+`dry_run: false`, which opens the release PR. After four automatic rounds, or
+when the audit failed before every final review recorded a verdict, the job
+only prints the manual resume inputs. Never cancel a run during final review:
+the unfinished reviews' findings are lost. Queued runs wait behind the current
+run in the same concurrency group; GitHub keeps only the newest waiting run, so
+a scheduled nightly queued meanwhile replaces a waiting automatic round and
+starts a fresh audit.
 
 To publish a successful full audit without regenerating its documentation, set
 `release_publish_run` to that run ID. Keep `dry_run: true` to test the publication
@@ -371,9 +398,8 @@ missing approvals, or changed page bytes fail closed; no writer or model reviewe
 runs. This preserves a successful correction instead of starting a new generation.
 The original resume mode remains dry-run-only and still requires fresh reviews.
 
-Full release stages and selected diagnostic batches run at most eight jobs
-concurrently. They share the runner pool capped at ten; any excess jobs wait for
-a runner. This changes scheduling, not source coverage, model effort, review
+Full release stages and selected diagnostic batches run at most forty jobs
+concurrently. They share the runner pool; any excess jobs wait for a runner. This changes scheduling, not source coverage, model effort, review
 requirements or publication gates.
 
 Before ordinary discovery, `snapshots.py detect` resolves GitHub's latest published
@@ -387,8 +413,8 @@ does not record the same verified release identity. It preserves existing snapsh
 Markdown and images, copies missing pages/assets from main, and freezes navigation
 and aliases. Writers audit at most two pages per batch, with a 48 KiB reading
 budget based on the larger of each snapshot/main page; larger pages run alone.
-Ordinary batches have a 180-turn hard limit; isolated oversized pages receive
-300 turns for both writing and independent review, with completion headroom.
+Ordinary batches have a 240-turn hard limit; isolated oversized pages receive
+400 turns for both writing and independent review, with completion headroom.
 They audit against the immutable release
 checkout: remove main-only behavior, correct stale claims, and add missing released
 behavior. Every page, including unchanged pages, requires independent review.
@@ -405,9 +431,16 @@ All writer batches are assembled before reviewers check cross-page consistency.
 Deterministic reader checks cover the complete release pages, including inherited
 PR/source citations and unreleased narration. These findings are appended to the
 review and cannot be overridden by an accepting model verdict.
-Valid negative verdicts allow at most two correction passes in separate writer jobs. Local
-findings select rejected batches; a cross-page inconsistency selects every batch
-because another page's reviewer may have missed the defect. Each writer reads all
+Each batch's `batch.json` lists `related_pages`: pages in other batches that link
+to or from its pages in the current snapshot. Writers, repairers and reviewers
+check every shared contract against them, because parallel writers otherwise
+leave contradictions for final review. Reviewers name pages outside their batch
+that must change in `related_fixes`.
+Valid negative verdicts allow at most two correction passes in separate writer jobs.
+Repair selects the rejected batches plus the owners of pages named in
+`related_fixes`. An older review that reports a cross-page inconsistency
+without that field still selects every batch, because the affected page is not
+inferred from prose. Each writer reads all
 validated negative findings and corrects only implicated claims on its assigned
 pages, including failed source-pinned checks. Unrelated paragraphs and tables stay
 unchanged; correction is not another rewrite or completeness audit. Missing,

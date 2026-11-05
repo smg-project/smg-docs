@@ -95,6 +95,66 @@ def resolve_scan(raw, history):
                        "remaining_work": result["remaining_work"]})
 
 
+def defer_unsupported_proposals(raw, context):
+    """Leave out proposals whose source identity the scan did not establish.
+
+    A scan's prompt allows dropping a proposal whose source commit was not
+    inspected, or whose release-audit identity is neither the pinned main
+    source nor its queued identity. One such slip used to discard every other
+    validated proposal and commit check in the scan. Leave those proposals out
+    and turn each disposition that named them into a deferral, so the work
+    stays visible next night. validate_scan still checks everything else.
+    """
+    result = json.loads(raw)
+    inspected = result.get('inspected_commits')
+    concerns = result.get('concerns')
+    if not isinstance(inspected, list) or not isinstance(concerns, list):
+        return raw, []
+    pending = {(p['source_sha'], p['area'], p['concern'])
+               for p in context.get('pending_concerns', [])}
+    kept, dropped = [], []
+    for item in concerns:
+        if not isinstance(item, dict):
+            kept.append(item)
+            continue
+        source, concern = item.get('source_sha'), item.get('concern')
+        if source not in inspected:
+            reason = 'its source commit was not reported as inspected'
+        elif (isinstance(concern, str) and concern.startswith('release-audit-')
+              and source != context['source_sha']
+              and (source, item.get('area'), concern) not in pending):
+            reason = 'it uses neither the pinned main source nor its queued identity'
+        else:
+            kept.append(item)
+            continue
+        dropped.append({'area': item.get('area'), 'concern': concern,
+                        'source_sha': source, 'reason': reason})
+    if not dropped:
+        return raw, []
+    names = {entry['concern'] for entry in dropped}
+    note = ' Deferred: left out proposal(s) {} because {}.'
+
+    def defer(check):
+        refs = check.get('concerns') if isinstance(check, dict) else None
+        if not isinstance(refs, list):
+            return check
+        missing = [c for c in refs if c in names]
+        if not missing:
+            return check
+        why = '; '.join(sorted({e['reason'] for e in dropped if e['concern'] in missing}))
+        changed = {**check, 'status': 'deferred', 'concerns': [c for c in refs if c not in names],
+                   'evidence': str(check.get('evidence', '')).rstrip()
+                   + note.format(', '.join(missing), why)}
+        if 'blockers' in changed:
+            changed['blockers'] = []
+        return changed
+
+    for key in ('daily_commit_checks', 'release_audit_checks'):
+        if isinstance(result.get(key), list):
+            result[key] = [defer(check) for check in result[key]]
+    return json.dumps({**result, 'concerns': kept}), dropped
+
+
 def validate_scan(raw, context, slug, history, backlog=0):
     result = json.loads(raw)
     inspected = result["inspected_commits"]
@@ -514,8 +574,13 @@ def main():
         raw = resolve_scan(read_scan_output(
             os.environ['SCAN_EXECUTION_FILE'], os.environ.get('SCAN_ACTION_OUTCOME', 'success'),
             int(os.environ.get('DISCOVERY_MAX_ROUNDS', '200')), execution), context["code_history"])
+        raw, left_out = defer_unsupported_proposals(raw, context)
+        for entry in left_out:
+            print(f"::warning::Deferred {entry['area']}/{entry['concern']} "
+                  f"({entry['source_sha']}): {entry['reason']}.")
         scan = validate_scan(raw, context, slug, context["code_history"], backlog)
         scan['execution'] = execution
+        scan['deferred_proposals'] = left_out
         Path(os.environ["SCAN_OUTPUT"]).write_text(json.dumps(scan))
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             label = (f"{slug} backlog {backlog}: {len(daily_coverage.batch_commits(context, slug, backlog))} older"
@@ -523,6 +588,8 @@ def main():
             summary.write(f"{label} commits; "
                           f"{len(scan['inspected_commits'])} self-reported inspected; "
                           f"{len(scan['concerns'])} proposed concerns.\n")
+            for entry in left_out:
+                summary.write(f"Deferred `{entry['area']}/{entry['concern']}`: {entry['reason']}.\n")
             summary.write(f"Verified {execution['assistant_rounds']} assistant rounds "
                           f"within the {execution['max_rounds']}-round limit. "
                           f"Upstream turn-counter recovery: {execution['recovered']}.\n")
@@ -597,39 +664,10 @@ def main():
 
 
 def read_scan_output(path, action_outcome='success', max_rounds=200, details=None):
-    """Read a successful, bounded trace; never infer approval from step status.
-
-    The pinned action's post-hoc guard compares tool-result counts with SDK
-    API rounds (anthropics/claude-code-action#1795). Recover only that mismatch,
-    after checking distinct assistant message IDs and all ordinary result gates.
-    The workflow clears the known execution path before invoking the action.
-    """
-    messages = json.loads(Path(path).read_text())
-    if not isinstance(messages, list) or not messages:
-        raise ValueError('Missing discovery execution result')
-    result = messages[-1]
-    if (result.get('type') != 'result' or result.get('subtype') != 'success'
-            or result.get('is_error') is not False
-            or not isinstance(result.get('structured_output'), dict)):
+    """Read a successful, bounded trace's structured scan output."""
+    result = docs.successful_trace(path, action_outcome, max_rounds, 'Discovery', details)
+    if not isinstance(result.get('structured_output'), dict):
         raise ValueError('Discovery did not finish with successful structured output')
-    assistants = [m.get('message', {}).get('id') for m in messages if m.get('type') == 'assistant']
-    if (not assistants or any(not isinstance(i, str) or not i for i in assistants)
-            or type(max_rounds) is not int or max_rounds < 1):
-        raise ValueError('Discovery trace lacks a verifiable assistant-round count')
-    rounds = len(set(assistants))
-    if rounds > max_rounds:
-        raise ValueError(f'Discovery exceeded its API-round budget: {rounds} > {max_rounds}')
-    reported = result.get('num_turns')
-    if action_outcome != 'success':
-        if (action_outcome != 'failure' or type(reported) is not int or reported <= max_rounds):
-            raise ValueError('Discovery action failed without the known turn-counter mismatch')
-        print(f'Recovered upstream turn-counter mismatch: {reported} reported turns, '
-              f'{rounds} assistant rounds within the {max_rounds}-round limit.')
-    else:
-        print(f'Validated discovery trace: {rounds} assistant rounds within the {max_rounds}-round limit.')
-    if details is not None:
-        details.update(assistant_rounds=rounds, max_rounds=max_rounds, reported_turns=reported,
-                       action_outcome=action_outcome, recovered=action_outcome == 'failure')
     return json.dumps(result['structured_output'])
 
 

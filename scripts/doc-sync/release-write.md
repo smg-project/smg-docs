@@ -21,6 +21,15 @@ paragraph. No code-change links, shorthand references such as `smg-project/smg#1
 or implementation history in public prose. Remove inherited citations too; this
 is a whole-page audit.
 
+batch.json lists related_pages: pages in other batches that link to or from
+your pages. Other writers edit them in parallel, so read them before finishing
+and keep every shared contract (flags, defaults, URL schemes, metric names and
+labels, error codes, precedence rules) consistent with the release source. If a
+related page is wrong, do not edit it; state the mismatch in your report so the
+reviewer can name it. Hub pages can list dozens of related pages: search them for the
+shared flags, metrics, anchors and terms your pages use (Grep), and read only the
+matching sections, not every related page in full.
+
 Change only the assigned snapshot Markdown paths. Read other snapshot pages for
 consistency; never change main docs, another release, manifests, images, scripts,
 metadata or evidence. If an assigned non-index page is entirely unsupported in

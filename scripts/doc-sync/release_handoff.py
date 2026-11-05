@@ -86,7 +86,10 @@ def collect(context, directory):
                 or type(state.get('audited_pages')) is not int or state['audited_pages'] < 1):
             raise ValueError('Invalid committed release audit marker')
         docs.git('merge-base', '--is-ancestor', old_base, base)
-        docs.source_git('merge-base', '--is-ancestor', release['sha'], source)
+        # Release tags can sit on a release branch (v1.14.0 is on release/1.14),
+        # so require shared history with pinned main, not ancestry. merge-base
+        # fails when the tag is missing or unrelated to main.
+        docs.source_git('merge-base', release['sha'], source)
         prefix = VERSION_ROOT + tag + '/content/'
         old_release = tree(old_base, prefix)
         old_main = tree(old_base, docs.DOC_ROOT)

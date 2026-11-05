@@ -602,5 +602,52 @@ class GitGuardTests(unittest.TestCase):
         self.assertTrue(self.git("ls-remote", "origin", self.item["branch"]).startswith(self.base))
 
 
+class TraceTests(unittest.TestCase):
+    """Claude steps continue on error; only their own bounded trace can pass them."""
+
+    def accept(self, messages, outcome, limit=180):
+        with tempfile.TemporaryDirectory() as directory:
+            trace, output = Path(directory) / 'execution.json', Path(directory) / 'output'
+            trace.write_text(json.dumps(messages))
+            output.write_text('')
+            env = {'EXECUTION_FILE': str(trace), 'ACTION_OUTCOME': outcome,
+                   'MAX_TURNS': str(limit), 'GITHUB_OUTPUT': str(output)}
+            with patch.dict(os.environ, env):
+                docs.accept_trace()
+            self.assertFalse(trace.exists())
+            return output.read_text()
+
+    def test_recovers_only_the_upstream_turn_counter_mismatch(self):
+        assistant = lambda identity: {'type': 'assistant', 'message': {'id': identity}}
+        result = {'type': 'result', 'subtype': 'success', 'is_error': False, 'num_turns': 182}
+        # Parallel tool results inflate num_turns; distinct message IDs are API rounds.
+        rounds = [assistant(str(i)) for i in range(170)] + [assistant('169')]
+        self.assertEqual(self.accept(rounds + [result], 'failure'), '')
+        self.assertEqual(self.accept(rounds + [{**result, 'num_turns': 12}], 'success'), '')
+        for messages, outcome in [
+                (rounds + [result], 'cancelled'),
+                (rounds + [{**result, 'num_turns': 170}], 'failure'),
+                ([assistant(str(i)) for i in range(181)] + [result], 'failure'),
+                (rounds + [{**result, 'subtype': 'error_max_turns'}], 'failure'),
+                (rounds + [{**result, 'is_error': True}], 'failure'),
+                ([result], 'failure'), ([], 'success')]:
+            with self.subTest(outcome=outcome, last=messages[-1:]), self.assertRaises(ValueError):
+                self.accept(messages, outcome)
+
+    def test_recovered_review_exposes_its_structured_verdict(self):
+        verdict = {'accurate': True, 'reason': 'ok', 'reviewed_pages': ['a.md']}
+        result = {'type': 'result', 'subtype': 'success', 'is_error': False,
+                  'num_turns': 250, 'structured_output': verdict}
+        output = self.accept([{'type': 'assistant', 'message': {'id': 'm'}}, result], 'failure', 240)
+        self.assertEqual(output, 'structured_output=' + json.dumps(verdict, separators=(',', ':')) + '\n')
+
+    def test_missing_trace_never_passes_a_failed_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = {'EXECUTION_FILE': str(Path(directory) / 'missing.json'), 'ACTION_OUTCOME': 'failure',
+                   'MAX_TURNS': '180', 'GITHUB_OUTPUT': str(Path(directory) / 'output')}
+            with patch.dict(os.environ, env), self.assertRaises(FileNotFoundError):
+                docs.accept_trace()
+
+
 if __name__ == "__main__":
     unittest.main()

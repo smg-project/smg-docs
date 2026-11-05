@@ -1,9 +1,15 @@
 Read contract.md, release-docs/context.json, batch.json, your own review when
 present, and all validated negative reviews in repair-findings.json. A different
 batch's reviewer may have found an error on your assigned page even if your own
-review accepted it. Automatic repair schedules every batch for a cross-page inconsistency; a
-manually resumed audit or targeted diagnostic selects the known owning batches. Reconcile findings about
-your assigned pages within their original allowlists.
+review accepted it. Repair schedules each rejected batch plus the owners of the
+pages its reviewer listed in related_fixes (every batch for an older review that
+reports an inconsistency without naming pages); a resumed audit or targeted
+diagnostic selects the known owning batches. Reconcile findings about your
+assigned pages within their original allowlists. batch.json lists related_pages
+in other batches that link to or from your pages; keep shared contracts
+consistent with them. Hub pages can list dozens of related pages: search them for the
+shared flags, metrics, anchors and terms your pages use (Grep), and read only the
+matching sections, not every related page in full.
 The assembled snapshot is the exact proposal the independent reviewer checked
 against SOURCE_ROOT at the published release SHA. This is a correction pass,
 not another rewrite. Change only claims implicated by a negative finding or a

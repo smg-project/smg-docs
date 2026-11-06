@@ -35,6 +35,12 @@ Control-plane middleware requires the **admin role** for every method on these r
 
 Control-plane credentials apply only to these routes. The inference routes, such as `/v1/chat/completions`, check the shared `--api-key` and per-tenant keys instead, and stay open when neither is set. Set `--api-key` as well to protect them.
 
+### Admin Listener
+
+By default the control-plane routes answer on the gateway's data listener (`--port`), alongside the serving routes. Set `--admin-port` to serve them on an admin listener of their own instead: the whole list above moves there and the data listener answers `404` for them, so the control plane can sit on a private address behind its own network policy while the serving routes stay reachable. `--admin-host` sets the admin listener's bind address (the `--host` value by default; it needs `--admin-port`). The probe routes `/health`, `/liveness`, and `/readiness` answer on both listeners, so the admin listener can be probed on its own; the public `/loads` stays on the data listener.
+
+The split changes where the routes answer, not who may call them: control-plane authentication applies on the admin listener exactly as described on this page. When the gateway serves HTTPS, the admin listener presents the same certificate ([Configure TLS](tls.md#enable-server-tls)). The admin listener also sits outside the data listener's `--max-connections` bound, so it stays reachable while the data plane is saturated. Each listener needs its own port; see the [Listeners reference](../reference/configuration.md#listeners).
+
 ### Without Control Plane Auth
 
 When no control-plane API keys and no JWT settings are configured, the routes above fall back to the shared `--api-key`:
@@ -55,7 +61,7 @@ SMG keeps this default so a local start stays one command, but it says so: when 
 
 | Surface | Flag |
 |---------|------|
-| Control plane routes (the list above) | `--control-plane-api-keys id:name:admin:<key>`, or `--jwt-issuer` with `--jwt-audience`; the shared `--api-key` also gates them |
+| Control plane routes (the list above) | `--control-plane-api-keys id:name:admin:<key>`, or `--jwt-issuer` with `--jwt-audience`; the shared `--api-key` also gates them. `--admin-port` moves them to their own [admin listener](#admin-listener) that a network policy can fence |
 | Serving routes (`/v1/chat/completions` and the rest) | `--api-key <key>`, or `--tenant-api-key tenant:<key>` per tenant |
 | Metrics listener | No credential exists: bind it to a private address with `--prometheus-host` and fence the port with a network policy ([Monitoring](monitoring.md#enable-metrics)) |
 | Public read-only routes (`GET /loads`, `GET /engine_metrics`, `/v1/models`, `/get_server_info`, `/get_model_info` and the health routes) | No credential exists: fence the gateway's port with a network policy |

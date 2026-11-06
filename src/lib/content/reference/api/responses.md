@@ -1452,13 +1452,24 @@ The Responses API includes additional sampling parameters specific to SGLang:
 Where they take effect:
 
 - **HTTP workers** receive them with the request.
-- **gpt-oss (Harmony) models on gRPC**: all but `stop` are applied; `stop` is not passed to the engine.
+- **gpt-oss (Harmony) models on gRPC**: all six fields are passed to the engine on every
+  model turn of the tool loop. Where the serving engine cannot match strings, SMG matches
+  `stop` sequences itself, so a `stop` takes effect on every backend except MLX, where a
+  request with string `stop` sequences gets a `400` (see
+  [gRPC Workers](../../getting-started/grpc-workers.md)).
 - **Other models on gRPC**: all six fields are passed to the engine on every model turn
   of the tool loop; which of them affect sampling is up to the serving engine. `top_k`,
   `min_p`, and `repetition_penalty` sent at their default values (`-1`, `0.0`, and `1.0`
   respectively) count as unset, the same as omitting them: the model's own sampling
   defaults apply. A matched `stop` sequence ends generation and is trimmed from the
   output, as on Chat Completions.
+
+On gpt-oss (Harmony) models on gRPC, the first `stop` match ends the model turn:
+everything generated past the match, tool calls included, is dropped, and the matched
+sequence stays as the suffix of the output — it is not trimmed, unlike on other models.
+A `stop` can match inside the model's reasoning, ending the turn before any message, so
+the response may carry a `reasoning` item and no `message`. A turn ended by `stop`
+completes normally: `"status": "completed"` with no `incomplete_details`.
 
 Example:
 

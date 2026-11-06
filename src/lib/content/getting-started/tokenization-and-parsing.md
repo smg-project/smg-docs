@@ -6,7 +6,7 @@ title: Tokenization and Parsing APIs
 
 SMG exposes utility endpoints for tokenization, detokenization, function-call parsing, and reasoning separation. They use the gateway's own tokenizers and the same legacy parser registries as the [gRPC pipeline](../concepts/architecture/grpc-pipeline.md). You can use them to see exactly how SMG tokenizes a prompt or splits a model's raw output.
 
-To get the same token IDs in Python without a running gateway, the `smg` package also ships the gateway's tokenizer as a library; see [Python Library](#python-library).
+To get the same token IDs in Python without a running gateway — and to render a chat conversation into the exact prompt SMG feeds the model — the `smg` package also ships the gateway's tokenizer as a library; see [Python Library](#python-library).
 
 <div class="prerequisites" markdown>
 
@@ -114,7 +114,7 @@ Errors use the body `{"error": {"message": "...", "type": "..."}}`:
 
 ## Python Library
 
-`smg.tokenizer.Tokenizer` encodes and decodes in Python with the tokenizer SMG serves with: the same Rust code loads the checkpoint, so a training or evaluation pipeline gets the token IDs the gateway feeds the model, without running a gateway. It ships in the `smg` package:
+`smg.tokenizer.Tokenizer` encodes, decodes and renders chat prompts in Python with the tokenizer SMG serves with: the same Rust code loads the checkpoint, and chats render through the gateway's own request path, so a training or evaluation pipeline gets the token IDs the gateway feeds the model, without running a gateway. It ships in the `smg` package:
 
 ```bash
 pip install smg
@@ -123,15 +123,20 @@ pip install smg
 ```python
 from smg.tokenizer import Tokenizer
 
-tokenizer = Tokenizer("/models/Qwen3-8B")           # what the gateway loads
+# What the gateway loads, and the model ID it serves it as.
+tokenizer = Tokenizer("/models/Qwen3-8B", model="Qwen/Qwen3-8B")
 ids = tokenizer.encode("Hello world")               # list[int]
 text = tokenizer.decode(ids)
 batch = tokenizer.encode_batch(["Hello", "World"])  # parallel, on a Rust thread pool
+
+# The token IDs SMG would feed the model for this conversation.
+messages = [{"role": "user", "content": "Hi"}]
+prompt_ids = tokenizer.apply_chat_template(messages, add_generation_prompt=True)
 ```
 
 ### Loading
 
-`Tokenizer(source)` — or `Tokenizer.from_pretrained(source)`, which is the same — accepts a path or a model name:
+`Tokenizer(source, *, chat_template=None, model=None)` — or `Tokenizer.from_pretrained(...)`, which is the same — accepts a path or a model name as `source`:
 
 | `source` | Behavior |
 |---|---|
@@ -141,7 +146,9 @@ batch = tokenizer.encode_batch(["Hello", "World"])  # parallel, on a Rust thread
 
 A name that can only be a path — an absolute path, one starting with `.` or `~`, or one with more than two `/`-separated segments — raises `FileNotFoundError` when it doesn't exist, instead of being read as a model name.
 
-To reproduce a gateway's token IDs, load what that gateway loads: its `--tokenizer-path` if set, otherwise its `--model-path`. `config.json` and `generation_config.json` beside the tokenizer files supply the stop IDs (`eos_token_ids` below). Builds must match too: `Tokenizer.smg_build` names the smg release and commit the library was built from, and the gateway prints its own with `--version-verbose`.
+The two keyword arguments configure [chat rendering](#chat-rendering). `chat_template=` is a template file to render with instead of the checkpoint's own, as the gateway's `--chat-template`; a file that doesn't exist raises `ValueError`. `model=` is the model ID chat requests render under; see [The Model ID and the Provider Profile](#the-model-id-and-the-provider-profile) for its default and what it selects.
+
+To reproduce a gateway's token IDs, load what that gateway loads: its `--tokenizer-path` if set, otherwise its `--model-path`. `config.json` and `generation_config.json` beside the tokenizer files supply the renderer and the stop IDs (`eos_token_ids` below), and `chat_template=` should be the same file the gateway's `--chat-template` gets, when it gets one. Builds must match too: `Tokenizer.smg_build` names the smg release and commit the library was built from, and the gateway prints its own with `--version-verbose`.
 
 ### Encode and Decode
 
@@ -152,11 +159,81 @@ To reproduce a gateway's token IDs, load what that gateway loads: its `--tokeniz
 | `decode(token_ids, *, skip_special_tokens=False)` | `str` |
 | `decode_batch(sequences, *, skip_special_tokens=False)` | `list[str]`, one per sequence |
 
-- `add_special_tokens=True` adds what the tokenizer's post-processor adds — a BOS for Llama-style checkpoints, nothing for most byte-level ones — as `transformers` does by default. SMG encodes `/v1/completions`, `/generate` and `/v1/tokenize` text with `add_special_tokens=False` and embedding input with `True`, so pass `False` to match the prompt IDs of a generation request (and the output of [`/v1/tokenize`](#tokenize) above).
+- `add_special_tokens=True` adds what the tokenizer's post-processor adds — a BOS for Llama-style checkpoints, nothing for most byte-level ones — as `transformers` does by default. SMG encodes `/v1/completions`, `/generate` and `/v1/tokenize` text with `add_special_tokens=False` and embedding input with `True`, so pass `False` to match the prompt IDs of a generation request (and the output of [`/v1/tokenize`](#tokenize) above). A chat prompt's special tokens come from its template; see [Chat Rendering](#chat-rendering) below.
 - Special-token text in the input, such as `<|im_end|>`, encodes to the special token.
 - `decode` takes a list or tuple of IDs, a numpy array, or a torch tensor (`decode_batch` also takes a 2-D one) and does not apply `transformers`' `clean_up_tokenization_spaces`.
 - `skip_special_tokens` defaults to `False` — special tokens stay in the decoded text — while [`/v1/detokenize`](#detokenize) above defaults it to `true`.
 - A legacy-format Llama-class `tokenizer.json` (one with a `Prepend` normalizer) is encoded as `transformers`' `LlamaTokenizer` class builds it — the pipeline the engines load — which can differ from `transformers` 4.x in leading-space pieces.
+
+### Chat Rendering
+
+`render_chat` turns a `/v1/chat/completions` request body into the prompt SMG would feed the model, through the gateway's own request path: the request is deserialized, normalized and validated as the HTTP layer does, and refused where the gRPC router refuses it; the provider profile's rewrites apply, message content is shaped for the template, tool-call `arguments` strings are parsed into objects for templates that serialize them, and `tool_choice`, `reasoning_effort` and `chat_template_kwargs` reach the template as the gateway hands them. The prompt is then encoded as the gateway's tokenize step encodes it. Which Jinja template or native renderer a checkpoint uses is described under [Chat Templates and Native Renderers](../concepts/architecture/grpc-pipeline.md#chat-templates-and-native-renderers).
+
+```python
+tokenizer = Tokenizer("/models/Qwen3-8B", model="Qwen/Qwen3-8B")
+
+# The request body a client would send — logged bodies replay as they are.
+weather = {"type": "object", "properties": {"city": {"type": "string"}}}
+rendered = tokenizer.render_chat({
+    "messages": [{"role": "user", "content": "What's the weather in Paris?"}],
+    "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": weather}}],
+    "reasoning_effort": "low",
+})
+rendered["token_ids"]  # the IDs SMG feeds the model
+rendered["text"]       # the prompt text
+```
+
+| Method | Returns |
+|---|---|
+| `render_chat(request)` | `RenderedChat` |
+| `render_chat_batch(requests)` | `list[RenderedChat]`, rendered in parallel |
+| `apply_chat_template(conversation, ...)` | `list[int]`, or `str` with `tokenize=False`; a list of conversations returns a list, rendered in parallel |
+
+#### render_chat
+
+`request` is the body a client would send to `/v1/chat/completions`, as a mapping or as its JSON text (`str` or `bytes`), so a logged request body replays as it is. A mapping may hold pydantic objects, such as the OpenAI SDK's messages (serialized by their set fields), and numpy values.
+
+The gateway's request fields apply: `messages`, and optionally `tools`, `tool_choice`, `add_generation_prompt` (`True` when absent, as in the gateway), `continue_final_message`, `chat_template_kwargs`, `reasoning_effort`, `thinking` and the other fields the gateway reads. A tool call in the history needs its `id` and `type`, as the gateway requires. A request SMG would refuse with 400 raises `ValueError` with the gateway's reason; a batch failure names the item, as in `requests[1]: ...`.
+
+The result is a `RenderedChat` dict:
+
+| Field | Meaning |
+|---|---|
+| `text` | The prompt text |
+| `token_ids` | The token IDs SMG feeds the model |
+| `from_text` | Whether `token_ids` is the flat encode of `text` (`encode(text, add_special_tokens=False)`). `False` for renderers that encode segment by segment — Kimi-K3, and DeepSeek V3.2 / V4 / V4.1 when message text spells a control token — whose IDs no encode of the text reproduces: use `token_ids`, never re-encode `text` |
+| `generation_prompt` | Whether the renderer wrote its generation header after the conversation |
+| `continued_final_message` | Whether the renderer kept the final message open, as `continue_final_message` asks |
+| `warnings` | The rewrites SMG made to the request while rendering it, which serving only logs: tool-call `arguments` that are not a JSON object rendered as `{}`, message extensions of another provider's profile dropped, deprecated fields migrated |
+
+`render_chat` returns the rendering as SMG makes it, which can differ from what the request asks: a renderer with an encoder of its own writes the generation header after a final user or tool message whatever `add_generation_prompt` says (`generation_prompt` reports what it did), and SMG continues only a final assistant message (`continued_final_message` reports whether it did). A final assistant message the renderer cannot continue itself is continued the way SMG continues it: its text appended after the generation header (`generation_prompt` true, `continued_final_message` false).
+
+#### apply_chat_template
+
+`apply_chat_template(conversation, tools=None, *, add_generation_prompt=False, continue_final_message=False, tokenize=True, tool_choice=None, reasoning_effort=None, **template_kwargs)` takes `transformers`' shape, builds the chat request, and renders it the same way. It returns the token IDs, or the prompt text with `tokenize=False`. Every call renders under `Tokenizer.model`, so the tokenizer needs one (see below).
+
+- `tools=None` declares no tools and `tools=[]` an empty list, which templates (and the gateway) tell apart. `tool_choice` and `reasoning_effort` are request fields, which the gateway also hands the template. Keyword arguments beyond the named ones reach the template the way `chat_template_kwargs` entries do (`enable_thinking=False`).
+- A `transformers` argument SMG has no equivalent for raises `TypeError` with the reason, unless it is given its no-op value (`None` or `False`), which is ignored: `chat_template`, `documents`, `padding`, `truncation`, `max_length`, `return_tensors`, `return_dict`, `return_assistant_tokens_mask`, `tokenizer_kwargs`, `sanitize_control_tokens`. So does a keyword naming a variable the render fills itself — `messages`, `strftime_now`, or a special token the checkpoint defines — and a `continue_final_message` naming a field other than `"content"` (`True` and `"content"` both continue the final message's content).
+- A rendering that does not do what `add_generation_prompt` or `continue_final_message` asks raises `ValueError`: a checkpoint whose own encoder writes the generation header after a final user or tool message, or a final message that is not the assistant's to continue. `render_chat` returns such a rendering as SMG makes it.
+- The rewrites `render_chat` lists in `warnings` are issued as `smg.tokenizer.RenderWarning` (`warnings.simplefilter("error", RenderWarning)` turns them into errors).
+
+#### The Model ID and the Provider Profile
+
+A request renders under `Tokenizer.model`, as the router renders a request under the served model's ID: a request that names no model takes it, and one that names another model — a client's alias — is rewritten to it. The ID selects the [provider profile](../reference/api/openai.md#provider-profiles) whose request rewrites apply.
+
+| Member | Value |
+|---|---|
+| `model` | The model ID chat requests render under. Defaults to the Hub ID of a Hub source or of a Hugging Face cache snapshot (`.../models--{org}--{name}/snapshots/...`), and to the name itself for an OpenAI model name; `None` for any other path |
+| `provider_profile` | The profile `model` selects: `"deepseek"`, `"kimi"`, `"minimax"`, `"zai"` (GLM), `"openai"` or `"generic"`; `None` without a model ID |
+| `chat_template` | The absolute path of the chat template file given at load, if any |
+
+For a plain local checkpoint path, pass `model=`: the ID SMG serves the checkpoint as, or a vendor-named alias of it — the gateway's `--model-alias` registry is not read. Without one, a request renders under the model it names itself, which selects a profile by that name alone; a logged body carries the client's ID, perhaps an alias, so pass `model=` when replaying logs. A request that names no model then raises `ValueError`, and so does every `apply_chat_template` call, which builds a request that names none.
+
+#### Not Reproduced
+
+- **Media content** is refused: SMG expands each image, video or audio item into the model's own tokens when it serves the request, which a tokenizer alone cannot reproduce, so the library renders text-only conversations.
+- **gpt-oss models** are refused: SMG renders them with Harmony, not the chat template.
+- **Dates from `strftime_now`**: the template writes the local time at the render, as in serving. Setting `SOURCE_DATE_EPOCH` (whole seconds since the Unix epoch) in the environment the process starts with pins it to that instant — still in local time, so also set `TZ` for the same text on every host (Windows uses the system time zone regardless). The variable is read once, when the process loads its first chat template.
 
 ### Vocabulary and Special Tokens
 
@@ -173,7 +250,7 @@ To reproduce a gateway's token IDs, load what that gateway loads: its `--tokeniz
 
 ### Threads and Worker Processes
 
-An encode of less than 16 KiB of text, or a decode of fewer than 4096 IDs, runs on the calling thread with the GIL held, like a single encode in Hugging Face's `tokenizers`; longer calls release it. The batch methods, long encodes, and loading run on the library's own thread pool, one per process:
+An encode of less than 16 KiB of text, a decode of fewer than 4096 IDs, or a chat whose request and rendered prompt are both under 16 KiB runs on the calling thread with the GIL held, like a single encode in Hugging Face's `tokenizers`; longer calls release it. The batch methods (including `render_chat_batch` and a list of conversations in `apply_chat_template`), long encodes (a chat's long prompt among them), and loading run on the library's own thread pool, one per process:
 
 - `SMG_TOKENIZER_THREADS` sets the pool size; it must be a positive integer.
 - Without it, the pool has one thread when `TOKENIZERS_PARALLELISM` is off (read as Hugging Face's `tokenizers` reads it), and otherwise `RAYON_NUM_THREADS` threads, or one per CPU when that is unset too.
@@ -184,10 +261,10 @@ To encode many texts, prefer one `encode_batch` call over a Python thread per te
 
 | Exception | Cause |
 |---|---|
-| `ValueError` | The tokenizer rejected the input; a batch failure names the item, as in `texts[3]: ...` |
+| `ValueError` | The tokenizer rejected the input, or a chat request SMG would refuse with 400 — raised with the gateway's reason; a batch failure names the item, as in `texts[3]: ...` or `requests[1]: ...`. `apply_chat_template` also raises it for a rendering that does not honor `add_generation_prompt` or `continue_final_message`, and loading raises it for a `chat_template=` file that doesn't exist |
 | `RuntimeError` | The checkpoint didn't load, the thread pool couldn't start, or the tokenizer failed internally |
-| `FileNotFoundError` | A path that isn't there |
-| `TypeError` | A single string passed to `encode_batch`, which takes a sequence of texts |
+| `FileNotFoundError` | A `source` path that isn't there |
+| `TypeError` | A single string passed to `encode_batch` or a single request to `render_chat_batch`, which take sequences; a chat request that is not a mapping or its JSON text; an `apply_chat_template` argument SMG has no equivalent for, or a keyword naming a template variable the render fills itself |
 
 ---
 

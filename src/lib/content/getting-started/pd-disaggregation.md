@@ -157,6 +157,13 @@ on different machines, also set `VLLM_NIXL_SIDE_CHANNEL_HOST` to an address
 reachable from the decode worker — prefill embeds this host/port in the
 handoff params that decode uses to fetch the KV cache.
 
+Across hosts without an RDMA device, NIXL moves the KV cache over UCX's TCP
+transport, whose segment size sets the transfer rate. The SMG engine images
+ship `/etc/ucx/ucx.conf` raising it to 1 MiB so the pull runs at the socket's
+rate; workers launched outside those images run UCX's 8 KiB default and pull
+a fraction of that. See
+[Cross-Host KV Transfer over TCP (UCX Segment Size)](../concepts/routing/pd-disaggregation.md#cross-host-kv-transfer-over-tcp-ucx-segment-size).
+
 To verify KV transfer is active, send a request and look for `Transfer plan:`
 in the decode worker log (vLLM >= 0.20). If the router logs
 `prefill returned no kv_transfer_params`, upgrade the servicer

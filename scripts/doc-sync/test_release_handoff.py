@@ -306,6 +306,38 @@ class DiscoveryHandoffTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             discovery.resolve_scan(json.dumps(keyed), history)
 
+    def test_malformed_daily_check_is_deferred_without_discarding_the_scan(self):
+        # Run 42179285488 lost a backlog scan to one blocked check with no blockers.
+        current, older = self.context['source_sha'], 'b' * 40
+        ordinary = {**self.item, 'concern': 'ordinary-change', 'question': 'Ordinary question?'}
+        good = {'source_sha': older, 'status': 'covered', 'concerns': [], 'blockers': [],
+                'depends_on': [], 'evidence': 'The page already says this.'}
+        for name, bad, kept in [
+                ('blocked without blockers', {'status': 'blocked', 'concerns': ['ordinary-change']},
+                 ['ordinary-change']),
+                ('covered with a dependency', {'status': 'covered', 'depends_on': ['operations']}, []),
+                ('missing concern', {'status': 'proposed', 'concerns': ['not-proposed']}, [])]:
+            with self.subTest(name):
+                check = {**good, 'source_sha': current, **bad}
+                raw, context, history = self.scan_inputs({
+                    'concerns': [self.item, ordinary], 'release_audit_checks': [self.check],
+                    'daily_commit_checks': [check, good]})
+                context['daily_assignments'] = {'routing-workers': [current, older]}
+                with self.assertRaises(ValueError):
+                    discovery.validate_scan(raw, context, 'routing-workers', history)
+                raw, deferred = discovery.defer_invalid_daily_checks(raw, context, 'routing-workers')
+                scan = discovery.validate_scan(raw, context, 'routing-workers', history)
+                first, second = scan['daily_commit_checks']
+                self.assertEqual((first['status'], first['concerns'], first['blockers'], first['depends_on']),
+                                 ('deferred', kept, [], []))
+                self.assertIn('Deferred: the check was invalid', first['evidence'])
+                self.assertEqual(second, good)
+                self.assertEqual([d['source_sha'] for d in deferred], [current])
+        raw, context, _ = self.scan_inputs({'concerns': [], 'release_audit_checks': [],
+                                            'daily_commit_checks': [good]})
+        context['daily_assignments'] = {'routing-workers': [older]}
+        self.assertEqual(discovery.defer_invalid_daily_checks(raw, context, 'routing-workers'), (raw, []))
+
     def test_complete_audit_dispositions_are_not_settled(self):
         raw, context, _ = self.scan_inputs({'concerns': [self.item], 'release_audit_checks': [self.check]})
         self.assertEqual(discovery.settle_release_audit_checks(raw, context, 'routing-workers'), (raw, []))

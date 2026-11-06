@@ -149,6 +149,56 @@ def settle_release_audit_checks(raw, context, slug, backlog=0):
     return json.dumps({**result, 'release_audit_checks': kept}), settled
 
 
+def defer_invalid_daily_checks(raw, context, slug, backlog=0):
+    """Defer a malformed daily commit check instead of failing its scan.
+
+    Run 42179285488 lost a whole backlog scan to one check whose blockers did
+    not match its status. Validate each assigned check on its own; one that
+    fails becomes deferred with the validator's reason, keeping only concern
+    references that still validate. The commit stays unfinished, so it comes
+    back next night. Unknown and repeated commits still fail validate_scan.
+    """
+    result = json.loads(raw)
+    checks = result.get('daily_commit_checks')
+    if not isinstance(checks, list) or not isinstance(result.get('concerns'), list):
+        return raw, []
+    expected = (daily_coverage.batch_commits(context, slug, backlog) if backlog
+                else context.get('daily_assignments', {}).get(slug, []))
+    counts = {}
+    for check in checks:
+        if isinstance(check, dict) and check.get('source_sha') in expected:
+            counts[check['source_sha']] = counts.get(check['source_sha'], 0) + 1
+
+    def error(check):
+        try:
+            daily_coverage.validate({**result, 'daily_commit_checks': [check]},
+                                    context, slug, SHARD_NAMES, expected)
+        except (ValueError, TypeError, KeyError, AttributeError) as failure:
+            return str(failure) or type(failure).__name__
+        return None
+
+    fixed, deferred = [], []
+    for check in checks:
+        sha = check.get('source_sha') if isinstance(check, dict) else None
+        reason = error(check) if counts.get(sha) == 1 else None
+        if reason is None:
+            fixed.append(check)
+            continue
+        refs = check.get('concerns')
+        changed = {**check, 'status': 'deferred', 'blockers': [], 'depends_on': [],
+                   'evidence': str(check.get('evidence') or '').rstrip()
+                   + f' Deferred: the check was invalid ({reason}).'}
+        changed['concerns'] = refs if isinstance(refs, list) and error(changed) is None else []
+        if error(changed) is not None:
+            fixed.append(check)  # Leave the original for validate_scan to report.
+            continue
+        fixed.append(changed)
+        deferred.append({'source_sha': sha, 'reason': reason})
+    if not deferred:
+        return raw, []
+    return json.dumps({**result, 'daily_commit_checks': fixed}), deferred
+
+
 def defer_unsupported_proposals(raw, context):
     """Leave out proposals whose source identity the scan did not establish.
 
@@ -651,10 +701,14 @@ def main():
         for entry in left_out:
             print(f"::warning::Deferred {entry['area']}/{entry['concern']} "
                   f"({entry['source_sha']}): {entry['reason']}.")
+        raw, invalid = defer_invalid_daily_checks(raw, context, slug, backlog)
+        for entry in invalid:
+            print(f"::warning::Deferred daily check {entry['source_sha']}: {entry['reason']}.")
         scan = validate_scan(raw, context, slug, context["code_history"], backlog)
         scan['execution'] = execution
         scan['deferred_proposals'] = left_out
         scan['settled_release_audit_checks'] = settled
+        scan['deferred_daily_checks'] = invalid
         Path(os.environ["SCAN_OUTPUT"]).write_text(json.dumps(scan))
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             label = (f"{slug} backlog {backlog}: {len(daily_coverage.batch_commits(context, slug, backlog))} older"
@@ -667,6 +721,8 @@ def main():
                               f"{entry['reason']}.\n")
             for entry in left_out:
                 summary.write(f"Deferred `{entry['area']}/{entry['concern']}`: {entry['reason']}.\n")
+            for entry in invalid:
+                summary.write(f"Deferred daily check `{entry['source_sha']}`: {entry['reason']}.\n")
             summary.write(f"Verified {execution['assistant_rounds']} assistant rounds "
                           f"within the {execution['max_rounds']}-round limit. "
                           f"Upstream turn-counter recovery: {execution['recovered']}.\n")

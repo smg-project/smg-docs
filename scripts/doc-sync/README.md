@@ -37,7 +37,9 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    checks, so each assigned candidate must get exactly one. As a fallback, a
    disposition for a candidate not assigned to the scan is left out, repeated ones become a single deferral, and an assigned
    candidate without one is deferred. A release-audit proposal that no
-   disposition of its own candidate names is then left out. Recent commits are mandatory
+   disposition of its own candidate names is then left out. A daily commit
+   check that fails validation on its own (for example, blocked with no
+   blockers) is deferred with the reason, so the commit returns next night. Recent commits are mandatory
    checks before older backlog and audit work. Up to eight extra **backlog
    scans** (25 commits each by default) assess older commits that never received
    a disposition, largest subsystem backlog first.

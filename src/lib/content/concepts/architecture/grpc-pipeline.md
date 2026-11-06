@@ -169,11 +169,15 @@ Some checkpoints ship a Python prompt encoder instead of a Jinja template. For t
 
 | Renderer | Selected when `config.json` has | Thinking key (renderer default) | Native `reasoning_effort` values | Notes |
 |----------|----------------------------------|--------------|----------------------------------|-------|
-| DeepSeek-V3.2 | architecture `DeepseekV32ForCausalLM` | `thinking` or its `enable_thinking` alias (default off) | None | Tools are attached to the leading system or developer message |
+| DeepSeek-V3.2 | architecture `DeepseekV32ForCausalLM` | `thinking` or its `enable_thinking` alias (default off) | None | Renders a `developer` message as a user turn with its content under a `# The user's message is:` heading |
 | DeepSeek-V4 | architecture `DeepseekV4ForCausalLM` | `thinking` or its `enable_thinking` alias (default on) | `low`, `high`, `max` | Thinking stays on for every `reasoning_effort` except `"none"` |
 | DeepSeek-V4.1 | architecture `DeepseekV41ForCausalLM` or `model_type: deepseek_v41` | `thinking` or its `enable_thinking` alias (default on) | `low`, `medium`, `high`, `xhigh`, `max`, or an integer budget from 1 to 100 | Continues a trailing assistant message natively with `continue_final_message`; reads tool-call `arguments` as written |
 | Kimi-K3 | architecture `KimiK3ForConditionalGeneration` or `model_type: kimi_k3` | `thinking` or its `enable_thinking` alias (default on) | `low`, `high`, `max` (default `max`; rendered only while thinking is on) | Encodes the prompt piece by piece, so control-token text inside a message stays text; reads tool-call `arguments` as written |
 | Kimi-K2.5 | architecture `KimiK25ForConditionalGeneration` or `model_type: kimi_k25` | From the Jinja template | None | Keeps the Jinja template, but renders tool declarations as TypeScript with a port of the checkpoint's `tool_declaration_ts.py` |
+
+DeepSeek-V4 and V4.1 render a `developer` message as a plain user turn, and Kimi-K3 renders it as a system message. While thinking is on, the three DeepSeek renderers drop a developer message that comes before the last user turn, in the same pass that drops the conversation's earlier reasoning. A trailing developer message is itself the last user turn and stays, and a request that declares tools switches the drop off. These rules apply to Chat Completions requests; the [Responses API](../../reference/api/responses.md) folds a `developer` input item into the system prompt before any renderer runs.
+
+A request's `tools` never attach to a developer message. The DeepSeek-V3.2 and V4 renderers put them on the leading system message, inserting an empty one when the conversation opens with another role; DeepSeek-V4.1 puts them on the first system message wherever it sits, inserting an empty leading one only when the conversation has none.
 
 SMG renders every DeepSeek-V4 checkpoint with the same effort table the serving engine's own copy of the encoder carries, whatever the checkpoint's own `encoding/encoding_dsv4.py` says — the engine never reads that file, and neither does SMG. While thinking is on, `low` writes no effort prefix, `high` writes the "Absolute maximum" prompt, and `max` a stronger "Beyond maximum" one; a thinking request that sets no `reasoning_effort` renders `high`'s prompt.
 

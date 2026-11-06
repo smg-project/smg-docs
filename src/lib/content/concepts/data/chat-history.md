@@ -261,7 +261,7 @@ Enterprise-grade storage using Oracle Autonomous Database.
 
 `--oracle-dsn` takes precedence: with a DSN, SMG ignores the wallet and TNS alias.
 
-The Python launcher (`smg launch` from pip, and the container image) accepts the same flag names, plus the older second spellings `--oracle-username` for `--oracle-user` and `--oracle-connect-descriptor` for `--oracle-dsn`. Unlike the binary, it uses the TNS alias when both an alias and a DSN are given. See [Python Launcher Differences](../../reference/configuration.md#python-launcher-differences).
+The Python launcher (`smg launch` from pip, and the container image) accepts the same flag names as the Rust `smg` binary, plus the older second spellings `--oracle-username` for `--oracle-user` and `--oracle-connect-descriptor` for `--oracle-dsn`. Unlike the binary, it uses the TNS alias when both an alias and a DSN are given. See [Python Launcher Differences](../../reference/configuration.md#python-launcher-differences).
 
 ### Examples
 

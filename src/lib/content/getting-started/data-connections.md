@@ -93,7 +93,7 @@ smg \
 On a new database, also set `DB_AUTO_MIGRATE=true` for the first start; see [Schema migrations](#schema-migrations).
 
 !!! note "Python launcher flag names"
-    These commands use the Rust `smg` binary's flag names. The Python launcher (`smg launch` from pip, and the container image) spells four of them differently: `--postgres-pool-max`, `--redis-pool-max`, `--oracle-username`, and `--oracle-connect-descriptor` (for `--oracle-dsn`). See [Python Launcher Differences](../reference/configuration.md#python-launcher-differences).
+    The Python launcher (`smg launch` from pip, and the container image) accepts the same flag names as the Rust `smg` binary, so the flags in these commands carry over unchanged. Four storage flags also have an older second spelling in the launcher: `--postgres-pool-max` for `--postgres-pool-max-size`, `--redis-pool-max` for `--redis-pool-max-size`, `--oracle-username` for `--oracle-user`, and `--oracle-connect-descriptor` for `--oracle-dsn`. See [Python Launcher Differences](../reference/configuration.md#python-launcher-differences).
 
 ---
 

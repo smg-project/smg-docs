@@ -95,7 +95,7 @@ smg launch \
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--least-load-kv-pressure-weight` | `0.15` | Weight (seconds) of the KV-pressure penalty. Raise it to avoid nearly full KV caches more aggressively; `0` turns the penalty off |
-| `--least-load-default-throughput` | `2000` | Throughput (tokens/s) assumed when no candidate reports a live rate: a prefill worker's live rate is the prefill capacity its servicer measured (input tokens/s), another worker's is its generation rate. A worker missing only its own live rate is scored at the candidates' mean live rate. Set it to your per-replica input rate for prefill, output rate otherwise |
+| `--least-load-default-throughput` | `2000` | Throughput (tokens/s) assumed when no candidate reports a live rate: a prefill worker's live rate is the prefill capacity its servicer measured (input tokens/s); another worker's is its generation rate. A worker missing only its own live rate is scored at the candidates' mean live rate. Set it to your per-replica input rate for prefill, output rate otherwise |
 | `--least-load-mean-prefill-tokens` | `1024` | Tokens assumed per request when the real count is unknown (HTTP requests without token IDs, and queues reported only as request counts) |
 | `--least-load-max-waiting-requests` | `0` | Skip a worker once its waiting requests, plus requests sent to it since its last load report, reach this count; `0` disables. Set it below the engine's max batch size |
 

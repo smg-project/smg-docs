@@ -246,7 +246,7 @@ For a plain local checkpoint path, pass `model=`: the ID SMG serves the checkpoi
 | `eos_token_ids` | The IDs SMG stops generation at: `eos_token_id` from `config.json` and `generation_config.json` merged with the tokenizer's own EOS, deduplicated and sorted |
 | `token_to_id(token)`, `id_to_token(id)` | Vocabulary lookups in the vocabulary's own spelling (`Ġthe` for byte-level vocabularies); `None` on a miss. The built-in encoding an OpenAI model name loads has no vocabulary map, so every lookup is `None` |
 | `source` | The absolute path of the loaded checkpoint or Hub snapshot, or the OpenAI model name |
-| `fingerprint` | A digest of the smg build, `model`, the chat template file, a file source itself and the checkpoint's tokenizer and config files: tokenizers with one fingerprint render and encode alike. See [The Fingerprint](#the-fingerprint) |
+| `fingerprint` | A digest of everything the tokenizer's output follows from; tokenizers with one fingerprint render and encode alike. See [The Fingerprint](#the-fingerprint) |
 | `Tokenizer.smg_build` | The smg release and commit the library was built from |
 
 ### Threads and Worker Processes
@@ -264,7 +264,7 @@ Forking is safe while other threads are mid-call: `os.fork()` waits until every 
 
 A `Tokenizer` pickles, so a spawned worker — a `multiprocessing` pool with the `spawn` start method, or `datasets.map(num_proc=...)` — can take one as an argument. The pickle holds no tokenizer data, only what identifies it: `source`, `chat_template`, `model`, the Hub snapshot the source is in (if any), `Tokenizer.smg_build` and [`fingerprint`](#the-fingerprint). `copy.copy` and `copy.deepcopy` return the tokenizer itself, which is immutable.
 
-Unpickling loads the tokenizer again from the pickled files — on the same host, from the same paths. Where the pickled path is missing (another host) and the source was a Hub model ID or a path in the Hugging Face cache, the Hub snapshot's model ID is downloaded again (revision `main`, as at load) and the tokenizer loads from the download — a file source, from its own path inside the fresh snapshot. A pickled plain path that is not there raises `FileNotFoundError`, and an OpenAI model name reloads from the encoding that ships with the package, with no files.
+Unpickling loads the tokenizer again from the pickled files — on the same host, from the same paths. Where the pickled path is missing (another host) and the source was a Hub model ID or a path in the Hugging Face cache, the snapshot is downloaded again by its Hub model ID (revision `main`, as at load) and the tokenizer loads from the download; a file source loads from its own path inside the fresh snapshot. A pickled plain path that is not there raises `FileNotFoundError`, and an OpenAI model name reloads from the encoding that ships with the package, with no files.
 
 Unpickling refuses, with `RuntimeError`, a reload that would not behave like the pickled tokenizer:
 

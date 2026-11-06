@@ -191,7 +191,9 @@ rendered["text"]       # the prompt text
 
 #### render_chat
 
-`request` is the body a client would send to `/v1/chat/completions`, as a mapping or as its JSON text (`str` or `bytes`), so a logged request body replays as it is. A mapping may hold pydantic objects, such as the OpenAI SDK's messages (serialized by their set fields), and numpy values. The gateway's request fields apply: `messages`, and optionally `tools`, `tool_choice`, `add_generation_prompt` (`True` when absent, as in the gateway), `continue_final_message`, `chat_template_kwargs`, `reasoning_effort`, `thinking` and the other fields the gateway reads. A tool call in the history needs its `id` and `type`, as the gateway requires. A request SMG would refuse with 400 raises `ValueError` with the gateway's reason; a batch failure names the item, as in `requests[1]: ...`.
+`request` is the body a client would send to `/v1/chat/completions`, as a mapping or as its JSON text (`str` or `bytes`), so a logged request body replays as it is. A mapping may hold pydantic objects, such as the OpenAI SDK's messages (serialized by their set fields), and numpy values.
+
+The gateway's request fields apply: `messages`, and optionally `tools`, `tool_choice`, `add_generation_prompt` (`True` when absent, as in the gateway), `continue_final_message`, `chat_template_kwargs`, `reasoning_effort`, `thinking` and the other fields the gateway reads. A tool call in the history needs its `id` and `type`, as the gateway requires. A request SMG would refuse with 400 raises `ValueError` with the gateway's reason; a batch failure names the item, as in `requests[1]: ...`.
 
 The result is a `RenderedChat` dict:
 

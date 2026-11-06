@@ -506,11 +506,11 @@ cd bindings/python
 pytest -q tests
 ```
 
-CI runs the same tests against the wheel it builds and requires 80% coverage (`--cov=smg --cov-fail-under=80`). `make python-test` is a different suite: it runs the GPU e2e tests in `e2e_test/`. The Python gRPC servicers in `grpc_servicer/` have their own tests (CI runs `pytest -q grpc_servicer/tests -rs`) and development notes in `grpc_servicer/DEVELOPMENT.md`.
+CI runs the same tests against the wheel it builds and requires 80% coverage (`--cov=smg --cov-fail-under=80`). `make python-test` is a different suite: it runs the e2e tests in `e2e_test/` (see [End-to-End Tests](#end-to-end-tests)). The Python gRPC servicers in `grpc_servicer/` have their own tests (CI runs `pytest -q grpc_servicer/tests -rs`) and development notes in `grpc_servicer/DEVELOPMENT.md`.
 
 ### End-to-End Tests
 
-The harness in `e2e_test/` starts real inference engines and the gateway, then drives them with the OpenAI SDK and `smg-client`. It needs GPUs, the engine under test installed in the same environment (CI uses `scripts/ci_install_<engine>.sh`), and the model weights.
+The harness in `e2e_test/` starts inference engines and the gateway, then drives them with the OpenAI SDK and `smg-client`. On a real engine it needs GPUs, the engine under test installed in the same environment (CI uses `scripts/ci_install_<engine>.sh`), and the model weights; the mock runtime below needs none of the three.
 
 ```bash
 # One-time setup, in the virtualenv that has the engine installed
@@ -523,11 +523,22 @@ E2E_RUNTIME=vllm E2E_ENGINE=vllm E2E_GPU_TIER=1 ROUTER_LOCAL_MODEL_PATH=$HOME/mo
   pytest e2e_test/chat_completions -s -vv
 ```
 
+`E2E_RUNTIME=mock` runs the tests marked for the mock engine on the scripted mock worker (`crates/mock_worker`) instead of a real engine: the test states the model's answer before it sends the request (the `mock_answers` fixture, a no-op on a real engine), and the gateway's tokenization, wire protocol, decoding, and parsing run against it on CPU.
+
+The mock runtime needs no GPU, no engine install, and no model weights — only each model's tokenizer and configuration JSON files under `ROUTER_LOCAL_MODEL_PATH/<model id>`. The mock classes' models live in ungated Hugging Face repositories, so `hf download <model> --include '*.json' --local-dir <path>/<model>` fetches the files without a token. Leave `E2E_GPU_TIER` unset to run every mock-marked class, including those marked for multi-GPU tiers:
+
+```bash
+# The mock-marked chat tests, on CPU, no engine or weights
+cargo build -p mock-worker --bin mock-worker
+E2E_RUNTIME=mock E2E_ENGINE=mock MOCK_WORKER_BIN=target/debug/mock-worker \
+  ROUTER_LOCAL_MODEL_PATH=$HOME/models pytest e2e_test/chat_completions -s -vv
+```
+
 `scripts/e2e-test.sh <suite>` wraps pytest with two reruns per failure for the `router`, `chat`, `responses`, `embeddings`, `realtime`, `benchmarks`, and `go` suites; without an argument it runs the router, embeddings, chat, and responses suites.
 
 | Variable | Effect |
 |----------|--------|
-| `E2E_RUNTIME` | Engine for local workers: `sglang` (default), `vllm`, `trtllm`, `tokenspeed`, or `mlx` (Apple silicon) |
+| `E2E_RUNTIME` | Engine for local workers: `sglang` (default), `vllm`, `trtllm`, `tokenspeed`, `mlx` (Apple silicon), or `mock` (the scripted mock worker, CPU only) |
 | `E2E_ENGINE` | Keep only the tests marked for this engine |
 | `E2E_GPU_TIER` | Keep only the tests for this GPU count (`1`, `2`, `4`, ...); unmarked tests count as 1 |
 | `E2E_CONNECTION_MODE` | Run the local cases over `http`, `grpc`, or `zmq`; PD and EPD cases keep their own transport |
@@ -541,10 +552,11 @@ pip install ./e2e_test
 PYTHONPATH=e2e_test pytest -q --noconftest e2e_test/infra e2e_test/fixtures
 ```
 
-On pull requests, CI runs each e2e lane only when the files it covers change:
+On pull requests, CI runs each GPU and third-party-provider lane only when the files it covers change; the `e2e-cpu-mock` lane runs on every push and on every pull request that is not documentation-only:
 
 | GPUs | Lanes (engines) |
 |------|-----------------|
+| None (CPU) | Classes marked for the mock engine in the chat, completions, router, and Responses suites, on the scripted mock worker (`e2e-cpu-mock`) |
 | 1 | Chat (SGLang, vLLM, TensorRT-LLM, TokenSpeed); chat over ZMQ (vLLM, TokenSpeed); worker-side multimodal processing (vLLM); completions and embeddings (SGLang, vLLM); realtime (vLLM); router suite (SGLang, vLLM); Responses API (SGLang); Go bindings (SGLang) |
 | 2 | PD disaggregation (SGLang, vLLM with NIXL or Mooncake, TokenSpeed); PD multimodal (vLLM); ZMQ data-parallel chat (vLLM, TokenSpeed) |
 | 4 | Chat (SGLang, vLLM, TensorRT-LLM); router suite (SGLang); EPD multimodal (TokenSpeed); PD topologies (SGLang, vLLM, TokenSpeed) |
@@ -711,7 +723,7 @@ Crate versions follow [Semantic Versioning](https://semver.org/). `make check-ve
 | `rust-tests` | `cargo test` and the Postgres tests, split into shards that each group crates | [Rust tests](#rust-unit-and-integration-tests) |
 | `cargo-audit` | `Cargo.lock` against the [RustSec advisory database](https://rustsec.org/), when the dependency graph changes (`Cargo.lock`, any `Cargo.toml`, `.cargo/audit.toml`, the audit script, or the workflow) | `bash scripts/ci_cargo_audit.sh` |
 | `build-wheel`, `python-unit-tests` | The Python wheel and Go FFI library; binding, servicer, and e2e-harness unit tests | [Python Bindings](#python-bindings) |
-| `e2e-*` | GPU lanes against real engines, and CPU lanes against third-party providers | [End-to-End Tests](#end-to-end-tests) |
+| `e2e-*` | GPU lanes against real engines, a CPU lane against the scripted mock worker (`e2e-cpu-mock`), and CPU lanes against third-party providers | [End-to-End Tests](#end-to-end-tests) |
 | `go-unit-tests`, `go-bindings-e2e` | The Go bindings | [Go Bindings](#go-bindings) |
 | `finish` | Fails if any job above failed; required for merge | — |
 | `Bellwether Fixtures` | The `bellwether_*` fixture tests, when the protocol, tokenizer, or Symphony crates, the gRPC router, or the dependency manifests change | [Bellwether Fixture Tests](#bellwether-fixture-tests) |
@@ -719,7 +731,7 @@ Crate versions follow [Semantic Versioning](https://semver.org/). `make check-ve
 
 `cargo-audit` fails on any vulnerability that `.cargo/audit.toml` does not ignore, and passes when only warnings (unmaintained or yanked crates) remain. Every ignore entry needs a reason and is removed once the fixed release is in the lockfile. `scripts/ci_cargo_audit.sh` downloads the same pinned `cargo-audit` release that CI uses, so running the script from the repository root reproduces the job. A nightly workflow runs the same audit against `main`, catching advisories published after the last dependency change.
 
-On pull requests, a `detect-changes` job skips work whose inputs did not change: the `rust-lint` legs run only when Rust code, manifests, or lint configuration change, each `rust-tests` shard only when a path that can affect what it tests does, and each e2e lane only when its paths do. Forks can run CI on their own runners by setting repository variables such as `SMG_RUNNER_CPU` and `SMG_RUNNER_GPU_1`; the "Running CI on your own runners" section of `CONTRIBUTING.md` in the smg repository describes the setup.
+On pull requests, a `detect-changes` job skips work whose inputs did not change: the `rust-lint` legs run only when Rust code, manifests, or lint configuration change, each `rust-tests` shard only when a path that can affect what it tests does, and each GPU and provider e2e lane only when its paths do (`e2e-cpu-mock` skips only documentation-only pull requests). Forks can run CI on their own runners by setting repository variables such as `SMG_RUNNER_CPU` and `SMG_RUNNER_GPU_1`; the "Running CI on your own runners" section of `CONTRIBUTING.md` in the smg repository describes the setup.
 
 ---
 

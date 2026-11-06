@@ -223,7 +223,7 @@ SMG publishes `smg_worker_overload_shed_total` at zero for every stage from star
 
 ## Grafana Dashboards
 
-If you deploy with the SMG Helm chart, you do not have to build a dashboard by hand: set `grafana.dashboard.enabled=true` (default `false`) and the chart ships a ready-made dashboard as a ConfigMap labeled `grafana_dashboard: "1"`, which a Grafana sidecar dashboard loader picks up. The dashboard has 49 panels in eight rows (traffic, latency, capacity and queues, workers, cache and KV events, Symphony, runtime, and prefill-decode), and its `namespace` and `job` variables scope every query to the release, so several releases can share one Grafana. The chart's `README.md` describes each row and panel.
+If you deploy with the SMG Helm chart, you do not have to build a dashboard by hand: set `grafana.dashboard.enabled=true` (default `false`) and the chart creates a ready-made dashboard as a ConfigMap labeled `grafana_dashboard: "1"`, which a Grafana sidecar dashboard loader picks up. The dashboard has 49 panels in eight rows (traffic, latency, capacity and queues, workers, cache and KV events, Symphony, runtime, and prefill-decode), and its `namespace` and `job` variables scope every query to the release, so several releases can share one Grafana. The chart's `README.md` describes each row and panel.
 
 For deployments without the chart, the panels below are building blocks for a dashboard of your own.
 

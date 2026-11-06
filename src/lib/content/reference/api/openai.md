@@ -156,7 +156,8 @@ HTTP workers, PD legs, and external providers as `0.95`, not `0.949999988079071`
 On a `function` message (the deprecated predecessor of `tool`), `content` is required but
 nullable, and a `null` is kept rather than dropped: a body forwarded to an HTTP worker or
 external provider still carries `"content": null`, and on gRPC workers the chat template
-receives it as empty content in the template's own format.
+receives it as empty content in the template's own format (an empty string, or an empty
+array of parts).
 
 #### Content Parts
 

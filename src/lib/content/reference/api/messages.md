@@ -69,9 +69,9 @@ POST /v1/messages
 | `max_tokens` | integer | Yes | Maximum number of tokens to generate. `0` is accepted; the response depends on the backend — see [`max_tokens` of 0](#max_tokens-of-0). |
 | `system` | string or array | No | System prompt, as a string or an array of `text` blocks. |
 | `stream` | boolean | No | Stream the response as Server-Sent Events. |
-| `temperature` | number | No | Sampling temperature. |
-| `top_p` | number | No | Nucleus sampling. |
-| `top_k` | integer | No | Sample only from the top K tokens. |
+| `temperature` | number | No | Sampling temperature, 0 to 1. |
+| `top_p` | number | No | Nucleus sampling, greater than 0 and at most 1. |
+| `top_k` | integer | No | Sample only from the top K tokens, 1 to 2147483647. Unlike Chat Completions and Responses, where `top_k` is signed and `-1` disables it, this field is unsigned and has no disable value: a negative value is refused with `400`. |
 | `stop_sequences` | array of strings | No | Sequences that stop generation. |
 | `tools` | array | No | Tool definitions; see [Tool Use](#tool-use). |
 | `tool_choice` | object | No | `{"type": "auto"}`, `{"type": "any"}`, `{"type": "tool", "name": "..."}`, or `{"type": "none"}`. Every value except `none` requires `tools`, and `tool` must name one of them. |

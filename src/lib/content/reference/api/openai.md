@@ -381,14 +381,14 @@ the chat-only ones (`continue_final_message`, `separate_reasoning`, `stream_reas
 prompt in an array is its own engine request.
 
 A prompt can arrive already tokenized: an array of token IDs (unsigned 32-bit integers,
-such as [`/v1/tokenize`](extensions.md#protected-utility-endpoints) returns), or an array
-of token-ID arrays for a batch. The first element of an array fixes its shape — a string
+such as those [`/v1/tokenize`](extensions.md#protected-utility-endpoints) returns), or an
+array of token-ID arrays for a batch. The first element of an array fixes its shape — a string
 makes it an array of text prompts, an integer an array of token IDs, an array a batch of
 token-ID prompts. A mixed array, a negative or fractional ID, an empty `prompt` array, and
 an empty ID list in a batch are all rejected.
 
 On gRPC workers token IDs bypass the gateway's tokenizer and reach the engine exactly as
-sent; `usage.prompt_tokens` counts the IDs, and with `echo: true` each choice opens with
+sent. `usage.prompt_tokens` counts the IDs, and with `echo: true` each choice opens with
 the decoded text of its prompt's IDs (special tokens included; an ID the tokenizer has no
 text for adds none). On that path every ID must be a token of the model — in its
 tokenizer's vocabulary, added tokens included, or within the embedding table its workers
@@ -967,7 +967,7 @@ itself produced the error.
 | 400 | The rule's code | A cross-field rule (`stream_options_requires_stream` for `stream_options` without `stream`, `top_logprobs_requires_logprobs`, `tool_choice_function_not_found` for a `tool_choice` naming a missing tool, `json_schema_schema_not_object` for a non-object `json_schema`, ...) or a [provider-profile](#provider-profiles) rule failed |
 | 400 | `json_parse_error` | The `Content-Type: application/json` header is missing, or the body failed to parse for a reason outside the set above |
 | 400 | `context_length_exceeded` | gRPC: the longest prompt is longer than the context window the selected worker advertises (the tighter leg governs in PD, and each prompt of a batched completion counts on its own). Workers that advertise no window are not checked |
-| 400 | `invalid_prompt_token` | gRPC: a completion's token-ID prompt holds an ID that is not a token of the model; the message names the position and value (`prompt[2] = ...`, or `prompt[1][1] = ...` in a batch). Refused before any worker is called |
+| 400 | `invalid_prompt_token` | gRPC: a completion's token-ID prompt holds an ID that is not a token of the model. The message names the position and value (`prompt[2] = ...`, or `prompt[1][1] = ...` in a batch), or reports the failed decode for an invalid ID only decoding catches. Refused before any worker is called |
 | 400 | `unsupported_content_part` | gRPC: a content part SMG cannot render |
 | 400 | `audio_output_not_supported`, `unsupported_output_modality` | gRPC: `return_audio: true` or a non-`text` entry in `modalities`; gRPC workers produce text only |
 | 400 | `multimodal_not_supported` | gRPC: the selected engine does not accept one of the request's input modalities |

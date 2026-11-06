@@ -145,7 +145,7 @@ Prefill-decode (PD) code uses one word per thing, so a reader never has to guess
 - A worker's prefill-decode function is its **role** (`WorkerRole::{Single, Prefill, Decode}` in `model_gateway/src/policies/mod.rs`), and the set of workers of one role is a **pool**.
 - A single worker, a stream, or a call is called what it is (`worker`, `UpstreamStream`).
 
-Don't write "leg" for any of these, in code, comments, test names, or log lines — it used to mean all three at once. The one exception: metric names and labels keep their published spelling, so `smg_pd_rendezvous_failures_total` keeps its `leg` label.
+Don't write "leg" for any of these in code, comments, test names, or log lines — it used to mean all three at once. The one exception: metric names and labels keep their published spelling, so `smg_pd_rendezvous_failures_total` retains its `leg` label.
 
 ---
 

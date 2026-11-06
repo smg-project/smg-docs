@@ -91,7 +91,7 @@ See the [Configuration Reference](../reference/configuration.md#rl-control-plane
 
 | Gateway auth setup | What `/v1/rl/*` accepts |
 |---|---|
-| Control-plane auth (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`) | A control-plane API key or JWT with the `admin` role, as `Authorization: Bearer <token>`. A missing or unknown token gets `401`; a valid token without the admin role gets `403`. |
+| Control-plane auth (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`) | A control-plane API key or JWT, as `Authorization: Bearer <token>`. A missing or unknown token gets `401`. An `admin`-role token may use every method; a `user`-role token may send only `GET` requests (worker discovery, and `GET` per-worker or fan-out engine calls) and gets `403` on `POST`. |
 | `--api-key` without control-plane auth | `Authorization: Bearer <api-key>`; anything else gets `401` |
 | `--tenant-api-key` without `--api-key` or control-plane auth | Nothing: every request gets `401` |
 | No keys | Every request; use this only for local development |
@@ -595,9 +595,9 @@ RUST_LOG=warn,smg_rl=info smg launch \
 
 ??? question "401 or 403 from /v1/rl/*"
 
-    `401` means the bearer token is missing or not accepted. With control-plane auth, use an admin control-plane API key or JWT; the shared `--api-key` is not accepted. Without control-plane auth, use the `--api-key` value. Per-tenant keys are never accepted, and a gateway configured with only `--tenant-api-key` rejects every control-plane request.
+    `401` means the bearer token is missing or not accepted. With control-plane auth, use a control-plane API key or JWT; the shared `--api-key` is not accepted. Without control-plane auth, use the `--api-key` value. Per-tenant keys are never accepted, and a gateway configured with only `--tenant-api-key` rejects every control-plane request.
 
-    `403` means the token is valid but its role is not `admin`.
+    `403` means the token is valid but its role does not allow the method: a `user`-role token may only send `GET` requests, and `POST` needs the `admin` role.
 
 ??? question "A fan-out returns 207, or the Python client raises FanoutError"
 

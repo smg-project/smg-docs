@@ -12,7 +12,7 @@ SMG provides administrative endpoints for managing tokenizers, workers, WASM mod
 Manage tokenizers for text processing and tokenization.
 
 !!! note "Authentication"
-    These are control-plane routes. When control-plane auth is configured, use a control-plane credential with the `admin` role. Otherwise, use the shared `--api-key` if configured. With neither control-plane auth nor any API keys configured, the routes are open. Tenant keys never grant admin access; with only `--tenant-api-key` configured, every admin request gets `401`. See [Authentication](#authentication).
+    These are control-plane routes. When control-plane auth is configured, use a control-plane credential: the `admin` role may use every method, the `user` role only `GET` and `HEAD`. Otherwise, use the shared `--api-key` if configured. With neither control-plane auth nor any API keys configured, the routes are open. Tenant keys never grant admin access; with only `--tenant-api-key` configured, every admin request gets `401`. See [Authentication](#authentication).
 
 ### Add Tokenizer
 
@@ -194,7 +194,7 @@ Register, inspect, update, and remove backend workers at runtime.
 `worker_id` is the UUID that `POST /workers` returns. Changes are asynchronous: the gateway checks the request, queues a job, and answers `202 Accepted`. Follow the job with `GET /workers/{worker_id}`.
 
 !!! note "Authentication"
-    These are control-plane routes. With [control-plane auth](../../getting-started/control-plane-auth.md) configured, they need a credential with the admin role (`401` without a valid one, `403` for other roles). Otherwise they need `Authorization: Bearer <key>` with the gateway `--api-key`. Per-tenant keys are not accepted, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
+    These are control-plane routes. With [control-plane auth](../../getting-started/control-plane-auth.md) configured, they need a valid credential (`401` without one) whose role allows the method: `admin` for every method, `user` for `GET` and `HEAD` only (`403` on the others). Otherwise they need `Authorization: Bearer <key>` with the gateway `--api-key`. Per-tenant keys are not accepted, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
 
 ### Create Worker
 
@@ -1071,7 +1071,7 @@ The admin endpoints do not share one error format. The body depends on the part 
 
 | Source | Status | Body |
 |--------|--------|------|
-| Control-plane auth | `401`, `403` | Plain text, such as `Missing or invalid Authorization header`, `Invalid authentication token`, or `Admin role required for control plane access`. A `401` carries `WWW-Authenticate: Bearer realm="control-plane"` |
+| Control-plane auth | `401`, `403` | Plain text, such as `Missing or invalid Authorization header`, `Invalid authentication token`, or `Admin role required for this control plane operation`. A `401` carries `WWW-Authenticate: Bearer realm="control-plane"` |
 | `--api-key` auth, when control-plane auth is not configured | `401` | Empty |
 | A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor |
 | [Worker endpoints](#worker-errors) | `400`, `404`, `409`, `500` | `{"error": "<message>", "code": "<CODE>"}` |
@@ -1104,7 +1104,7 @@ Errors that the gateway generates itself, for example when no worker is availabl
 
 The tokenizer, worker, WASM, cache flush, and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
 
-1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT whose role is `admin`. A missing or invalid credential gets `401`, and one with another role gets `403`. The shared `--api-key` is not accepted.
+1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT. A missing or invalid credential gets `401`. The `admin` role may use every method; the `user` role may use only `GET` and `HEAD`, and any other method answers it with `403`. The shared `--api-key` is not accepted.
 2. **Without it**: the shared `--api-key`. Per-tenant `--tenant-api-key` keys are rejected, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
 
 Public endpoints need no authentication: the health probes, `/loads`, `/engine_metrics`, and the [Model Information](#model-information) routes. See [Auth Model](extensions.md#auth-model) for every route's tier.

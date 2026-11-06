@@ -26,7 +26,7 @@ Use the same header for all control-plane calls:
 -H "Authorization: Bearer ${ADMIN_TOKEN}"
 ```
 
-Control-plane middleware requires admin role for these operations. Without control-plane auth configured, use the shared `--api-key` as `ADMIN_TOKEN`; see [Without Control Plane Auth](control-plane-auth.md#without-control-plane-auth).
+Control-plane middleware checks the role against the method: the `GET` calls in this guide (listing and inspecting workers, tokenizers, and WASM modules) accept an `admin`- or `user`-role credential, and every other method, including the `POST` parser utilities, requires the admin role. Without control-plane auth configured, use the shared `--api-key` as `ADMIN_TOKEN`; see [Without Control Plane Auth](control-plane-auth.md#without-control-plane-auth).
 
 ---
 

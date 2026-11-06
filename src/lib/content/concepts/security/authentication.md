@@ -24,7 +24,7 @@ Support for JWT/OIDC, API keys, and worker authentication to fit your deployment
 
 ### :material-shield-account: Role-Based Access
 
-Control plane APIs require the admin role. Data plane APIs use API keys, not roles.
+The admin role has full control plane access; the user role is read-only (`GET` and `HEAD`). Data plane APIs use API keys, not roles.
 
 </div>
 
@@ -137,7 +137,7 @@ SMG refuses to start on a malformed mapping: one without `=`, or with a gateway 
 | Gateway Role | Permissions |
 |--------------|-------------|
 | `admin` | Full access to all control plane APIs (workers, WASM modules, tokenizers) |
-| `user` | No control plane access: control plane routes answer `403` |
+| `user` | Read-only control plane access: `GET` and `HEAD`; any other method answers `403` |
 
 ### Supported Claims
 
@@ -321,7 +321,7 @@ smg \
   --control-plane-api-keys "user1:Read Only Service:user:sk-readonly-key-67890"
 ```
 
-A `user` key authenticates, but every control plane route answers it with `403` (see [Role-Based Access Control](#role-based-access-control)).
+A `user` key can read the control plane (`GET` and `HEAD`); any other control plane method answers it with `403` (see [Role-Based Access Control](#role-based-access-control)).
 
 ### Environment Variable Configuration
 

@@ -87,7 +87,7 @@ The gateway layer handles cross-cutting concerns before requests reach the route
 | Component | Function |
 |-----------|----------|
 | **Admission Control** | On by default. `--max-concurrent-requests` caps concurrent requests gateway-wide (unset, 1024 per available core and at least 4096; `0` turns it off), with a bounded FIFO queue; the priority scheduler admits by priority class instead |
-| **Authentication** | Bearer API keys (`--api-key`, `--tenant-api-key`) on inference routes; control-plane API keys or JWT/OIDC with the admin role on control-plane routes |
+| **Authentication** | Bearer API keys (`--api-key`, `--tenant-api-key`) on inference routes; control-plane API keys or JWT/OIDC with role checks on control-plane routes (admin for every method, user for `GET` and `HEAD` only) |
 | **Tenant Resolution** | Identifies the tenant from its API key, a trusted header (`--trust-tenant-header`), or the client IP |
 | **WASM Plugins** | Custom request transformation logic |
 | **Request ID** | Assigns unique ID for tracing |

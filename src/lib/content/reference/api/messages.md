@@ -75,7 +75,7 @@ POST /v1/messages
 | `stop_sequences` | array of strings | No | Sequences that stop generation. |
 | `tools` | array | No | Tool definitions; see [Tool Use](#tool-use). |
 | `tool_choice` | object | No | `{"type": "auto"}`, `{"type": "any"}`, `{"type": "tool", "name": "..."}`, or `{"type": "none"}`. Every value except `none` requires `tools`, and `tool` must name one of them. |
-| `thinking` | object | No | `{"type": "enabled", "budget_tokens": N}`, `{"type": "adaptive"}`, or `{"type": "disabled"}`. `enabled` and `adaptive` also take `display` (`summarized` or `omitted`). |
+| `thinking` | object | No | `{"type": "enabled", "budget_tokens": N}`, `{"type": "adaptive"}`, `{"type": "disabled"}`, or `{"type": "between_tools"}` (no thinking up front; the model may think between its tool calls). `enabled` and `adaptive` also take `display` (`summarized`, `omitted`, or `updates`). `between_tools` takes `type` alone: a request that adds any other field, `display` or `budget_tokens` included, is refused with `400` (`thinking_between_tools_takes_no_other_field`), and the error message names each extra field. |
 | `metadata` | object | No | Request metadata (`user_id`). |
 | `service_tier` | string | No | `auto` or `standard_only`. |
 | `container` | object | No | Container for code execution (beta). |
@@ -361,7 +361,7 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 | `stop_sequences` | Sent as stop strings to vLLM, TensorRT-LLM, and TokenSpeed gRPC workers. For SGLang gRPC workers and ZMQ workers, SMG matches them itself and sends only single-token stops to the engine, as stop token IDs. |
 | `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser; with a `tool_choice` of `tool`, only that tool is passed to the chat template. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |
 | `tool_choice` | Mapped to Chat Completions semantics: `auto` to `auto`, `any` to `required`, `tool` to that function, `none` to `none`. SMG enforces `any` and `tool` with constrained decoding. |
-| `thinking` | `enabled` and `adaptive` turn on the chat template's thinking mode and run the model's reasoning parser. `disabled` turns thinking mode off. Without `thinking`, the template default applies. `budget_tokens` and `display` are not used. |
+| `thinking` | `enabled` and `adaptive` turn on the chat template's thinking mode and run the model's reasoning parser. `disabled` and `between_tools` turn thinking mode off. Without `thinking`, the template default applies. A `display` of `omitted` withholds the reasoning text: the thinking blocks and their `signature` stay in place, with empty text; in a stream, the thinking block opens and closes without `thinking_delta` events. With `summarized`, `updates`, or no `display`, the reasoning text is returned as the model wrote it; SMG does not summarize. `budget_tokens` is not sent to the engine. |
 | `metadata`, `service_tier`, `container`, `mcp_servers`, extra fields such as `output_config` | Not sent to the engine. |
 
 MLX workers answer `400` to a request with images, with `stop_sequences`, or with a `tool_choice` of `any` or `tool`.

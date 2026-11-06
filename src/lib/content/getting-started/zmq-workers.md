@@ -68,7 +68,9 @@ All of these engines use the same handshake, so SMG can't tell which one dialed 
 
 These are the only three ZMQ runtimes: `smg serve` accepts `--connection-mode zmq` only with `--backend vllm`, `--backend tokenspeed`, or `--backend sglang`, and the gateway rejects any other runtime with `ZMQ worker ... has unsupported runtime ...: only vllm, tokenspeed and sglang are supported over the ZMQ direct backend`. TensorRT-LLM and MLX can't use ZMQ; connect those engines over [gRPC](grpc-workers.md).
 
-SMG doesn't check engine versions at connect time, and its decoders accept fields that newer engine releases append. SMG's CI runs the ZMQ suites against vLLM 0.31.0, SGLang 0.5.21, and a pinned TokenSpeed revision.
+SMG doesn't check engine versions at connect time, but it does check wire layout. An engine can declare the field order of its positional (array-encoded) request structs in its ready response — the SGLang launcher does — and SMG compares the fields it encodes against that order once per engine at connect, before the first request. If a field sits in a different slot than the one SMG encodes it in, the connection fails with a `wire layout mismatch` error naming the engine, the struct, and the field that differs (for example, that `SamplingParams` field 2 is `stop_token_ids` on SMG's side and `watermark` on the engine's). An engine release whose wire moved under SMG is refused at connect rather than failing every request one by one.
+
+Only the fields SMG sends are compared, so an engine release that appends new fields after them still connects, and an engine that declares no layouts connects unchecked. SMG's decoders likewise accept fields that newer engine releases append. SMG's CI runs the ZMQ suites against vLLM 0.31.0, SGLang 0.5.21, and a pinned TokenSpeed revision.
 
 ---
 

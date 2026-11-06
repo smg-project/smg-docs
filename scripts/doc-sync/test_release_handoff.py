@@ -285,6 +285,27 @@ class DiscoveryHandoffTests(unittest.TestCase):
                 self.assertEqual(status, {self.identity: 'proposed' if concerns else 'deferred',
                                           'fedcba0987654321': 'covered'})
 
+    def test_schema_requires_one_keyed_disposition_per_candidate(self):
+        # Run 42123496088: a free-form array let routing-workers omit all 55.
+        ids = ['1234567890abcdef', 'fedcba0987654321']
+        schema = discovery.scan_schema({'required_commit_ids': [1], 'shard': 'routing-workers',
+                                        'release_audit_candidates': [{'id': i} for i in ids]})
+        audits = schema['properties']['release_audit_checks']
+        self.assertEqual((audits['type'], audits['required'], audits['additionalProperties']),
+                         ('object', ids, False))
+        self.assertNotIn('candidate_id', schema['definitions']['release_audit_check']['properties'])
+        empty = discovery.scan_schema({'required_commit_ids': [1], 'shard': 'routing-workers'})
+        self.assertEqual(empty['properties']['release_audit_checks']['required'], [])
+        history = [self.context['source_sha'] + ' current']
+        keyed = {'concerns': [], 'inspected_commits': [1], 'remaining_work': 'None.',
+                 'release_audit_checks': {self.identity: {k: v for k, v in self.check.items()
+                                                          if k != 'candidate_id'}}}
+        resolved = json.loads(discovery.resolve_scan(json.dumps(keyed), history))
+        self.assertEqual(resolved['release_audit_checks'], [self.check])
+        keyed['release_audit_checks'][self.identity]['candidate_id'] = 'other'
+        with self.assertRaises(ValueError):
+            discovery.resolve_scan(json.dumps(keyed), history)
+
     def test_complete_audit_dispositions_are_not_settled(self):
         raw, context, _ = self.scan_inputs({'concerns': [self.item], 'release_audit_checks': [self.check]})
         self.assertEqual(discovery.settle_release_audit_checks(raw, context, 'routing-workers'), (raw, []))

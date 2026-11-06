@@ -85,12 +85,20 @@ def resolve_scan(raw, history):
                 raise ValueError('Keyed daily checks must select source only through the key')
             keyed.append({**check, 'source_commit': int(number)})
         daily = keyed
+    audits = result.get('release_audit_checks', [])
+    if isinstance(audits, dict):
+        keyed = []
+        for identity, check in audits.items():
+            if not isinstance(check, dict) or 'candidate_id' in check:
+                raise ValueError('Keyed release audit checks must name the candidate only through the key')
+            keyed.append({**check, 'candidate_id': identity})
+        audits = keyed
     return json.dumps({"concerns": concerns,
                        "inspected_commits": [resolve(number) for number in result["inspected_commits"]],
                        "daily_commit_checks": [{**{k: v for k, v in check.items() if k != 'source_commit'},
                                                 'source_sha': resolve(check['source_commit'])}
                                                for check in daily],
-                       "release_audit_checks": result.get("release_audit_checks", []),
+                       "release_audit_checks": audits,
                        "retired_concerns": result.get("retired_concerns", []),
                        "remaining_work": result["remaining_work"]})
 
@@ -558,6 +566,11 @@ def scan_schema(scoped):
     ids = [str(number) for number in scoped['required_commit_ids']]
     schema['properties']['daily_commit_checks'].update(
         properties={number: {'$ref': '#/definitions/daily_check'} for number in ids}, required=ids)
+    # Run 42123496088: routing-workers returned no dispositions for its 55
+    # candidates from a free-form array. Key them like daily checks.
+    audits = [c['id'] for c in scoped.get('release_audit_candidates', [])]
+    schema['properties']['release_audit_checks'].update(
+        properties={i: {'$ref': '#/definitions/release_audit_check'} for i in audits}, required=audits)
     schema['definitions']['daily_check']['properties']['depends_on']['items']['enum'] = [
         name for name in SHARD_NAMES if name != scoped.get('shard')]
     retired = schema['properties']['retired_concerns']

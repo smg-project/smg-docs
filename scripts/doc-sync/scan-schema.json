@@ -82,30 +82,10 @@
 			"type": "string"
 		},
 		"release_audit_checks": {
-			"type": "array",
-			"items": {
-				"type": "object",
-				"additionalProperties": false,
-				"properties": {
-					"candidate_id": {
-						"type": "string"
-					},
-					"status": {
-						"type": "string",
-						"enum": ["proposed", "covered", "not_applicable", "deferred"]
-					},
-					"concerns": {
-						"type": "array",
-						"items": {
-							"type": "string"
-						}
-					},
-					"evidence": {
-						"type": "string"
-					}
-				},
-				"required": ["candidate_id", "status", "concerns", "evidence"]
-			}
+			"type": "object",
+			"properties": {},
+			"additionalProperties": false,
+			"required": []
 		},
 		"daily_commit_checks": {
 			"type": "object",
@@ -181,6 +161,26 @@
 				}
 			},
 			"required": ["status", "concerns", "evidence", "blockers", "depends_on"]
+		},
+		"release_audit_check": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"status": {
+					"type": "string",
+					"enum": ["proposed", "covered", "not_applicable", "deferred"]
+				},
+				"concerns": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"evidence": {
+					"type": "string"
+				}
+			},
+			"required": ["status", "concerns", "evidence"]
 		}
 	}
 }

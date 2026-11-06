@@ -259,7 +259,9 @@ Enterprise-grade storage using Oracle Autonomous Database.
 | `--oracle-pool-max` | `ATP_POOL_MAX` | `16` | Maximum connection pool size |
 | `--oracle-pool-timeout-secs` | `ATP_POOL_TIMEOUT_SECS` | `30` | How long a request waits for a free pooled connection, in seconds. Must be greater than 0 |
 
-`--oracle-dsn` takes precedence: with a DSN, SMG ignores the wallet and TNS alias. The Python launcher (`smg launch` from pip, and the container image) names two of these flags differently, `--oracle-username` and `--oracle-connect-descriptor`, and uses the TNS alias when both an alias and a DSN are given. See [Python Launcher Differences](../../reference/configuration.md#python-launcher-differences).
+`--oracle-dsn` takes precedence: with a DSN, SMG ignores the wallet and TNS alias.
+
+The Python launcher (`smg launch` from pip, and the container image) accepts the same flag names as the Rust `smg` binary, plus the older second spellings `--oracle-username` for `--oracle-user` and `--oracle-connect-descriptor` for `--oracle-dsn`. Unlike the binary, it uses the TNS alias when both an alias and a DSN are given. See [Python Launcher Differences](../../reference/configuration.md#python-launcher-differences).
 
 ### Examples
 

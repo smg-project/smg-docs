@@ -245,8 +245,8 @@ smg launch --enable-mesh \
 
 </div>
 
-!!! tip "Start the bootstrap router first"
-    A router dials its `--mesh-peer-urls` peer once, in its first gossip round, and does not retry it. Start node1 before the others; after that first contact, routers learn about each other through gossip. Additional values on `--mesh-peer-urls` are ignored.
+!!! tip "Start order does not matter"
+    A router dials its `--mesh-peer-urls` peer as long as its membership table holds no other member to probe — at startup, and again if every other member is gone — retrying under the same backoff as a failed probe (1 second, doubling up to 60 seconds). Node 2 and node 3 can therefore start before node 1 and join as soon as it comes up. After the first contact, routers learn about each other through gossip. Additional values on `--mesh-peer-urls` are ignored.
 
 ---
 
@@ -396,9 +396,9 @@ Worker-state merges order updates with Lamport clocks rather than wall-clock tim
 
 ### :material-server-network: Static Peers
 
-For VMs and bare metal. Give each router a unique name, its own IP as `--mesh-advertise-host`, and a running router in `--mesh-peer-urls`.
+For VMs and bare metal. Give each router a unique name, its own IP as `--mesh-advertise-host`, and another router's address in `--mesh-peer-urls`.
 
-- Start the bootstrap router first
+- Start routers in any order; the peer is dialed until it joins
 - Restart an isolated router under a new name
 
 [Basic Configuration →](#basic-configuration)
@@ -409,7 +409,7 @@ For VMs and bare metal. Give each router a unique name, its own IP as `--mesh-ad
 
 ### :material-kubernetes: Kubernetes Router Discovery
 
-Routers find each other by pod label, with no bootstrap peer and no start order.
+Routers find each other by pod label, with no bootstrap peer to configure.
 
 - Pods join when Ready and are marked `DOWN` when deleted
 - Restarted pods rejoin under their pod name
@@ -632,7 +632,8 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 | Startup fails with `Invalid mesh peer URL` (Python CLI) or `Invalid value for field 'mesh_peer_urls'` (Rust binary) | A peer address is a hostname | Pass `IP:port`; on Kubernetes, use router discovery |
 | Startup fails with `mesh advertise address cannot be unspecified` | `--mesh-host` is `0.0.0.0` and `--mesh-advertise-host` is unset | Set `--mesh-advertise-host` to the node's IP |
 | Startup fails with `mesh port cannot be 0` | `--mesh-port 0` | Use a fixed port |
-| A joining router logs `No peer address available to connect` every round | Its bootstrap peer was unreachable in the first gossip round and is not retried | Start the bootstrap router, then restart this one |
+| A router logs `No peer address available to connect` every round | No `--mesh-peer-urls` is set and no peer has joined its membership table (for example, router discovery found none) | Set `--mesh-peer-urls` to another router's `IP:port`, or configure router discovery |
+| A joining router logs `Error connecting to peer init_peer` with growing retry delays | Its `--mesh-peer-urls` peer is not reachable yet | The dial is retried with backoff and the routers join once the peer is up; if it never connects, check the address, port, and network path |
 | A router stays out of the mesh after a restart or partition | Its peers hold it as `DOWN` or `LEAVING` and no longer probe it | Restart it under a new name, or use router discovery; see [Node Status States](#node-status-states) |
 | Routers appear under both their pod name and another name in the `Status:` log | `--mesh-server-name` differs from the pod name under router discovery | Set `--mesh-server-name=$(POD_NAME)` |
 | Log shows `Router selector configured but mesh is not enabled` | `--router-selector` without `--enable-mesh` | Add `--enable-mesh` |

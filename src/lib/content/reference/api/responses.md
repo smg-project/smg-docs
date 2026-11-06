@@ -1454,7 +1454,9 @@ Where they take effect:
 - **HTTP workers** receive them with the request.
 - **gpt-oss (Harmony) models on gRPC**: all six fields are passed to the engine on every
   model turn of the tool loop. Where the serving engine cannot match strings, SMG matches
-  `stop` sequences itself, so a `stop` always takes effect. The first match ends the
+  `stop` sequences itself, so a `stop` takes effect on every backend except MLX, where
+  a request with string `stop` sequences is rejected with `400` (see
+  [gRPC Workers](../../getting-started/grpc-workers.md)). The first match ends the
   model turn: everything generated past it, tool calls included, is dropped, and the
   matched sequence stays as the suffix of the output — it is not trimmed. A `stop` can
   also match inside the model's reasoning, ending the turn before any message, so the

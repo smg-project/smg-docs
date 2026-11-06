@@ -109,7 +109,9 @@ smg \
   --jwt-jwks-uri "https://auth.example.com/.well-known/jwks.json"
 ```
 
-Without `--jwt-jwks-uri`, SMG fetches the discovery document at startup. The document's `issuer` must be identical to the configured `--jwt-issuer`: a document naming another issuer — even one differing only in a trailing slash — is refused, and JWT initialization fails. Either way, SMG fetches the key set on first use and caches it for an hour.
+Without `--jwt-jwks-uri`, SMG fetches the discovery document at startup. Either way, SMG fetches the key set on first use and caches it for an hour.
+
+The discovery document's `issuer` must be identical to the configured `--jwt-issuer`: a document naming another issuer — even one differing only in a trailing slash — is refused, and JWT initialization fails.
 
 Tokens must carry a `kid` header that names a key in the set. When a token names a key the cached set doesn't have, SMG fetches the set again, which is how a rotated key gets picked up. This refetch happens at most once a minute, and a failed fetch also counts against the minute. Until the minute has passed, tokens naming unknown keys are rejected without a request to the identity provider.
 

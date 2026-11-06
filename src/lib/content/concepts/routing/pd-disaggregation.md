@@ -637,7 +637,9 @@ UCX_TCP_TX_SEG_SIZE=1m
 UCX_TCP_RX_SEG_SIZE=1m
 ```
 
-The receive segment (64 KiB by UCX's default) must be at least the send segment; UCX refuses the combination otherwise. On the one measured pair (a hybrid-attention checkpoint whose linear-attention state moves whole, TP 2, about 100 MB moved per rank per request), 1 MiB segments raised the pull from about 2.2 Gbit/s to about 11 Gbit/s per rank stream — the rate of a plain socket between the same pods — and, at 4 req/s offered, took the pair from a 2.7 req/s ceiling with 33 s median first tokens to 3.93 req/s with 0.35 s. Treat those figures as one measurement, not a guarantee.
+The receive segment (64 KiB by UCX's default) must be at least the send segment; UCX refuses the combination otherwise.
+
+On the one measured pair (a hybrid-attention checkpoint whose linear-attention state moves whole, TP 2, about 100 MB moved per rank per request), 1 MiB segments raised the pull from about 2.2 Gbit/s to about 11 Gbit/s per rank stream, the rate of a plain socket between the same pods. At 4 req/s offered, the same change took the pair from a 2.7 req/s ceiling with a median first token of 33 s to 3.93 req/s with 0.35 s. Treat those figures as one measurement, not a guarantee.
 
 256 KiB segments already give most of the gain, and segments above 1 MiB buy nothing on a single socket. The cost is host memory, not GPU memory: UCX stages TCP transfers through per-process buffer pools of the segment size.
 

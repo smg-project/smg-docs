@@ -146,7 +146,7 @@ HTTP workers, PD legs, and external providers as `0.95`, not `0.949999988079071`
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `role` | string | Yes | `system`, `developer`, `user`, `assistant`, `tool`, `function`, or `root` (MiniMax only; see [Provider Profiles](#provider-profiles)) |
-| `content` | string/array | Yes | Text, or an array of [content parts](#content-parts). Optional on `system` and `assistant` messages; must not be empty on `user` messages |
+| `content` | string/array | Yes | Text, or an array of [content parts](#content-parts). Optional on `system` and `assistant` messages; must not be empty on `user` messages. On `function` messages (the deprecated predecessor of `tool`) it is a plain string or `null`; a `null` is forwarded to HTTP workers and providers as `null`, not dropped, and reaches the chat template as empty content on gRPC workers |
 | `name` | string | No | Participant name |
 | `tool_calls` | array | No | Tool calls made by an `assistant` message |
 | `tool_call_id` | string | For `tool` | ID of the tool call this `tool` message answers |

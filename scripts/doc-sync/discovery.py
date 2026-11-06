@@ -85,14 +85,118 @@ def resolve_scan(raw, history):
                 raise ValueError('Keyed daily checks must select source only through the key')
             keyed.append({**check, 'source_commit': int(number)})
         daily = keyed
+    audits = result.get('release_audit_checks', [])
+    if isinstance(audits, dict):
+        keyed = []
+        for identity, check in audits.items():
+            if not isinstance(check, dict) or 'candidate_id' in check:
+                raise ValueError('Keyed release audit checks must name the candidate only through the key')
+            keyed.append({**check, 'candidate_id': identity})
+        audits = keyed
     return json.dumps({"concerns": concerns,
                        "inspected_commits": [resolve(number) for number in result["inspected_commits"]],
                        "daily_commit_checks": [{**{k: v for k, v in check.items() if k != 'source_commit'},
                                                 'source_sha': resolve(check['source_commit'])}
                                                for check in daily],
-                       "release_audit_checks": result.get("release_audit_checks", []),
+                       "release_audit_checks": audits,
                        "retired_concerns": result.get("retired_concerns", []),
                        "remaining_work": result["remaining_work"]})
+
+
+def settle_release_audit_checks(raw, context, slug, backlog=0):
+    """Defer release-audit dispositions the scan did not give exactly once.
+
+    Run 42109877615 lost routing-workers, with its 55 candidates, to one
+    unknown or repeated candidate ID. Leave out a disposition for a candidate
+    this scan was not assigned, replace repeated dispositions with one
+    deferral, and defer any assigned candidate left without one. A proposal
+    the left-out dispositions owned then has no owner, and
+    defer_unsupported_proposals leaves it out. validate_checks still checks
+    every remaining disposition.
+    """
+    result = json.loads(raw)
+    checks = result.get('release_audit_checks')
+    if not isinstance(checks, list):
+        return raw, []
+    assigned = [] if backlog else [c['id'] for c in release_handoff.assigned(context, slug)]
+    counts = {}
+    for check in checks:
+        if isinstance(check, dict) and check.get('candidate_id') in assigned:
+            counts[check['candidate_id']] = counts.get(check['candidate_id'], 0) + 1
+    kept, settled, repeated = [], [], set()
+    for check in checks:
+        identity = check.get('candidate_id') if isinstance(check, dict) else None
+        if identity not in assigned:
+            settled.append({'candidate_id': identity, 'reason': 'it is not assigned to this scan'})
+        elif counts[identity] > 1:
+            if identity not in repeated:
+                repeated.add(identity)
+                settled.append({'candidate_id': identity,
+                                'reason': f'the scan returned {counts[identity]} dispositions for it'})
+                kept.append({'candidate_id': identity, 'status': 'deferred', 'concerns': [],
+                             'evidence': f'Deferred: the scan returned {counts[identity]} '
+                                         'conflicting dispositions; remains eligible next night.'})
+        else:
+            kept.append(check)
+    for identity in assigned:
+        if identity not in counts:
+            settled.append({'candidate_id': identity, 'reason': 'the scan returned no disposition for it'})
+            kept.append({'candidate_id': identity, 'status': 'deferred', 'concerns': [],
+                         'evidence': 'Deferred: the scan returned no disposition; '
+                                     'remains eligible next night.'})
+    if not settled:
+        return raw, []
+    return json.dumps({**result, 'release_audit_checks': kept}), settled
+
+
+def defer_invalid_daily_checks(raw, context, slug, backlog=0):
+    """Defer a malformed daily commit check instead of failing its scan.
+
+    Run 42179285488 lost a whole backlog scan to one check whose blockers did
+    not match its status. Validate each assigned check on its own; one that
+    fails becomes deferred with the validator's reason, keeping only concern
+    references that still validate. The commit stays unfinished, so it comes
+    back next night. Unknown and repeated commits still fail validate_scan.
+    """
+    result = json.loads(raw)
+    checks = result.get('daily_commit_checks')
+    if not isinstance(checks, list) or not isinstance(result.get('concerns'), list):
+        return raw, []
+    expected = (daily_coverage.batch_commits(context, slug, backlog) if backlog
+                else context.get('daily_assignments', {}).get(slug, []))
+    counts = {}
+    for check in checks:
+        if isinstance(check, dict) and check.get('source_sha') in expected:
+            counts[check['source_sha']] = counts.get(check['source_sha'], 0) + 1
+
+    def error(check):
+        try:
+            daily_coverage.validate({**result, 'daily_commit_checks': [check]},
+                                    context, slug, SHARD_NAMES, expected)
+        except (ValueError, TypeError, KeyError, AttributeError) as failure:
+            return str(failure) or type(failure).__name__
+        return None
+
+    fixed, deferred = [], []
+    for check in checks:
+        sha = check.get('source_sha') if isinstance(check, dict) else None
+        reason = error(check) if counts.get(sha) == 1 else None
+        if reason is None:
+            fixed.append(check)
+            continue
+        refs = check.get('concerns')
+        changed = {**check, 'status': 'deferred', 'blockers': [], 'depends_on': [],
+                   'evidence': str(check.get('evidence') or '').rstrip()
+                   + f' Deferred: the check was invalid ({reason}).'}
+        changed['concerns'] = refs if isinstance(refs, list) and error(changed) is None else []
+        if error(changed) is not None:
+            fixed.append(check)  # Leave the original for validate_scan to report.
+            continue
+        fixed.append(changed)
+        deferred.append({'source_sha': sha, 'reason': reason})
+    if not deferred:
+        return raw, []
+    return json.dumps({**result, 'daily_commit_checks': fixed}), deferred
 
 
 def defer_unsupported_proposals(raw, context):
@@ -103,7 +207,9 @@ def defer_unsupported_proposals(raw, context):
     source nor its queued identity. One such slip used to discard every other
     validated proposal and commit check in the scan. Leave those proposals out
     and turn each disposition that named them into a deferral, so the work
-    stays visible next night. validate_scan still checks everything else.
+    stays visible next night. A release-audit proposal that no disposition of
+    its own candidate names is left out too. validate_scan still checks
+    everything else.
     """
     result = json.loads(raw)
     inspected = result.get('inspected_commits')
@@ -112,18 +218,26 @@ def defer_unsupported_proposals(raw, context):
         return raw, []
     pending = {(p['source_sha'], p['area'], p['concern'])
                for p in context.get('pending_concerns', [])}
+    owned = set()
+    for check in result.get('release_audit_checks') or []:
+        refs = check.get('concerns') if isinstance(check, dict) else None
+        if isinstance(refs, list) and isinstance(check.get('candidate_id'), str):
+            prefix = 'release-audit-' + check['candidate_id'] + '-'
+            owned.update(c for c in refs if isinstance(c, str) and c.startswith(prefix))
     kept, dropped = [], []
     for item in concerns:
         if not isinstance(item, dict):
             kept.append(item)
             continue
         source, concern = item.get('source_sha'), item.get('concern')
+        audit = isinstance(concern, str) and concern.startswith('release-audit-')
         if source not in inspected:
             reason = 'its source commit was not reported as inspected'
-        elif (isinstance(concern, str) and concern.startswith('release-audit-')
-              and source != context['source_sha']
+        elif (audit and source != context['source_sha']
               and (source, item.get('area'), concern) not in pending):
             reason = 'it uses neither the pinned main source nor its queued identity'
+        elif audit and concern not in owned:
+            reason = 'no disposition of its release audit candidate names it'
         else:
             kept.append(item)
             continue
@@ -502,6 +616,11 @@ def scan_schema(scoped):
     ids = [str(number) for number in scoped['required_commit_ids']]
     schema['properties']['daily_commit_checks'].update(
         properties={number: {'$ref': '#/definitions/daily_check'} for number in ids}, required=ids)
+    # Run 42123496088: routing-workers returned no dispositions for its 55
+    # candidates from a free-form array. Key them like daily checks.
+    audits = [c['id'] for c in scoped.get('release_audit_candidates', [])]
+    schema['properties']['release_audit_checks'].update(
+        properties={i: {'$ref': '#/definitions/release_audit_check'} for i in audits}, required=audits)
     schema['definitions']['daily_check']['properties']['depends_on']['items']['enum'] = [
         name for name in SHARD_NAMES if name != scoped.get('shard')]
     retired = schema['properties']['retired_concerns']
@@ -574,13 +693,22 @@ def main():
         raw = resolve_scan(read_scan_output(
             os.environ['SCAN_EXECUTION_FILE'], os.environ.get('SCAN_ACTION_OUTCOME', 'success'),
             int(os.environ.get('DISCOVERY_MAX_ROUNDS', '200')), execution), context["code_history"])
+        raw, settled = settle_release_audit_checks(raw, context, slug, backlog)
+        for entry in settled:
+            print(f"::warning::Deferred release audit candidate {entry['candidate_id']}: "
+                  f"{entry['reason']}.")
         raw, left_out = defer_unsupported_proposals(raw, context)
         for entry in left_out:
             print(f"::warning::Deferred {entry['area']}/{entry['concern']} "
                   f"({entry['source_sha']}): {entry['reason']}.")
+        raw, invalid = defer_invalid_daily_checks(raw, context, slug, backlog)
+        for entry in invalid:
+            print(f"::warning::Deferred daily check {entry['source_sha']}: {entry['reason']}.")
         scan = validate_scan(raw, context, slug, context["code_history"], backlog)
         scan['execution'] = execution
         scan['deferred_proposals'] = left_out
+        scan['settled_release_audit_checks'] = settled
+        scan['deferred_daily_checks'] = invalid
         Path(os.environ["SCAN_OUTPUT"]).write_text(json.dumps(scan))
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             label = (f"{slug} backlog {backlog}: {len(daily_coverage.batch_commits(context, slug, backlog))} older"
@@ -588,8 +716,13 @@ def main():
             summary.write(f"{label} commits; "
                           f"{len(scan['inspected_commits'])} self-reported inspected; "
                           f"{len(scan['concerns'])} proposed concerns.\n")
+            for entry in settled:
+                summary.write(f"Deferred release audit candidate `{entry['candidate_id']}`: "
+                              f"{entry['reason']}.\n")
             for entry in left_out:
                 summary.write(f"Deferred `{entry['area']}/{entry['concern']}`: {entry['reason']}.\n")
+            for entry in invalid:
+                summary.write(f"Deferred daily check `{entry['source_sha']}`: {entry['reason']}.\n")
             summary.write(f"Verified {execution['assistant_rounds']} assistant rounds "
                           f"within the {execution['max_rounds']}-round limit. "
                           f"Upstream turn-counter recovery: {execution['recovered']}.\n")

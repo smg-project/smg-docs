@@ -291,11 +291,15 @@ score = (queued_tokens + in_flight_tokens) / throughput
 
 Both terms are in seconds, so they add directly. Ties are broken uniformly at random.
 
-For prefill workers, `throughput` is always `--least-load-default-throughput`, read as input tokens/s: prefill work consumes input tokens, which a generation rate cannot price.
+For prefill workers, `throughput` is read as input tokens/s: prefill work consumes input tokens, which a generation rate cannot price. A prefill worker whose load report carries a **measured prefill capacity** on every DP rank — the uncached prompt tokens per second of active prefill its servicer measured on that rank — is priced at the sum of those rates. A worker whose report lacks the measurement — a rank without a valid rate, or a report that does not cover every rank — is priced at the mean measured rate of the candidates that have one; `--least-load-default-throughput`, still read as input tokens/s, stands in only when no candidate reports a measured rate.
+
+The measured capacity is an observed service rate, not a hardware constant, and it ages out: each rank's samples expire after 60 seconds, and a rank reports a rate only while at least two valid samples remain, so a worker that has prefilled nothing for a minute returns to the fallback pricing above until fresh prefills rebuild its rate.
+
+The measurement comes from the worker's servicer. The [Rust vLLM servicer](../../getting-started/grpc-workers.md#rust-vllm-servicer) times each request's prefill from the engine's own scheduling events, which vLLM emits only with its scheduler stats (`log_stats`) enabled: uncached prompt tokens per second of active prefill, counting overlapping prefills' time once and skipping preempted requests and pure cache hits. The Rust [SGLang](../../getting-started/grpc-workers.md#rust-sglang-servicer), [TokenSpeed](../../getting-started/grpc-workers.md#rust-tokenspeed-servicer) and TensorRT-LLM servicers measure on their own clock instead, timing every request from hand-off to first output; seconds that several requests' intervals share — a wait in queue behind another prefill — count once. Their interval includes wire hops and, on a PD prefill worker, the KV transfer, so the reading errs low, never high. A worker whose reports never carry a rate — the Python servicers do not measure one — is always priced by the fallback chain above.
 
 Missing signals degrade gracefully:
 
-- A DP rank with no requests running contributes no rate — its throughput gauge holds whatever its last decode interval left behind, which is not a live rate. A worker with no live rate on any rank is priced at the mean live rate of the candidates that have one, so an idle worker beside busy peers reads as fast as they are, not slower; `--least-load-default-throughput` stands in only when no candidate reports a live rate.
+- A DP rank with no requests running contributes no rate — its throughput gauge holds whatever its last decode interval left behind, which is not a live rate. A worker with no live rate on any rank is priced at the mean live rate of the candidates that have one, so an idle worker beside busy peers reads as fast as they are, not slower; `--least-load-default-throughput` stands in only when no candidate reports a live rate. A prefill worker without a complete measured capacity falls back the same way: the candidates' mean, then the configured default.
 - A worker that has not reported a load yet, such as one that just joined, scores as the best-scoring reporting worker plus its own in-flight requests, so it neither attracts every request nor gets starved.
 - When no worker reports at all (a cold start, or engines that never report), the policy picks the worker with the fewest in-flight requests.
 
@@ -312,7 +316,7 @@ For a per-worker ceiling that applies under every policy, see [Overload Protecti
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--least-load-kv-pressure-weight` | `0.15` | Weight of the KV-pressure term, in seconds. Raise it to steer harder away from nearly full KV caches; `0` removes the term |
-| `--least-load-default-throughput` | `2000` | Input throughput (tokens/s) assumed for prefill workers, and the fallback generation throughput for other workers when no candidate reports a live rate. Set it to your measured per-replica rate; it co-tunes with the KV-pressure weight |
+| `--least-load-default-throughput` | `2000` | Fallback throughput (tokens/s) when no candidate reports a live rate (for prefill workers the live rate is a measured prefill capacity; for the others, a generation rate). Set it to your per-replica input rate for prefill, output rate otherwise; it co-tunes with the KV-pressure weight |
 | `--least-load-mean-prefill-tokens` | `1024` | Tokens assumed per request when the real count is unknown |
 | `--least-load-max-waiting-requests` | `0` | Per-worker waiting-queue cap; `0` disables it |
 

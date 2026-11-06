@@ -21,7 +21,7 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
 1. **Prepare:** preserve tools from the dispatched workflow revision, pin both
    docs default branch and SMG main snapshots, check/build the base docs, and collect
    source patches and existing PRs.
-2. **Discover:** eight subsystem scans, at most four in parallel, inspect history,
+2. **Discover:** eight subsystem scans and any backlog scans, at most sixteen in parallel, inspect history,
    current implementation/tests, and current documentation. Each sees the full
    source index with subsystem priority IDs, so cross-cutting changes can be
    attributed to their actual commit. Discovery receives existing page titles/headings and must identify every
@@ -32,7 +32,14 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    commit is missing from the inspected list, or a release-audit proposal on
    neither the pinned main source nor its queued identity, is left out with a
    warning. Every commit check or release-audit disposition naming it becomes
-   deferred, so one slip no longer discards the rest of the scan. Recent commits are mandatory
+   deferred, so one slip no longer discards the rest of the scan. Release-audit
+   dispositions are keyed by candidate ID in the scan schema, like daily commit
+   checks, so each assigned candidate must get exactly one. As a fallback, a
+   disposition for a candidate not assigned to the scan is left out, repeated ones become a single deferral, and an assigned
+   candidate without one is deferred. A release-audit proposal that no
+   disposition of its own candidate names is then left out. A daily commit
+   check that fails validation on its own (for example, blocked with no
+   blockers) is deferred with the reason, so the commit returns next night. Recent commits are mandatory
    checks before older backlog and audit work. Up to eight extra **backlog
    scans** (25 commits each by default) assess older commits that never received
    a disposition, largest subsystem backlog first.
@@ -45,9 +52,9 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    fails on missing scans or unfinished mandatory commit checks, so incomplete
    discovery remains visibly unsuccessful.
    Unknown, duplicate, malformed, or wrong-baseline artifacts still fail planning.
-4. **Write:** at most four independent writers, each with 120 turns, update only
+4. **Write:** at most sixteen independent writers, each with 120 turns, update only
    its concern's allowlisted Markdown files. Export documentation text as JSON.
-5. **Publish:** fresh jobs import only that text, reapply path/size guards, run an
+5. **Publish:** up to sixteen fresh jobs import only that text, reapply path/size guards, run an
    independent read-only accuracy, scope, placement, and related-page consistency review, run `pnpm check` and `pnpm build`,
    and publish. Successful writers remain publishable if another writer fails.
 
@@ -190,7 +197,8 @@ retain the item, diff, and explicit four-gate review verdict for fourteen days.
 The discovery report is retained for thirty days and identifies targeted
 scans and dry runs. If no production report is found within that window, the
 ledger restarts and older commits are reassessed; nothing is skipped.
-Discovery retains its 200 API-round and 45-minute limits. The pinned action has
+Discovery retains its 200 API-round limit; each scan job has 90 minutes, enough
+for all 200 rounds at about 20 seconds each. The pinned action has
 an [upstream turn-counter mismatch](https://github.com/anthropics/claude-code-action/issues/1795):
 its reported tool-result count can exceed the API-round limit on successful runs.
 The mandatory validator counts distinct assistant message IDs in the fresh

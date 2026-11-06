@@ -127,8 +127,11 @@ Production-ready storage with PostgreSQL.
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--postgres-db-url` | - | PostgreSQL connection URL |
+| `--postgres-db-url-file` | - | File holding the connection URL alone, such as a mounted secret; surrounding whitespace is dropped |
 | `--postgres-pool-max-size` | `16` | Maximum connection pool size |
 | `--postgres-op-timeout-secs` | `5` | Bound in seconds on each call to the store (the pool wait, the connect, and the statement); must be greater than 0. A call past it is answered `503 storage_unavailable` (see [Store Failures While Serving](#store-failures-while-serving)) |
+
+When `--postgres-db-url` is unset, the URL is read from the environment variable `SMG_POSTGRES_DB_URL`, or from the file named by `--postgres-db-url-file` or `SMG_POSTGRES_DB_URL_FILE`; the flag beats the environment, and a URL together with a URL file is refused at startup. See [Store URLs from the environment or a file](../../getting-started/data-connections.md#store-urls-from-the-environment-or-a-file) to keep the password off the command line.
 
 ### Connection URL Format
 
@@ -180,9 +183,12 @@ High-performance caching with optional persistence and TTL-based retention.
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--redis-url` | - | Redis connection URL |
+| `--redis-url-file` | - | File holding the connection URL alone, such as a mounted secret; surrounding whitespace is dropped |
 | `--redis-pool-max-size` | `16` | Maximum connection pool size |
 | `--redis-retention-days` | `30` | Data retention in days (-1 for persistent) |
 | `--redis-op-timeout-secs` | `5` | Bound in seconds on each call to the store (the pool wait, the connect, and the command); must be greater than 0. A call past it is answered `503 storage_unavailable` (see [Store Failures While Serving](#store-failures-while-serving)) |
+
+When `--redis-url` is unset, the URL is read from the environment variable `SMG_REDIS_URL`, or from the file named by `--redis-url-file` or `SMG_REDIS_URL_FILE`; the flag beats the environment, and a URL together with a URL file is refused at startup. See [Store URLs from the environment or a file](../../getting-started/data-connections.md#store-urls-from-the-environment-or-a-file) to keep the password off the command line.
 
 ### Connection URL Format
 

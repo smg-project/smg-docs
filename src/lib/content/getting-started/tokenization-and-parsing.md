@@ -262,7 +262,7 @@ Forking is safe while other threads are mid-call: `os.fork()` waits until every 
 
 ### Pickling
 
-A `Tokenizer` pickles, so a spawned worker — a `multiprocessing` pool with the `spawn` start method, or `datasets.map(num_proc=...)` — can take one as an argument. The pickle holds no tokenizer data, only what identifies it: `source`, `chat_template`, `model`, the Hub snapshot the source is in (if any), `Tokenizer.smg_build` and [`fingerprint`](#the-fingerprint). `copy.copy` and `copy.deepcopy` return the tokenizer itself, which is immutable.
+A `Tokenizer` pickles, so a worker process — in a `multiprocessing` pool, the `spawn` start method included, or in `datasets.map(num_proc=...)` — can take one as an argument. The pickle holds no tokenizer data, only what identifies it: `source`, `chat_template`, `model`, the Hub snapshot the source is in (if any), `Tokenizer.smg_build` and [`fingerprint`](#the-fingerprint). `copy.copy` and `copy.deepcopy` return the tokenizer itself, which is immutable.
 
 Unpickling loads the tokenizer again from the pickled files — on the same host, from the same paths. Where the pickled path is missing (another host) and the source was a Hub model ID or a path in the Hugging Face cache, the snapshot is downloaded again by its Hub model ID (revision `main`, as at load) and the tokenizer loads from the download; a file source loads from its own path inside the fresh snapshot. A pickled plain path that is not there raises `FileNotFoundError`, and an OpenAI model name reloads from the encoding that ships with the package, with no files.
 

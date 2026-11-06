@@ -197,7 +197,8 @@ retain the item, diff, and explicit four-gate review verdict for fourteen days.
 The discovery report is retained for thirty days and identifies targeted
 scans and dry runs. If no production report is found within that window, the
 ledger restarts and older commits are reassessed; nothing is skipped.
-Discovery retains its 200 API-round limit; each scan job has 60 minutes. The pinned action has
+Discovery retains its 200 API-round limit; each scan job has 90 minutes, enough
+for all 200 rounds at about 20 seconds each. The pinned action has
 an [upstream turn-counter mismatch](https://github.com/anthropics/claude-code-action/issues/1795):
 its reported tool-result count can exceed the API-round limit on successful runs.
 The mandatory validator counts distinct assistant message IDs in the fresh

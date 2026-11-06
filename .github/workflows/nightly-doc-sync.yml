@@ -251,9 +251,10 @@ jobs:
     # result determines whether discovery has a valid context to inspect.
     if: always() && !cancelled() && needs.prepare.result == 'success'
     runs-on: smg-org-runner-cpu
-    # Operations scans reached 39-45 minutes in early November 2026; run
-    # 42109877615 hit 45 and was cancelled. The 200-round ceiling still binds.
-    timeout-minutes: 60
+    # Leave room for the full 200-round ceiling: operations used 129 rounds in
+    # 43 minutes (run 42179285488), about 20 seconds a round, and was cancelled
+    # at 45 and then 60 minutes in runs 42109877615 and 42188570332.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       max-parallel: 16

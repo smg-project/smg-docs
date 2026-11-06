@@ -249,6 +249,102 @@ class DiscoveryHandoffTests(unittest.TestCase):
                          ('deferred', ['ordinary-change'], []))
         self.assertEqual(second, daily[1])
 
+    def settle(self, result, slug='routing-workers'):
+        raw, context, history = self.scan_inputs(result)
+        context['release_audit_candidates'] = self.context['release_audit_candidates'] + [
+            {'id': 'fedcba0987654321', 'shard': 'routing-workers', 'doc_path': self.path}]
+        with self.assertRaises(ValueError):
+            discovery.validate_scan(raw, context, slug, history)
+        raw, settled = discovery.settle_release_audit_checks(raw, context, slug)
+        raw, dropped = discovery.defer_unsupported_proposals(raw, context)
+        scan = discovery.validate_scan(raw, context, slug, history)
+        return scan, settled, dropped
+
+    def test_unknown_repeated_or_missing_audit_candidates_are_deferred(self):
+        # Run 42109877615 lost the routing-workers scan, with its 55
+        # candidates, to one unknown or repeated candidate ID.
+        other = {'candidate_id': 'fedcba0987654321', 'status': 'covered', 'concerns': [],
+                 'evidence': 'The page already states this.'}
+        cases = [
+            ('unknown', [self.check, other, {**other, 'candidate_id': 'not-a-candidate'}],
+             {'not-a-candidate': 'not assigned'}, [self.item['concern']]),
+            ('repeated', [self.check, {**self.check, 'status': 'deferred'}, other],
+             {self.identity: 'returned 2 dispositions'}, []),
+            ('mistyped', [{**self.check, 'candidate_id': '1234567890abcdee'}, other],
+             {'1234567890abcdee': 'not assigned', self.identity: 'no disposition'}, []),
+        ]
+        for name, checks, reasons, concerns in cases:
+            with self.subTest(name):
+                scan, settled, dropped = self.settle({'concerns': [self.item], 'release_audit_checks': checks})
+                self.assertEqual({e['candidate_id']: next(r for r in reasons.values() if r in e['reason'])
+                                  for e in settled}, reasons)
+                self.assertEqual([c['concern'] for c in scan['concerns']], concerns)
+                self.assertEqual([d['concern'] for d in dropped],
+                                 [] if concerns else [self.item['concern']])
+                status = {c['candidate_id']: c['status'] for c in scan['release_audit_checks']}
+                self.assertEqual(status, {self.identity: 'proposed' if concerns else 'deferred',
+                                          'fedcba0987654321': 'covered'})
+
+    def test_schema_requires_one_keyed_disposition_per_candidate(self):
+        # Run 42123496088: a free-form array let routing-workers omit all 55.
+        ids = ['1234567890abcdef', 'fedcba0987654321']
+        schema = discovery.scan_schema({'required_commit_ids': [1], 'shard': 'routing-workers',
+                                        'release_audit_candidates': [{'id': i} for i in ids]})
+        audits = schema['properties']['release_audit_checks']
+        self.assertEqual((audits['type'], audits['required'], audits['additionalProperties']),
+                         ('object', ids, False))
+        self.assertNotIn('candidate_id', schema['definitions']['release_audit_check']['properties'])
+        empty = discovery.scan_schema({'required_commit_ids': [1], 'shard': 'routing-workers'})
+        self.assertEqual(empty['properties']['release_audit_checks']['required'], [])
+        history = [self.context['source_sha'] + ' current']
+        keyed = {'concerns': [], 'inspected_commits': [1], 'remaining_work': 'None.',
+                 'release_audit_checks': {self.identity: {k: v for k, v in self.check.items()
+                                                          if k != 'candidate_id'}}}
+        resolved = json.loads(discovery.resolve_scan(json.dumps(keyed), history))
+        self.assertEqual(resolved['release_audit_checks'], [self.check])
+        keyed['release_audit_checks'][self.identity]['candidate_id'] = 'other'
+        with self.assertRaises(ValueError):
+            discovery.resolve_scan(json.dumps(keyed), history)
+
+    def test_malformed_daily_check_is_deferred_without_discarding_the_scan(self):
+        # Run 42179285488 lost a backlog scan to one blocked check with no blockers.
+        current, older = self.context['source_sha'], 'b' * 40
+        ordinary = {**self.item, 'concern': 'ordinary-change', 'question': 'Ordinary question?'}
+        good = {'source_sha': older, 'status': 'covered', 'concerns': [], 'blockers': [],
+                'depends_on': [], 'evidence': 'The page already says this.'}
+        for name, bad, kept in [
+                ('blocked without blockers', {'status': 'blocked', 'concerns': ['ordinary-change']},
+                 ['ordinary-change']),
+                ('covered with a dependency', {'status': 'covered', 'depends_on': ['operations']}, []),
+                ('missing concern', {'status': 'proposed', 'concerns': ['not-proposed']}, [])]:
+            with self.subTest(name):
+                check = {**good, 'source_sha': current, **bad}
+                raw, context, history = self.scan_inputs({
+                    'concerns': [self.item, ordinary], 'release_audit_checks': [self.check],
+                    'daily_commit_checks': [check, good]})
+                context['daily_assignments'] = {'routing-workers': [current, older]}
+                with self.assertRaises(ValueError):
+                    discovery.validate_scan(raw, context, 'routing-workers', history)
+                raw, deferred = discovery.defer_invalid_daily_checks(raw, context, 'routing-workers')
+                scan = discovery.validate_scan(raw, context, 'routing-workers', history)
+                first, second = scan['daily_commit_checks']
+                self.assertEqual((first['status'], first['concerns'], first['blockers'], first['depends_on']),
+                                 ('deferred', kept, [], []))
+                self.assertIn('Deferred: the check was invalid', first['evidence'])
+                self.assertEqual(second, good)
+                self.assertEqual([d['source_sha'] for d in deferred], [current])
+        raw, context, _ = self.scan_inputs({'concerns': [], 'release_audit_checks': [],
+                                            'daily_commit_checks': [good]})
+        context['daily_assignments'] = {'routing-workers': [older]}
+        self.assertEqual(discovery.defer_invalid_daily_checks(raw, context, 'routing-workers'), (raw, []))
+
+    def test_complete_audit_dispositions_are_not_settled(self):
+        raw, context, _ = self.scan_inputs({'concerns': [self.item], 'release_audit_checks': [self.check]})
+        self.assertEqual(discovery.settle_release_audit_checks(raw, context, 'routing-workers'), (raw, []))
+        # Backlog scans own no candidates, so their dispositions are all left out.
+        _, settled = discovery.settle_release_audit_checks(raw, context, 'routing-workers', backlog=1)
+        self.assertEqual([e['candidate_id'] for e in settled], [self.identity])
+
     def test_existing_concern_references_preserve_source_and_dedup_identity(self):
         for slug, sha in [('version-context-routing', self.context['source_sha']),
                           ('bootstrap-port-probe-at-registration', 'b' * 40)]:

@@ -225,7 +225,7 @@ SMG publishes `smg_worker_overload_shed_total` at zero for every stage from star
 
 If you deploy with the SMG Helm chart, you do not have to build a dashboard by hand: set `grafana.dashboard.enabled=true` (default `false`) and the chart ships a ready-made dashboard as a ConfigMap labeled `grafana_dashboard: "1"`, which a Grafana sidecar dashboard loader picks up. The dashboard has 49 panels in eight rows (traffic, latency, capacity and queues, workers, cache and KV events, Symphony, runtime, and prefill-decode), and its `namespace` and `job` variables scope every query to the release, so several releases can share one Grafana. The chart's `README.md` describes each row and panel.
 
-The panels below are building blocks for a dashboard of your own, for deployments without the chart.
+For deployments without the chart, the panels below are building blocks for a dashboard of your own.
 
 ### Essential panels
 
@@ -314,7 +314,7 @@ rate(smg_tokio_event_loop_stalls_total[5m])
 
 ## Alerting Rules
 
-The SMG Helm chart ships alerting rules too: set `prometheusRule.enabled=true` (default `false`) and the chart adds a `PrometheusRule` for the Prometheus Operator (its CRDs must be installed) with eleven alerts covering gateway and worker availability, edge and router error ratios, time to first token, KV-cache capacity, circuit breakers, admission rejections, event-loop stalls, dropped log lines, and degraded KV-event ranks. Thresholds live under `prometheusRule.alerts` (the defaults and their rationale are in the chart's `values.yaml`), and `prometheusRule.jobSelector` scopes every expression to the release, so several releases can share one Prometheus and a firing alert names its gateway. The chart's `README.md` lists each alert and its firing condition.
+The SMG Helm chart also ships alerting rules: set `prometheusRule.enabled=true` (default `false`) and the chart adds a `PrometheusRule` for the Prometheus Operator (its CRDs must be installed). Its eleven alerts cover gateway and worker availability, edge and router error ratios, time to first token, KV-cache capacity, circuit breakers, admission rejections, event-loop stalls, dropped log lines, and degraded KV-event ranks. Thresholds live under `prometheusRule.alerts` (the defaults and their rationale are in the chart's `values.yaml`), and `prometheusRule.jobSelector` scopes every expression to the release, so several releases can share one Prometheus and a firing alert names its gateway. The chart's `README.md` lists each alert and its firing condition.
 
 The rules below are a starting point for deployments without the chart:
 

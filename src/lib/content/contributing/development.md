@@ -523,7 +523,7 @@ E2E_RUNTIME=vllm E2E_ENGINE=vllm E2E_GPU_TIER=1 ROUTER_LOCAL_MODEL_PATH=$HOME/mo
   pytest e2e_test/chat_completions -s -vv
 ```
 
-`E2E_RUNTIME=mock` runs the tests marked for the mock engine on the scripted mock worker (`crates/mock_worker`) instead of a real engine: the test states the model's answer before it sends the request (the `mock_answers` fixture, a no-op on a real engine), and the gateway's tokenization, wire protocol, decoding, and parsing run against it on CPU.
+`E2E_RUNTIME=mock` runs the tests marked for the mock engine on the scripted mock worker (`crates/mock_worker`) instead of a real engine: the test states the model's answer before it sends the request (the `mock_answers` fixture, a no-op on a real engine), and the gateway's tokenization, wire protocol, decoding, and parsing run against the mock worker on CPU.
 
 The mock runtime needs only each model's tokenizer and configuration JSON files under `ROUTER_LOCAL_MODEL_PATH/<model id>`. The mock-marked classes' models live in ungated Hugging Face repositories, so `hf download <model id> --include '*.json' --local-dir <path>/<model id>` fetches the files without a token. Leave `E2E_GPU_TIER` unset to run every mock-marked class, including those marked for multi-GPU tiers:
 

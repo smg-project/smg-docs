@@ -102,7 +102,7 @@ A tenant not listed under `tenants` uses `default_policy`, with its own buckets:
 Checked once, at load, before the gateway ever serves traffic on this config:
 
 - `default_policy` must **not** set `tenant_key`; every entry under `tenants` **must**.
-- Tenant keys must be non-empty, have no surrounding whitespace, be unique across `tenants`, and be a canonical serving-path tenant key (`auth:`, `header:`, `ip:`-prefixed, or exactly `anonymous`) — a bare ID copy-pasted without its prefix is rejected rather than silently never matching.
+- Tenant keys must be non-empty, have no surrounding whitespace, be unique across `tenants`, and be a canonical serving-path tenant key: `auth:<id>`, `header:<id>`, `ip:` followed by a valid IP address in its canonical form, or exactly `anonymous` — a bare ID copy-pasted without its prefix is rejected rather than silently never matching. An `ip:` key whose address doesn't parse (`ip:not-an-address`) is rejected, and so is a parseable but non-canonical spelling such as an uppercased or expanded IPv6 address (`ip:2001:DB8::1`), which could never match the compressed lowercase form the gateway resolves a request to (`ip:2001:db8::1`).
 - A `header:` tenant key requires `--trust-tenant-header`, since without it no request resolves to a `header:` tenant.
 - `tokens_per_minute` and `requests_per_minute` must be `> 0`, on every scope (`default_policy`, each tenant, each model rule).
 - `rule_id` must match `[A-Za-z0-9._-]+`, and be unique within its tenant (or `default_policy`).

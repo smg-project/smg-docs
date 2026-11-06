@@ -146,12 +146,17 @@ HTTP workers, PD legs, and external providers as `0.95`, not `0.949999988079071`
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `role` | string | Yes | `system`, `developer`, `user`, `assistant`, `tool`, `function`, or `root` (MiniMax only; see [Provider Profiles](#provider-profiles)) |
-| `content` | string/array | Yes | Text, or an array of [content parts](#content-parts). Optional on `system` and `assistant` messages; must not be empty on `user` messages. On `function` messages (the deprecated predecessor of `tool`) it is a plain string or `null`; a `null` is forwarded to HTTP workers and providers as `null`, not dropped, and reaches the chat template as empty content on gRPC workers |
+| `content` | string/array | Yes | Text, or an array of [content parts](#content-parts). Optional on `system` and `assistant` messages; must not be empty on `user` messages; a plain string or `null` on `function` messages (see below) |
 | `name` | string | No | Participant name |
 | `tool_calls` | array | No | Tool calls made by an `assistant` message |
 | `tool_call_id` | string | For `tool` | ID of the tool call this `tool` message answers |
 | `reasoning_content` | string | No | Reasoning from an earlier `assistant` turn; `reasoning` is accepted as an alias |
 | `tools` | array | No | Kimi only: tools declared on a `system` or `developer` message |
+
+On a `function` message (the deprecated predecessor of `tool`), `content` is required but
+nullable, and a `null` is kept rather than dropped: a body forwarded to an HTTP worker or
+external provider still carries `"content": null`, and on gRPC workers the chat template
+receives it as empty content in the template's own format.
 
 #### Content Parts
 

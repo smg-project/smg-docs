@@ -529,7 +529,7 @@ The mock runtime needs no GPU, no engine install, and no model weights — only 
 
 ```bash
 # The mock-marked chat tests, on CPU, no engine or weights
-cargo build -p mock-worker --bin mock-worker
+cargo build --locked -p mock-worker --bin mock-worker
 E2E_RUNTIME=mock E2E_ENGINE=mock MOCK_WORKER_BIN=target/debug/mock-worker \
   ROUTER_LOCAL_MODEL_PATH=$HOME/models pytest e2e_test/chat_completions -s -vv
 ```

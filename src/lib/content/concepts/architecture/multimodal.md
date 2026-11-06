@@ -312,6 +312,8 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 502 | `media_fetch_failed` | The media's host failed for now: the fetch timed out, the origin answered 5xx, or the transfer broke |
 | 503 | `no_media_ref_capable_worker` | `--mm-processing worker`, and no worker of the model advertises a media processor |
 
+While `no_media_ref_capable_worker` holds for a model with a worker that reports a vision encoder, the ready body of [`/readiness`](../reliability/health-checks.md#gateway-probe-endpoints) names the model under `models_without_media_processing`; the status stays ready, and the model leaves the list once a worker of it that processes media references registers.
+
 The status under `media_fetch_failed` tells whose fault the failure is: a 400 is the request's own mistake to fix; a 502 is the media host's trouble for now, so the client can retry later. SMG itself never retries the request — another attempt would fetch from the same host — and a worker that reports a media failure stays healthy and in rotation. The split applies wherever SMG's own pipeline fetches, on the router or on a worker running `--mm-processor smg`; the `inprocess` and `redis` processors answer as described under [Worker-Side Processing on vLLM](#worker-side-processing-on-vllm).
 
 Prefill-decode deployments add three codes, listed under [Prefill-Decode Disaggregation](#prefill-decode-disaggregation).

@@ -107,7 +107,7 @@ smg \
 
 Set both flags or neither: SMG refuses to start with only one of them, or when it can't read one of the files. Both files are PEM. The example serves on `8443`: the published image runs as uid 65532 with every capability dropped by the Helm chart, so it cannot bind a port below 1024; put a Service, an ingress or a load balancer in front for `443`.
 
-HTTPS covers the data listener (`--port`); when `--admin-port` puts the control plane on an [admin listener](control-plane-auth.md#admin-listener) of its own, that listener presents the same certificate. The metrics listener (`--prometheus-port`) and the probe listener (`--health-check-port`) stay plain HTTP.
+HTTPS covers the data listener (`--port`); when `--admin-port` puts the control plane on an [admin listener](control-plane-auth.md#admin-listener) of its own, that listener presents the same certificate. The metrics listener (`--prometheus-port`) and the probe listener (`--health-check-port`, see [Gateway Probe Endpoints](../concepts/reliability/health-checks.md#gateway-probe-endpoints)) stay plain HTTP.
 
 The TLS policy is fixed: TLS 1.2 and 1.3 only (a client limited to TLS 1.1 or older cannot connect), with rustls' default cipher suites, and no flag for a minimum version, a cipher list or SNI-based certificate selection. The certificate and key are read once at start-up, so a renewed certificate takes effect at the next restart. Plain HTTP sent to the TLS port is refused at the handshake.
 
@@ -165,7 +165,7 @@ SMG has no native TLS on the gRPC channel. The supported way to encrypt and auth
 
 ## Full TLS Configuration
 
-With the Rust `smg` binary, TLS covers the gateway's own listener:
+With the Rust `smg` binary, TLS covers the gateway's own listeners:
 
 ```bash
 smg \

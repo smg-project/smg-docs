@@ -246,6 +246,7 @@ For a plain local checkpoint path, pass `model=`: the ID SMG serves the checkpoi
 | `eos_token_ids` | The IDs SMG stops generation at: `eos_token_id` from `config.json` and `generation_config.json` merged with the tokenizer's own EOS, deduplicated and sorted |
 | `token_to_id(token)`, `id_to_token(id)` | Vocabulary lookups in the vocabulary's own spelling (`Ġthe` for byte-level vocabularies); `None` on a miss. The built-in encoding an OpenAI model name loads has no vocabulary map, so every lookup is `None` |
 | `source` | The absolute path of the loaded checkpoint or Hub snapshot, or the OpenAI model name |
+| `fingerprint` | A digest of everything the tokenizer's output follows from; tokenizers with one fingerprint render and encode alike. See [The Fingerprint](#the-fingerprint) |
 | `Tokenizer.smg_build` | The smg release and commit the library was built from |
 
 ### Threads and Worker Processes
@@ -257,13 +258,34 @@ An encode of less than 16 KiB of text, a decode of fewer than 4096 IDs, or a cha
 
 To encode many texts, prefer one `encode_batch` call over a Python thread per text. Each worker of a multi-process pipeline — a torch `DataLoader` worker, `datasets.map(num_proc=...)` — builds its own pool on first use, including a process forked after the parent used the tokenizer, so size `SMG_TOKENIZER_THREADS` for the workers that run beside each other.
 
+Forking is safe while other threads are mid-call: `os.fork()` waits until every tokenizer call running in another thread has finished, because a child forked in the middle of one would inherit the library's internal locks held, with no thread left to release them, and hang at its own next call. The fork does not wait for a Hub download, which holds none of those locks. Only forks made through `os.fork()` — `multiprocessing`'s `fork` start method among them — wait; a fork made directly from C does not.
+
+### Pickling
+
+A `Tokenizer` pickles, so a worker process — in a `multiprocessing` pool, the `spawn` start method included, or in `datasets.map(num_proc=...)` — can take one as an argument. The pickle holds no tokenizer data, only what identifies it: `source`, `chat_template`, `model`, the Hub snapshot the source is in (if any), `Tokenizer.smg_build` and [`fingerprint`](#the-fingerprint). `copy.copy` and `copy.deepcopy` return the tokenizer itself, which is immutable.
+
+Unpickling loads the tokenizer again from the pickled files — on the same host, from the same paths. Where the pickled path is missing (another host) and the source was a Hub model ID or a path in the Hugging Face cache, the snapshot is downloaded again by its Hub model ID (revision `main`, as at load) and the tokenizer loads from the download; a file source loads from its own path inside the fresh snapshot. A pickled plain path that is not there raises `FileNotFoundError`, and an OpenAI model name reloads from the encoding that ships with the package, with no files.
+
+Unpickling refuses, with `RuntimeError`, a reload that would not behave like the pickled tokenizer:
+
+- A pickle made by another smg build, whose token IDs may differ; the message names both builds.
+- Files whose fingerprint changed: edited in place since the pickle, or a Hub snapshot only partly downloaded into this host's cache.
+- A fresh download where the Hub's `main` moved on since the pickle: its files differ, or the pickled file is no longer in it.
+- A DeepSeek V4.1 tokenizer loaded with `encoding/encoding.py` unpickles only where that file is too: the Hub download does not fetch it, so on another host make the pickled snapshot available yourself.
+
+#### The Fingerprint
+
+`Tokenizer.fingerprint` digests everything the tokenizer's output follows from: the smg build, `model`, the chat template file, a file source itself, and the checkpoint's tokenizer and config files — `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, `vocab.json`, `merges.txt`, SentencePiece `.model` files, `.tiktoken` files, `.jinja` templates, `chat_template.json`, `config.json`, `generation_config.json` and DeepSeek V4.1's `encoding/encoding.py`. Two tokenizers with one fingerprint render and encode alike; the checkpoint's weights and other files don't enter it. The files are read and hashed once, at load, on the calling thread.
+
+Because the fingerprint is in the pickle, a cache keyed on the pickled bytes — `datasets.map`'s — recomputes after a chat template or tokenizer file changes, instead of reusing results the old files produced.
+
 ### Library Errors
 
 | Exception | Cause |
 |---|---|
 | `ValueError` | The tokenizer rejected the input, or a chat request SMG would refuse with 400 — raised with the gateway's reason; a batch failure names the item, as in `texts[3]: ...` or `requests[1]: ...`. `apply_chat_template` also raises it for a rendering that does not honor `add_generation_prompt` or `continue_final_message`, and loading raises it for a `chat_template=` file that doesn't exist |
-| `RuntimeError` | The checkpoint didn't load, the thread pool couldn't start, or the tokenizer failed internally |
-| `FileNotFoundError` | A `source` path that isn't there |
+| `RuntimeError` | The checkpoint didn't load, the thread pool couldn't start, or the tokenizer failed internally. Unpickling raises it for a pickle from another smg build, for files whose fingerprint changed, and for a Hub re-download without the pickled file; see [Pickling](#pickling) |
+| `FileNotFoundError` | A `source` path that isn't there, at load or at unpickle |
 | `TypeError` | A single string passed to `encode_batch` or a single request to `render_chat_batch`, which take sequences; a chat request that is not a mapping or its JSON text; an `apply_chat_template` argument SMG has no equivalent for, or a keyword naming a template variable the render fills itself |
 
 ---

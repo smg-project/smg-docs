@@ -887,7 +887,7 @@ Hugging Face tokenizers loaded, by the encode path chosen at load: `v1` (the opt
 
 #### `smg_tokenizer_encode_fallbacks_total`
 
-Inputs the direct byte-level encoder gave up to the reference implementation after the load's choice, by reason: `not_nfc` (text not in NFC under an NFC normalizer) or `piece_declined` (the model declined a piece).
+Inputs the direct byte-level encoder gave up to the reference implementation after the load's choice. The only reason is `piece_declined` (the model declined a piece). Text not in NFC under an NFC normalizer is normalized on the direct path itself and does not fall back.
 
 | Type | Labels |
 |------|--------|

@@ -206,10 +206,10 @@ history loaded from `previous_response_id` — and an unmatched result is reject
 ```
 
 A function tool's `parameters` may be omitted or set to `null`: both declare a function
-that takes no arguments, read as the empty schema `{}` wherever a schema is needed. A
-schema that is given must be a JSON object; any other JSON type is rejected with `400`
-(`invalid_type`, naming `tools[i].parameters`). With `strict: true`, OpenAI's own hosted
-model IDs are additionally held to the public API's schema rules; see
+that takes no arguments, and SMG reads the empty schema `{}` for it wherever a schema is
+needed. A schema that is given must be a JSON object; any other JSON type is rejected
+with `400` (`invalid_type`, naming `tools[i].parameters`). With `strict: true`, OpenAI's
+own hosted model IDs are additionally held to the public API's schema rules; see
 [Text Format](#text-format-structured-outputs).
 
 The `tools` echoed in a response object, and the request bodies SMG forwards to HTTP

@@ -353,7 +353,7 @@ The probes above are how SMG checks its workers. For Kubernetes, load balancers,
 | `/health` | Same as `/liveness` |
 | `/readiness` | `200` with `{"status":"ready","healthy_workers":N,"total_workers":M}` when SMG can serve traffic, otherwise `503` with a `reason` |
 
-Under worker-side media placement (`--mm-processing worker`), the ready body also lists `models_without_media_processing`: models where a worker reports a vision encoder but no worker processes media references. Such a model's requests that forward media references are refused with 503 `no_media_ref_capable_worker`, while its text requests and every other model still serve (see [Where Media Is Processed](../architecture/multimodal.md#where-media-is-processed)), so the status stays ready rather than taking the pod out of rotation.
+Under worker-side media placement (`--mm-processing worker`), the ready body also lists `models_without_media_processing`: models where a worker reports a vision encoder but no worker processes media references. Such a model's requests that forward media references are refused with 503 `no_media_ref_capable_worker` (see [Where Media Is Processed](../architecture/multimodal.md#where-media-is-processed)), while its text requests and every other model still serve, so the status stays ready rather than taking the pod out of rotation.
 
 Membership is judged over every registered worker, healthy or not, and a model stays on the list until a worker of it that processes media references registers; an empty list is omitted from the body. A model with an encode worker is never listed: media references never travel on the encode-prefill-decode pipeline, so a media-processing worker would change nothing for it.
 

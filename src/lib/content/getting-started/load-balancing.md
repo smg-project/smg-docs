@@ -83,7 +83,7 @@ Best for large or heterogeneous fleets where cache locality doesn't matter.
 
 ## Least Load
 
-Routes to the worker with the lowest expected wait: the token work queued on it divided by its live generation rate, plus a penalty that grows as its KV cache fills. Work sent since the worker's last load report is counted too, so bursts spread out between polls. It is intended for gRPC workers, where each request's token count is known.
+Routes to the worker with the lowest expected wait: the token work queued on it divided by its live throughput, plus a penalty that grows as its KV cache fills. Work sent since the worker's last load report is counted too, so bursts spread out between polls. It is intended for gRPC workers, where each request's token count is known.
 
 ```bash
 smg launch \

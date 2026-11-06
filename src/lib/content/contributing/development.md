@@ -247,7 +247,7 @@ smg/
 │   ├── java/                   # Generated Java types
 │   └── openapi-gen/            # Generates the OpenAPI spec from the protocol types
 ├── grpc_servicer/              # smg-grpc-servicer: Python gRPC servicers for vLLM, SGLang, TokenSpeed, MLX
-├── e2e_test/                   # End-to-end tests against real engines (pytest)
+├── e2e_test/                   # End-to-end tests (pytest) against real engines or the mock worker
 ├── deploy/helm/smg/            # Helm chart
 ├── docker/                     # Dockerfiles for the gateway and engine images
 ├── examples/                   # RL and WASM plugin examples
@@ -525,7 +525,7 @@ E2E_RUNTIME=vllm E2E_ENGINE=vllm E2E_GPU_TIER=1 ROUTER_LOCAL_MODEL_PATH=$HOME/mo
 
 `E2E_RUNTIME=mock` runs the tests marked for the mock engine on the scripted mock worker (`crates/mock_worker`) instead of a real engine: the test states the model's answer before it sends the request (the `mock_answers` fixture, a no-op on a real engine), and the gateway's tokenization, wire protocol, decoding, and parsing run against it on CPU.
 
-The mock runtime needs no GPU, no engine install, and no model weights — only each model's tokenizer and configuration JSON files under `ROUTER_LOCAL_MODEL_PATH/<model id>`. The mock classes' models live in ungated Hugging Face repositories, so `hf download <model> --include '*.json' --local-dir <path>/<model>` fetches the files without a token. Leave `E2E_GPU_TIER` unset to run every mock-marked class, including those marked for multi-GPU tiers:
+The mock runtime needs only each model's tokenizer and configuration JSON files under `ROUTER_LOCAL_MODEL_PATH/<model id>`. The mock-marked classes' models live in ungated Hugging Face repositories, so `hf download <model id> --include '*.json' --local-dir <path>/<model id>` fetches the files without a token. Leave `E2E_GPU_TIER` unset to run every mock-marked class, including those marked for multi-GPU tiers:
 
 ```bash
 # The mock-marked chat tests, on CPU, no engine or weights
@@ -542,6 +542,7 @@ E2E_RUNTIME=mock E2E_ENGINE=mock MOCK_WORKER_BIN=target/debug/mock-worker \
 | `E2E_ENGINE` | Keep only the tests marked for this engine |
 | `E2E_GPU_TIER` | Keep only the tests for this GPU count (`1`, `2`, `4`, ...); unmarked tests count as 1 |
 | `E2E_CONNECTION_MODE` | Run the local cases over `http`, `grpc`, or `zmq`; PD and EPD cases keep their own transport |
+| `E2E_MOCK_WIRE` | The scheduler protocol the mock runtime's gRPC workers serve: `tokenspeed` (the mock's default), `vllm`, or `sglang`; a class that pins its own wire keeps it |
 | `ROUTER_LOCAL_MODEL_PATH` | Directory of downloaded models, laid out as `<path>/<org>/<model>`; a missing model falls back to its Hugging Face ID |
 | `SHOW_ROUTER_LOGS`, `SHOW_WORKER_LOGS` | Set to `1` to stream gateway or worker logs |
 

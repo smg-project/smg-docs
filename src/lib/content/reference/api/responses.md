@@ -212,10 +212,10 @@ with `400` (`invalid_type`, naming `tools[i].parameters`). With `strict: true`, 
 own hosted model IDs are additionally held to the public API's schema rules; see
 [Text Format](#text-format-structured-outputs).
 
-The `tools` echoed in a response object, and the request bodies SMG forwards to HTTP
-workers and external providers, always carry `parameters` on each function tool: `null`
-for a tool declared without a schema, and otherwise the schema as you gave it, so an
-explicit `{}` stays `{}`.
+When SMG writes a function tool back out — in the `tools` echoed on a response object,
+or in a request body forwarded to an HTTP worker or external provider — the tool always
+carries `parameters`: `null` for a tool declared without a schema, otherwise the schema
+as you gave it, so an explicit `{}` stays `{}`.
 
 **Namespaced tools:**
 

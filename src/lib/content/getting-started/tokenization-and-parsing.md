@@ -248,7 +248,7 @@ For a plain local checkpoint path, pass `model=`: the ID SMG serves the checkpoi
 
 ### Threads and Worker Processes
 
-An encode of less than 16 KiB of text, a decode of fewer than 4096 IDs, or a chat whose request and rendered prompt are both under 16 KiB runs on the calling thread with the GIL held, like a single encode in Hugging Face's `tokenizers`; longer calls release it. The batch methods — including `render_chat_batch` and a list of conversations in `apply_chat_template` — long encodes (a chat's long prompt among them), and loading run on the library's own thread pool, one per process:
+An encode of less than 16 KiB of text, a decode of fewer than 4096 IDs, or a chat whose request and rendered prompt are both under 16 KiB runs on the calling thread with the GIL held, like a single encode in Hugging Face's `tokenizers`; longer calls release it. The batch methods (including `render_chat_batch` and a list of conversations in `apply_chat_template`), long encodes (a chat's long prompt among them), and loading run on the library's own thread pool, one per process:
 
 - `SMG_TOKENIZER_THREADS` sets the pool size; it must be a positive integer.
 - Without it, the pool has one thread when `TOKENIZERS_PARALLELISM` is off (read as Hugging Face's `tokenizers` reads it), and otherwise `RAYON_NUM_THREADS` threads, or one per CPU when that is unset too.

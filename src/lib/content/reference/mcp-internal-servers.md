@@ -36,7 +36,7 @@ A client-declared function tool that has the same name as an internal tool stays
 
 | Output | Filtered |
 |--------|----------|
-| Non-streaming Responses on gRPC workers, including gpt-oss (Harmony) models | Yes |
+| Non-streaming Responses on gRPC or ZMQ workers, including gpt-oss (Harmony) models | Yes |
 | Non-streaming Responses on an OpenAI-compatible provider | Yes |
 | The final `response.completed` event and the stored copy of a streamed response on an OpenAI-compatible provider | Yes |
 | Other live streaming events, on every path | No |

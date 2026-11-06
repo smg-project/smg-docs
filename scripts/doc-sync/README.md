@@ -21,7 +21,7 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
 1. **Prepare:** preserve tools from the dispatched workflow revision, pin both
    docs default branch and SMG main snapshots, check/build the base docs, and collect
    source patches and existing PRs.
-2. **Discover:** eight subsystem scans, at most four in parallel, inspect history,
+2. **Discover:** eight subsystem scans and any backlog scans, at most sixteen in parallel, inspect history,
    current implementation/tests, and current documentation. Each sees the full
    source index with subsystem priority IDs, so cross-cutting changes can be
    attributed to their actual commit. Discovery receives existing page titles/headings and must identify every
@@ -50,9 +50,9 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    fails on missing scans or unfinished mandatory commit checks, so incomplete
    discovery remains visibly unsuccessful.
    Unknown, duplicate, malformed, or wrong-baseline artifacts still fail planning.
-4. **Write:** at most four independent writers, each with 120 turns, update only
+4. **Write:** at most sixteen independent writers, each with 120 turns, update only
    its concern's allowlisted Markdown files. Export documentation text as JSON.
-5. **Publish:** fresh jobs import only that text, reapply path/size guards, run an
+5. **Publish:** up to sixteen fresh jobs import only that text, reapply path/size guards, run an
    independent read-only accuracy, scope, placement, and related-page consistency review, run `pnpm check` and `pnpm build`,
    and publish. Successful writers remain publishable if another writer fails.
 

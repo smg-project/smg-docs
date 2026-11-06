@@ -256,7 +256,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.prepare.outputs.scans) }}
     # Backlog scans review older commits that never received an assessment.
     name: "Discover: ${{ matrix.shard }}${{ matrix.backlog && format(' backlog {0}', matrix.backlog) || '' }}"
@@ -395,7 +395,7 @@ jobs:
       pull-requests: read
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     name: 'Document: item ${{ matrix.item_index }}'
     env:
@@ -524,7 +524,7 @@ jobs:
       pull-requests: write
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     name: 'Validate and publish: item ${{ matrix.item_index }}'
     env:

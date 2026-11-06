@@ -641,7 +641,7 @@ The receive segment (64 KiB by UCX's default) must be at least the send segment;
 
 On the one measured pair (a hybrid-attention checkpoint whose linear-attention state moves whole, TP 2, about 100 MB moved per rank per request), 1 MiB segments raised the pull from about 2.2 Gbit/s to about 11 Gbit/s per rank stream, the rate of a plain socket between the same pods. At 4 req/s offered, the same change took the pair from a 2.7 req/s ceiling with a median first token of 33 s to 3.93 req/s with 0.35 s. Treat those figures as one measurement, not a guarantee.
 
-256 KiB segments already give most of the gain, and segments above 1 MiB buy nothing on a single socket. The cost is host memory, not GPU memory: UCX stages TCP transfers through per-process buffer pools of the segment size.
+Segments of 256 KiB already give most of the gain, and segments above 1 MiB buy nothing on a single socket. The cost is host memory, not GPU memory: UCX stages TCP transfers through per-process buffer pools of the segment size.
 
 **Scope.** The two keys configure only UCX's TCP transport: a pair over RDMA, or on one host over CUDA IPC, is unaffected. The pip NIXL wheels compile `/etc/ucx` in as their configuration directory, so the UCX that NIXL bundles — the one behind vLLM's `NixlConnector` and SGLang's NIXL transfer backend — reads the file in every process that creates a UCX context, the engine's tensor-parallel workers included. Mooncake and MoRI-IO do not use UCX. TensorRT-LLM's release images build their own UCX under `/usr/local/ucx`, and that UCX never opens the file; TensorRT-LLM cannot serve as a PD leg in any case (see [Supported Engines](#supported-engines)). Workers launched outside the SMG engine images do not have the file and run UCX's defaults.
 

@@ -141,7 +141,7 @@ async fn fetch_models_async() -> Result<Vec<Model>> { ... }
 
 Prefill-decode (PD) code uses one word per thing, so a reader never has to guess which of three meanings is meant:
 
-- The two halves of one disaggregated dispatch are its **sides**: the prefill side and the decode side (`PdSide` in `model_gateway/src/routers/common/pd_failure.rs`; `PrefillBound` and `DecodeBound` in the gRPC request-execution stage).
+- The two halves of one disaggregated dispatch are its **sides**: the prefill side and the decode side (`PdSide` in `model_gateway/src/routers/common/pd_failure.rs`; `PrefillBound` and `DecodeBound` in `model_gateway/src/routers/grpc/common/stages/request_execution.rs`).
 - A worker's prefill-decode function is its **role** (`WorkerRole::{Single, Prefill, Decode}` in `model_gateway/src/policies/mod.rs`), and the set of workers of one role is a **pool**.
 - A single worker, a stream, or a call is called what it is (`worker`, `UpstreamStream`).
 

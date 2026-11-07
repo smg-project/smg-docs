@@ -297,7 +297,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
       --port 8000
     ```
 
-    The gRPC worker runs the Rust servicer by default; setting `SMG_VLLM_SERVICER_IMPL=python` in its environment serves the same contract from the deprecated Python servicer instead; see [Rust vLLM Servicer](grpc-workers.md#rust-vllm-servicer).
+    The gRPC worker runs the Rust servicer by default. Setting `SMG_VLLM_SERVICER_IMPL=python` in its environment serves the same contract from the deprecated Python servicer instead; see [Rust vLLM Servicer](grpc-workers.md#rust-vllm-servicer).
 
 === "SGLang"
 
@@ -350,7 +350,7 @@ Use these when workers are not started via `smg serve`. Each command starts one 
 
     TokenSpeed's default grammar backend is `none`, which makes it reject requests that need constrained decoding, such as `tool_choice` set to `required` or a named function, or a JSON `response_format`. Add `--enable-output-logprobs` if clients request logprobs; without it they come back empty.
 
-    The gRPC worker runs the Rust servicer by default (it needs the `smg` wheel); setting `SMG_TOKENSPEED_SERVICER_IMPL=python` in its environment serves the same contract from the deprecated Python servicer instead; see [Rust TokenSpeed Servicer](grpc-workers.md#rust-tokenspeed-servicer).
+    The gRPC worker runs the Rust servicer by default (it needs the `smg` wheel). Setting `SMG_TOKENSPEED_SERVICER_IMPL=python` in its environment serves the same contract from the deprecated Python servicer instead; see [Rust TokenSpeed Servicer](grpc-workers.md#rust-tokenspeed-servicer).
 
 === "MLX"
 

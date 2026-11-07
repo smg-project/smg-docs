@@ -96,7 +96,7 @@ POST /v1/chat/completions
 | `max_tokens` | integer | No | Deprecated — use `max_completion_tokens`. Still accepted: it is the cap when `max_completion_tokens` is unset, and a proxied body reaches the worker with the field as the client wrote it (not rewritten) |
 | `temperature` | number | No | Sampling temperature (0-2) |
 | `top_p` | number | No | Nucleus sampling parameter, greater than 0 and at most 1 |
-| `n` | integer | No | Number of completions to generate (1-10) |
+| `n` | integer | No | Number of completions to generate (1-128) |
 | `stream` | boolean | No | Enable streaming responses |
 | `stream_options` | object | No | Streaming options; only allowed with `stream: true`. See [Stream Usage](#stream-usage) |
 | `stop` | string/array | No | Up to 4 non-empty stop sequences |

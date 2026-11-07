@@ -514,7 +514,7 @@ The response's own `status`:
 | `status` | Meaning |
 |----------|---------|
 | `completed` | Finished normally, including a stop at your `max_tool_calls` |
-| `incomplete` | `max_output_tokens` was reached (`incomplete_details.reason` is `max_output_tokens`), or the turn ended leaving a tool call's `arguments` cut off (no `incomplete_details`) |
+| `incomplete` | `max_output_tokens` was reached (`incomplete_details.reason` is `max_output_tokens`), or the turn ended leaving a tool call's `arguments` cut off (`incomplete_details` is `null`) |
 | `failed` | Generation failed or the internal tool-call cap was hit; `error` carries `code` and `message` |
 | `queued` | [Background](#background-mode) response waiting for its run to start |
 | `in_progress` | Background response still generating |

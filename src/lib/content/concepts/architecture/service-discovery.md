@@ -88,7 +88,9 @@ Every worker that discovery registers carries two labels, `smg.ai/pod-name` and 
 - Workers synchronized from mesh peers are left to the gateway that owns them.
 - When a pod is replaced by one with a new UID at the same address (for example, a restart that keeps its IP), the old worker is removed and the new one registered.
 
-The reverse holds too: the worker API does not edit a worker that discovery registered. A `PUT`, or a `PATCH` that includes `labels`, of a discovered worker is refused with `409` (`WORKER_DISCOVERY_OWNED`): change the worker at its discovery source instead. A `PATCH` of what no provider publishes (`priority`, `cost`, `api_key`, `health`) and a `DELETE` still work, though a later pass registers a deleted worker again while its provider still publishes it. On any worker, discovered or not, no request may set a label under the reserved `smg.ai/discovery-` prefix (`400`). See [Worker Errors](../../reference/api/admin.md#worker-errors).
+The reverse holds too: a discovered worker takes its spec and labels from its discovery source, and the worker API does not override them. A `PUT` of it, or a `PATCH` that includes `labels`, is refused with `409` (`WORKER_DISCOVERY_OWNED`): change the worker at its discovery source instead. A `PATCH` of the fields no provider publishes (`priority`, `cost`, `api_key`, `health`) still works, and so does a `DELETE`, though a later pass registers a deleted worker again while its provider still publishes it.
+
+Discovery also marks the workers it owns with labels under the `smg.ai/discovery-` prefix, so the prefix is reserved: no request may set a label under it, on any worker, discovered or not (`400`), because such a label would hand a manual worker to a provider or forge a discovered worker's record. See [Worker Errors](../../reference/api/admin.md#worker-errors).
 
 ---
 

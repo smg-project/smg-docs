@@ -415,7 +415,7 @@ The name `hf` (the same name vLLM uses, and the same for both flags) reads each 
 
 A request's `X-SMG-Parser` header, `legacy` or `symphony`, overrides the `--parser` flag for that one request, in either direction. Any other value is refused: 400 with code `invalid_parser_header`.
 
-The response's `x-smg-parser` header names the parser that actually read it. It reports `legacy` when Symphony was chosen but no table took the request — the model's names select the legacy parsers, the registry does not know the checkpoint and the flags name no table, or a forced call fell back to a JSON-schema constraint (below) — so a client comparing the two modes can tell which one read each answer. Chat Completions, Messages and `/v1/responses` responses carry the header.
+The response's `x-smg-parser` header names the parser that actually read it. It reports `legacy` when Symphony was chosen but no table took the request — the model's names select the legacy parsers, the registry does not know the checkpoint and the flags name no table, or a forced call fell back to a JSON-schema constraint (below) — so a client comparing the two modes can tell which one read each answer. Chat Completions, Messages API and Responses API responses carry the header.
 
 A `/v1/responses` answer names the parser that read the chat turns it relays, whether the response is streamed, returned as one JSON object, or streamed from a `background: true` request. The `queued` response object a non-streaming [background request](../../reference/api/responses.md#background-mode) returns at once is sent before any turn is read, so it carries none.
 

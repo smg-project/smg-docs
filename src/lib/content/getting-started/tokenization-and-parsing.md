@@ -13,7 +13,7 @@ To get the same token IDs in Python without a running gateway — and to render 
 #### Before you begin
 
 - Completed the [Getting Started](index.md) guide
-- For `/v1/tokenize` and `/v1/detokenize`, at least one loaded tokenizer: from `--model-path` or `--tokenizer-path` at startup, from a registered gRPC worker, or added with `POST /v1/tokenizers`
+- For `/v1/tokenize` and `/v1/detokenize`, at least one loaded tokenizer: from `--model-path` or `--tokenizer-path` at startup, from a registered gRPC or ZMQ worker, or added with `POST /v1/tokenizers`
 
 </div>
 

@@ -173,23 +173,23 @@ SMG_VLLM_SERVICER_IMPL=rust SMG_VLLM_MM_PROCESSOR=smg \
 
 ## Supported Models
 
-SMG picks a model's processor from the model name and its `config.json` `model_type`. These families have vision support, with their built-in per-request limits:
+SMG picks a model's processor from the model name and its `config.json` `model_type`. These families have vision support. Most families set no per-request media count of their own (*no limit of its own* below): such a modality is bounded by the deployment's [media-count settings](#media-counts), never above the per-request limit the model's workers advertise for their engine; with neither, the context length is the practical bound. The counts in the table are the limits a family keeps of its own:
 
 | Model family | Images | Video | Worker-side expansion on vLLM |
 |--------------|--------|-------|-------------------------------|
-| Qwen3-VL, Qwen3.5, Qwen3.6, Qwen4-Exp (`qwen4_exp`) | 10 | 1 clip ¹ | Images and video |
-| Qwen2-VL, Qwen2.5-VL | 10 | — | — |
-| Qwen3-Omni | 10 | 1 clip | — |
+| Qwen3-VL, Qwen3.5, Qwen3.6, Qwen4-Exp (`qwen4_exp`) | No limit of its own | No limit of its own ¹ | Images and video |
+| Qwen2-VL, Qwen2.5-VL | No limit of its own | — | — |
+| Qwen3-Omni | No limit of its own | No limit of its own | — |
 | MiniMax-M3 | 200 | 20 clips ¹ | Images and video ² |
-| Muse Spark ⁴ | 10 | 1 clip | — |
+| Muse Spark ⁴ | No limit of its own | No limit of its own | — |
 | GLM-5.3-Flash | 10 | 1 clip ¹ | Images |
-| Kimi-K3 | 10 | — | — ³ |
+| Kimi-K3 | No limit of its own | — | — ³ |
 | Kimi-K2.5 | 10 | — | — |
-| DeepSeek-V4.1 | 128 | — | — |
+| DeepSeek-V4.1 | No limit of its own | — | — |
 | Llama 4 | 8 | — | Images |
 | LLaVA 1.5, LLaVA-NeXT | 4 | — | — |
 | Phi-3 and Phi-3.5 vision | 4 | — | — |
-| Inkling | 10 (when the checkpoint enables its vision tower) | — | — |
+| Inkling | No limit of its own (when the checkpoint enables its vision tower) | — | — |
 
 ¹ When the checkpoint declares the tokens its video layout needs.
 
@@ -199,7 +199,7 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 
 ⁴ Muse Spark media are served on TokenSpeed workers only: the tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`).
 
-Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. Muse Spark takes 10 audio clips per request on checkpoints that ship the audio tower. Each Muse Spark clip is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token), and the clip's placeholder run in the prompt is that token count.
+Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. None of the four sets an audio-clip count of its own: `SMG_AUDIO_MAX_COUNT` and the engine's advertised limit bound the count. Muse Spark serves audio on checkpoints that ship the audio tower; each clip is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token), and the clip's placeholder run in the prompt is that token count.
 
 ### Engine Support
 
@@ -260,7 +260,7 @@ Several clips in one request are preprocessed in parallel (smg-project/smg#2595)
 
 ### Media Counts
 
-Each model has built-in per-request limits (see [Supported Models](#supported-models)). To change them:
+A few model families keep built-in per-request limits; most declare their media without a count of their own (see [Supported Models](#supported-models)). Either way, SMG never sends more items than the per-request limit the model's workers advertise for their engine. These deployment settings replace a family's own count:
 
 | Setting | Scope | Description |
 |---------|-------|-------------|
@@ -296,7 +296,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | Status | Code | Cause |
 |--------|------|-------|
 | 400 | `unsupported_content_part` | A content part type the gRPC path does not know |
-| 400 | `invalid_multimodal_request` | The model has no multimodal processor, does not take the modality, or the request has too many items (for example `model spec qwen3_vl supports at most 10 image inputs; got 11`) |
+| 400 | `invalid_multimodal_request` | The model has no multimodal processor, does not take the modality, or the request has too many items; the refusal names the limit and what set it (for example `the request carries 11 image items, above this model's limit of 10 (--mm-per-request-image-limit)`) |
 | 400 | `multimodal_prompt_contract_mismatch` | The rendered prompt does not hold exactly one anchor per media item: a chat template that drops media, or a literal anchor token in user text |
 | 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, or an invalid `fps` or `max_long_side_pixel` |
 | 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, a MiniMax-M3 image's planned size over the pixel budget, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |

@@ -156,7 +156,7 @@ vLLM gRPC workers serve the gRPC contract from a Rust implementation by default;
 
 The selection requires SMG v1.12.0 or newer wheels and engine images.
 
-Select an implementation explicitly with `--servicer-impl` on `vllm serve --grpc` — a flag the package adds to vLLM's parser as a `vllm.general_plugins` plugin — or with the `SMG_VLLM_SERVICER_IMPL` environment variable. `rust` names the default; selecting `python` runs the deprecated Python servicer, and the launcher logs the deprecation:
+Select an implementation explicitly with `--servicer-impl` on `vllm serve --grpc` — a flag the package adds to vLLM's parser as a `vllm.general_plugins` plugin — or with the `SMG_VLLM_SERVICER_IMPL` environment variable. `rust` names the default; selecting `python` runs the deprecated Python servicer, and the launcher logs a deprecation warning:
 
 ```bash
 vllm serve meta-llama/Llama-3.1-8B-Instruct \
@@ -202,7 +202,7 @@ SGLang gRPC workers make the same choice: the Rust servicer is the default, and 
 
 Like the vLLM switch, the selection requires SMG v1.12.0 or newer wheels and engine images.
 
-Select an implementation explicitly with `--servicer-impl` on `python -m sglang.launch_server` — a flag the `smg-grpc-servicer` package adds to SGLang's parser as an `sglang.srt.plugins` plugin — or with the `SMG_SGLANG_SERVICER_IMPL` environment variable. `rust` names the default; selecting `python` runs the deprecated Python servicer, and the launcher logs the deprecation:
+Select an implementation explicitly with `--servicer-impl` on `python -m sglang.launch_server` — a flag the `smg-grpc-servicer` package adds to SGLang's parser as an `sglang.srt.plugins` plugin — or with the `SMG_SGLANG_SERVICER_IMPL` environment variable. `rust` names the default; selecting `python` runs the deprecated Python servicer, and the launcher logs a deprecation warning:
 
 ```bash
 python -m sglang.launch_server \
@@ -244,7 +244,7 @@ TokenSpeed gRPC workers make the same choice: the Rust servicer is the default, 
 
 Like the vLLM and SGLang switches, the selection requires SMG v1.12.0 or newer wheels and engine images.
 
-Select an implementation explicitly with `--servicer-impl` on `python -m smg_grpc_servicer.tokenspeed` — this launcher's own flag, which `--help` lists ahead of TokenSpeed's `ServerArgs` flags — or with the `SMG_TOKENSPEED_SERVICER_IMPL` environment variable. `rust` names the default; selecting `python` runs the deprecated Python servicer, and the launcher logs the deprecation:
+Select an implementation explicitly with `--servicer-impl` on `python -m smg_grpc_servicer.tokenspeed` — this launcher's own flag, which `--help` lists ahead of TokenSpeed's `ServerArgs` flags — or with the `SMG_TOKENSPEED_SERVICER_IMPL` environment variable. `rust` names the default; selecting `python` runs the deprecated Python servicer, and the launcher logs a deprecation warning:
 
 ```bash
 python -m smg_grpc_servicer.tokenspeed \

@@ -525,7 +525,7 @@ For a failed generation, `error` keeps the upstream error's `code` (or `type`) a
 `Upstream generation failed`. `stream_error` marks a failure to read the stream, and
 `max_tool_calls_exceeded` the internal cap.
 
-gpt-oss (Harmony) models report these statuses the same way, with one difference: reaching
+The statuses above apply to gpt-oss (Harmony) models too, with one difference: reaching
 the tool-call limit — your `max_tool_calls` included — fails their response, streamed or
 not (see [Tool Call Limits](#tool-call-limits)).
 

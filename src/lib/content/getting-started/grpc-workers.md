@@ -50,7 +50,7 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
       --port 50051
     ```
 
-    This starts the default Python servicer. Setting `SMG_VLLM_SERVICER_IMPL=rust` in the worker's environment serves the same contract from Rust instead; see [Rust vLLM Servicer](#rust-vllm-servicer).
+    This starts the Rust servicer, the default. Setting `SMG_VLLM_SERVICER_IMPL=python` in the worker's environment serves the same contract from the deprecated Python servicer instead; see [Rust vLLM Servicer](#rust-vllm-servicer).
 
     After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — about a minute by default; `SMG_VLLM_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 
@@ -64,9 +64,9 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
       --grpc-mode
     ```
 
-    `--grpc-mode` serves the worker through `smg-grpc-servicer`, which needs SGLang 0.5.21 or later. In this mode SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`).
+    `--grpc-mode` serves the worker through `smg-grpc-servicer`, which needs SGLang 0.5.21 or later. On the Python servicer SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`); the Rust servicer does not start it.
 
-    This starts the default Python servicer. Adding `--servicer-impl rust` — or setting `SMG_SGLANG_SERVICER_IMPL=rust` in the worker's environment — serves the same contract from Rust instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
+    This starts the Rust servicer, the default. Adding `--servicer-impl python` — or setting `SMG_SGLANG_SERVICER_IMPL=python` in the worker's environment — serves the same contract from the deprecated Python servicer instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
 
     After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — about a minute by default; `SMG_SGLANG_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 
@@ -97,7 +97,7 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     TokenSpeed's grammar backend defaults to none, so without `--grammar-backend xgrammar` it doesn't enforce forced tool calls or `response_format`. Add `--enable-output-logprobs` if clients request `logprobs`; TokenSpeed leaves output logprobs off by default.
 
-    This starts the default Python servicer. Adding `--servicer-impl rust` — or setting `SMG_TOKENSPEED_SERVICER_IMPL=rust` in the worker's environment — serves the same contract from Rust instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
+    This starts the Rust servicer, the default. Adding `--servicer-impl python` — or setting `SMG_TOKENSPEED_SERVICER_IMPL=python` in the worker's environment — serves the same contract from the deprecated Python servicer instead; see [Rust TokenSpeed Servicer](#rust-tokenspeed-servicer).
 
     After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine. A one-process engine takes about a minute, as on the other engines; an engine of more than one process takes ten minutes or more, since the pass then also warms every prompt length up to the chunk size. `SMG_TOKENSPEED_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 
@@ -152,21 +152,21 @@ Under data parallelism, a vLLM worker — and, on the Rust path, an SGLang worke
 
 ### Rust vLLM Servicer
 
-vLLM gRPC workers can serve the same gRPC contract from a Rust implementation instead of the default Python one. The switch lives in the `smg-grpc-servicer` package and needs no vLLM change: vLLM's gRPC launcher imports the package's servicer classes before it defines `serve_grpc`, and that import installs the switch over `serve_grpc`.
+vLLM gRPC workers serve the gRPC contract from a Rust implementation by default; the Python implementation serves the same contract, is deprecated, and runs only when selected explicitly. The switch lives in the `smg-grpc-servicer` package and needs no vLLM change: vLLM's gRPC launcher imports the package's servicer classes before it defines `serve_grpc`, and that import installs the switch over `serve_grpc`.
 
 The selection requires SMG v1.12.0 or newer wheels and engine images.
 
-Select the implementation with `--servicer-impl` on `vllm serve --grpc` — a flag the package adds to vLLM's parser as a `vllm.general_plugins` plugin — or with the `SMG_VLLM_SERVICER_IMPL` environment variable:
+The Rust servicer runs with nothing selected. `--servicer-impl` on `vllm serve --grpc` — a flag the package adds to vLLM's parser as a `vllm.general_plugins` plugin — or the `SMG_VLLM_SERVICER_IMPL` environment variable selects an implementation explicitly: `rust` names the default, `python` the deprecated Python servicer (the launcher logs the deprecation when it is chosen):
 
 ```bash
 vllm serve meta-llama/Llama-3.1-8B-Instruct \
   --grpc \
   --host 0.0.0.0 \
   --port 50051 \
-  --servicer-impl rust
+  --servicer-impl python
 
 # The environment variable selects it for python -m vllm.entrypoints.grpc_server too:
-SMG_VLLM_SERVICER_IMPL=rust python -m vllm.entrypoints.grpc_server \
+SMG_VLLM_SERVICER_IMPL=python python -m vllm.entrypoints.grpc_server \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051
@@ -176,34 +176,33 @@ When both are set, the flag wins: the parsed `--servicer-impl` is read ahead of 
 
 In Rust mode, the vLLM engine runs headless in a spawned child process and the servicer talks to it over a same-host ZMQ connection; Python keeps only the process lifecycle. That ZMQ hop is inside the worker — the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md). The gateway cannot tell the two implementations apart.
 
-With `smg serve`, select it with `--servicer-impl rust`. The flag defaults to `python`, is valid only with `--backend vllm --connection-mode grpc` (any other backend or connection mode is rejected at startup), and is authoritative: it sets `SMG_VLLM_SERVICER_IMPL=rust` in each worker's environment, and with `--servicer-impl python` it removes an `SMG_VLLM_SERVICER_IMPL` inherited from your shell.
+With `smg serve`, the flag is unset by default and the workers then run the servicer package's own default, the Rust servicer; an `SMG_VLLM_SERVICER_IMPL` exported in your shell reaches the workers unchanged and is honored. An explicit `--servicer-impl` value — `rust`, or the deprecated `python`, which each worker's launcher logs as deprecated — is valid only with `--backend vllm --connection-mode grpc` (any other backend or connection mode is rejected at startup) and is authoritative: it is set as `SMG_VLLM_SERVICER_IMPL` in each worker's environment, overriding an inherited value. An HTTP worker gets no servicer variable: `smg serve` removes it from that worker's environment.
 
 ```bash
 smg serve \
   --backend vllm \
   --connection-mode grpc \
-  --servicer-impl rust \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --data-parallel-size 2
 ```
 
-For the selection to take effect, the worker's environment needs:
+For the Rust servicer to run, the worker's environment needs:
 
 - the `smg` wheel, which carries the Rust servicer binding (`smg.servicer.VllmGrpcServer`)
 - `smg-grpc-servicer[vllm]`, which carries the switch and the Rust request path
 - a vLLM whose gRPC launcher imports the package's servicer classes at module level — the stock shape, so an unmodified vLLM qualifies — or carries the check (`smg_grpc_servicer.vllm.resolve_servicer_impl`) in its own `serve_grpc`
 
-Misconfiguration fails loudly instead of silently serving Python: `smg serve --servicer-impl rust` refuses to start when `smg-grpc-servicer` is not importable or the installed vLLM's launcher would not be switched, and when `SMG_VLLM_SERVICER_IMPL=rust` reaches a worker where the switch never ran (a launcher file executed directly as `__main__`, or one that didn't import the package's servicer before defining `serve_grpc`), the Python servicer itself refuses to start.
+Misconfiguration fails loudly instead of silently serving Python. `smg serve` refuses to start when the installed vLLM's launcher would not be switched; the check runs whenever the Rust servicer is the effective choice — the default, an explicit `--servicer-impl rust`, or an inherited `SMG_VLLM_SERVICER_IMPL=rust` — and only a `python` chosen by the flag or the variable skips it. An explicit or inherited `rust` is also refused when `smg-grpc-servicer` is not importable; on the default, a missing package is left to the worker, whose gRPC entrypoint needs the package for either servicer and says so itself. And on a worker where the switch never ran (a launcher file executed directly as `__main__`, or one that didn't import the package's servicer before defining `serve_grpc`), the Python servicer itself refuses to start unless `python` was selected explicitly, rather than silently serving in place of the default.
 
 `SubscribeKvEvents` relays vLLM's ZMQ KV-event publisher, which the servicer turns on by itself — on this path as on the Python one — when the launcher is given no `--kv-events-config`, at a port found free on the host rather than vLLM's fixed default, so two engines on one host do not collide. An explicit `--kv-events-config` is kept exactly as given, whether it names an endpoint or turns publishing off; without one, `SMG_VLLM_SERVICER_KV_EVENTS=0` in the worker's environment leaves the publisher off. With the publisher off, `SubscribeKvEvents` answers `UNIMPLEMENTED`. See [KV Events Cache-Aware Routing](kv-events-cache-aware.md).
 
 ### Rust SGLang Servicer
 
-SGLang gRPC workers have the same choice: a Rust implementation serving the same gRPC contract as the default Python servicer.
+SGLang gRPC workers make the same choice: the Rust servicer is the default, and the deprecated Python servicer serves the same gRPC contract when selected explicitly.
 
 Like the vLLM switch, the selection requires SMG v1.12.0 or newer wheels and engine images.
 
-Select the implementation with `--servicer-impl` on `python -m sglang.launch_server` — a flag the `smg-grpc-servicer` package adds to SGLang's parser as an `sglang.srt.plugins` plugin — or with the `SMG_SGLANG_SERVICER_IMPL` environment variable:
+The Rust servicer runs with nothing selected. `--servicer-impl` on `python -m sglang.launch_server` — a flag the `smg-grpc-servicer` package adds to SGLang's parser as an `sglang.srt.plugins` plugin — or the `SMG_SGLANG_SERVICER_IMPL` environment variable selects an implementation explicitly: `rust` names the default, `python` the deprecated Python servicer (the launcher logs the deprecation when it is chosen):
 
 ```bash
 python -m sglang.launch_server \
@@ -211,21 +210,21 @@ python -m sglang.launch_server \
   --host 0.0.0.0 \
   --port 50051 \
   --grpc-mode \
-  --servicer-impl rust
+  --servicer-impl python
 
 # The environment variable selects it on the same entrypoint:
-SMG_SGLANG_SERVICER_IMPL=rust python -m sglang.launch_server \
+SMG_SGLANG_SERVICER_IMPL=python python -m sglang.launch_server \
   --model-path meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051 \
   --grpc-mode
 ```
 
-When both are set, the flag wins: `--servicer-impl python` overrides an exported `rust`. The decision a flag makes is written back to `SMG_SGLANG_SERVICER_IMPL`, so the processes the worker spawns inherit the same choice. The selection defaults to `python`, and a value other than `python` or `rust` fails startup. At startup the worker logs which implementation it chose and whether the flag, the environment or the default decided it.
+When both are set, the flag wins: `--servicer-impl python` overrides an exported `rust`. The decision a flag makes is written back to `SMG_SGLANG_SERVICER_IMPL`, so the processes the worker spawns inherit the same choice. The selection defaults to `rust`, and a value other than `python` or `rust` fails startup. At startup the worker logs which implementation it chose and whether the flag, the environment or the default decided it; a `python` chosen by the flag or the variable is also logged as deprecated.
 
 `python -m sglang.launch_server --help` lists the flag. SGLang's `sglang serve` wrapper prints its help before plugins load, so the flag is missing from that listing but still accepted. A `SGLANG_PLUGINS` setting that leaves out the `smg-servicer` plugin only removes the flag; the environment variable works regardless.
 
-`smg serve`'s `--servicer-impl` stays scoped to vLLM: it rejects `rust` for every other backend. Exporting the environment variable before `smg serve --backend sglang --connection-mode grpc` reaches its workers too, since worker environments inherit the shell's, and no `smg serve` flag clears an inherited value the way `--servicer-impl python` does for vLLM.
+`smg serve`'s `--servicer-impl` stays scoped to vLLM: it rejects an explicit value for every other backend. Exporting the environment variable before `smg serve --backend sglang --connection-mode grpc` reaches its workers too, since worker environments inherit the shell's, and no `smg serve` flag overrides an inherited value the way `--servicer-impl` does for vLLM.
 
 In Rust mode, the entrypoint hands the process to the Rust servicer (`smg.servicer.SglangGrpcServer`, which needs the `smg` wheel installed alongside `smg-grpc-servicer[sglang]`) before any Python gRPC machinery exists: the Rust server speaks the gRPC contract on the worker's host and port, the scheduler runs headless in a spawned child over a same-host msgpack ZMQ connection, and Python keeps only the process lifecycle. As with vLLM, that ZMQ hop is inside the worker — the gateway still connects over `grpc://`, so this is not the [ZMQ direct backend](zmq-workers.md), and the gateway cannot tell the two implementations apart.
 
@@ -241,27 +240,27 @@ What the scheduler's msgpack wire does not carry, the Rust path reports rather t
 
 ### Rust TokenSpeed Servicer
 
-TokenSpeed gRPC workers have the same choice: a Rust implementation serving the same gRPC contract as the default Python servicer.
+TokenSpeed gRPC workers make the same choice: the Rust servicer is the default, and the deprecated Python servicer serves the same gRPC contract when selected explicitly.
 
 Like the vLLM and SGLang switches, the selection requires SMG v1.12.0 or newer wheels and engine images.
 
-Select the implementation with `--servicer-impl` on `python -m smg_grpc_servicer.tokenspeed` — this launcher's own flag, which `--help` lists ahead of TokenSpeed's `ServerArgs` flags — or with the `SMG_TOKENSPEED_SERVICER_IMPL` environment variable:
+The Rust servicer runs with nothing selected. `--servicer-impl` on `python -m smg_grpc_servicer.tokenspeed` — this launcher's own flag, which `--help` lists ahead of TokenSpeed's `ServerArgs` flags — or the `SMG_TOKENSPEED_SERVICER_IMPL` environment variable selects an implementation explicitly: `rust` names the default, `python` the deprecated Python servicer (the launcher logs the deprecation when it is chosen):
 
 ```bash
 python -m smg_grpc_servicer.tokenspeed \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051 \
-  --servicer-impl rust
+  --servicer-impl python
 
 # The environment variable selects it on the same entrypoint:
-SMG_TOKENSPEED_SERVICER_IMPL=rust python -m smg_grpc_servicer.tokenspeed \
+SMG_TOKENSPEED_SERVICER_IMPL=python python -m smg_grpc_servicer.tokenspeed \
   --model meta-llama/Llama-3.1-8B-Instruct \
   --host 0.0.0.0 \
   --port 50051
 ```
 
-When both are set, the flag wins: `--servicer-impl python` overrides an exported `rust`. The decision a flag makes is written back to `SMG_TOKENSPEED_SERVICER_IMPL`, so the processes the worker spawns inherit the same choice. The selection defaults to `python`, and a value other than `python` or `rust` fails startup. At startup the worker logs which implementation it chose and whether the flag, the environment or the default decided it.
+When both are set, the flag wins: `--servicer-impl python` overrides an exported `rust`. The decision a flag makes is written back to `SMG_TOKENSPEED_SERVICER_IMPL`, so the processes the worker spawns inherit the same choice. The selection defaults to `rust`, and a value other than `python` or `rust` fails startup. At startup the worker logs which implementation it chose and whether the flag, the environment or the default decided it; a `python` chosen by the flag or the variable is also logged as deprecated.
 
 This launcher is also the process `ts serve` spawns for its gRPC worker. `smg serve` offers no path here: its `--servicer-impl` stays scoped to vLLM, and it drives TokenSpeed workers over `--connection-mode zmq` only — start the worker directly and connect it with `smg launch`.
 

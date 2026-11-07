@@ -504,7 +504,7 @@ Abbreviated:
 | Item | `status` |
 |------|----------|
 | `message` | `completed`; `in_progress` when generation failed partway (the partial text is kept) |
-| `function_call` | `completed` once fully generated; `incomplete` when `max_output_tokens` cut its JSON `arguments` off; `in_progress` when generation failed |
+| `function_call` | `completed` once fully generated; `incomplete` when its JSON `arguments` were cut off (by `max_output_tokens` or anything else that ended the turn mid-call); `in_progress` when generation failed |
 | `reasoning` | `completed` |
 | `mcp_call` | `completed`, or `failed` with a structured `error` (see [Tool Errors](#tool-errors)) |
 | Built-in calls (`web_search_call`, `code_interpreter_call`, `file_search_call`, `image_generation_call`) | `completed`, also on failure; the failure details are in the item content |
@@ -514,7 +514,7 @@ The response's own `status`:
 | `status` | Meaning |
 |----------|---------|
 | `completed` | Finished normally, including a stop at your `max_tool_calls` |
-| `incomplete` | `max_output_tokens` was reached; `incomplete_details.reason` is `max_output_tokens` |
+| `incomplete` | `max_output_tokens` was reached (`incomplete_details.reason` is `max_output_tokens`), or the turn ended leaving a tool call's `arguments` cut off (no `incomplete_details`) |
 | `failed` | Generation failed or the internal tool-call cap was hit; `error` carries `code` and `message` |
 | `queued` | [Background](#background-mode) response waiting for its run to start |
 | `in_progress` | Background response still generating |
@@ -525,9 +525,9 @@ For a failed generation, `error` keeps the upstream error's `code` (or `type`) a
 `Upstream generation failed`. `stream_error` marks a failure to read the stream, and
 `max_tool_calls_exceeded` the internal cap.
 
-gpt-oss (Harmony) models report `completed` even when `max_output_tokens` cuts the output
-short; the tool-call limit is the only limit that fails their response, streamed or not
-(see [Tool Call Limits](#tool-call-limits)).
+gpt-oss (Harmony) models report these statuses the same way, with one difference: reaching
+the tool-call limit — your `max_tool_calls` included — fails their response, streamed or
+not (see [Tool Call Limits](#tool-call-limits)).
 
 ### Usage
 
@@ -611,14 +611,15 @@ stream with no terminal event:
 | Event | `response.status` |
 |-------|-------------------|
 | `response.completed` | `completed` |
-| `response.incomplete` | `incomplete`, with `incomplete_details: {"reason": "max_output_tokens"}` |
+| `response.incomplete` | `incomplete`; `incomplete_details` is `{"reason": "max_output_tokens"}` when `max_output_tokens` ended the turn, and absent when a cut tool call left it incomplete |
 | `response.failed` | `failed`, with `error: {"code": "...", "message": "..."}` |
 
 Before the terminal event, SMG closes every item that is still open, exactly once, even
 when generation fails. Partial output stays in the terminal response with its unfinished
-status. gpt-oss (Harmony) streams end with `response.completed`, with `response.failed`
-when the tool-call limit is reached (see [Tool Call Limits](#tool-call-limits)), or with
-an `error` event when their pipeline fails. For every model, a response whose record
+status. gpt-oss (Harmony) streams end with the same terminal events, `response.incomplete`
+for a cut turn included; the tool-call limit ends them with `response.failed` (see
+[Tool Call Limits](#tool-call-limits)), and a pipeline failure ends them with an
+`error` event instead of a terminal event. For every model, a response whose record
 could not be written because the history store is down or past its per-call bound ends
 with `response.failed` carrying the code `storage_unavailable` (see
 [Common Errors](#common-errors)).

@@ -316,7 +316,7 @@ The body of `POST /workers` and `PUT /workers/{worker_id}`. Only `url` is requir
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `models` | array | `[]` | Model cards the worker serves (fields below). A self-hosted worker uses the first card. With none, it takes the model the engine reports: the `served_model_name`, `model_id`, or `model_path` label, in that order. External workers ignore this field: the gateway lists the provider's models when it has a key (`api_key`, or the provider's `*_ADMIN_KEY` environment variable), and without one the worker accepts any model. |
-| `labels` | object | `{}` | String-to-string metadata, merged over the labels the gateway discovers from the engine (your values win). Some keys have built-in meaning (see below). Keys under `smg.ai/discovery-` are reserved for [worker discovery](../../concepts/architecture/service-discovery.md) and refused with `400`. |
+| `labels` | object | `{}` | String-to-string metadata, merged over the labels the gateway discovers from the engine (your values win). Some keys have built-in meaning (see below). Keys under `smg.ai/discovery-` are reserved for [service discovery](../../concepts/architecture/service-discovery.md) and refused with `400`. |
 
 Model card fields (`models[]`):
 
@@ -442,7 +442,7 @@ Worker endpoints report errors as `{"error": "<message>", "code": "<CODE>"}`, no
 
 | Status | `code` | When |
 |--------|--------|------|
-| `400` | `BAD_REQUEST` | `worker_id` is not a UUID. The `url` is empty, does not start with a lowercase `http://`, `https://`, `grpc://`, `grpcs://`, or `ipc://` scheme, is not a valid URL or has no host, or is an `ipc://` URL without a path. A label key is under `smg.ai/discovery-`, the prefix reserved for [worker discovery](../../concepts/architecture/service-discovery.md); the message names the label. A `PUT` changes the URL or is sent to a gateway running with `--dp-aware`. |
+| `400` | `BAD_REQUEST` | `worker_id` is not a UUID. The `url` is empty, does not start with a lowercase `http://`, `https://`, `grpc://`, `grpcs://`, or `ipc://` scheme, is not a valid URL or has no host, or is an `ipc://` URL without a path. A label key is under `smg.ai/discovery-`, the prefix reserved for [service discovery](../../concepts/architecture/service-discovery.md); the message names the label. A `PUT` changes the URL or is sent to a gateway running with `--dp-aware`. |
 | `400` | `PROVIDER_NOT_COMPILED` | The spec targets a provider whose router is not compiled into this build. |
 | `404` | `WORKER_NOT_FOUND` | No worker has this ID. |
 | `409` | `WORKER_ALREADY_EXISTS` | `POST` for a URL that is already registered. The message names the existing ID. |
@@ -597,7 +597,7 @@ Changes a few fields in place. Omitted fields keep their current values. The wor
 |-------|------|-------------|
 | `priority` | integer | New priority. |
 | `cost` | number | New cost. |
-| `labels` | object | Merged into the current labels: listed keys are added or overwritten, and the rest are kept. `PATCH` cannot remove a label. Keys under `smg.ai/discovery-` are reserved for worker discovery and refused with `400`. |
+| `labels` | object | Merged into the current labels: listed keys are added or overwritten, and the rest are kept. `PATCH` cannot remove a label. Keys under `smg.ai/discovery-` are reserved for service discovery and refused with `400`. |
 | `api_key` | string | New worker API key, for key rotation. |
 | `health` | object | Partial health overrides, merged into the worker's current settings: `timeout_secs`, `check_interval_secs`, `success_threshold`, `failure_threshold`, `disable_health_check`, `drain_settle_secs`. Setting `disable_health_check` to `true` makes the worker routable immediately. |
 
@@ -628,7 +628,7 @@ Replaces the worker's spec and re-runs the full registration workflow (probe, en
 
 The `url` must equal the worker's current URL; to move a worker, `DELETE` it and `POST` the new URL. `PUT` is refused with `400` when the gateway runs with `--dp-aware`, because one spec expands to one worker per data-parallel rank; use `DELETE` and `POST` there too. If the worker is deleted or replaced again before the job runs, the job fails rather than overwrite the newer state.
 
-A worker that [service discovery](../../concepts/architecture/service-discovery.md) registered takes its whole spec from its discovery source: a `PUT` of it is refused with `409` (`WORKER_DISCOVERY_OWNED`) whatever the body carries — even the worker's own spec sent back — and the message names the owning provider. Change the worker at the discovery source instead.
+A worker that [service discovery](../../concepts/architecture/service-discovery.md) registered takes its whole spec from its discovery source: a `PUT` of it is refused with `409` (`WORKER_DISCOVERY_OWNED`), even when the body is the worker's own spec sent back unchanged, and the message names the owning provider. Change the worker at the discovery source instead.
 
 **Response:** `202 Accepted`, with the same body as `PATCH`.
 

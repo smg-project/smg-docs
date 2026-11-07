@@ -90,7 +90,7 @@ Every worker that discovery registers carries two labels, `smg.ai/pod-name` and 
 
 The reverse holds too: a discovered worker takes its spec and labels from its discovery source, and the worker API does not override them. A `PUT` of it, or a `PATCH` that includes `labels`, is refused with `409` (`WORKER_DISCOVERY_OWNED`): change the worker at its discovery source instead. A `PATCH` of the fields no provider publishes (`priority`, `cost`, `api_key`, `health`) still works, and so does a `DELETE`, though a later pass registers a deleted worker again while its provider still publishes it.
 
-Discovery also marks the workers it owns with labels under the `smg.ai/discovery-` prefix, so the prefix is reserved: no request may set a label under it, on any worker, discovered or not (`400`), because such a label would hand a manual worker to a provider or forge a discovered worker's record. See [Worker Errors](../../reference/api/admin.md#worker-errors).
+Discovery also marks the workers it owns with labels under the `smg.ai/discovery-` prefix, so the prefix is reserved: no request may set a label under it, even on a manual worker — the refusal is a `400` naming the label — because such a label would hand a manual worker to a provider or forge a discovered worker's record. See [Worker Errors](../../reference/api/admin.md#worker-errors).
 
 ---
 

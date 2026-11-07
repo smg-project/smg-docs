@@ -140,7 +140,7 @@ Routes prefill requests by size in PD disaggregation. Each prefill worker owns a
 
 The recomputed ranges stay in the domain of sizes actually seen: the adjustment walks the window's distinct request sizes in ascending order, and each worker takes whole sizes until it reaches its share of the load. Every bounded range therefore ends at a size some request had, and a size is never split between two workers, so traffic with few distinct sizes keeps the shares coarse.
 
-A worker can own no range until the next adjustment, but only when the window saw fewer distinct sizes than workers: a worker stops short of its share rather than leave the workers after it without a size, so even with one distinct size fewer than there are workers, every worker still owns a range. The partition stays contiguous from zero with the last range open-ended, so every request length has an owner, and the balance check below evens out the load in the meantime.
+A worker can own no range until the next adjustment, but only when the window saw fewer distinct sizes than workers: a worker stops short of its share rather than leave the workers after it without a size, so even with one fewer distinct size than there are workers, every worker still owns a range. The partition stays contiguous from zero with the last range open-ended, so every request length has an owner, and the balance check below evens out the load in the meantime.
 
 ```bash
 smg launch \

@@ -419,7 +419,7 @@ The response's `x-smg-parser` header names the parser that actually read it. It 
 
 A `/v1/responses` answer names the parser that read the chat turns it relays, whether the response is streamed, returned as one JSON object, or streamed from a `background: true` request. The immediate `queued` acknowledgement of a background request is sent before any turn is read, so it carries none.
 
-The responses the separate Harmony pipeline serves — gpt-oss Chat Completions in the regular and PD routing modes, and gpt-oss `/v1/responses` — carry no header, since Harmony's own output channels stand in for the parsers on this page. The Harmony pipeline never serves Messages requests, so a gpt-oss Messages response carries the header like any other. [EPD mode](../routing/pd-disaggregation.md#epd-encode-prefill-decode) builds no Harmony pipeline, so a gpt-oss chat response under EPD carries it too.
+The responses the separate Harmony pipeline serves — gpt-oss Chat Completions in the regular and PD modes, and gpt-oss `/v1/responses` — carry no header, since Harmony's own output channels stand in for the parsers on this page. The Harmony pipeline never serves Messages requests, so a gpt-oss Messages response carries the header like any other. [EPD mode](../routing/pd-disaggregation.md#epd-encode-prefill-decode) builds no Harmony pipeline, so a gpt-oss chat response under EPD carries it too.
 
 ### What the Table Reads
 

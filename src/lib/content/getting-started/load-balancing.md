@@ -151,7 +151,7 @@ A valid `X-SMG-Routing-Key` header replaces the prompt as the hash key. Lower me
 
 Routes prefill requests by length in PD mode: each prefill worker owns a range of request sizes, and the ranges adapt to recent traffic every 5 seconds. Only the prefill leg gets buckets, so set it with `--prefill-policy`: `--decode-policy bucket` is rejected at startup, the Python launcher also rejects `--policy bucket`, and anywhere else `bucket` picks a random worker.
 
-After an adjustment, every bounded range ends at a request size the last window of traffic actually saw: each worker takes whole sizes until it reaches its share of the load, and a size is never split between two workers.
+After an adjustment, every range but the open-ended last one ends at a request size the last window of traffic actually saw: each worker takes whole sizes until it reaches its share of the load, and a size is never split between two workers.
 
 A worker can be left without a range until the next adjustment, but only when the window saw fewer distinct sizes than workers. The ranges stay contiguous with the last one open-ended, so every request length still has an owner, and the imbalance gate below spreads any uneven load in the meantime.
 

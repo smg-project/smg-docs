@@ -71,6 +71,8 @@ No other path runs MCP tools. Chat Completions has no MCP loop, SMG forwards `/v
 5. **Loop.** SMG appends the calls and their results to the conversation and calls the model again, until the model answers without tool calls or a [limit](#tool-loop-limits) stops the loop.
 6. **Respond.** In the Responses API, `mcp_list_tools` and `mcp_call` items (or hosted-tool items such as `web_search_call`) come before the model's answer in `output`. In the Messages API, executed calls appear as `mcp_tool_use` and `mcp_tool_result` blocks.
 
+On gRPC workers, a follow-up Responses request can send a previous response's MCP items back in `input`. A stored `mcp_call` replays to the model as the assistant's tool call and, once it ran, its result or error; stored `mcp_list_tools` and `mcp_approval_request` items are accepted and skipped. An `mcp_approval_response` item is the only MCP item `input` rejects: the request fails with `Unsupported input item type`.
+
 ---
 
 ## Servers and Transports
@@ -427,7 +429,7 @@ Set `internal: true` on a static server when its tools support the model behind 
 | `mcp_call` fails with `Tool call outcome unknown` | The connection dropped during the call; SMG reconnects a static server for later calls but never re-issues the interrupted one | Check the server. Retry only if the tool is safe to run twice. |
 | `mcp_call` fails with `Server access denied: ambiguous MCP connection` | The same `server_url` was used with different credentials | Send a single credential to each URL. |
 | Calls to a static server fail with `Server not found` after a disconnect | All 5 reconnection attempts failed (for stdio, the relaunched `command` kept failing), so SMG removed the server | Fix what keeps the server from coming up, then restart SMG to register it again. |
-| Request fails with `Unsupported input item type` | On gRPC workers, the request `input` contains an `mcp_approval_response` item, the only MCP item `input` rejects. Stored `mcp_call`, `mcp_list_tools`, and `mcp_approval_request` items from a previous response are accepted: an `mcp_call` replays to the model as the assistant's call plus, once it ran, its result or error, and `mcp_list_tools` and `mcp_approval_request` are skipped | Remove the `mcp_approval_response` items from `input`. Stored `mcp_call`, `mcp_list_tools`, and `mcp_approval_request` items can stay. |
+| Request fails with `Unsupported input item type` | On gRPC workers, the request `input` contains an `mcp_approval_response` item, the only MCP item `input` rejects (see [How It Works](#how-it-works)) | Remove the `mcp_approval_response` items from `input`. Stored `mcp_call`, `mcp_list_tools`, and `mcp_approval_request` items can stay. |
 | A `pool`, `policy`, or top-level `proxy` setting has no effect | Only `servers` is applied | See [Accepted but Not Applied](#accepted-but-not-applied). |
 
 ---

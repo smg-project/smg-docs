@@ -78,6 +78,8 @@ These pages cover the other inference endpoints, which use the same auth:
 
 These endpoints are for gateway operations and administration. They use the control-plane auth described in [Auth Model](#auth-model).
 
+By default they answer on the data listener (`--port`), alongside the serving routes. With `--admin-port` set, every section below and the [RL control-plane routes](#rl-control-plane-endpoints) answer on a dedicated admin listener instead, and the data listener answers `404` for them. The probe routes `/health`, `/liveness`, and `/readiness` answer on both listeners, so the admin listener can be checked on its own; the public `/loads` stays on the data listener, while its deprecated control-plane alias `/get_loads` moves with the rest. The split changes where the routes answer, not who may call them: the auth above applies on the admin listener unchanged. See the [Listeners reference](../configuration.md#listeners) and [Admin Listener](../../getting-started/control-plane-auth.md#admin-listener).
+
 ### Worker Management
 
 | Method | Path |
@@ -172,7 +174,7 @@ curl -X POST http://localhost:30000/v1/tokenize \
   -d '{"model":"meta-llama/Llama-3.1-8B-Instruct","prompt":"hello"}'
 ```
 
-List workers. `ADMIN_TOKEN` is an admin control-plane API key or JWT when control-plane auth is configured, and the shared `--api-key` otherwise:
+List workers. `ADMIN_TOKEN` is an admin control-plane API key or JWT when control-plane auth is configured, and the shared `--api-key` otherwise. With `--admin-port` set, this request and the tokenizer listing below go to the admin listener's port instead of the data port:
 
 ```bash
 curl http://localhost:30000/workers \

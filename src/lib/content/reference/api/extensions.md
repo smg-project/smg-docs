@@ -176,7 +176,7 @@ curl -X POST http://localhost:30000/v1/tokenize \
   -d '{"model":"meta-llama/Llama-3.1-8B-Instruct","prompt":"hello"}'
 ```
 
-List workers. `ADMIN_TOKEN` is an admin control-plane API key or JWT when control-plane auth is configured, and the shared `--api-key` otherwise. With `--admin-port` set, this request and the tokenizer listing below go to the admin listener's port instead of the data port:
+List workers. `ADMIN_TOKEN` is an admin control-plane API key or JWT when control-plane auth is configured, and the shared `--api-key` otherwise. With `--admin-port` set, this request and the tokenizer listing below go to the admin listener's port instead of the data port used here:
 
 ```bash
 curl http://localhost:30000/workers \

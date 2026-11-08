@@ -78,7 +78,7 @@ These pages cover the other inference endpoints, which use the same auth:
 
 These endpoints are for gateway operations and administration. They use the control-plane auth described in [Auth Model](#auth-model).
 
-By default they answer on the data listener (`--port`), alongside the serving routes. With `--admin-port` set, the endpoints in every section below and the [RL control-plane routes](#rl-control-plane-endpoints) answer on a dedicated admin listener instead, and the data listener answers `404` for them. The probe routes `/health`, `/liveness`, and `/readiness` answer on both listeners, so the admin listener can be checked on its own; the public `/loads` stays on the data listener, while its deprecated control-plane alias `/get_loads` moves with the rest.
+By default they answer on the data listener (`--port`), alongside the serving routes. With `--admin-port` set, the endpoints in every section below and the [RL control-plane routes](#rl-control-plane-endpoints) answer on a dedicated admin listener instead, and the data listener answers `404` for them. The probe routes `/health`, `/liveness`, and `/readiness` answer on both listeners, so the admin listener can be checked on its own. The public `/loads` stays on the data listener, while its deprecated control-plane alias `/get_loads` moves with the rest.
 
 The split changes where the routes answer, not who may call them: the auth above applies on the admin listener unchanged. See the [Listeners reference](../configuration.md#listeners) and [Admin Listener](../../getting-started/control-plane-auth.md#admin-listener).
 

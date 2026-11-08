@@ -429,7 +429,7 @@ Set `internal: true` on a static server when its tools support the model behind 
 | `mcp_call` fails with `Tool call outcome unknown` | The connection dropped during the call; SMG reconnects a static server for later calls but never re-issues the interrupted one | Check the server. Retry only if the tool is safe to run twice. |
 | `mcp_call` fails with `Server access denied: ambiguous MCP connection` | The same `server_url` was used with different credentials | Send a single credential to each URL. |
 | Calls to a static server fail with `Server not found` after a disconnect | All 5 reconnection attempts failed (for stdio, the relaunched `command` kept failing), so SMG removed the server | Fix what keeps the server from coming up, then restart SMG to register it again. |
-| Request fails with `Unsupported input item type` | On gRPC workers, the request `input` contains an `mcp_approval_response` item, the only MCP item `input` rejects (see [How It Works](#how-it-works)) | Remove `mcp_approval_response` items from `input`. Stored `mcp_call`, `mcp_list_tools`, and `mcp_approval_request` items can stay. |
+| Request fails with `Unsupported input item type` | On gRPC workers, the request `input` contains an `mcp_approval_response` item (see [How It Works](#how-it-works)) | Remove `mcp_approval_response` items from `input`. Stored `mcp_call`, `mcp_list_tools`, and `mcp_approval_request` items can stay. |
 | A `pool`, `policy`, or top-level `proxy` setting has no effect | Only `servers` is applied | See [Accepted but Not Applied](#accepted-but-not-applied). |
 
 ---

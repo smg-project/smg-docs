@@ -138,6 +138,10 @@ smg --policy cache_aware --worker-urls http://w1:8000 http://w2:8000
 
 Routes prefill requests by size in PD disaggregation. Each prefill worker owns a range of request lengths, counted in characters of prompt text or in tokens when the request carries token IDs; the last worker's range is open-ended. Every 5 seconds the policy re-checks the ranges. On the first check that sees traffic, and afterwards whenever the load per worker has changed by more than a factor of two since the last adjustment, it recomputes them from recent request sizes so each range carries a similar share of the traffic.
 
+After an adjustment, every bounded range ends at a size some request in the last window of traffic had: the policy walks the window's distinct request sizes in ascending order, and each worker takes whole sizes until it reaches its share of the load. A size is never split between two workers, so traffic with few distinct sizes keeps the shares coarse.
+
+A worker can be left without a range until the next adjustment, but only when the window saw fewer distinct sizes than workers. Each worker stops short of its share rather than leave the workers after it without a size, so even with one fewer distinct size than there are workers, every worker still owns a range. The partition stays contiguous from zero with the last range open-ended, so every request length has an owner, and the balance check below evens out the load in the meantime.
+
 ```bash
 smg launch \
   --pd-disaggregation \

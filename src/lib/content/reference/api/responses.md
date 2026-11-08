@@ -616,8 +616,8 @@ stream with no terminal event:
 
 Before the terminal event, SMG closes every item that is still open, exactly once, even
 when generation fails. Partial output stays in the terminal response with its unfinished
-status. gpt-oss (Harmony) streams end with the same terminal events, including
-`response.incomplete` for a cut turn; the tool-call limit ends them with `response.failed`
+status. gpt-oss (Harmony) streams end with the same terminal events,
+`response.incomplete` included; the tool-call limit ends them with `response.failed`
 (see [Tool Call Limits](#tool-call-limits)), and a pipeline failure ends them with an
 `error` event instead of a terminal event. For every model, a response whose record
 could not be written because the history store is down or past its per-call bound ends

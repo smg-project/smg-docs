@@ -468,7 +468,7 @@ Each audit event is an `INFO` log record with target `smg::audit`; the layout of
 - **`control_plane_audit`** — the admission line, written before the handler runs, for every request that reaches the control plane authentication check: successes, `403` role denials, and `401` authentication failures.
 - **`control_plane_mutation`** — the outcome line, written after the handler of an admitted request other than a `GET` or `HEAD` has answered. It records what the handler answered: the HTTP `status`, an `outcome` of `success` for a 2xx status and `failed` for any other, and the `resource` the handler acted on, when it named one.
 
-Both lines of a mutation carry the same `principal`, `auth_method`, `role`, `method`, `path`, and `request_id`, so one request ID correlates them. A read (`GET` or `HEAD`) writes the admission line alone, and a denied or unauthenticated request writes its denial line alone — no handler answered, so there is no outcome line. `--disable-audit-logging` silences both lines.
+Both lines of a mutation carry the same `principal`, `auth_method`, `role`, `method`, `path`, and `request_id`, so one request ID correlates them. A read (`GET` or `HEAD`) writes the admission line alone. A denied or unauthenticated request also writes only the admission line, recording the denial — no handler ran, so there is no outcome line. `--disable-audit-logging` silences both lines.
 
 ### Audit Event Fields
 

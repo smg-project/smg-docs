@@ -463,7 +463,12 @@ The Python launcher (`smg launch` from pip, and the container image) works the o
 
 ### Audit Log Format
 
-Each audit event is an `INFO` log record with target `smg::audit` and message `control_plane_audit`. SMG records every request that reaches the control plane authentication check: successes, `403` role denials, and `401` authentication failures. The layout of the record follows your log format (`--log-json` for JSON).
+Each audit event is an `INFO` log record with target `smg::audit`; the layout of the record follows your log format (`--log-json` for JSON). A control-plane call writes up to two lines:
+
+- **`control_plane_audit`** — the admission line, written before the handler runs, for every request that reaches the control plane authentication check: successes, `403` role denials, and `401` authentication failures.
+- **`control_plane_mutation`** — the outcome line, written after the handler of an admitted request other than a `GET` or `HEAD` has answered. It records what the handler answered: the HTTP `status`, an `outcome` of `success` for a 2xx status and `failed` for any other, and the `resource` the handler acted on, when it named one.
+
+Both lines of a mutation carry the same `principal`, `auth_method`, `role`, `method`, `path`, and `request_id`, so one request ID correlates them. A read (`GET` or `HEAD`) writes the admission line alone. A denied or unauthenticated request also writes only the admission line, recording the denial — no handler ran, so there is no outcome line. `--disable-audit-logging` silences both lines.
 
 ### Audit Event Fields
 
@@ -475,9 +480,10 @@ Each audit event is an `INFO` log record with target `smg::audit` and message `c
 | `role` | Role of the principal (`admin`, `user`) |
 | `method` | HTTP method (GET, POST, DELETE, etc.) |
 | `path` | Request path |
-| `resource` | Not filled; the field is left out of the record |
-| `outcome` | Result (`success`, `denied`) |
-| `request_id` | Correlation ID for request tracing |
+| `resource` | What the handler acted on: a worker ID, a tokenizer ID, WASM module UUIDs (comma-joined for a batch), or `secrets` for a key-file reload (`POST /secrets/reload`). Only on a `control_plane_mutation` line whose handler named one; left out everywhere else |
+| `outcome` | On the admission line, `success` (admitted) or `denied` — decided before the handler runs; on the outcome line, `success` (a 2xx status) or `failed` (any other status) |
+| `status` | The HTTP status the handler answered. Only on the `control_plane_mutation` line; the admission line carries none |
+| `request_id` | Correlation ID for request tracing; a mutation's admission and outcome lines share it |
 | `details` | Why the request was denied or failed authentication |
 
 ### Viewing Audit Logs
@@ -486,8 +492,8 @@ Each audit event is an `INFO` log record with target `smg::audit` and message `c
 # Filter for audit logs
 RUST_LOG=smg::audit=info smg ...
 
-# Or view in combined logs
-kubectl logs -n inference -l app=smg | grep "control_plane_audit"
+# Or view in combined logs (both the admission and the outcome lines)
+kubectl logs -n inference -l app=smg | grep -E "control_plane_(audit|mutation)"
 ```
 
 ---

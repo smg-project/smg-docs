@@ -164,6 +164,20 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   committer, with that DCO `Signed-off-by` identity. This is a DCO sign-off, not a
   cryptographic signature. Ordinary concern branches are never force-overwritten.
 
+Daily scans with unresolved required commit checks get one focused completion
+pass, capped at 100 assistant rounds and 30 minutes. It receives only those
+unfinished obligations, their prior findings, and the same pinned source/docs
+and PR inventory. It does not repeat release audits or the older-history survey.
+Completed checks, proposals, release audits and queue retirements remain intact;
+new proposals and replacement daily checks must pass the normal validators.
+Backlog scans do not trigger this pass. An unsuccessful follow-up preserves the
+validated first scan for sibling publication, and unfinished daily coverage still
+fails visibly. The scan artifact records the follow-up obligations and trace.
+
+Setup reuses a compatible runner Python (3.12 or newer) before downloading one.
+The shared `gh` installer retries transient release-asset failures and verifies
+the downloaded executable before placing it on PATH.
+
 ## Manual runs and reports
 
 Dispatch `nightly-doc-sync.yml` on a working branch to test its automation against

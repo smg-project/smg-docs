@@ -14,7 +14,15 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Use runner Python when compatible
+      id: python
+      shell: bash
+      run: |
+        if command -v python3 >/dev/null && python3 -c 'import sys; assert (3, 12) <= sys.version_info < (4, 0)'; then
+          echo 'available=true' >> "$GITHUB_OUTPUT"
+        fi
     - uses: actions/setup-python@v6
+      if: steps.python.outputs.available != 'true'
       with:
         python-version: '3.12'
     - name: Export API key from pod environment
@@ -26,19 +34,7 @@ runs:
         echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" >> "$GITHUB_ENV"
     - name: Install gh CLI if needed
       shell: bash
-      run: |
-        if ! command -v gh &>/dev/null; then
-          case "$(uname -m)" in
-            x86_64) arch=amd64 ;;
-            aarch64|arm64) arch=arm64 ;;
-            *) echo "Unsupported runner architecture" >&2; exit 1 ;;
-          esac
-          version=2.74.0
-          mkdir -p "$HOME/.local/bin"
-          curl -fsSL "https://github.com/cli/cli/releases/download/v${version}/gh_${version}_linux_${arch}.tar.gz" \
-            | tar xz --strip-components=2 -C "$HOME/.local/bin" "gh_${version}_linux_${arch}/bin/gh"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        fi
+      run: bash scripts/doc-sync/install-gh.sh
     - name: Preserve trusted maintenance tools
       shell: bash
       run: |

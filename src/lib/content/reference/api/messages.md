@@ -238,12 +238,13 @@ Ask for a JSON answer with `output_config.format`, which names a JSON schema the
 
 `json_schema` is the only `type`: a format with another `type` or without `schema` is refused with `400`, and a `schema` that is not a JSON object is refused with `400` (`output_format_schema_not_an_object`). The same format is also accepted under its earlier top-level name, `output_format`; when both fields are sent, `output_config.format` wins.
 
-On gRPC and ZMQ workers, SMG enforces the schema with [constrained decoding](../../concepts/architecture/grpc-pipeline.md#constrained-decoding-xgrammar): the engine is held to the schema as it generates, so the returned `text` block is JSON that fits it. The engine needs a grammar backend (TokenSpeed and TensorRT-LLM must have one switched on — see [Enforcement](../../concepts/architecture/grpc-pipeline.md#enforcement)). Two exceptions:
+On gRPC and ZMQ workers, SMG enforces the schema with [constrained decoding](../../concepts/architecture/grpc-pipeline.md#constrained-decoding-xgrammar): the engine is held to the schema as it generates, so the returned `text` block is JSON that fits it. The engine needs a grammar backend (TokenSpeed and TensorRT-LLM must have one switched on — see [Enforcement](../../concepts/architecture/grpc-pipeline.md#enforcement)). Three exceptions:
 
 - A `tool_choice` that forces a tool call — `any`, or `tool` naming one of the custom tools — takes precedence: the turn ends in a tool call, not a text answer, so the format constrains nothing.
+- On a model the `hf` [Symphony table](../../concepts/architecture/grpc-pipeline.md#constraints-under-symphony) reads, a format the table has no tag for is refused with `400` (`invalid_parser_configuration`), unless the worker takes the whole-turn grammar described there.
 - MLX workers do not support constrained decoding and refuse a request that asks for a format with `400` (`invalid_request_parameters`).
 
-HTTP workers and the Anthropic API receive `output_config` and `output_format` and enforce the format themselves.
+HTTP workers and the Anthropic API receive `output_config` and `output_format` as sent; enforcing the format is left to them.
 
 ---
 

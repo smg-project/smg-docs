@@ -140,7 +140,9 @@ This lets human admins use OIDC while service automation uses API keys.
 
 ## Audit logging
 
-With control-plane auth configured, SMG can log every control-plane request it authenticates, denies, or rejects, as an INFO line with the message `control_plane_audit` on the `smg::audit` log target. Whether it does by default depends on how you run SMG:
+With control-plane auth configured, SMG can audit control-plane requests as INFO lines on the `smg::audit` log target. Every request it authenticates, denies, or rejects gets an admission line with the message `control_plane_audit`. An admitted request other than a `GET` or `HEAD` also gets an outcome line, `control_plane_mutation`, once its handler has answered: it carries the handler's HTTP status and the worker, tokenizer, or WASM-module ID the handler acted on, when it named one. The two lines share a `request_id`. See [Audit Log Format](../concepts/security/authentication.md#audit-log-format) for the full field list.
+
+Whether SMG writes these lines by default depends on how you run it:
 
 === "Cargo binary"
 

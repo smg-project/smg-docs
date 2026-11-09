@@ -159,7 +159,7 @@ Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, wh
 | Target | Level | Message | When |
 |--------|-------|---------|------|
 | `smg::policies::*` | DEBUG | Routing decisions | See [Routing Decision Logs](#routing-decision-logs) |
-| `smg::audit` | INFO | `control_plane_audit` | Control-plane requests, when control-plane authentication is configured. The Rust binary logs them by default (turn off with `--disable-audit-logging`); the pip `smg launch` logs them only with `--control-plane-audit-enabled` |
+| `smg::audit` | INFO | `control_plane_audit`, `control_plane_mutation` | Control-plane requests, when control-plane authentication is configured: an admission line (`control_plane_audit`) per request, and an outcome line (`control_plane_mutation`) with the handler's status and resource after each admitted request other than a `GET` or `HEAD`. The Rust binary logs them by default (turn off with `--disable-audit-logging`); the pip `smg launch` logs them only with `--control-plane-audit-enabled` |
 | `smg_rl` | INFO | `rl.proxy`, `rl.fanout` | RL control plane calls, with `--enable-rl` |
 
 ---

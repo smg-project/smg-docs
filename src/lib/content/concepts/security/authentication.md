@@ -482,7 +482,7 @@ Both lines of a mutation carry the same `principal`, `auth_method`, `role`, `met
 | `path` | Request path |
 | `resource` | What the handler acted on: a worker ID, a tokenizer ID, WASM module UUIDs (comma-joined for a batch), or `secrets` for a key-file reload (`POST /secrets/reload`). Only on a `control_plane_mutation` line whose handler named one; left out everywhere else |
 | `outcome` | On the admission line, `success` (admitted) or `denied` — decided before the handler runs; on the outcome line, `success` (a 2xx status) or `failed` (any other status) |
-| `status` | The HTTP status the handler answered. Only on the `control_plane_mutation` line; the admission line is written before the handler and carries none |
+| `status` | The HTTP status the handler answered. Only on the `control_plane_mutation` line; the admission line carries none |
 | `request_id` | Correlation ID for request tracing; a mutation's admission and outcome lines share it |
 | `details` | Why the request was denied or failed authentication |
 

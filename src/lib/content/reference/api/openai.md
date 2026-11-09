@@ -894,7 +894,7 @@ Profile rules judge the request as a whole, so `error.param` is null:
 | MiniMax | A `tool` message whose `tool_call_id` answers no pending call | `tool_call_id_mismatch` |
 | MiniMax | Historical tool-call `arguments` that are non-empty but not a JSON object | `tool_call_arguments_invalid_json` |
 | MiniMax | A tool call with no `tool` message answering it | `tool_call_unanswered` |
-| z.ai | `thinking.effort` or `reasoning_effort` outside `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` (GLM-5.3: outside `low`, `high`, `max`) | `reasoning_effort_not_allowed` |
+| z.ai | `thinking.effort` or `reasoning_effort` outside `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` (GLM-5.3 also rejects `none`: the series cannot switch thinking off) | `reasoning_effort_not_allowed` |
 | z.ai GLM-5.3 | `thinking.type: disabled` | `thinking_disabled_not_supported` |
 | z.ai | A tool whose `type` is not `function` | `tool_type_not_supported` |
 | z.ai | A `file_url` content part (SMG does not fetch files for the model) | `content_part_not_supported` |
@@ -918,7 +918,7 @@ its `400` carries the `X-SMG-Error-Code` header.
 | Kimi | Streaming requests get `stream_options.include_usage: true` unless set. Tools declared on `system` and `developer` messages join the request's `tools` for `tool_choice`, the tool-choice constraint, and tool-call parsing; a `system` message that only declares tools may omit `content` |
 | Kimi K3 | Omitted fields get the contract values: `temperature` 1.0, `top_p` 0.95, `presence_penalty` 0, `frequency_penalty` 0, `n` 1 |
 | MiniMax | Streaming requests get `stream_options.include_usage: true` unless set. `root` messages are hoisted above all other messages and merged into one leading message that keeps the `root` role: texts are joined by a blank line in their original order, a parts list keeps its parts, and the merged message carries the first one's `name`. On gRPC workers, responses are scanned for tool calls even when the request declares no tools |
-| z.ai | `thinking.clear_thinking` becomes the `clear_thinking` chat-template variable unless `chat_template_kwargs` sets it. `tool_stream` is accepted and dropped (SMG streams tool-call deltas anyway). GLM-5.x, GLM-4.7, and GLM-4.6 get `temperature` 1.0 and `top_p` 0.95 when omitted |
+| z.ai | `thinking.clear_thinking` becomes the `clear_thinking` chat-template variable unless `chat_template_kwargs` sets it. `tool_stream` is accepted and dropped (SMG streams tool-call deltas anyway). GLM-5.x, GLM-4.7, and GLM-4.6 get `temperature` 1.0 and `top_p` 0.95 when omitted. On GLM-5.3, effort `minimal` → `low`, `medium` → `high`, and `xhigh` → `max`, as z.ai reads them, in `reasoning_effort` and in `thinking.effort`, so workers and upstream providers see only the level |
 | DeepSeek V4 | Effort `minimal` → `low`; on V4, `medium` and `xhigh` → `high` (V4.1 keeps both as native levels, though a request forwarded to an HTTP worker or external provider still sends `medium` as `high`, matching DeepSeek's own API). Thinking is on unless turned off (`thinking.type: disabled`, effort `none`, or a template override), and the result is written to `chat_template_kwargs.thinking` when that is unset. Streams use DeepSeek's usage format (see [Stream Usage](#stream-usage)) |
 
 ---

@@ -239,7 +239,7 @@ Both in-flight metrics compare the gateway's own per-worker request counts (see 
 
 `resident_tokens:<request_tokens>` balances the memory-resident decode work instead: a worker's score is the resident context tokens (prompt plus output generated so far) its load report carries, plus the prompts the gateway has sent it since that report, plus `request_tokens` for every request it holds; requests the report does not yet cover are estimated at the worker's mean context size. `request_tokens` is the per-request price in tokens and must be a non-negative integer — a bare `resident_tokens` is rejected at startup.
 
-Engines whose load records carry the resident-token count report it; others leave it absent, and a worker's count is read only when every one of its DP ranks reports it. A worker without the count scores as the best-scoring reporting worker plus its own in-flight requests, so it neither attracts every request nor gets starved; when no candidate reports the count, the fewest in-flight requests decides.
+Engines whose load records carry the resident-token count report it; others leave it absent, and a worker's count is read only when every one of its DP ranks reports it. A worker without the count takes the best reporting worker's score plus a token charge for each of its own in-flight requests, so it neither attracts every request nor gets starved; when no candidate reports the count, the fewest in-flight requests decides.
 
 `least_requests` and `resident_tokens` give up the policy's O(1) selection: they sample no pair and score every available worker. Whatever the metric, a single available worker is selected directly.
 

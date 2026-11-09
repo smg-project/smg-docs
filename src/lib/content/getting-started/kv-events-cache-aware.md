@@ -233,7 +233,7 @@ INFO Starting KV event subscription worker_url=grpc://worker-1:50051 model_id=me
 INFO KV event stream connected worker_url=grpc://worker-1:50051 start_seq=0
 ```
 
-If you do not see the first line with `kind=Events` for a worker, the worker is not a gRPC worker, or the policy that places it is not `cache_aware`. The placing policy is the model's (`--policy`, or a `policy` worker label) for a regular worker, and the role's `--prefill-policy`, `--decode-policy` or `--encode-policy` — not the model's — for a prefill, decode or encode worker. The same line with `kind=Loads` announces a stream of the worker's load records alone, not a KV-event subscription.
+If you do not see the first line with `kind=Events` for a worker, the worker is not a gRPC worker, or the policy that places it is not `cache_aware`. The placing policy is the model's (`--policy`, or the first worker's `policy` label) for a regular worker, and the role's `--prefill-policy`, `--decode-policy` or `--encode-policy` — not the model's — for a prefill, decode or encode worker. The same line with `kind=Loads` announces a stream of the worker's load records alone, not a KV-event subscription.
 
 If events are disabled on the worker — an explicit `--kv-events-config` without a ZMQ publisher, the worker's `SMG_<ENGINE>_SERVICER_KV_EVENTS=0`, or a TokenSpeed hybrid model — the servicer rejects the stream and SMG stops trying:
 

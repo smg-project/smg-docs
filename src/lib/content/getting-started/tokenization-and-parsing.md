@@ -377,7 +377,7 @@ curl http://localhost:30000/parse/reasoning \
 {"normal_text": "Final answer", "reasoning_text": "internal reasoning", "success": true}
 ```
 
-Each request gets a fresh parser in its default state, with no prompt behind it. Parsers that start in reasoning (`deepseek_r1`, `qwen3_thinking`, `kimi_thinking`, `step3`, `minimax`) treat text before the end marker as reasoning even without a start marker. The others need the start marker, such as `<think>`, in `text` — except `kimi_k3`. Raw Kimi-K3 output never carries `<|open|>think<|sep|>` (it stays in the prompt), so `text` splits at `<|close|>think<|sep|>` alone: reasoning before the close, the answer after it. The serving pipeline differs: there, a request with thinking on starts the parser in reasoning mode. An unknown parser name returns 400 with `{"error": "Unknown reasoning parser: <name>", "success": false}`.
+Each request gets a fresh parser in its default state, with no prompt behind it. Parsers that start in reasoning (`deepseek_r1`, `qwen3_thinking`, `kimi_thinking`, `step3`, `minimax`) treat text before the end marker as reasoning even without a start marker. The others need the start marker, such as `<think>`, in `text`. The exception is `kimi_k3`: raw Kimi-K3 output never carries `<|open|>think<|sep|>` — the opener stays in the prompt — so the parser splits `text` at `<|close|>think<|sep|>` alone, reasoning before the close and the answer after it. The serving pipeline differs: there, a request with thinking on starts the parser in reasoning mode. An unknown parser name returns 400 with `{"error": "Unknown reasoning parser: <name>", "success": false}`.
 
 ---
 

@@ -34,7 +34,7 @@ Routes to the worker with the lowest expected wait: queued token work over throu
 
 ### :material-scale-balance: Power of Two
 
-Samples two workers and routes to the one with the lower expected wait; a flag can switch the comparison to in-flight request counts. Near-least-load placement for two load reads per request.
+Samples two workers and routes to the one with the lower expected wait; a flag can switch the comparison to in-flight request counts or resident context tokens. Near-least-load placement for two load reads per request.
 
 </div>
 
@@ -81,7 +81,7 @@ Forwards every request to the single available worker without reading load or ca
 | `random` | :material-close: | :material-close: | :material-close: | O(1) | Testing |
 | `passthrough` | :material-close: | :material-close: | :material-close: | O(1) | Single worker |
 
-Complexity is the selection cost per request over `n` available workers; `power_of_two` becomes O(n) with [`--power-of-two-load-metric least_requests`](#comparison-metric), which scans every available worker. [Sticky sessions](sticky-sessions.md) (`--routing-key-override`) add session affinity on top of any policy.
+Complexity is the selection cost per request over `n` available workers; `power_of_two` becomes O(n) with the [`least_requests` or `resident_tokens` comparison metric](#comparison-metric), which scores every available worker. [Sticky sessions](sticky-sessions.md) (`--routing-key-override`) add session affinity on top of any policy.
 
 ---
 
@@ -90,7 +90,7 @@ Complexity is the selection cost per request over `n` available workers; `power_
 Load-aware policies read one or both of two signals:
 
 - **In-flight requests.** The gateway counts the requests it has sent to each worker that have not finished yet; a streamed response counts until its body ends. The count is kept for every request under every policy, on the HTTP, gRPC and PD paths alike, and is exported as `smg_worker_requests_active`. Each gateway replica counts only its own traffic. `prefix_hash` and the `cache_aware` spill gate compare these counts, `least_load` and `power_of_two` fall back to them for workers without a load report, and [`--power-of-two-load-metric`](#comparison-metric) can make them `power_of_two`'s primary comparison.
-- **Load reports.** The gateway polls each worker's load every `--load-monitor-interval` seconds (default `10`). HTTP workers are asked for `/v1/loads` whatever the engine, falling back to the engine's Prometheus `/metrics` (SGLang, vLLM) when that route does not answer; gRPC and ZMQ workers report over their engine connection (`GetLoads`). A report carries the worker's waiting requests and KV-cache usage, plus queued tokens and generation throughput where the engine exposes them. `least_load`, `power_of_two` and `cache_aware` read these reports. See [Load Monitoring](../../reference/configuration.md#load-monitoring-configuration) for the polling options.
+- **Load reports.** The gateway polls each worker's load every `--load-monitor-interval` seconds (default `10`). HTTP workers are asked for `/v1/loads` whatever the engine, falling back to the engine's Prometheus `/metrics` (SGLang, vLLM) when that route does not answer; gRPC and ZMQ workers report over their engine connection (`GetLoads`). A report carries the worker's waiting requests and KV-cache usage, plus queued tokens, generation throughput and resident context tokens where the engine exposes them. `least_load`, `power_of_two` and `cache_aware` read these reports. See [Load Monitoring](../../reference/configuration.md#load-monitoring-configuration) for the polling options.
 
 In `least_load`, `power_of_two` and `cache_aware`, scores that tie exactly are broken uniformly at random, so equally idle workers share traffic instead of the first worker taking every tie.
 
@@ -190,7 +190,7 @@ Before it uses a request's bucket, the policy checks balance. The load it compar
 
 Samples two distinct available workers at random and routes to the one with the lower expected wait, using the same formula as [`least_load`](#least-load): queued token work over throughput plus the KV-pressure penalty, with credit for requests sent since the last load report. If neither sampled worker has a load report, it compares their in-flight requests. It approaches least-load placement while reading only two workers' load per request.
 
-The expected wait is the default comparison; [`--power-of-two-load-metric`](#comparison-metric) can switch it to the gateway's own in-flight request counts.
+The expected wait is the default comparison; [`--power-of-two-load-metric`](#comparison-metric) can switch it to the gateway's own in-flight request counts or to the workers' resident context tokens.
 
 ```bash
 smg --policy power_of_two --worker-urls http://w1:8000 http://w2:8000
@@ -204,7 +204,7 @@ smg --policy power_of_two --worker-urls http://w1:8000 http://w2:8000
 
 - Load-aware at two load reads per request
 - Counts queue depth, KV pressure and in-flight work
-- No full-fleet scan per request (except the `least_requests` metric)
+- No full-fleet scan per request (except the `least_requests` and `resident_tokens` metrics)
 
 </div>
 
@@ -229,6 +229,7 @@ smg --policy power_of_two --worker-urls http://w1:8000 http://w2:8000
 | `expected_wait` | Two sampled at random | Lower expected wait wins (the default, described above) |
 | `requests` | Two sampled at random | Fewer in-flight requests wins; the expected wait breaks a tie |
 | `least_requests` | Every available worker | Keeps the workers with the fewest in-flight requests; the expected wait breaks a tie |
+| `resident_tokens:<request_tokens>` | Every available worker | Fewest resident context tokens wins, with each request the worker holds priced at `request_tokens` more tokens |
 
 ```bash
 smg --policy power_of_two --power-of-two-load-metric requests --worker-urls http://w1:8000 http://w2:8000
@@ -236,7 +237,11 @@ smg --policy power_of_two --power-of-two-load-metric requests --worker-urls http
 
 Both in-flight metrics compare the gateway's own per-worker request counts (see [Load Signals](#load-signals)), read without any load report, so they balance on a live signal even where load reports are coarse or absent; only a tie goes on to the expected-wait score.
 
-`least_requests` gives up the policy's O(1) selection: it samples no pair and scans every available worker's count. Whatever the metric, a single available worker is selected directly.
+`resident_tokens:<request_tokens>` balances the memory-resident decode work instead: a worker's score is the resident context tokens (prompt plus output generated so far) its load report carries, plus the prompts the gateway has sent it since that report, plus `request_tokens` for every request it holds; requests the report does not yet cover are estimated at the worker's mean context size. `request_tokens` is the per-request price in tokens and must be a non-negative integer — a bare `resident_tokens` is rejected at startup.
+
+Engines whose load records carry the resident-token count report it; others leave it absent, and a worker's count is read only when every one of its DP ranks reports it. A worker without the count scores as the best-scoring reporting worker plus its own in-flight requests, so it neither attracts every request nor gets starved; when no candidate reports the count, the fewest in-flight requests decides.
+
+`least_requests` and `resident_tokens` give up the policy's O(1) selection: they sample no pair and score every available worker. Whatever the metric, a single available worker is selected directly.
 
 `--power-of-two-load-metric` exists since v1.13.0. In v1.12.0 and earlier the comparison is always the expected wait.
 

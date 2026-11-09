@@ -77,7 +77,7 @@ POST /v1/messages
 | `tool_choice` | object | No | `{"type": "auto"}`, `{"type": "any"}`, `{"type": "tool", "name": "..."}`, or `{"type": "none"}`. Every value except `none` requires `tools`, and `tool` must name one of them. |
 | `thinking` | object | No | `{"type": "enabled", "budget_tokens": N}`, `{"type": "adaptive"}`, `{"type": "disabled"}`, or `{"type": "between_tools"}` (no thinking up front; the model may think between its tool calls). `enabled` and `adaptive` also take `display` (`summarized`, `omitted`, or `updates`). `between_tools` takes `type` alone: a request that adds any other field, `display` or `budget_tokens` included, is refused with `400` (`thinking_between_tools_takes_no_other_field`), and the error message names each extra field. |
 | `output_config` | object | No | Output configuration. `format` asks for structured output, a JSON answer held to a schema; see [Structured Output](#structured-output). `effort`, a string or a number taken as its text, is the reasoning effort the prompt is rendered with on gRPC and ZMQ workers. Other keys are kept and forwarded like unmodeled fields. |
-| `output_format` | object | No | The answer's format under its earlier top-level name, with the same shape as `output_config.format`. When both are sent, `output_config.format` wins. |
+| `output_format` | object | No | The structured output format under its earlier top-level name, with the same shape as `output_config.format`; see [Structured Output](#structured-output). When both are sent, `output_config.format` wins. |
 | `metadata` | object | No | Request metadata (`user_id`). |
 | `service_tier` | string | No | `auto` or `standard_only`. |
 | `container` | object | No | Container for code execution (beta). |

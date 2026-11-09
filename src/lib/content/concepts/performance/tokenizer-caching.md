@@ -210,12 +210,26 @@ smg --model-path /models/llama-3.1-8b-instruct ...
 smg --model-path /models/llama-3.1-8b-instruct/tokenizer.json ...
 ```
 
-When pointing to a local directory, SMG looks for a HuggingFace
-`tokenizer.json`, a `vocab.json` plus `merges.txt` pair, or a tiktoken file
-(`tiktoken.model` or `*.tiktoken`). When
-pulling from the HuggingFace Hub, SMG additionally falls back to
-`tokenizer_config.json` and `vocab.json` in the downloaded snapshot if a
-primary tokenizer file is not present.
+When pointing to a local directory, SMG loads the first tokenizer file it
+finds, in this order:
+
+1. `tekken.json` — a Mistral tekken vocabulary. It wins over a
+   `tokenizer.json` the checkpoint ships beside it.
+2. `tokenizer.json` — a HuggingFace tokenizer.
+3. A `vocab.json` plus `merges.txt` pair, when `tokenizer_config.json` names a
+   Qwen2 tokenizer class.
+4. A tiktoken file (`tiktoken.model` or `*.tiktoken`).
+5. A `vocab.json` plus `merges.txt` pair without that class.
+
+A directory with none of these is refused with an error naming the accepted
+files.
+
+A snapshot downloaded from the HuggingFace Hub loads `tekken.json` first,
+then `tokenizer.json`, then a tiktoken file, then a `vocab.json` plus
+`merges.txt` pair.
+
+A path to a single `.json` file loads as a tekken vocabulary when its file
+name contains `tekken`, and as a HuggingFace tokenizer otherwise.
 
 #### `--tokenizer-path`
 

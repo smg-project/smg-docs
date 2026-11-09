@@ -243,8 +243,6 @@ Engines whose load records carry the resident-token count report it; others leav
 
 `least_requests` and `resident_tokens` give up the policy's O(1) selection: they sample no pair and score every available worker. Whatever the metric, a single available worker is selected directly.
 
-`--power-of-two-load-metric` exists since v1.13.0. In v1.12.0 and earlier the comparison is always the expected wait.
-
 **Use when:** Large or heterogeneous fleets where cache locality doesn't matter and each pick should read only two workers' load.
 
 ---

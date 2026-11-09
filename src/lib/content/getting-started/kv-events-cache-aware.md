@@ -183,10 +183,12 @@ The flags that matter for event-driven routing:
 | Flag | Why |
 |---|---|
 | `grpc://...` worker URLs | SMG subscribes to KV events only on gRPC workers. HTTP workers are skipped, and ZMQ (`ipc://`) workers log a warning and use the approximate token tree. |
-| `--policy cache_aware` | The only policy that reads the event index. It is also the default policy. |
+| `--policy cache_aware` | The only policy that reads the event index, and the default policy. A gRPC worker streams KV events when the policy that **places** it is `cache_aware`. |
 | `--block-size 16` | Page size of the approximate token tree, which routes until the event index has data, and the block size the event index assumes until it learns the engine's. Match the engine's page size. |
 
 `--model-path` tells the gateway which tokenizer to use, as in any gRPC-worker deployment ([gRPC Workers](grpc-workers.md)). For the other routing knobs, see [Tuning](#tuning).
+
+The placing policy is not always the gateway's `--policy`. A regular worker is placed by its model's policy: `--policy`, or the [`policy` label](../concepts/routing/load-balancing.md#per-model-policies) of the model's first worker. Prefill and decode workers are placed by `--prefill-policy` and `--decode-policy`, each of which defaults to the `--policy` value, and encode workers by `--encode-policy`, which does not accept `cache_aware`, so encode workers never stream KV events. With `--policy round_robin --prefill-policy cache_aware`, the prefill workers stream their KV events even though no other worker does; with `--policy cache_aware --prefill-policy round_robin`, they do not, even while the rest of the fleet does.
 
 ### Block size alignment
 
@@ -224,14 +226,14 @@ Send the same prompt twice. The first request has no cached prefix and goes to t
 
 The gateway logs these lines when the path is live (timestamps, targets and source locations omitted).
 
-**1. Subscription started.** When SMG registers a gRPC worker under `cache_aware`, `KvEventMonitor` logs:
+**1. Subscription started.** When SMG registers a gRPC worker placed by `cache_aware`, `KvEventMonitor` logs:
 
 ```text
-INFO Starting KV event subscription worker_url=grpc://worker-1:50051 model_id=meta-llama/Llama-3.1-8B-Instruct
+INFO Starting KV event subscription worker_url=grpc://worker-1:50051 model_id=meta-llama/Llama-3.1-8B-Instruct kind=Events
 INFO KV event stream connected worker_url=grpc://worker-1:50051 start_seq=0
 ```
 
-If you do not see the first line for a worker, the worker is not a gRPC worker, the gateway's `--policy` is not `cache_aware` (a `policy` worker label alone does not start subscriptions), or the worker's model is routed by another policy. If events are disabled on the worker — an explicit `--kv-events-config` without a ZMQ publisher, the worker's `SMG_<ENGINE>_SERVICER_KV_EVENTS=0`, or a TokenSpeed hybrid model — the servicer rejects the stream and SMG stops trying:
+If you do not see the first line with `kind=Events` for a worker, the worker is not a gRPC worker, or the policy that places it is not `cache_aware`. For a regular worker the placing policy is the model's — the gateway's `--policy`, or a `policy` worker label; for a prefill, decode or encode worker it is the role's `--prefill-policy`, `--decode-policy` or `--encode-policy`, whatever the model's policy or label says. The same line with `kind=Loads` announces a stream of the worker's load records alone, not a KV-event subscription. If events are disabled on the worker — an explicit `--kv-events-config` without a ZMQ publisher, the worker's `SMG_<ENGINE>_SERVICER_KV_EVENTS=0`, or a TokenSpeed hybrid model — the servicer rejects the stream and SMG stops trying:
 
 ```text
 WARN Backend does not implement SubscribeKvEvents, disabling KV event subscription for this worker worker_url=grpc://worker-1:50051

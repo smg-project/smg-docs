@@ -95,7 +95,7 @@ Routing flags configure the default policy (`--policy`). In PD mode, `--prefill-
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--power-of-two-load-metric` | `expected_wait` | What `power_of_two` compares between its two samples: `expected_wait`, `requests` or `least_requests`. |
+| `--power-of-two-load-metric` | `expected_wait` | What `power_of_two` compares: `expected_wait` or `requests` between two sampled workers, or `least_requests` or `resident_tokens:<request_tokens>` across every available worker. `resident_tokens` picks the worker holding the fewest engine-reported resident context tokens, pricing each held request at `request_tokens` more tokens; workers whose engines do not report the count are scored from their reporting peers. |
 
 **Recommendation**: Use `cache_aware` for LLM workloads to maximize KV cache hit rates.
 

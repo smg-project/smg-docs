@@ -73,9 +73,9 @@ smg --policy power_of_two --worker-urls http://w1:8000 http://w2:8000
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--power-of-two-load-metric` | `expected_wait` | What candidates are compared by: `expected_wait` (lower expected wait of the sampled pair), `requests` (the pair's in-flight request counts, the expected wait breaking ties), or `least_requests` (no pair — the fewest in-flight requests across every available worker, then the expected wait) |
+| `--power-of-two-load-metric` | `expected_wait` | What candidates are compared by: `expected_wait` (lower expected wait of the sampled pair), `requests` (the pair's in-flight request counts, the expected wait breaking ties), `least_requests` (no pair — the fewest in-flight requests across every available worker, then the expected wait), or `resident_tokens:<request_tokens>` (no pair — the fewest resident context tokens across every available worker, each held request priced at `request_tokens` more tokens) |
 
-The in-flight metrics compare the gateway's own request counts without reading load reports; see [Comparison Metric](../concepts/routing/load-balancing.md#comparison-metric) for how each value selects.
+The in-flight metrics compare the gateway's own request counts without reading load reports. `resident_tokens` reads each worker's engine-reported resident context tokens plus the work sent since its last report; a worker whose engine does not report the count is scored from its reporting peers, never as idle. See [Comparison Metric](../concepts/routing/load-balancing.md#comparison-metric) for how each value selects.
 
 Best for large or heterogeneous fleets where cache locality doesn't matter.
 

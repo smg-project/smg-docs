@@ -53,7 +53,7 @@ engine scheduler (SGLang, vLLM or TokenSpeed)
 
 1. The engine's scheduler publishes block-stored, block-removed and all-blocks-cleared events on a ZMQ `PUB` socket. The servicer configures the publisher itself when the worker is launched without `--kv-events-config`; an explicit config replaces that default.
 2. `smg-grpc-servicer`, which serves the worker's gRPC API, subscribes to the engine's publishers locally and re-publishes the events as the server-streaming RPC `SubscribeKvEvents`.
-3. SMG's `KvEventMonitor` opens one subscription per gRPC worker and feeds the events into a per-model chain index; `cache_aware` scores token-bearing requests against that index. If a stream breaks, the monitor reconnects and either resumes or rebuilds the worker's entries (see [Recovery after gaps](#recovery-after-gaps)).
+3. SMG's `KvEventMonitor` opens one subscription per gRPC worker placed by `cache_aware` and feeds the events into a per-model chain index; `cache_aware` scores token-bearing requests against that index. If a stream breaks, the monitor reconnects and either resumes or rebuilds the worker's entries (see [Recovery after gaps](#recovery-after-gaps)).
 
 ---
 

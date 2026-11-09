@@ -430,15 +430,15 @@ A request's options select a variant of the table rather than a different reader
 
 ### Constraints Under Symphony
 
-When a table reads a request, its structural tag stands in for the constraint of a forced or required `tool_choice`, and for a JSON `response_format`, so the engine's constrained output is in exactly the syntax the table parses. The engine receives the tag alone, never the tag and a competing constraint:
+When a table reads a request, its structural tag stands in for the constraint of a forced or required `tool_choice`, and for a JSON answer format — a chat `response_format` or a Messages `output_config.format` — so the engine's constrained output is in exactly the syntax the table parses. The engine receives the tag alone, never the tag and a competing constraint:
 
 - A registry table with no tag for the forced call leaves the decision to the [legacy constraint rules](#when-a-constraint-is-sent). When those send a JSON schema, the output has no table markers, so the legacy parsers read that response and `x-smg-parser` reports `legacy`.
-- A registry table with no tag for the JSON answer, or a request that continues the assistant's message, leaves `response_format` to the engine's JSON schema, as the legacy path does; the table still reads that response.
-- `hf` refuses what its table cannot both constrain and read, with 400 `invalid_parser_configuration`: a forced call or a JSON `response_format` its table has no tag for, a `regex` or `ebnf` constraint, and `continue_final_message` combined with a tag, since a tag writes a turn from its start.
+- A registry table with no tag for the JSON answer, or a request that continues the assistant's message, leaves the answer's schema — `response_format`'s or the Messages format's — to the engine's JSON schema, as the legacy path does; the table still reads that response.
+- `hf` refuses what its table cannot both constrain and read, with 400 `invalid_parser_configuration`: a forced call or a JSON answer format its table has no tag for, a `regex` or `ebnf` constraint, and `continue_final_message` combined with a tag, since a tag writes a turn from its start.
 
 These `hf` rules have one exception: a worker whose [`constrained_decoding` policy](#grammar-on-auto-tool-choice) is `always` and whose `constrained_decoding_start` label is `first_token` — an engine that takes a grammar on every turn and starts it at the first generated token. gRPC engines can report both in server info, and under PD disaggregation the decode worker's settings count.
 
-When such a worker serves an `hf`-read request whose table can spell a whole turn (its calls name the tool they call), one grammar holds the whole turn instead: the thought, then either calls to the tools the `tool_choice` allows, each held to its schema, or the answer, with the request's JSON `response_format`, `regex` or `ebnf` composed into the grammar rather than sent beside it. A prompt that continues the assistant's message can take this grammar too: it resumes where the prompt leaves the model, inside or past its thought, or inside an answer or a call the prompt opened.
+When such a worker serves an `hf`-read request whose table can spell a whole turn (its calls name the tool they call), one grammar holds the whole turn instead: the thought, then either calls to the tools the `tool_choice` allows, each held to its schema, or the answer, with the request's answer format — a JSON `response_format` or Messages `output_config.format`, a `regex`, or an `ebnf` — composed into the grammar rather than sent beside it. A prompt that continues the assistant's message can take this grammar too: it resumes where the prompt leaves the model, inside or past its thought, or inside an answer or a call the prompt opened.
 
 The whole-turn grammar refuses what it cannot hold, with 400 `invalid_parser_configuration`: a declared tool or parameter name the calls cannot carry, a `strict: true` tool it would hold to its schema more loosely, an `ebnf` in Lark's syntax (write it as xgrammar's `root ::= ...`), and, under `auto`, a strict tool or `parallel_tool_calls: false` together with the request's own `regex` or `ebnf`.
 
@@ -448,7 +448,7 @@ On any other worker — the default `requested` policy, or a `constrained_decodi
 
 A worker whose `constrained_decoding` policy is `always` — set as a [worker label or spec field](../../reference/api/admin.md#worker-spec), or reported by the engine itself — tells the gateway its engine takes a grammar on every turn. When a table reads a chat or Messages request that allows calls under `auto` (or no `tool_choice`), the gateway then sends the table's tag for the request's callable tools: no call required, at most one when `parallel_tool_calls` is `false` (Messages: `disable_parallel_tool_use`). The default policy, `requested`, sends a grammar only when the request asks for one.
 
-Nothing is sent, and nothing refused, when the request carries a constraint of its own (a JSON `response_format`, `regex`, `ebnf`), has no callable tools, forbids calls with `tool_choice: none`, continues the assistant's message, or the table has no tag for the calls. On an `hf`-read model, a worker whose engine starts its grammar at the first token gets the [whole-turn grammar](#constraints-under-symphony) in this tag's place, where that grammar starts.
+Nothing is sent, and nothing refused, when the request carries a constraint of its own (a JSON `response_format` or Messages `output_config.format`, a `regex`, an `ebnf`), has no callable tools, forbids calls with `tool_choice: none`, continues the assistant's message, or the table has no tag for the calls. On an `hf`-read model, a worker whose engine starts its grammar at the first token gets the [whole-turn grammar](#constraints-under-symphony) in this tag's place, where that grammar starts.
 
 Under PD disaggregation the decode worker's policy applies. The gateway decides the constraint on the worker selected for the request, and a retry re-shapes the tag for the worker it picks. When the policy chose the constraint — this tag, or the whole-turn grammar — a retry re-selects only workers that decide it the same way; a constraint the request itself asked for suits any worker.
 
@@ -500,13 +500,15 @@ Some parsers add rules on top of their structural tag:
 
 A request carries at most one constraint. `response_format` becomes a JSON schema (`json_object` is `{"type": "object"}`), and `text` adds nothing. The `regex` and `ebnf` request extensions each add a constraint of their own. For SGLang, vLLM and TokenSpeed workers, the gateway rejects a request that sets more than one of these with 400 `invalid_request_parameters`. If a forced tool call applies as well, the gateway keeps the output-format constraint and drops the tool one for SGLang, TensorRT-LLM and TokenSpeed workers, and keeps only the tool constraint for vLLM workers.
 
+A Messages request's [`output_config.format`](../../reference/api/messages.md#structured-output) (or `output_format`, its earlier top-level name) becomes a JSON schema the same way — except when its `tool_choice` forces a tool call: the turn then ends in a call, not a text answer, and the format is not sent.
+
 ### Enforcement
 
 The constraint travels in the request's `SamplingParams.constraint` oneof (`crates/grpc_client/proto/`). The oneof has `json_schema`, `regex`, `ebnf_grammar` (`grammar` on vLLM) and `structural_tag` fields, and vLLM also accepts `json_object` and `choice`. TensorRT-LLM receives the same constraint as `GuidedDecodingParams`. The engine needs a grammar backend to enforce it:
 
 - **TokenSpeed**: start it with `--grammar-backend xgrammar`. Its default is none.
 - **TensorRT-LLM**: set `guided_decoding_backend: xgrammar` in its `--extra_llm_api_options` file.
-- **MLX**: doesn't support constraints. It rejects a chat request with a forced tool call or a `response_format` (400) and ignores the chat `regex` and `ebnf` extensions.
+- **MLX**: doesn't support constraints. It rejects with 400 a chat request with a forced tool call or a `response_format`, and a Messages request with a forced tool call or an output format (`output_config.format` or `output_format`); it ignores the chat `regex` and `ebnf` extensions.
 
 See [gRPC Workers](../../getting-started/grpc-workers.md) for the launch commands.
 

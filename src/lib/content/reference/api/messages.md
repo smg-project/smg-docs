@@ -76,13 +76,15 @@ POST /v1/messages
 | `tools` | array | No | Tool definitions; see [Tool Use](#tool-use). |
 | `tool_choice` | object | No | `{"type": "auto"}`, `{"type": "any"}`, `{"type": "tool", "name": "..."}`, or `{"type": "none"}`. Every value except `none` requires `tools`, and `tool` must name one of them. |
 | `thinking` | object | No | `{"type": "enabled", "budget_tokens": N}`, `{"type": "adaptive"}`, `{"type": "disabled"}`, or `{"type": "between_tools"}` (no thinking up front; the model may think between its tool calls). `enabled` and `adaptive` also take `display` (`summarized`, `omitted`, or `updates`). `between_tools` takes `type` alone: a request that adds any other field, `display` or `budget_tokens` included, is refused with `400` (`thinking_between_tools_takes_no_other_field`), and the error message names each extra field. |
+| `output_config` | object | No | Output configuration. `format` asks for structured output, a JSON answer held to a schema; see [Structured Output](#structured-output). `effort`, a string or a number taken as its text, is the reasoning effort the prompt is rendered with on gRPC and ZMQ workers. Other keys are kept and forwarded like unmodeled fields. |
+| `output_format` | object | No | The answer's format under its earlier top-level name, with the same shape as `output_config.format`. When both are sent, `output_config.format` wins. |
 | `metadata` | object | No | Request metadata (`user_id`). |
 | `service_tier` | string | No | `auto` or `standard_only`. |
 | `container` | object | No | Container for code execution (beta). |
 | `mcp_servers` | array | No | MCP servers for the request (beta). Required when `tools` has an `mcp_toolset` entry; see [MCP Tools](#mcp-tools). |
 | `rid` | string | No | Extension: request ID passed to the backend for log correlation. |
 
-SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management` or `output_config`, are kept and forwarded to HTTP workers and the Anthropic API.
+SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management`, are kept and forwarded to HTTP workers and the Anthropic API.
 
 Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `server_tool_use`, `search_result`, `web_search_tool_result`, `tool_search_tool_result`, or `tool_reference`. Any other block type is rejected with `400`. A `system`-role message inside `messages` is accepted, because some clients send one mid-conversation.
 
@@ -215,6 +217,34 @@ A tool call comes back as a `tool_use` block, with `stop_reason` set to `tool_us
 
 Return the result in the next `user` message as a `tool_result` block whose `tool_use_id` is the `id` of the call.
 
+### Structured Output
+
+Ask for a JSON answer with `output_config.format`, which names a JSON schema the model's text answer must fit:
+
+```json
+{
+  "output_config": {
+    "format": {
+      "type": "json_schema",
+      "schema": {
+        "type": "object",
+        "properties": {"city": {"type": "string"}},
+        "required": ["city"]
+      }
+    }
+  }
+}
+```
+
+`json_schema` is the only `type`: a format with another `type` or without `schema` is refused with `400`, and a `schema` that is not a JSON object is refused with `400` (`output_format_schema_not_an_object`). The same format is also accepted under its earlier top-level name, `output_format`; when both fields are sent, `output_config.format` wins.
+
+On gRPC and ZMQ workers, SMG enforces the schema with [constrained decoding](../../concepts/architecture/grpc-pipeline.md#constrained-decoding-xgrammar): the engine is held to the schema as it generates, so the returned `text` block is JSON that fits it. The engine needs a grammar backend (TokenSpeed and TensorRT-LLM must have one switched on — see [Enforcement](../../concepts/architecture/grpc-pipeline.md#enforcement)). Two exceptions:
+
+- A `tool_choice` that forces a tool call — `any`, or `tool` naming one of the custom tools — takes precedence: the turn ends in a tool call, not a text answer, so the format constrains nothing.
+- MLX workers do not support constrained decoding and refuse a request that asks for a format with `400` (`invalid_request_parameters`).
+
+HTTP workers and the Anthropic API receive `output_config` and `output_format` and enforce the format themselves.
+
 ---
 
 ## Streaming
@@ -274,6 +304,7 @@ Returns the number of input tokens a Messages request would use, without generat
 | `tools` | array | No | Tool definitions. |
 | `tool_choice` | object | No | Tool selection. |
 | `thinking` | object | No | Thinking configuration. |
+| `output_config` | object | No | `effort` shapes the rendered prompt as it does on `/v1/messages`; a `format` is accepted but takes no part in the count. |
 
 There is no `max_tokens`. Any other field, such as `context_management` or `mcp_servers`, is forwarded unchanged to HTTP workers; on gRPC and ZMQ backends such fields are accepted but take no part in the count, which uses only the fields above.
 
@@ -362,9 +393,11 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 | `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser; with a `tool_choice` of `tool`, only that tool is passed to the chat template. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |
 | `tool_choice` | Mapped to Chat Completions semantics: `auto` to `auto`, `any` to `required`, `tool` to that function, `none` to `none`. SMG enforces `any` and `tool` with constrained decoding. |
 | `thinking` | `enabled` and `adaptive` turn on the chat template's thinking mode and run the model's reasoning parser. `disabled` and `between_tools` turn thinking mode off. Without `thinking`, the template default applies. A `display` of `omitted` withholds the reasoning text: the thinking blocks and their `signature` stay in place, with empty text; in a stream, the thinking block opens and closes without `thinking_delta` events. With `summarized`, `updates`, or no `display`, the reasoning text is returned as the model wrote it; SMG does not summarize. `budget_tokens` is not sent to the engine. |
-| `metadata`, `service_tier`, `container`, `mcp_servers`, extra fields such as `output_config` | Not sent to the engine. |
+| `output_config.format`, `output_format` | The answer's JSON schema is sent to the engine as a constraint and enforced with [constrained decoding](../../concepts/architecture/grpc-pipeline.md#constrained-decoding-xgrammar), unless `tool_choice` forces a tool call; see [Structured Output](#structured-output). |
+| `output_config.effort` | Rendered into the prompt as the chat template's `reasoning_effort`; not itself sent to the engine. |
+| `metadata`, `service_tier`, `container`, `mcp_servers`, `output_config`'s other keys, extra fields such as `context_management` | Not sent to the engine. |
 
-MLX workers answer `400` to a request with images, with `stop_sequences`, or with a `tool_choice` of `any` or `tool`.
+MLX workers answer `400` to a request with images, with `stop_sequences`, with a structured output format (`output_config.format` or `output_format`), or with a `tool_choice` of `any` or `tool`.
 
 How the response is built:
 

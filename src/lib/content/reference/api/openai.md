@@ -275,13 +275,28 @@ curl http://localhost:30000/v1/chat/completions \
 | `prompt_tokens_details.cached_tokens` | Prompt tokens served from the worker's prefix cache |
 | `completion_tokens_details.reasoning_tokens` | Reasoning tokens, when the count is non-zero. On gRPC workers SGLang reports them, and SMG counts them itself for gpt-oss (Harmony) models |
 | `completion_tokens_details.accepted_prediction_tokens` | Speculative decoding: draft tokens the target model accepted |
-| `completion_tokens_details.rejected_prediction_tokens` | Speculative decoding: draft tokens rejected (drafted minus accepted) |
+| `completion_tokens_details.rejected_prediction_tokens` | Speculative decoding: draft tokens rejected (drafted minus accepted). Omitted when the drafted count is unknown — see below |
 
 On gRPC workers SMG builds `usage` from the engine's counters; HTTP workers return the
-engine's own usage object. The speculative-decoding fields appear only when the engine
-reports proposed draft tokens. SMG reads them from SGLang, TokenSpeed, vLLM (started with
-`--per-request-spec-decode-metrics`), and TensorRT-LLM (once its servicer fills the
-field); MLX reports none.
+engine's own usage object. SMG reads the speculative counters from SGLang, TokenSpeed,
+vLLM (started with `--per-request-spec-decode-metrics`), and TensorRT-LLM (once its
+servicer fills the fields); MLX reports none.
+
+An engine does not always report a usable drafted count next to the tokens it accepted,
+so the two speculative fields follow different rules. `accepted_prediction_tokens`
+carries the accepted count whenever the engine reports speculative activity.
+`rejected_prediction_tokens` is drafted minus accepted, reported only when every choice
+supplied a positive drafted count at least as large as its accepted count. If any choice
+pairs measured speculation with a zero drafted count, reports fewer drafted than
+accepted tokens, or never delivers its final counters, the rejection count is unknown
+and the key is omitted rather than reported as `0`.
+
+Without any speculative decoding a chat completion reports both fields as `0`; the
+legacy Completions endpoint includes them only with speculative activity.
+
+A request's streamed and non-streamed answers carry the same usage object. The running
+snapshots requested with [`continuous_usage_stats`](#stream-usage) follow the same
+rules: a choice whose final counters are still outstanding has an unknown drafted count.
 
 #### Streaming Response
 

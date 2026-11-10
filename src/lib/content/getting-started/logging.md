@@ -131,12 +131,13 @@ The event's own fields (`message` and any structured fields) sit at the top leve
 
 ## Request and Response Logs
 
-Every request that matches a route on the main listener is logged inside an `http_request` span that carries `method`, `path`, `version`, `request_id` and, when tracing is on, `trace_id`, plus `status_code` and `latency` (microseconds) once the response is ready. That is the whole access record: no headers, no bodies, no prompts, and the path without its query string (a credential a client puts in a query parameter does not reach the log). `--access-log-fields` adds named optional fields to the record (`client_addr`, `forwarded_for`, `user_agent`, `tenant`, `key_id`, `request_bytes`, `response_bytes`, `worker`); see the [Configuration Reference](../reference/configuration.md#logging-configuration).
+Every request that matches a route on the main listener is logged inside an `http_request` span that carries `method`, `path`, `version`, `request_id` and, when tracing is on, `trace_id`, plus `status_code` and `latency` (microseconds) once the response is ready. That is the whole access record: no headers, no bodies, no prompts, and the path without its query string (a credential a client puts in a query parameter does not reach the log). `--access-log-fields` adds named optional fields to the record (`client_addr`, `forwarded_for`, `user_agent`, `tenant`, `key_id`, `request_bytes`, `response_bytes`, `worker`); see the [Configuration Reference](../reference/configuration.md#logging-configuration). When a Symphony table reads the response's output and the reading is not clean, the span also records [`symphony.*` fields](#symphony-outcome-fields).
 
 | Target | Level | Message | When |
 |--------|-------|---------|------|
 | `smg::request` | INFO | `started processing request` | A request arrives |
 | `smg::response` | INFO | `finished processing request` | Any response below 400 |
+| `smg::response` | INFO | `finished streaming the response` | A streamed response's body ended; written only when `response_bytes` is among `--access-log-fields`, and records the bytes streamed, known only at the stream's end |
 | `smg::response` | WARN | `request failed with client error` | A 4xx response |
 | `smg::response` | ERROR | `request failed with server error` | A 5xx response |
 | `smg::response` | ERROR | `response stream failed after the head was sent` | The response body failed after streaming began |
@@ -149,6 +150,24 @@ The logging layer writes one ERROR line per 5xx response. A request to an unknow
 A client that disconnects first — an SDK timeout, a user who navigated away, a proxy cutting an idle stream — is a normal outcome, not a gateway failure, so its one line is INFO. A disconnect before the response takes the place of the response line and records `status_code` 499 and the latency so far; a disconnect mid-stream follows the response line already written when the response head went out. The same lines cover the rare request the server itself dropped unanswered, such as on a handler panic or a connection cut by a forced shutdown. All of these count in `smg_http_responses_total` as a `499` with `error_code="client_closed_request"`; see the [Metrics Reference](../reference/metrics.md#layer-1-http-metrics).
 
 A refusal the gateway answers on its own — for example a 503 `no_available_workers` or a 404 `model_not_found` — is logged by the routing layer as one WARN line with the request ID, the model, and the state of its worker pools, rate-limited while the condition lasts. The response line for such a refusal drops to DEBUG, so a client retrying against a model whose workers are all down does not fill the log with extra error lines per attempt.
+
+### Symphony Outcome Fields
+
+When a [Symphony table](../concepts/architecture/grpc-pipeline.md#symphony-parsing) reads a response's output and the reading is not clean, the `http_request` span records the reading as `symphony.*` fields:
+
+| Field | Value |
+|-------|-------|
+| `symphony.table` | The table that read the output; `none` for a `panicked` reading where no table had read it |
+| `symphony.outcome` | `malformed` (the table refused part of the output or kept a stray marker as text), `empty` (whitespace and framing alone), `unknown_tool` (a call named a function the request did not declare), `failed` (the output could not be read and the request answered with an error), or `panicked` (the reading itself failed in the gateway). Never `clean`: a clean output records nothing |
+| `symphony.choice` | The choice whose reading is recorded; absent for a `failed` or `panicked` reading |
+| `symphony.reason` | The first malformed run's reason, such as `unterminated_region` (`unknown_tool` for an `unknown_tool` outcome); absent where the outcome names none (`empty`, `failed`, `panicked`) |
+| `symphony.bytes` | The output's bytes read; absent for a `panicked` reading |
+| `symphony.malformed_bytes` | The bytes in the runs the table refused; absent when there were none |
+| `symphony.finish` | The engine's finish (`stop`, `length`, `tool_calls`, `abort`, `other`); absent where the output never reached one (`failed` and `panicked` readings) |
+
+The fields are recorded when the output ends, once per request: the first reading that was not clean stands, and a later choice's reading of the same request does not replace it, so the span never mixes two readings' fields. A `panicked` reading is the one exception — caught at the request's boundary, its outcome and table overwrite an earlier reading's, while the earlier reading's other fields stay as recorded. Every line logged under the span from that point carries the fields, and with [tracing](monitoring.md#opentelemetry-tracing) on they are exported as attributes of the request span, so a request can be found by its outcome, table, or reason even when the reader's own WARN line about the output was rate-limited away. Nothing is added to the response itself: the client receives the same bytes whatever was recorded.
+
+A whole response's output is read before its response line is written, so its `finished processing request` line carries the fields. A streamed response's line goes out with the response head, before the body drives the reading, so it never carries them; the `finished streaming the response` end line (written when `response_bytes` is among `--access-log-fields`) goes out at the stream's end and does carry them.
 
 ### Health Probe Logs
 

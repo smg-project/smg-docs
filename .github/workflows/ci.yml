@@ -22,7 +22,14 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+      # Fixture commits otherwise start a detached `git maintenance run --auto`
+      # (Git 2.47+), whose lock file can race temp-repo cleanup: run 42793291666
+      # lost release review batch 31 to "Directory not empty: '.git'".
       - run: python -m unittest discover -s scripts/doc-sync -p 'test_*.py' -v
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: maintenance.auto
+          GIT_CONFIG_VALUE_0: 'false'
 
   lint:
     runs-on: ubuntu-latest

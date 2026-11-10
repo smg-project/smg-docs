@@ -36,7 +36,14 @@ runs:
       shell: bash
       run: bash scripts/doc-sync/install-gh.sh
     - name: Preserve trusted maintenance tools
+      # Fixture commits otherwise start a detached `git maintenance run --auto`
+      # (Git 2.47+), whose lock file can race temp-repo cleanup: run 42793291666
+      # lost release review batch 31 to "Directory not empty: '.git'".
       shell: bash
+      env:
+        GIT_CONFIG_COUNT: '1'
+        GIT_CONFIG_KEY_0: maintenance.auto
+        GIT_CONFIG_VALUE_0: 'false'
       run: |
         python3 -m unittest discover -s scripts/doc-sync -p 'test_*.py' -q
         cp -R scripts/doc-sync "$RUNNER_TEMP/nightly-docs-tools"

@@ -578,7 +578,9 @@ Slurm discovery polls — nothing pushes a change to SMG — so a job that start
 2. `scontrol show hostnames` expands each job's allocation (such as `gpu[01-04]`) into its node names.
 3. One `scontrol --json show nodes` resolves every node named.
 
-The commands run without a shell, each within 30 seconds, so run the gateway somewhere `squeue` and `scontrol` are on `PATH` and can reach the cluster.
+The commands run without a shell, each within 30 seconds, so run the gateway somewhere `squeue` and `scontrol` are on `PATH` and can reach the cluster. Without them the provider does not start: the gateway logs which command is missing and runs on without discovery.
+
+The published gateway image carries no Slurm client. Its `-slurm` variant does: `lightseekorg/smg:<version>-slurm` and `ghcr.io/smg-project/smg:<version>-slurm` beside every release image from 1.16.0 on, and `ghcr.io/smg-project/smg:nightly-slurm`, are the gateway image plus Ubuntu's Slurm 23.11 client package (`squeue`, `scontrol`, `sinfo`, `sacct`, `sbatch` and `srun` among its commands). What the cluster's authentication needs, its `slurm.conf` and MUNGE key or `auth/jwt` with `SLURM_JWT`, still comes from the deployment; the Helm chart's `with-slurm-discovery.yaml` example selects the variant through `global.image.tag`.
 
 Each node of a selected job becomes one worker on `--slurm-port` at the node's `NodeAddr`. Slurm defaults `NodeAddr` to `NodeHostname` and that to the bare node name, so on a cluster whose node names do not resolve from the gateway, set `NodeAddr`.
 

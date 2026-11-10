@@ -927,7 +927,9 @@ Registers one or more WASM modules. The gateway computes each file's SHA-256 has
 
 The only supported `module_type` is `Middleware`. Valid `Middleware` attach points are `OnRequest`, `OnResponse`, and `OnError`, but `OnError` modules never run: the middleware calls only `OnRequest` and `OnResponse` modules, and skips `OnResponse` for streaming responses.
 
-**Response:** `200 OK` on full success, `400 Bad Request` if any module failed to register. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message). Each requested module gets its own UUID, so two modules with the same `name` in one request get distinct UUIDs. The gateway loads the modules one at a time, waiting up to 300 seconds for each; a load that fails or outlives the wait puts the reason in that module's `add_result`.
+**Response:** `200 OK` on full success, `400 Bad Request` if any module failed to register. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message). Each requested module gets its own UUID, so two modules with the same `name` in one request get distinct UUIDs.
+
+The gateway loads the modules one at a time, waiting up to 300 seconds for each; a load that fails or outlives the wait puts the reason in that module's `add_result`.
 
 ```json
 {
@@ -1092,7 +1094,7 @@ The admin endpoints do not share one error format. The body depends on the part 
 |--------|--------|------|
 | Control-plane auth | `401`, `403` | Plain text, such as `Missing or invalid Authorization header`, `Invalid authentication token`, or `Admin role required for this control plane operation`. A `401` carries `WWW-Authenticate: Bearer realm="control-plane"` |
 | `--api-key` auth, when control-plane auth is not configured | `401` | Empty |
-| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor. The [WASM routes](#wasm-module-management) instead answer `400` in the `{"error", "code"}` envelope |
+| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor. [Add WASM Module](#add-wasm-module) instead answers `400` in the `{"error", "code"}` envelope |
 | [Worker endpoints](#worker-errors) | `400`, `404`, `409`, `500` | `{"error": "<message>", "code": "<CODE>"}` |
 | [Get Tokenizer](#get-tokenizer), [Get Tokenizer Status](#get-tokenizer-status) | `404` | `{"error": {"message": "<message>", "type": "tokenizer_not_found"}}`, with `"type": "not_found"` from Get Tokenizer Status |
 | [Add Tokenizer](#add-tokenizer) | `409`, `503` | The `202` body shape with `"status": "failed"` |

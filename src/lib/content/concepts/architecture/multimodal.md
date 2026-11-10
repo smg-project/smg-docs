@@ -234,8 +234,8 @@ Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer
 | | Default | Per-request override |
 |---|---------|----------------------|
 | Frame rate | The model's reference rate: 1 fps for MiniMax-M3, the video processor config's `fps` for Muse Spark (default 2), 2 fps for other models | `video_url.fps`, from 0.2 to 5.0 |
-| Frame count | Clip duration times the frame rate, kept within 4 to 768 frames. Muse Spark instead follows the checkpoint's video processor config (see below). | — |
-| Frame placement | Spread evenly from the first frame to the last. MiniMax-M3 takes one frame per interval from the start and always keeps the last frame, as its reference does (smg-project/smg#2584). | — |
+| Frame count | Clip duration times the frame rate, kept within 4 to 768 frames. Muse Spark instead follows the checkpoint's video processor config, and GLM-5.3-Flash its family's own loader rule (see below). | — |
+| Frame placement | Spread evenly from the first frame to the last. MiniMax-M3 takes one frame per interval from the start and always keeps the last frame, as its reference does. GLM-5.3-Flash picks frames with its family's loader walk (see below). | — |
 | Frame size | Set by the model's processor | `video_url.max_long_side_pixel`: a multiple of 28 from 150 to 3584, applied to the decoded frames |
 
 `fps` and `max_long_side_pixel` are MiniMax-M3 extensions to the OpenAI content part, and SMG applies them for any model. A part with any of these hints is never forwarded to a worker: even under `--mm-processing worker`, a request carrying one is preprocessed on the router when SMG can apply the hints itself, and refused with 400 `multimodal_hint_unsupported_in_worker_mode` when it cannot (SMG has no processor for the model's family, or the request also carries audio).
@@ -249,6 +249,8 @@ On other model families, `image_url.max_long_side_pixel` must be a positive mult
 ```
 
 Models whose reference processor lays video out frame by frame get the same layout from SMG: Qwen3-VL, GLM-5.3-Flash, and MiniMax-M3 prompts carry one block per temporal frame, with a timestamp. For MiniMax-M3, SMG also applies the pixel budget per frame and stamps each frame with the reference timestamp (smg-project/smg#2574, #2575).
+
+GLM-5.3-Flash clips follow the family's own loader rule rather than the 4-to-768-frame window: the clip's duration times the sampling rate, truncated to a whole number of frames, up to 2,048. The frames are placed the way the model's reference loader walks a clip — one frame each time the clip's clock reaches the next sampling instant, with the instants spaced at twice the rate, then re-spread evenly when the walk's count misses the target — and each distinct frame is kept once, in temporal groups of two (an odd count repeats the last frame, as the model's processor does). A per-request `fps` hint still overrides the 2 fps rate; a rate the checkpoint's video processor config states does not move it. A clip shorter than one sampling interval (`1 / rate` seconds: half a second at the default rate) gives the rule no frame to pick, so it is refused with 400 `media_fetch_failed` before any frames are decoded.
 
 Muse Spark clips follow the checkpoint's video processor config rather than the 4-to-768-frame window: frames are sampled evenly across the clip at the config's `fps` (default 2), in whole temporal groups of `temporal_patch_size` frames (default 2), up to the config's `num_frames` (default 96; the released checkpoints raise it). A per-request `fps` hint still overrides the sampling rate. The prompt carries one token block per temporal group, stamped with the time of the group's first sampled frame in the config's `frame_timestamp_format` (default `Time: {timestamp:.1f}s`; `Time: {timestamp:.2f}s` on the released checkpoints).
 
@@ -298,7 +300,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `unsupported_content_part` | A content part type the gRPC path does not know |
 | 400 | `invalid_multimodal_request` | The model has no multimodal processor, does not take the modality, or the request has too many items; the refusal names the limit and what set it (for example `the request carries 11 image items, above this model's limit of 10 (--mm-per-request-image-limit)`) |
 | 400 | `multimodal_prompt_contract_mismatch` | The rendered prompt does not hold exactly one anchor per media item: a chat template that drops media, or a literal anchor token in user text |
-| 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, or an invalid `fps` or `max_long_side_pixel` |
+| 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, a clip too short for the model's video sampling (see [Frame Sampling](#frame-sampling)), or an invalid `fps` or `max_long_side_pixel` |
 | 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, a MiniMax-M3 image's planned size over the pixel budget, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
 | 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes do not cover |
 | 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, audio) |

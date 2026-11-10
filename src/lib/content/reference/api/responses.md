@@ -88,7 +88,7 @@ POST /v1/responses
 | `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` or `auto` requires a non-empty `tools` array; with `auto` and no tools the model answers in text, as if `tool_choice` were omitted |
 | `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
 | `previous_response_id` | string | No | Continue from a stored response |
-| `conversation` | string or object | No | Conversation ID (`conv_...`) or `{"id": "conv_..."}`; mutually exclusive with `previous_response_id` |
+| `conversation` | string or object | No | Conversation ID (`conv_...`) or `{"id": "conv_..."}`; mutually exclusive with `previous_response_id`. The conversation's stored items replay ahead of the request's input, bounded at the newest 100 items (see [Conversation Management](#conversation-management)) |
 | `reasoning` | object | No | Reasoning configuration |
 | `text` | object | No | Text format for structured outputs |
 | `include` | array | No | Extra output, such as `reasoning.encrypted_content` or `message.output_text.logprobs` |
@@ -879,6 +879,20 @@ An unknown ID — or another tenant's response — returns `404` with code `not_
 ## Conversation Management
 
 Conversations provide persistent storage for multi-turn interactions, enabling chat history to be maintained across multiple requests.
+
+When a request names a `conversation`, the conversation's stored items are replayed into
+the model's prompt ahead of the request's own input, in the order they were stored. The
+replay is bounded: only the newest 100 stored items are sent. Older items stay stored and
+listable but do not reach the model; to keep context from older turns in play, repeat it
+in the request's `input`.
+
+A conversation holding exactly 100 items replays whole; a longer one is cut, and the cut
+can land inside a turn. The replayed window then begins at its first turn boundary: the
+first `user`, `developer`, or `system` message or, when the window holds no such message,
+the first tool call whose output is also in the window, together with the reasoning items
+immediately before that call. The tail of the turn the cut split is not replayed, and
+neither is a tool output whose call fell before the window, so a cut never leaves the
+prompt opening with a tool result whose call is missing.
 
 The conversation endpoints report errors in the gateway envelope
 (`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).

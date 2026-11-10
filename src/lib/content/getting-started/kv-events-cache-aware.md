@@ -55,6 +55,10 @@ engine scheduler (SGLang, vLLM or TokenSpeed)
 2. `smg-grpc-servicer`, which serves the worker's gRPC API, subscribes to the engine's publishers locally and re-publishes the events as the server-streaming RPC `SubscribeKvEvents`.
 3. SMG's `KvEventMonitor` opens one subscription per gRPC worker placed by `cache_aware` and feeds the events into a per-model chain index; `cache_aware` scores token-bearing requests against that index. If a stream breaks, the monitor reconnects and either resumes or rebuilds the worker's entries (see [Recovery after gaps](#recovery-after-gaps)).
 
+A hybrid model — one whose engine keeps sliding-window attention or recurrent-state (Mamba-style) layers in KV cache groups beside the full-attention layers — publishes its KV events per cache group: each group's stores and removals carry the group's index, and its stores the group's kind and window. The prefix index is built from the main-attention group alone; the other groups' events tell the gateway which blocks each group still retains on each worker, and a worker's matched-prefix score is bounded by what its sliding-window and state groups can still serve — the same reuse rule the engine applies to its own cache hit, so a worker whose window has moved past a prefix is no longer preferred for it.
+
+A group the gateway cannot interpret leaves the plain score standing, as does a worker whose group events began only after its first blocks were indexed (until that worker's next cache clear). The default Rust servicer forwards group events; the deprecated Python servicer drops them, so its workers are always scored at the plain overlap. Plain full-attention models publish no cache groups and score as before, and in every case the score stays an upper bound of what the engine actually reuses. See [Cache-Aware Routing](../concepts/routing/cache-aware.md#decision-flow) for the scoring details.
+
 ---
 
 ## Step 1 — Launch the SGLang worker
@@ -292,7 +296,7 @@ The event index holds what the engines report: block-removed and all-blocks-clea
 | `hwm` | `--kv-events-config` | Raise if events are dropped under bursty load. |
 | `SMG_KV_EVENT_HISTORY_BATCHES` / `SMG_KV_EVENT_HISTORY_BYTES` | Rust servicer environment | How much relayed history a Rust servicer keeps per rank for a reconnecting gateway to resume from; see [Engine Servicer Variables](../reference/configuration.md#engine-servicer-variables). |
 
-`--cache-threshold` does not apply to event-driven routing: any worker holding at least the request's first full block is a candidate. See [Cache-Aware Routing](../concepts/routing/cache-aware.md#tuning-knobs) for the full list of knobs.
+`--cache-threshold` does not apply to event-driven routing: any worker holding at least the request's first full block is a candidate (on a hybrid model, after the cache-group bound described in [How the pieces fit together](#how-the-pieces-fit-together)). See [Cache-Aware Routing](../concepts/routing/cache-aware.md#tuning-knobs) for the full list of knobs.
 
 ---
 
@@ -315,7 +319,7 @@ The stream metrics of the subscriptions (`smg_kv_event_*`, `smg_kv_events_unavai
 - **One block size per model.** If workers serving the same model use different page sizes, requests are chunked at the largest block size any worker's events have stored — the learned size only rises while the model has workers — so the blocks of workers with smaller pages are never matched. Keep page sizes homogeneous within a model.
 - **Per-gateway index.** Each gateway subscribes to every worker itself. With `--enable-mesh`, gateways synchronize the approximate trees, not the event index.
 - **No cache partitions.** The event index ignores the `cache_salt`, `extra_key` and LoRA fields that partition the approximate trees.
-- **Unaligned stores are skipped.** The servicers drop any `BlockStored` event whose token count is not its block count times its block size (vLLM can emit these for Mamba models); those blocks never reach the index.
+- **Unaligned stores are skipped.** The servicers drop any main-attention `BlockStored` event whose token count is not its block count times its block size; those blocks never reach the index. A hybrid model's sliding-window and state group stores span the step's whole token range by design and are exempt: the Rust servicer forwards them without tokens so the gateway can track each group's retention (see [How the pieces fit together](#how-the-pieces-fit-together)); they never enter the prefix index.
 - **Replay needs `replay_endpoint`.** The servicers fill gaps only when `replay_endpoint` is set in `--kv-events-config`; without it, a gap costs the worker's index entries (see [Recovery after gaps](#recovery-after-gaps)).
 
 ---

@@ -79,9 +79,17 @@ SMG probes each registered worker on its own schedule. A newly registered worker
 | Worker | Probe | Healthy when |
 |--------|-------|--------------|
 | HTTP | `GET` on the worker URL plus `--health-check-endpoint` (default `/health`), sending the worker's API key as a bearer token when one is configured | The response is `2xx` within `--health-check-timeout-secs` |
-| gRPC | The engine's `HealthCheck` RPC; `--health-check-endpoint` does not apply | The engine reports healthy within `--health-check-timeout-secs` |
+| gRPC | The engine's `HealthCheck` RPC; `--health-check-endpoint` does not apply | The engine reports healthy within `--health-check-timeout-secs`; what the RPC checks depends on the engine (see below) |
 | ZMQ (`ipc://`) | A local check of the engine connection; nothing is sent to the engine | The engine's handshake has completed and its connection is still alive |
 | External providers (OpenAI, Anthropic, and others) | Not probed unless the worker spec sets `health.disable_health_check: false` | — |
+
+What a gRPC worker's `HealthCheck` RPC verifies depends on the engine. A vLLM, TensorRT-LLM, or MLX worker answers from its own liveness — its engine connection (for MLX, its generation loop) is alive and the worker is not draining or shutting down — with nothing sent to the engine.
+
+An SGLang or TokenSpeed worker instead probes its scheduler: the worker's [servicer](../../getting-started/grpc-workers.md) sends itself one single-token request through the ordinary request path, under a `HEALTH_CHECK_` request id, and answers healthy once the engine has produced any output since the probe started — the probe's own answer, or output for any other request, so a busy scheduler passes while the probe waits its turn in the queue. With nothing produced since the probe started, the answer is unhealthy: the moment the probe is refused or fails, or at the end of the servicer's wait with still no output. A frozen scheduler therefore fails its health checks even while the worker process stays responsive.
+
+How long the servicer waits is the worker's own setting, not a gateway flag: `SGLANG_HEALTH_CHECK_TIMEOUT` or `TOKENSPEED_HEALTH_CHECK_TIMEOUT` in the worker's environment, in whole seconds, 20 when unset. The gateway still waits at most `--health-check-timeout-secs` for the RPC, so at the defaults (a 5-second gateway timeout against the servicer's 20-second wait) a scheduler with nothing to show fails the check at the gateway's timeout first.
+
+The probe is the servicer's own request, not a client's: it appears in none of the worker's request or token metrics and leaves no sample in the load figures routing reads. An SGLang model that serves no generation is probed with an embedding request instead. A worker running a disaggregated role (prefill, decode, or encode) answers healthy without probing — `Health check passed (disaggregation worker; shallow probe)` — because its requests pair with a peer, so a lone probe would exercise the rendezvous rather than the scheduler.
 
 The ZMQ probe is also what reconnects a restarted engine, so health checks stay on for ZMQ workers even when they are disabled in configuration. Under `--upstream-http2`, HTTP probes use the same protocol as request traffic: HTTP/2 for workers that negotiated it at registration, HTTP/1.1 for the rest (see [Request Streaming](../performance/request-streaming.md)).
 

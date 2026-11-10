@@ -86,7 +86,7 @@ A single `pre-commit install` installs all three hook types named in the reposit
 | `codespell` and file-hygiene hooks | commit | Spelling, trailing whitespace, final newlines, YAML and TOML syntax, merge-conflict markers, private keys, and large files; `no-commit-to-branch` blocks commits on `main` |
 | `dco-check` | commit message | A `Signed-off-by` line that exactly matches your `git config` `user.name` and `user.email` |
 | `no-ai-co-author` | commit message | No `Co-authored-by` or `Signed-off-by` lines naming Claude or `noreply@anthropic.com` |
-| `branch-name-check` | push | `<type>/<description>` or `<username>/<description>`: lowercase, in one or more `/`-separated segments after the first; a `dependabot/` branch keeps the tool's own case |
+| `branch-name-check` | push | `<type>/<description>` or `<username>/<description>`, lowercase, with one or more `/`-separated segments after the first; a `dependabot/` branch keeps the tool's own case |
 
 `branch-name-check` is the only hook that runs at push time. It runs `scripts/branch-name-check.sh`, the same script behind the `Branch Naming Convention` PR check, so a name the hook accepts also passes the check (see [Branch Names](index.md#branch-names)). CI's `pre-commit` job runs the same hooks on all files, except `rustfmt`, `clippy`, and the branch and commit-message hooks, which CI checks in other jobs.
 

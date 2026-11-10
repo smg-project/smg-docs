@@ -144,7 +144,7 @@ Pull requests are squash-merged, and the PR title becomes the commit title on `m
 
 ### Branch Names
 
-Name branches `<type>/<description>` (for example `feat/add-auth` or `fix/null-pointer`) or `<username>/<description>` (for example `changsu/fix-routing`): lowercase letters, digits, `.`, `_`, and `-`, in one or more `/`-separated segments after the first (`fix/pd/rooms` is also valid). A `dependabot/` branch keeps the tool's own case after that prefix. One script, `scripts/branch-name-check.sh`, holds the rule, and both checks run it: for branches pushed to smg-project/smg, the `Branch Naming Convention` check comments on and closes a PR whose branch does not match, and locally the `branch-name-check` pre-push hook — installed by `pre-commit install` above — checks the name before each push.
+Name branches `<type>/<description>` (for example `feat/add-auth` or `fix/null-pointer`) or `<username>/<description>` (for example `changsu/fix-routing`), in lowercase letters, digits, `.`, `_`, and `-`. More `/`-separated segments may follow the first (`fix/pd/rooms` is also valid), and a `dependabot/` branch keeps the tool's own case after that prefix. The rule lives in one script, `scripts/branch-name-check.sh`, which both the PR check and the pre-push hook run: for branches pushed to smg-project/smg, the `Branch Naming Convention` check comments on and closes a PR whose branch does not match; locally, the `branch-name-check` pre-push hook — installed by `pre-commit install` above — checks the name before each push.
 
 ---
 

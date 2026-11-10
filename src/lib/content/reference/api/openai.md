@@ -280,22 +280,23 @@ curl http://localhost:30000/v1/chat/completions \
 On gRPC workers SMG builds `usage` from the engine's counters; HTTP workers return the
 engine's own usage object. SMG reads the speculative counters from SGLang, TokenSpeed,
 vLLM (started with `--per-request-spec-decode-metrics`), and TensorRT-LLM (once its
-servicer fills the field); MLX reports none.
+servicer fills the fields); MLX reports none.
 
 An engine does not always report a usable drafted count next to the tokens it accepted,
 so the two speculative fields follow different rules. `accepted_prediction_tokens`
 carries the accepted count whenever the engine reports speculative activity.
-`rejected_prediction_tokens` is drafted minus accepted only when every choice reported a
-positive drafted count at least as large as its accepted count. When any choice reports
-a drafted count of zero or below its accepted count beside measured speculation, or
-never delivers its final counters, the rejection count is unknown and the key is left
-out of the JSON rather than reported as `0`.
+`rejected_prediction_tokens` is drafted minus accepted, reported only when every choice
+supplied a positive drafted count at least as large as its accepted count. If any choice
+pairs measured speculation with a zero drafted count, reports fewer drafted than
+accepted tokens, or never delivers its final counters, the rejection count is unknown
+and the key is omitted rather than reported as `0`.
 
 Without any speculative decoding a chat completion reports both fields as `0`; the
-legacy Completions endpoint includes them only with speculative activity. A request's
-streamed and non-streamed answers carry the same usage object, and running
-`continuous_usage_stats` snapshots follow the same rule: while a choice's final counters
-are still outstanding, its drafted count is unknown.
+legacy Completions endpoint includes them only with speculative activity.
+
+A request's streamed and non-streamed answers carry the same usage object. The running
+snapshots requested with [`continuous_usage_stats`](#stream-usage) follow the same
+rules: a choice whose final counters are still outstanding has an unknown drafted count.
 
 #### Streaming Response
 

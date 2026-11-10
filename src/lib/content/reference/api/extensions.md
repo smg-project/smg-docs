@@ -111,7 +111,7 @@ The split changes where the routes answer, not who may call them: the auth above
 | `GET`, `POST` | `/wasm` |
 | `DELETE` | `/wasm/{module_uuid}` |
 
-The WASM routes need `--enable-wasm`; without it they answer `500`.
+The WASM routes need `--enable-wasm`; without it they answer `503`. Their refusals use the control plane's `{"error", "code"}` envelope; see [WASM Module Management](admin.md#wasm-module-management) for the statuses and codes.
 
 ### Profiling
 

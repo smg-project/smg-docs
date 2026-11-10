@@ -898,7 +898,7 @@ Manage WebAssembly plugins. Modules are registered from files on the gateway hos
 
 A module's `file_path` must be an absolute path ending in `.wasm`, with no `.` or `..` components. Paths under `/etc/`, `/proc/`, `/sys/`, `/dev/`, `/boot/`, `/root/`, `/var/log/`, or `/var/run/` are refused, and after symlinks are resolved the target is checked again: it must be a `.wasm` file outside those directories. See [WASM Plugins](../../concepts/extensibility/wasm-plugins.md#security-model) for the full security model.
 
-These routes need `--enable-wasm`. Without it, each answers `500 Internal Server Error` with an empty body.
+These routes need `--enable-wasm`. Without it, each answers `503 Service Unavailable`. A request these routes refuse answers in the same `{"error": "<message>", "code": "<CODE>"}` envelope as the [worker endpoints](#worker-errors); only a load's per-module results use their own `add_result` shape.
 
 ### Add WASM Module
 
@@ -927,7 +927,7 @@ Registers one or more WASM modules. The gateway computes each file's SHA-256 has
 
 The only supported `module_type` is `Middleware`. Valid `Middleware` attach points are `OnRequest`, `OnResponse`, and `OnError`, but `OnError` modules never run: the middleware calls only `OnRequest` and `OnResponse` modules, and skips `OnResponse` for streaming responses.
 
-**Response:** `200 OK` on full success, `400 Bad Request` if any module failed to register. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message).
+**Response:** `200 OK` on full success, `400 Bad Request` if any module failed to register. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message). Each requested module gets its own UUID, so two modules with the same `name` in one request get distinct UUIDs. The gateway loads the modules one at a time, waiting up to 300 seconds for each; a load that fails or outlives the wait puts the reason in that module's `add_result`.
 
 ```json
 {
@@ -947,6 +947,8 @@ The only supported `module_type` is `Middleware`. Valid `Middleware` attach poin
   ]
 }
 ```
+
+A request refused before any module is loaded answers in the `{"error", "code"}` envelope instead of the module list: `400` (`BAD_REQUEST`) for a body the type does not take, `503` (`SERVICE_UNAVAILABLE`) when the gateway runs without `--enable-wasm` or the job queue is not up.
 
 ---
 
@@ -991,6 +993,8 @@ Returns all registered WASM modules together with aggregate execution metrics.
 
 `metrics` covers every module. `average_execution_time_ms` is `total_execution_time_ms` divided by `total_executions`, and is left out until a module has run.
 
+If the module table cannot be read, the route answers `500` (`INTERNAL_SERVER_ERROR`) in the `{"error", "code"}` envelope.
+
 ---
 
 ### Remove WASM Module
@@ -999,14 +1003,22 @@ Returns all registered WASM modules together with aggregate execution metrics.
 DELETE /wasm/{module_uuid}
 ```
 
-Removes a WASM module. The body is a plain text status message, not JSON.
+Removes a WASM module. On success the body is a plain text status message, not JSON.
 
 **Response:** `200 OK`
 ```
 Module removed successfully
 ```
 
-On failure returns `400 Bad Request` with the error text as the body. A `module_uuid` that is not a UUID gets `400` with an empty body.
+The removal runs as a gateway job, waited on for up to 60 seconds. A failure answers in the `{"error", "code"}` envelope:
+
+| Status | `code` | When |
+|--------|--------|------|
+| `400` | `BAD_REQUEST` | `module_uuid` is not a UUID; the error names the value |
+| `404` | `WASM_MODULE_NOT_FOUND` | No module has this UUID |
+| `503` | `SERVICE_UNAVAILABLE` | The gateway runs without `--enable-wasm`, the job queue is not up, or the queue took no job (full, or shutting down) |
+| `504` | `GATEWAY_TIMEOUT` | The removal did not finish within the 60-second wait. The job keeps running and may still complete; re-read [`GET /wasm`](#list-wasm-modules) to see whether the module is gone |
+| `500` | `INTERNAL_SERVER_ERROR` | The removal job ran and failed, or the module table could not be read |
 
 ---
 
@@ -1080,14 +1092,14 @@ The admin endpoints do not share one error format. The body depends on the part 
 |--------|--------|------|
 | Control-plane auth | `401`, `403` | Plain text, such as `Missing or invalid Authorization header`, `Invalid authentication token`, or `Admin role required for this control plane operation`. A `401` carries `WWW-Authenticate: Bearer realm="control-plane"` |
 | `--api-key` auth, when control-plane auth is not configured | `401` | Empty |
-| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor |
+| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor. The [WASM routes](#wasm-module-management) instead answer `400` in the `{"error", "code"}` envelope |
 | [Worker endpoints](#worker-errors) | `400`, `404`, `409`, `500` | `{"error": "<message>", "code": "<CODE>"}` |
 | [Get Tokenizer](#get-tokenizer), [Get Tokenizer Status](#get-tokenizer-status) | `404` | `{"error": {"message": "<message>", "type": "tokenizer_not_found"}}`, with `"type": "not_found"` from Get Tokenizer Status |
 | [Add Tokenizer](#add-tokenizer) | `409`, `503` | The `202` body shape with `"status": "failed"` |
 | [Remove Tokenizer](#remove-tokenizer) | `404` | `{"success": false, "message": "<message>"}` |
 | `/parse/function_call`, `/parse/reasoning` | `400`, `503` | `{"error": "<message>", "success": false}` |
-| [Add WASM Module](#add-wasm-module) | `400` | The module list, with `"add_result": {"Error": "<message>"}` on each module that failed |
-| [Remove WASM Module](#remove-wasm-module), and every WASM route without `--enable-wasm` | `400`, `500` | Plain text or empty |
+| [Add WASM Module](#add-wasm-module), when a module failed to load | `400` | The module list, with `"add_result": {"Error": "<message>"}` on each module that failed |
+| Every other refusal from the [WASM routes](#wasm-module-management), including any of them without `--enable-wasm` | `400`, `404`, `500`, `503`, `504` | `{"error": "<message>", "code": "<CODE>"}` |
 | The gateway, on forwarded routes such as `/get_model_info` | `503` and others | The gateway error envelope below |
 
 Errors that the gateway generates itself, for example when no worker is available, use this envelope and repeat `code` in the `X-SMG-Error-Code` response header:

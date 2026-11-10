@@ -153,7 +153,7 @@ A refusal the gateway answers on its own — for example a 503 `no_available_wor
 
 ### Symphony Outcome Fields
 
-When a [Symphony table](../concepts/architecture/grpc-pipeline.md#symphony-parsing) reads a response's output and the reading is not clean, the `http_request` span records the reading as `symphony.*` fields:
+When a [Symphony table](../concepts/architecture/grpc-pipeline.md#symphony-parsing) reads a response's output and the reading is not clean, the `http_request` span records the reading as `symphony.*` fields. A reading of a gRPC response that panics in the gateway is recorded the same way, as a `panicked` reading, whichever parser was reading — the tool and reasoning parsers included, not only a Symphony table:
 
 | Field | Value |
 |-------|-------|
@@ -163,7 +163,7 @@ When a [Symphony table](../concepts/architecture/grpc-pipeline.md#symphony-parsi
 | `symphony.reason` | The first malformed run's reason, such as `unterminated_region` (`unknown_tool` for an `unknown_tool` outcome); absent where the outcome names none (`empty`, `failed`, `panicked`) |
 | `symphony.bytes` | The output's bytes read; absent for a `panicked` reading |
 | `symphony.malformed_bytes` | The bytes in the runs the table refused; absent when there were none |
-| `symphony.finish` | The engine's finish (`stop`, `length`, `tool_calls`, `abort`, `other`); absent where the output never reached one (`failed` and `panicked` readings) |
+| `symphony.finish` | The engine's finish (`stop`, `length`, `tool_calls`, `abort`, `other`); when the request forbade calls with `tool_choice: none`, a `tool_calls` finish is recorded as the `stop` the client gets; absent where the output never reached one (`failed` and `panicked` readings) |
 
 The fields are recorded when the output ends, once per request: the first reading that was not clean stands, and a later choice's reading of the same request does not replace it, so the span never mixes two readings' fields. A `panicked` reading is the one exception — caught at the request's boundary, its outcome and table overwrite an earlier reading's, while the earlier reading's other fields stay as recorded. Every line logged under the span from that point carries the fields, and with [tracing](monitoring.md#opentelemetry-tracing) on they are exported as attributes of the request span, so a request can be found by its outcome, table, or reason even when the reader's own WARN line about the output was rate-limited away. Nothing is added to the response itself: the client receives the same bytes whatever was recorded.
 

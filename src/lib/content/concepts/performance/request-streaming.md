@@ -83,15 +83,12 @@ For an eligible request, the first matching rule wins:
 
 Rules 1–7 always buffer, at any size up to `--max-payload-size`. In the first six, something must read the body: the sticky-session key comes from the body's `rid`, the policy routes on the prompt, the model name is inside the body, the request must be edited for the worker, a plugin inspects it, or the tenant reservation's input-token estimate is read from it.
 
-Rules 8–10 apply when the only reason to buffer is to keep the request retryable. Router retries count as enabled when `--retry-max-retries` is greater than `1` and `--disable-retries` is not set. (A worker spec's `resilience` fields apply to its model since v1.12.0, and a per-model override that still allows retries counts as enabled here, since the model sits inside the unread body; see [Per-Worker Overrides](../reliability/retries.md#per-worker-overrides).)
+Rules 8–10 apply when the only reason to buffer is to keep the request retryable. Router retries count as enabled when `--retry-max-retries` is greater than `1` and `--disable-retries` is not set, or when a [per-worker override](../reliability/retries.md#per-worker-overrides) still allows retries for any model: the model name sits inside the unread body, so one retryable model keeps every eligible request buffered.
 
 Once a request is headed for the streamed path, the router selects a worker from the headers alone. If no worker can be selected that way, or the fleet changed in the meantime (a body-rewriting worker or a second model registered), the request falls back to the buffered path, counted as `no_available_worker`, `worker_mutates_body`, or `model_ambiguous`.
 
 !!! note "The default policy buffers"
     `cache_aware`, the default `--policy`, routes on the prompt, so with default settings every request buffers unless it carries a valid `x-smg-routing-tokens` hint. With the hint, `cache_aware` routes on the hinted token IDs and the body can stream. See [Sticky Sessions](../routing/sticky-sessions.md) for the routing hint headers.
-
-!!! warning "Behavior change in v1.10.0"
-    Before v1.10.0 the HTTP router buffered every request body. Since v1.10.0, eligible requests larger than `--max-buffered-request-bytes` (1 MiB by default) stream to the worker and get a single attempt; raise the limit to keep larger requests retryable. The `--stream-request-bodies-over` flag from pre-release builds was removed before v1.10.0 shipped, and SMG refuses to start if it is passed.
 
 ### What Changes for a Streamed Request
 
@@ -161,7 +158,7 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 
 ### Delta Re-Slicing for MiniMax Models
 
-Engines can emit streamed chat completions one token per SSE event, or tool-call arguments in one piece. MiniMax's provider contract instead bounds the size of every streamed delta: almost none may be shorter than 5 or longer than 200 characters. Since v1.11.0, SMG re-slices the deltas of chat completion streams for MiniMax models to target that contract, so clients of those models receive multi-character text slices rather than the worker's per-token events. Concatenating the delta fields yields exactly the worker's text; only the event boundaries change.
+Engines can emit streamed chat completions one token per SSE event, or tool-call arguments in one piece. MiniMax's provider contract instead bounds the size of every streamed delta: almost none may be shorter than 5 or longer than 200 characters. SMG re-slices the deltas of chat completion streams for MiniMax models to target that contract, so clients of those models receive multi-character text slices rather than the worker's per-token events. Concatenating the delta fields yields exactly the worker's text; only the event boundaries change.
 
 The regular HTTP relay re-slices a response when all of the following hold; every other stream is relayed as the worker sent it:
 

@@ -208,6 +208,10 @@ With no scans, planning still writes a report,
 but no writer or publisher is scheduled. Scan contexts and
 writer bundles are retained for two days; publication validation artifacts
 retain the item, diff, and explicit four-gate review verdict for fourteen days.
+Nightly and release-audit jobs download artifacts through
+`.github/actions/download-artifact-retry`, which makes three attempts:
+`download-artifact` fails at once on a dropped connection. Jobs copy it beside
+the trusted setup action before checking out the documentation base.
 The discovery report is retained for thirty days and identifies targeted
 scans and dry runs. If no production report is found within that window, the
 ledger restarts and older commits are reassessed; nothing is skipped.

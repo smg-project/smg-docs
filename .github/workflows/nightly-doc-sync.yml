@@ -142,14 +142,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: ./.github/actions/download-artifact-retry
         # Missing when the audit failed before preparing; continue then warns.
         continue-on-error: true
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - if: needs.release-snapshot.result == 'failure'
-        uses: actions/download-artifact@v4
+        uses: ./.github/actions/download-artifact-retry
         continue-on-error: true
         with:
           pattern: release-final-review-*
@@ -202,6 +202,7 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         id: setup
@@ -278,12 +279,13 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base_sha }}
           source-ref: ${{ needs.prepare.outputs.source_sha }}
-      - uses: actions/download-artifact@v5
+      - uses: ./.nightly-action/download
         with:
           name: nightly-docs-context
           path: ${{ runner.temp }}/nightly-docs-context
@@ -392,16 +394,17 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base_sha }}
           source-ref: ${{ needs.prepare.outputs.source_sha }}
-      - uses: actions/download-artifact@v5
+      - uses: ./.nightly-action/download
         with:
           name: nightly-docs-context
           path: ${{ runner.temp }}/nightly-docs-context
-      - uses: actions/download-artifact@v5
+      - uses: ./.nightly-action/download
         with:
           pattern: nightly-docs-scan-*
           path: ${{ runner.temp }}/nightly-docs-scans
@@ -455,12 +458,13 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.plan.outputs.base_sha }}
           source-ref: ${{ needs.plan.outputs.source_sha }}
-      - uses: actions/download-artifact@v5
+      - uses: ./.nightly-action/download
         with:
           name: nightly-docs-discovery-report
           path: ${{ runner.temp }}/nightly-docs-plan
@@ -584,12 +588,13 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.plan.outputs.base_sha }}
           source-ref: ${{ needs.plan.outputs.source_sha }}
-      - uses: actions/download-artifact@v5
+      - uses: ./.nightly-action/download
         with:
           name: nightly-docs-discovery-report
           path: ${{ runner.temp }}/nightly-docs-plan
@@ -606,7 +611,7 @@ jobs:
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "Writer produced no artifact for this concern; no PR created." >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/download-artifact@v5
+      - uses: ./.nightly-action/download
         if: steps.artifact.outputs.found == 'true'
         with:
           name: nightly-docs-${{ strategy.job-index }}

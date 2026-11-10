@@ -60,6 +60,7 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
@@ -77,7 +78,7 @@ jobs:
         id: prepare
         run: python3 "$RUNNER_TEMP/nightly-docs-tools/snapshots.py" prepare
       - if: inputs.diagnostic-run-id != ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           name: release-context
           run-id: ${{ inputs.diagnostic-run-id }}
@@ -179,12 +180,13 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
@@ -261,17 +263,18 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-bundle-*
           merge-multiple: true
@@ -354,23 +357,24 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-review-*
           merge-multiple: true
@@ -411,23 +415,24 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-review-*
           merge-multiple: true
@@ -504,22 +509,23 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           pattern: release-repaired-bundle-*
           merge-multiple: true
@@ -588,27 +594,28 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           pattern: release-repaired-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           pattern: release-repair-review-*
           merge-multiple: true
@@ -642,27 +649,28 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           pattern: release-repaired-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           pattern: release-repair-review-*
           merge-multiple: true
@@ -732,27 +740,28 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           pattern: release-repaired-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           pattern: release-followup-bundle-*
           merge-multiple: true
@@ -824,35 +833,36 @@ jobs:
         run: |
           mkdir -p .nightly-action
           cp .github/actions/nightly-docs-setup/action.yml .nightly-action/action.yml
+          cp -R .github/actions/download-artifact-retry .nightly-action/download
           printf '/.nightly-action/\n/.nightly-source/\n' >> .git/info/exclude
       - uses: ./.nightly-action
         with:
           docs-sha: ${{ needs.prepare.outputs.base }}
           source-ref: ${{ fromJSON(inputs.release-json).sha }}
-      - uses: actions/download-artifact@v4
+      - uses: ./.nightly-action/download
         with:
           name: release-context
           path: ${{ runner.temp }}/release-docs
       - if: inputs.resume-run-id == '' && inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
       - if: needs.assess.outputs.needed == 'true'
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-repaired-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
       - if: needs.assess-followup.outputs.needed == 'true'
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: release-followup-bundle-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-docs
       - if: inputs.promotion-run-id == ''
-        uses: actions/download-artifact@v4
+        uses: ./.nightly-action/download
         with:
           pattern: ${{ needs.assess-followup.outputs.needed == 'true' && 'release-final-review-*' || needs.assess.outputs.needed == 'true' && 'release-repair-review-*' || 'release-review-*' }}
           merge-multiple: true

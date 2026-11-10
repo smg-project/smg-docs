@@ -1,0 +1,68 @@
+name: Download artifacts with retries
+description: >-
+  actions/download-artifact with up to three attempts. Its artifact client
+  retries HTTP status errors but fails at once on a dropped connection; run
+  42793291666 lost two v1.15.0 release review-repair jobs to
+  "GetSignedArtifactURL: ECONNRESET" during a GitHub API outage.
+inputs:
+  name:
+    description: Artifact name (leave empty to use pattern)
+    default: ''
+  pattern:
+    description: Artifact name pattern
+    default: ''
+  merge-multiple:
+    description: Merge pattern matches into one directory
+    default: 'false'
+  path:
+    description: Destination directory
+    default: ''
+  run-id:
+    description: Workflow run to download from (defaults to this run)
+    default: ''
+  github-token:
+    description: Token for a download from another run
+    default: ''
+runs:
+  using: composite
+  steps:
+    - id: first
+      continue-on-error: true
+      uses: actions/download-artifact@v5
+      with:
+        name: ${{ inputs.name }}
+        pattern: ${{ inputs.pattern }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+        path: ${{ inputs.path }}
+        run-id: ${{ inputs.run-id || github.run_id }}
+        github-token: ${{ inputs.github-token }}
+    - if: steps.first.outcome == 'failure'
+      shell: bash
+      run: |
+        echo '::warning::Artifact download failed; retrying in 30 seconds'
+        sleep 30
+    - id: second
+      if: steps.first.outcome == 'failure'
+      continue-on-error: true
+      uses: actions/download-artifact@v5
+      with:
+        name: ${{ inputs.name }}
+        pattern: ${{ inputs.pattern }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+        path: ${{ inputs.path }}
+        run-id: ${{ inputs.run-id || github.run_id }}
+        github-token: ${{ inputs.github-token }}
+    - if: steps.second.outcome == 'failure'
+      shell: bash
+      run: |
+        echo '::warning::Artifact download failed again; final attempt in 90 seconds'
+        sleep 90
+    - if: steps.second.outcome == 'failure'
+      uses: actions/download-artifact@v5
+      with:
+        name: ${{ inputs.name }}
+        pattern: ${{ inputs.pattern }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+        path: ${{ inputs.path }}
+        run-id: ${{ inputs.run-id || github.run_id }}
+        github-token: ${{ inputs.github-token }}

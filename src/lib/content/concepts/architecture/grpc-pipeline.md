@@ -16,7 +16,7 @@ When workers connect over gRPC, SMG runs the whole OpenAI-compatible serving pip
 
 ### :material-comment-processing: Chat Templates
 
-Jinja2 chat templates for most models, plus native prompt encoders for DeepSeek-V3.2, V4 and V4.1 and Kimi-K3 checkpoints.
+Jinja2 chat templates for most models, plus native prompt encoders for DeepSeek-V3.2, V4 and V4.1, and Kimi-K3 and K3.1 checkpoints.
 
 </div>
 
@@ -165,7 +165,7 @@ Templates render with minijinja 2.24, so two Python Jinja2 behaviors work: condi
 
 ### Native Renderers
 
-Some checkpoints ship a Python prompt encoder instead of a Jinja template. For these, SMG uses a native Rust port of that encoder, tested against the reference output. The tokenizer picks the renderer from the `config.json` next to the tokenizer files. The DeepSeek and Kimi-K3 renderers replace the Jinja template entirely, so `--chat-template` has no effect on those checkpoints.
+Some checkpoints ship a Python prompt encoder instead of a Jinja template. For these, SMG uses a native Rust port of that encoder, tested against the reference output. The tokenizer picks the renderer from the `config.json` next to the tokenizer files. The DeepSeek, Kimi-K3 and Kimi-K3.1 renderers replace the Jinja template entirely, so `--chat-template` has no effect on those checkpoints.
 
 | Renderer | Selected when `config.json` has | Thinking key (renderer default) | Native `reasoning_effort` values | Notes |
 |----------|----------------------------------|--------------|----------------------------------|-------|
@@ -173,9 +173,10 @@ Some checkpoints ship a Python prompt encoder instead of a Jinja template. For t
 | DeepSeek-V4 | architecture `DeepseekV4ForCausalLM` | `thinking` or its `enable_thinking` alias (default on) | `low`, `high`, `max` | Thinking stays on for every `reasoning_effort` except `"none"` |
 | DeepSeek-V4.1 | architecture `DeepseekV41ForCausalLM` or `model_type: deepseek_v41` | `thinking` or its `enable_thinking` alias (default on) | `low`, `medium`, `high`, `xhigh`, `max`, or an integer budget from 1 to 100 | Continues a trailing assistant message natively with `continue_final_message`; reads tool-call `arguments` as written |
 | Kimi-K3 | architecture `KimiK3ForConditionalGeneration` or `model_type: kimi_k3` | `thinking` or its `enable_thinking` alias (default on) | `low`, `high`, `max` (default `max`; rendered only while thinking is on) | Encodes the prompt piece by piece, so control-token text inside a message stays text; reads tool-call `arguments` as written |
+| Kimi-K3.1 | architecture `KimiK31ForConditionalGeneration` or `model_type: kimi_k31` | `thinking` or its `enable_thinking` alias (default on) | `low`, `medium`, `high`, `max` (default `max`; rendered only while thinking is on) | Kimi-K3's encoder with `medium` added to the effort values; all other Kimi-K3 behavior applies |
 | Kimi-K2.5 | architecture `KimiK25ForConditionalGeneration` or `model_type: kimi_k25` | From the Jinja template | None | Keeps the Jinja template, but renders tool declarations as TypeScript with a port of the checkpoint's `tool_declaration_ts.py` |
 
-DeepSeek-V4 and V4.1 render a `developer` message as a plain user turn, and Kimi-K3 renders it as a system message. While thinking is on, the three DeepSeek renderers drop a developer message that comes before the last user turn, in the same pass that drops the conversation's earlier reasoning. A trailing developer message is itself the last user turn and stays, and a request that declares tools switches the drop off. These rules apply to Chat Completions requests; the [Responses API](../../reference/api/responses.md) folds a `developer` input item into the system prompt before any renderer runs.
+DeepSeek-V4 and V4.1 render a `developer` message as a plain user turn, and Kimi-K3 and K3.1 render it as a system message. While thinking is on, the three DeepSeek renderers drop a developer message that comes before the last user turn, in the same pass that drops the conversation's earlier reasoning. A trailing developer message is itself the last user turn and stays, and a request that declares tools switches the drop off. These rules apply to Chat Completions requests; the [Responses API](../../reference/api/responses.md) folds a `developer` input item into the system prompt before any renderer runs.
 
 A request's `tools` never attach to a developer message. The DeepSeek-V3.2 and V4 renderers put them on the leading system message, inserting an empty one when the conversation opens with another role; DeepSeek-V4.1 puts them on the first system message wherever it sits, inserting an empty leading one only when the conversation has none.
 
@@ -185,15 +186,17 @@ DeepSeek-V4.1 revisions are identified from the checkpoint's own `encoding/encod
 
 A request goes through SMG's DeepSeek request profile when a `/`-separated part of its model name is `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-v4.1-flash`, `deepseek-v4.1-flash-1017` or `deepseek-flash` (in any case), as in `deepseek-ai/DeepSeek-V4-Flash`. The profile resolves the thinking toggle once — on unless the request turns it off — and writes the answer to `chat_template_kwargs.thinking` when that key is unset (see [Defaults and Rewrites](../../reference/api/openai.md#defaults-and-rewrites)).
 
-Kimi-K3 appends a response-channel stub after the assistant header. The engine receives the stub, but the `prompt_tokens` that clients see leave it out, matching Moonshot's billing.
+Kimi-K3 and K3.1 append a response-channel stub after the assistant header. The engine receives the stub, but the `prompt_tokens` that clients see leave it out, matching Moonshot's billing.
+
+Kimi-K3.1 takes `medium` through a `chat_template_kwargs.thinking_effort` entry or the `reasoning_effort` field, not through `thinking.effort`, which stays `low`, `high` or `max` on every Kimi-K3-named model (see [Thinking and Reasoning Effort](../../reference/api/openai.md#thinking-and-reasoning-effort)). While thinking is on, a `thinking_effort` entry is validated against the checkpoint's own effort list — on Kimi-K3, `medium` fails the request with an error naming the supported values — but a `reasoning_effort` naming an effort the checkpoint lacks gets the default `max` directive instead.
 
 ### Thinking and Reasoning Effort
 
 Reasoning controls reach the template as template variables. The request fields are documented in the [OpenAI-Compatible API](../../reference/api/openai.md).
 
 - **Template kwargs**: `reasoning_effort` (or `thinking.effort`, which takes precedence), `tool_choice` and `response_format` are passed to the template as kwargs of the same name. An entry in `chat_template_kwargs` overrides `tool_choice` and `response_format`, but not the effort: a `reasoning_effort` entry applies only when the request sets no effort of its own.
-- **Thinking on or off**: `thinking.type` (`enabled` or `disabled`) sets the preference (for how it ranks against a conflicting `reasoning_effort` or `chat_template_kwargs` entry, see [Thinking and Reasoning Effort](../../reference/api/openai.md#thinking-and-reasoning-effort)). Without it, a `reasoning_effort` of `"none"` or `"minimal"` means off, with two exceptions: the DeepSeek-V4 renderer keeps thinking on for every value but `"none"`, and on MiniMax models no effort value turns thinking off (MiniMax reads `"none"` as the model's default thinking depth and `"minimal"` as `low`). SMG writes the preference under the key the template actually reads: `enable_thinking` (Qwen3, GLM, Nemotron), `thinking` (DeepSeek, Kimi), or `thinking_mode` set to `"enabled"` or `"disabled"` (MiniMax-M3). A value you pass for that key in `chat_template_kwargs` wins. The native DeepSeek and Kimi-K3 renderers read an `enable_thinking` entry there as an alias for `thinking`, with the same force; when a request sets both keys, the `thinking` entry decides, except on DeepSeek-V4.1, which rejects a pair that disagrees.
-- **Native effort names**: the DeepSeek-V4, V4.1 and Kimi-K3 renderers turn the values in the table above into their own effort prompt text.
+- **Thinking on or off**: `thinking.type` (`enabled` or `disabled`) sets the preference (for how it ranks against a conflicting `reasoning_effort` or `chat_template_kwargs` entry, see [Thinking and Reasoning Effort](../../reference/api/openai.md#thinking-and-reasoning-effort)). Without it, a `reasoning_effort` of `"none"` or `"minimal"` means off, with two exceptions: the DeepSeek-V4 renderer keeps thinking on for every value but `"none"`, and on MiniMax models no effort value turns thinking off (MiniMax reads `"none"` as the model's default thinking depth and `"minimal"` as `low`). SMG writes the preference under the key the template actually reads: `enable_thinking` (Qwen3, GLM, Nemotron), `thinking` (DeepSeek, Kimi), or `thinking_mode` set to `"enabled"` or `"disabled"` (MiniMax-M3). A value you pass for that key in `chat_template_kwargs` wins. The native DeepSeek, Kimi-K3 and K3.1 renderers read an `enable_thinking` entry there as an alias for `thinking`, with the same force; when a request sets both keys, the `thinking` entry decides, except on DeepSeek-V4.1, which rejects a pair that disagrees.
+- **Native effort names**: the DeepSeek-V4, V4.1, Kimi-K3 and K3.1 renderers turn the values in the table above into their own effort prompt text.
 - **Parser arming**: the reasoning parser follows the same decision. When thinking is on, it starts in reasoning mode, so the prompt and the parser agree.
 
 ---
@@ -537,7 +540,7 @@ The Python servicers and the [ZMQ direct backend](../../getting-started/zmq-work
 | `--parser` | `symphony` | Which parser reads a Chat Completions, Messages or Responses API response: `symphony` ([Symphony tables](#symphony-parsing)) or `legacy` (the per-model parsers on this page). A request's `X-SMG-Parser` header overrides it for that request |
 | `--reasoning-parser` | Auto | Reasoning parser for every model without a per-model override. Under the default `--parser symphony`, may name a Symphony table or `hf`, and reads only the models [Symphony's registry](#which-table-reads-a-model) does not know |
 | `--tool-call-parser` | Auto | Tool-call parser for every model without a per-model override. Also opts the parser into structural-tag constraints. Under the default `--parser symphony`, may name a Symphony table or `hf`, and reads only the models [Symphony's registry](#which-table-reads-a-model) does not know |
-| `--chat-template` | None | Jinja chat template file. A model card's `chat_template` path wins over it; without either, SMG searches the model directory ([lookup order](#chat-templates-and-native-renderers)). The DeepSeek and Kimi-K3 native renderers ignore it |
+| `--chat-template` | None | Jinja chat template file. A model card's `chat_template` path wins over it; without either, SMG searches the model directory ([lookup order](#chat-templates-and-native-renderers)). The DeepSeek, Kimi-K3 and K3.1 native renderers ignore it |
 | `--mcp-config-path` | None | Path to MCP server configuration file |
 
 ### MCP Integration

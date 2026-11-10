@@ -73,10 +73,10 @@ The Debian packages are the ones CI installs (`scripts/ci_install_rust.sh`). For
 
 ```bash
 pip install pre-commit
-pre-commit install                          # hooks that run on every commit
-pre-commit install --hook-type commit-msg   # DCO sign-off and no-AI-attribution checks
-pre-commit install --hook-type pre-push     # optional: branch-name check before pushing
+pre-commit install
 ```
+
+A single `pre-commit install` installs all three hook types named in the repository's configuration: the commit-time hooks (`pre-commit`), the commit-message checks (`commit-msg`), and the push-time branch-name check (`pre-push`).
 
 | Hook | Runs on | Checks |
 |------|---------|--------|
@@ -86,9 +86,9 @@ pre-commit install --hook-type pre-push     # optional: branch-name check before
 | `codespell` and file-hygiene hooks | commit | Spelling, trailing whitespace, final newlines, YAML and TOML syntax, merge-conflict markers, private keys, and large files; `no-commit-to-branch` blocks commits on `main` |
 | `dco-check` | commit message | A `Signed-off-by` line that exactly matches your `git config` `user.name` and `user.email` |
 | `no-ai-co-author` | commit message | No `Co-authored-by` or `Signed-off-by` lines naming Claude or `noreply@anthropic.com` |
-| `branch-name-check` | push | `<type>/<description>` or `<username>/<description>`, in lowercase |
+| `branch-name-check` | push | `<type>/<description>` or `<username>/<description>`, lowercase, with one or more `/`-separated segments after the first; a `dependabot/` branch keeps the tool's own case |
 
-With the pre-push hook installed, the commit-stage hooks run again at push time. CI's `pre-commit` job runs the same hooks on all files, except `rustfmt`, `clippy`, and the branch and commit-message hooks, which CI checks in other jobs.
+`branch-name-check` is the only hook that runs at push time. It runs `scripts/branch-name-check.sh`, the same script behind the `Branch Naming Convention` PR check, so a name the hook accepts also passes the check (see [Branch Names](index.md#branch-names)). CI's `pre-commit` job runs the same hooks on all files, except `rustfmt`, `clippy`, and the branch and commit-message hooks, which CI checks in other jobs.
 
 ### 5. Cache Compilation (Optional)
 

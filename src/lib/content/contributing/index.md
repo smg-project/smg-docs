@@ -68,10 +68,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Nightly, used only for rustfmt
 rustup toolchain install nightly --profile minimal --component rustfmt
 
-# Git hooks: formatting, lint, DCO sign-off, and commit-message checks
+# Git hooks: formatting, lint, DCO sign-off, commit-message, and branch-name
+# checks; one install covers the pre-commit, commit-msg, and pre-push hooks
 pip install pre-commit
 pre-commit install
-pre-commit install --hook-type commit-msg
 ```
 
 You also need `protoc` and a C toolchain with OpenSSL headers; see [Prerequisites](development.md#prerequisites).
@@ -144,7 +144,7 @@ Pull requests are squash-merged, and the PR title becomes the commit title on `m
 
 ### Branch Names
 
-Name branches `<type>/<description>` (for example `feat/add-auth` or `fix/null-pointer`) or `<username>/<description>` (for example `changsu/fix-routing`), in lowercase. For branches pushed to smg-project/smg, the `Branch Naming Convention` check comments on and closes a PR whose branch does not match. Locally, the `branch-name-check` hook checks the name at push time (lowercase letters, digits, `.`, `_`, and `-`, with one `/`) once you install the pre-push hook (`pre-commit install --hook-type pre-push`).
+Name branches `<type>/<description>` (for example `feat/add-auth` or `fix/null-pointer`) or `<username>/<description>` (for example `changsu/fix-routing`), in lowercase letters, digits, `.`, `_`, and `-`. More `/`-separated segments may follow the first (`fix/pd/rooms` is also valid), and a `dependabot/` branch keeps the tool's own case after that prefix. The rule lives in one script, `scripts/branch-name-check.sh`, which both the PR check and the pre-push hook run: for branches pushed to smg-project/smg, the `Branch Naming Convention` check comments on and closes a PR whose branch does not match; locally, the `branch-name-check` pre-push hook — installed by `pre-commit install` above — checks the name before each push.
 
 ---
 

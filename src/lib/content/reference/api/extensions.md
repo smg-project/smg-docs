@@ -52,8 +52,8 @@ These run behind protected-route auth middleware:
 | `POST` | `/v1/tokenize` | Convert text to token IDs |
 | `POST` | `/v1/detokenize` | Convert token IDs to text |
 | `POST` | `/generate` | Native generate endpoint |
-| `POST` | `/rerank` | Native rerank endpoint |
-| `POST` | `/v1/rerank` | OpenAI-style rerank endpoint |
+| `POST` | `/rerank` | Native rerank endpoint; `model` required |
+| `POST` | `/v1/rerank` | OpenAI-compatible rerank endpoint; routes by its optional `model` as `/v1/embeddings` does |
 | `POST` | `/v1/messages` | Messages endpoint |
 | `POST` | `/v1/messages/count_tokens` | Count the input tokens of a Messages request; see [Count Tokens](messages.md#count-tokens) |
 | `POST` | `/v1/classify` | Classification endpoint |
@@ -61,6 +61,18 @@ These run behind protected-route auth middleware:
 | `POST` | `/v1/embeddings` | OpenAI-compatible embeddings endpoint |
 | `POST` | `/v1/interactions` | Gemini Interactions API; only the Gemini provider backend serves it, other backends answer `501` |
 | `POST` | `/v1/systemone` | Native System One API; only regular HTTP workers serve it, deployments without a regular HTTP worker for the model answer `501` |
+
+`/rerank` and `/v1/rerank` score a request's `documents` against its `query` and answer the ranked results. Regular HTTP workers serve the request at their own `POST /v1/rerank`, and a disaggregated HTTP deployment serves it through its prefill/decode pair (see [PD disaggregation](../../concepts/routing/pd-disaggregation.md)); other backends answer `501` with code `rerank_not_implemented`.
+
+The native `/rerank` body requires `model` (which selects the worker), a non-blank `query`, and a non-empty `documents` array of strings, and takes an optional `top_k` (at least 1; all documents when absent), `return_documents` (default `true`), `rid` (a request ID, string or array), and `user`; a body that fails these checks answers `400`.
+
+`/v1/rerank` takes the OpenAI-compatible shape: the same fields with `model` optional and the limit spelled `top_n` (the native `top_k` spelling is read too; absent and `0` both mean all documents).
+
+`/v1/rerank` routes by `model` exactly as `/v1/embeddings` does. A body that names a model goes to a worker serving it, and answers `404` with code `model_not_found` when none does; a body that names no model is routed as the unknown-model wildcard, to any worker. The wildcard is not written to the body forwarded to the worker, so a single-model rerank server applies its own model instead of refusing a name it does not serve.
+
+When a regular HTTP worker answers, the gateway builds the response itself rather than passing the worker's through: `object` (`"rerank"`), `model` (the request's model, the canonical one when the request addressed a `--model-alias` name, and `unknown` when a `/v1/rerank` body named none), `id` (the request's `rid`, else `null`), `created`, `usage` (always `null`; the worker's usage is not read), and `results`, each result carrying `score`, `index` (the document's position in the request), the `document` text when requested and the worker echoed one, and the worker's `meta_info` when it sent one. The results keep the worker's order — rerank workers answer sorted by score, highest first — and the gateway itself truncates to `top_k`/`top_n` and drops documents when `return_documents` is `false`, whatever the worker made of those fields.
+
+The worker's answer is read in any HTTP rerank contract's shape: a bare JSON array of results, or a Cohere-style `{"results": [...]}` object, with the score spelled `score` or `relevance_score` and the document spelled `document` or `text`, given as a string or as a `{"text": ...}` object. Everything else in the worker's body (its `id`, `model`, and `usage`) is ignored. A success-status worker body in none of these shapes answers `500` with code `rerank_response_build_failed`, and one larger than `--max-payload-size` answers `502` with code `upstream_response_too_large`; a worker error status passes through unchanged.
 
 `/v1/systemone` relays a non-streaming System One request to a regular HTTP worker's own `/v1/systemone`. Request fields SMG does not know are forwarded unchanged, and the worker's response — status, headers, and body, backend errors included — is returned as is.
 

@@ -121,7 +121,7 @@ Any validation failure is the same as an unparsable file: the gateway refuses to
 |--------|-----------|---------------------|----------------|
 | **429** Too Many Requests | Reservation denied — the tenant (or matching model rule) doesn't have enough budget right now | `tenant_rate_limit_exceeded` | `Retry-After: <seconds>` — present only for a finite wait |
 
-The response body is the gateway's standard JSON error envelope:
+On every route except `/v1/messages`, the response body is the gateway's standard JSON error envelope:
 
 ```json
 {

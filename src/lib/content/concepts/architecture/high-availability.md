@@ -178,7 +178,7 @@ With the flags set, the mesh listener serves TLS with the node's certificate and
 
 Issue every router a certificate from the same CA that carries the node's IP — the address its peers dial, so its `--mesh-advertise-host` — as an IP SAN. A dial verifies the peer's certificate against the address it dials, and mesh addresses are always IPs (see the note above), so a certificate with only a hostname never matches. An IPv6 node's SAN is the unbracketed address: `fd00::7`, not `[fd00::7]`.
 
-The private key must be PKCS#8 PEM. Each of the three files must exist and be readable at startup, or the router fails to start with an error naming the flag whose file it cannot read. A file that is readable but holds no usable material — a certificate file with no certificate in it, a key file holding something other than the key, an empty CA file — also fails the start, rather than leaving the router running outside the mesh.
+The private key must be PKCS#8 PEM. Each of the three files must exist and be readable at startup, or the router fails to start with an error naming the flag whose file it cannot read. A file that is readable but holds no usable material — a certificate file with no certificate in it, a key file holding something other than the key, an empty CA file — also keeps the router from starting, rather than leaving it running outside the mesh.
 
 The router warns when the key file is readable or writable by its group or by others. The mesh listener reads the certificate and key once at startup and does not reload them; to rotate certificates, restart the router.
 

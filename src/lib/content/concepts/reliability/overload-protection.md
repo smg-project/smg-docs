@@ -90,14 +90,14 @@ A worker is **overloaded** when either signal is at or above its threshold. Toke
 
 ### Where the Signals Come From
 
-The gateway's load monitor collects one report per worker per poll. The source depends on how the worker is connected:
+The gateway's load monitor keeps one report per worker, refreshed by polls and, for gRPC workers, by streamed load records. The source depends on how the worker is connected:
 
 | Worker | Load source | Notes |
 |--------|-------------|-------|
 | HTTP, engine serves a native load route | `GET /v1/loads?include=core,disagg,queues,memory` | The monitor asks `/loads` first (served by an SMG gateway registered as a worker), then `/v1/loads`. The route that answers is remembered, so discovery costs one `404` per worker, once. |
 | HTTP vLLM or SGLang without a native route | `GET /metrics` | Waiting requests from `vllm:num_requests_waiting` or SGLang `num_queue_reqs`; KV usage from `vllm:kv_cache_usage_perc` (`vllm:gpu_cache_usage_perc` on older vLLM) or SGLang `token_usage` (`sglang:` or `sglang_` prefix). A scrape without the KV usage gauge counts as no report. |
 | HTTP, any other runtime without a native route | None | No report. |
-| gRPC SGLang, vLLM, TokenSpeed | `GetLoads` RPC | SGLang reports every DP rank. vLLM reports a single rank, and zeros while it has no stats snapshot (before its first engine step, or always with `--disable-log-stats`). |
+| gRPC SGLang, vLLM, TokenSpeed | `GetLoads` RPC, or the same figures streamed | A current servicer pushes the worker's load records over its gRPC stream; the poll covers what the stream does not (see [Polling](#polling)). SGLang reports every DP rank. vLLM reports a single rank, and zeros while it has no stats snapshot (before its first engine step, or always with `--disable-log-stats`). |
 | gRPC TRT-LLM, MLX | None | `GetLoads` is not implemented for these backends. |
 | ZMQ (`ipc://`) vLLM, TokenSpeed, SGLang | Load attached to the engine's output batches | No request is sent. A rank has no report until it has produced output, and a TokenSpeed build that does not attach load reports nothing. SGLang over ZMQ needs v1.12.0 or later. |
 
@@ -105,7 +105,8 @@ The gateway's load monitor collects one report per worker per poll. The source d
 
 - Workers are polled in groups (same model, worker type, and connection mode) every `--load-monitor-interval` seconds (default `10`), with a floor of 1 second. The worker spec's `load_monitor_interval_secs` field applies since v1.12.0: a group polls at the smallest value its workers set, `--load-monitor-interval` when none does, never under one second; v1.11.0's worker registration did not copy it onto the worker.
 - Only `Ready` workers are polled. HTTP load requests time out after 5 seconds.
-- The overload check runs once per poll of each worker, against that worker's own thresholds, and the verdict is stored on the worker. Selection only reads the stored flag, so the check adds nothing per request. Only a poll can set the flag. A poll can also clear it, and so can the events listed under [When a Worker Does Not Report](#when-a-worker-does-not-report).
+- A gRPC worker's streamed load records stand in for the poll. Each record is a load report in its own right, scored on arrival like a poll's report. A worker whose every streaming rank delivered a record within the poll interval is not polled that round; one whose stream has never delivered a record, or whose records have gone quiet on any rank, is polled as usual. The workers that stream records are described under [When a Worker Goes Silent Entirely](#when-a-worker-goes-silent-entirely).
+- The overload check runs once per load report of each worker — a poll's, or a streamed record — against that worker's own thresholds, and the verdict is stored on the worker. Selection only reads the stored flag, so the check adds nothing per request. Only a load report can set the flag. A report can also clear it, and so can the events listed under [When a Worker Does Not Report](#when-a-worker-does-not-report).
 - There is no hysteresis: the first report under every threshold clears the veto.
 
 ### When a Worker Does Not Report
@@ -118,9 +119,9 @@ Failing open is about the overload verdict, not about liveness: a worker whose c
 
 ### When a Worker Dies or Loses Its Link
 
-The [health checker](health-checks.md) needs `--health-failure-threshold` consecutive failed probes to demote a worker — minutes at the default 60-second probe interval. The transport usually knows sooner: a worker that dies or restarts resets its connection, failing its load poll, its KV event stream, and its in-flight streams at once, and one whose link drops fails them at the keepalive timeout.
+The [health checker](health-checks.md) needs `--health-failure-threshold` consecutive failed probes to demote a worker — minutes at the default 60-second probe interval. The transport usually knows sooner: a worker that dies or restarts resets its connection, failing its load poll, its load-record or KV-event stream, and its in-flight streams at once, and one whose link drops fails them at the keepalive timeout.
 
-A connection-level failure on the worker's channels (the load poll or the KV event stream), while nothing has been heard from the worker for `--worker-stall-secs` (default `2`), excludes the worker from routing as **unreachable**: every routing policy skips it while any un-vetoed worker remains, and requests already running on it are unaffected. A failure that comes while a recent contact still stands is remembered: a background check running several times a second vetoes the worker once the threshold passes without further contact, so the exclusion lands at the threshold rather than at the next failed poll.
+A connection-level failure on the worker's channels (the load poll, or the stream that carries its load records or KV events), while nothing has been heard from the worker for `--worker-stall-secs` (default `2`), excludes the worker from routing as **unreachable**: every routing policy skips it while any un-vetoed worker remains, and requests already running on it are unaffected. A failure that comes while a recent contact still stands is remembered: a background check running several times a second vetoes the worker once the threshold passes without further contact, so the exclusion lands at the threshold rather than at the next failed poll.
 
 - **Connection failures only.** A request deadline or an engine-side error means the worker is slow or wrong, not gone; neither arms the veto, so a slow worker that still streams does not flap in and out of routing. A failed health probe is likewise left to the health checker. An HTTP worker's failed polls never arm the veto either: HTTP workers are watched by health checks and the [circuit breaker](circuit-breakers.md) instead.
 - **Any successful contact clears it.** The first load record, answered poll, passing health probe, token, or response re-admits the worker at once. The same contact closes the worker's circuit breaker if the outage's failures opened it, so re-admission is not held up by the breaker's timeout; fresh failures reopen the breaker as usual.
@@ -149,12 +150,14 @@ The veto ends with progress, or when the evidence behind it is gone:
 
 ### When a Worker Goes Silent Entirely
 
-A gRPC worker streaming KV events pushes a load record with every event batch, and its servicer sends a heartbeat record through every quiet spell, so while such a worker is reachable the gateway hears from it every few seconds. Once a worker has pushed a load record, it is held to that cadence: when nothing arrives from it on any channel — no load record, no answered poll, no passing health probe, no streamed token — for `--worker-stale-secs` (default `15`), the gateway excludes it from routing as unreachable (the same exclusion a transport failure arms). A total silence that long means a dead worker or a one-way link the transport has not reported yet. The check runs several times a second, so the exclusion lands at the threshold itself rather than waiting for the next failed poll.
+A gRPC worker's servicer streams the worker's load records to the gateway: on a worker placed by a cache-aware policy the records ride its KV event batches, and on a worker under any other policy the servicer streams the records alone — whether or not the engine publishes KV events. Either way a heartbeat record fills every quiet spell, so while such a worker is reachable the gateway hears from it every few seconds. (Under [`--disable-load-monitoring`](#load-monitoring), the records-only stream is opened only when something needs the worker's load — the same gate that decides its polls.)
 
-- **Only workers that have pushed a load record are judged by silence.** HTTP workers never push one, and a ZMQ worker's load rides its output batches, not a KV-event stream, so neither is judged; the same goes for a gRPC worker whose servicer runs without KV events or is too old to attach load records, or whose stream has not connected yet. From these workers, an answered poll each interval and a passing health probe are all that is expected.
+Once a worker has pushed a load record, it is held to that cadence: when nothing arrives from it on any channel — no load record, no answered poll, no passing health probe, no streamed token — for `--worker-stale-secs` (default `15`), the gateway excludes it from routing as unreachable (the same exclusion a transport failure arms). A total silence that long means a dead worker or a one-way link the transport has not reported yet. The check runs several times a second, so the exclusion lands at the threshold itself rather than waiting for the next failed poll.
+
+- **Only workers that have pushed a load record are judged by silence.** HTTP workers never push one, and a ZMQ worker's load rides its output batches, not a gRPC stream, so neither is judged. The same goes for a gRPC worker whose stream has delivered no record: a servicer too old to serve the stream or to attach load records, a stream that has not connected yet, or a worker placed by a cache-aware policy whose engine does not publish KV events (the servicer refuses that worker's event subscription). From these workers, an answered poll each interval and a passing health probe are all that is expected.
 - **Any contact clears the exclusion.** The first load record, answered poll, passing health probe, or streamed token re-admits the worker at once. A worker that is still streaming tokens is never considered stale.
 - **Health status is untouched.** The exclusion is independent of the health checker's state machine and of the overload veto; it starts and ends with contact alone.
-- **Keep `--worker-stale-secs` above `--load-monitor-interval`.** That way, a worker whose event stream stopped while its load poll still answers keeps making contact before the threshold. The default of `15` sits above the default 10-second poll interval and allows for several missed heartbeats; `0` disables the rule. The Python launchers accept the same flag (`--router-worker-stale-secs` under `smg serve`).
+- **Keep `--worker-stale-secs` above `--load-monitor-interval`.** That way, a worker whose stream stopped while its load poll still answers keeps making contact before the threshold. The default of `15` sits above the default 10-second poll interval and allows for several missed heartbeats; `0` disables the rule. The Python launchers accept the same flag (`--router-worker-stale-secs` under `smg serve`).
 
 ### When Every Worker Is Vetoed by Liveness
 
@@ -234,7 +237,7 @@ While a worker is overloaded:
 
 - **Every routing policy skips it** while another candidate is under the thresholds, on the HTTP and gRPC routers, for regular workers and for each leg of a prefill/decode pair. Hash-based and sticky policies treat it like an unhealthy worker and route the key elsewhere while the veto lasts. Two placements are not steered by the thresholds unless `--worker-overload-shed` is set: a prefill pool placed by `cache_aware`, which the policy's own spill gate balances, and a request that `consistent_hashing` places by routing key on regular (not prefill/decode) workers (a routing-key header, or the override's `rid`-derived key, and no `X-SMG-Target-Worker`), which stays on its ring owner because moving it would discard the conversation's cached prefix there. That keyed request still moves when its owner is not ready, its circuit breaker is open, or a liveness veto excludes it.
 - **Requests already running on it are unaffected**. The veto only applies to selection.
-- **It returns to routing** on the first poll whose report is under every threshold.
+- **It returns to routing** on the first load report — a poll's, or a streamed record — under every threshold.
 
 ### When Every Worker Is Overloaded
 
@@ -260,10 +263,10 @@ X-SMG-Error-Code: worker_overload_protection_shed
 }
 ```
 
-- **`Retry-After`** is the gateway's `--load-monitor-interval` in whole seconds (at least `1`), because a vetoed worker's load is not re-checked before the next poll. Clients should wait that long before retrying.
+- **`Retry-After`** is the gateway's `--load-monitor-interval` in whole seconds (at least `1`): the next load report that could clear a worker's veto is at most one poll interval away, though a streamed record may clear the veto sooner. Clients should wait that long before retrying.
 - **Not retried internally**: the gateway's retry layer never retries a shed, so the answer comes back immediately rather than after rounds of backoff against the same verdict.
 - **Trustworthy code**: `X-SMG-Error-Code` is set only by the gateway and is stripped from responses forwarded from workers, so it always marks a decision this gateway made.
-- **Dispatch-time re-check**, under `--worker-overload-shed` only: if the chosen worker is flagged between selection and dispatch, the request is shed with the message `Worker '<url>' for model '<model>' became overloaded before dispatch`. The gateway sheds instead of re-selecting; the flag is only set at poll cadence, so this window is rare. Without the flag the dispatch stands: the worker was the right choice when it was made.
+- **Dispatch-time re-check**, under `--worker-overload-shed` only: if the chosen worker is flagged between selection and dispatch, the request is shed with the message `Worker '<url>' for model '<model>' became overloaded before dispatch`. The gateway sheds instead of re-selecting; the flag only moves when a load report arrives, so this window is rare. Without the flag the dispatch stands: the worker was the right choice when it was made.
 - **Mixed causes are not a shed**: if some candidates are out for another reason (unhealthy, or circuit breaker open) and the rest are overloaded, the request gets the ordinary `503 no_available_workers`.
 
 !!! note "Changed in v1.11.0"
@@ -279,12 +282,12 @@ X-SMG-Error-Code: worker_overload_protection_shed
 
 ## Load Monitoring
 
-The load monitor feeds overload protection, the load-aware routing policies (`cache_aware`, `power_of_two`, `least_load`), [`GET /loads`](../../reference/api/admin.md#get-loads), the `engine_load` field of `GET /workers`, and the `smg_engine_*` gauges. Since v1.10.0 it polls every worker group from registration onward, whether or not anything consumes the data. That was a behavior change: gateways running a load-blind policy, which never polled before, now poll every worker at `--load-monitor-interval`.
+The load monitor feeds overload protection, the load-aware routing policies (`cache_aware`, `power_of_two`, `least_load`), [`GET /loads`](../../reference/api/admin.md#get-loads), the `engine_load` field of `GET /workers`, and the `smg_engine_*` gauges. It covers every worker from registration onward, whatever the routing policy and whether or not anything consumes the data: each group is polled at `--load-monitor-interval`, and a gRPC worker whose stream delivers load records is served by the stream, with the poll as its fallback (see [Polling](#polling)).
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--load-monitor-interval` | `10` | Seconds between polls of each worker group. Must be `> 0`. Also the `Retry-After` value on overload sheds. |
-| `--disable-load-monitoring` | off | Restores the conditional gate used before v1.10.0: a group is polled only when a load-aware policy (or `--dp-minimum-tokens-scheduler`), `--engine-metrics`, or overload protection on one of its workers needs the data. It never stops polling that routing or protection depends on; with the default `cache_aware` policy, groups are still polled. |
+| `--disable-load-monitoring` | off | A group is polled only when a load-aware policy (or `--dp-minimum-tokens-scheduler`), `--engine-metrics`, or overload protection on one of its workers needs the data. The same gate decides whether a gRPC worker's records-only load stream is opened: a worker nothing needs load data for is neither polled nor subscribed. It never cuts off a load feed that routing or protection depends on; with the default `cache_aware` policy, groups are still polled. |
 | `--engine-metrics` | off | Forces polling so the `smg_engine_*` gauges are populated when nothing else needs the data. Only matters together with `--disable-load-monitoring`: by default every successful poll is already exported. The Python launchers do not accept this flag. |
 
 See [Load Monitoring Configuration](../../reference/configuration.md#load-monitoring-configuration) for the full reference.
@@ -321,10 +324,10 @@ This gate is on by default and independent of the overload thresholds. Keep the 
 | `smg_worker_liveness_fallback_total` | Counter | `stage` | Requests routed to a worker the liveness tracker vetoed because every candidate was vetoed. `stage` is `selection`. |
 | `smg_pd_admission_waits_total` | Counter | none | gRPC PD dispatches that waited for decode room and were admitted. |
 | `smg_pd_admission_sheds_total` | Counter | none | gRPC PD dispatches shed by the decode admission window. |
-| `smg_engine_waiting_requests` | Gauge | `worker`, `model`, `dp_rank` | Engine-reported waiting requests per DP rank, from the load poll. |
-| `smg_engine_token_usage` | Gauge | `worker`, `model`, `dp_rank` | Engine-reported KV token usage (0.0–1.0) per DP rank, from the load poll. |
+| `smg_engine_waiting_requests` | Gauge | `worker`, `model`, `dp_rank` | Engine-reported waiting requests per DP rank, from the worker's load reports (polled or streamed). |
+| `smg_engine_token_usage` | Gauge | `worker`, `model`, `dp_rank` | Engine-reported KV token usage (0.0–1.0) per DP rank, from the worker's load reports (polled or streamed). |
 
-The other `smg_engine_*` gauges (running requests, generation throughput, prefix cache hit rate, and the PD transfer gauges) come from the same poll. When a worker is removed, its `smg_engine_*` series are set to `-1`, because metric series cannot be deleted. The full list is in the [Metrics Reference](../../reference/metrics.md).
+The other `smg_engine_*` gauges (running requests, generation throughput, prefix cache hit rate, and the PD transfer gauges) come from the same reports. When a worker is removed, its `smg_engine_*` series are set to `-1`, because metric series cannot be deleted. The full list is in the [Metrics Reference](../../reference/metrics.md).
 
 ### Useful PromQL Queries
 

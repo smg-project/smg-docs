@@ -1,0 +1,11 @@
+{
+	"source_release": {
+		"id": 440049362,
+		"tag": "v1.15.0",
+		"sha": "82c0f1fcd0ec44e29bb5dcb80ede1cd4c7a17eb3",
+		"published_at": "2026-11-10T07:17:05Z",
+		"url": "https://github.com/smg-project/smg/releases/tag/v1.15.0"
+	},
+	"docs_base": "327efb3ada4b0acbd44171d1196e6459e953a78a",
+	"audited_pages": 60
+}

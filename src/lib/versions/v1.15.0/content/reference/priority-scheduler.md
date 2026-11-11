@@ -1,0 +1,226 @@
+---
+title: Priority Scheduler Reference
+---
+
+# Priority Scheduler Reference
+
+Precise contract for the priority-aware admission scheduler: the request header clients send, the response codes the gateway returns, and every configuration knob with its exact name and default. For how it works conceptually, see [Priority Scheduling](../concepts/reliability/priority-scheduling.md).
+
+The scheduler is **disabled by default**. When off, the gateway uses its [legacy concurrency-limit admission path](../concepts/reliability/rate-limiting.md).
+
+---
+
+## Request header: `x-smg-priority`
+
+Clients request a priority class with the `x-smg-priority` request header.
+
+| Property | Behavior |
+|----------|----------|
+| **Header name** | `x-smg-priority` |
+| **Values** | `system`, `interactive`, `default`, `bulk` |
+| **Case** | Case-insensitive (`Bulk`, `INTERACTIVE`, `SyStEm` all parse). Surrounding whitespace is trimmed. |
+| **Missing header** | Treated as `default`. |
+| **Unknown value** | Any unrecognized value (including the empty string) silently degrades to `default` — admission never fails because of a typo in this header. A non-empty unrecognized value is counted under `smg_scheduler_unknown_priority_value_total`. |
+
+### Tenant clamp
+
+The header chooses a class; the **tenant's configured maximum class caps it**. The effective class is:
+
+```text
+effective = min(requested_class, tenant_max_class)
+```
+
+- The clamp only ever moves a request **down**. The header can never promote a request above the tenant's ceiling.
+- A tenant whose `max_class` is `default` that sends `x-smg-priority: system` is admitted as `default`.
+- A clamp (effective class below requested) is counted under `smg_scheduler_clamp_total`.
+
+A tenant's `max_class` comes from the per-tenant policy in the YAML config, or from the gateway-wide default (`--priority-scheduler-default-max-class`) for tenants not listed. See [Tenant policy](#tenant-policy).
+
+---
+
+## Response codes
+
+The scheduler surfaces admission and preemption outcomes as HTTP status codes. Each rejection also carries the gateway's standard JSON error body and `X-SMG-Error-Code` header.
+
+| Status | Condition | `X-SMG-Error-Code` | Extra headers |
+|--------|-----------|--------------------|---------------|
+| **503** Service Unavailable | **Preempted** — admitted, then canceled before its first byte to make room for a higher-priority request | `scheduler_preempted` | `X-SMG-Preempted: true`, `Retry-After: 1` |
+| **429** Too Many Requests | **Queue full** — the request's per-class queue is at its configured depth, or the request-rate check rejected it (only when `--rate-limit-tokens-per-second` is set; see below) | `scheduler_queue_full` | `Retry-After: 2` |
+| **503** Service Unavailable | **Queue timeout** — the request waited longer than its class's `queue_timeout` | `scheduler_queue_timeout` | `Retry-After: 2` |
+| **499** Client Closed Request | **Client gone** — the client disconnected before admission completed (nginx convention; never actually read) | `scheduler_client_cancelled` | — |
+
+!!! tip "Telling a preemption apart from an overload"
+    A preemption, a queue timeout, and a genuinely overloaded backend can all return `503`. The `X-SMG-Preempted: true` header is what distinguishes a preemption, and `X-SMG-Error-Code` names the cause (`scheduler_preempted`, `scheduler_queue_timeout`, and so on). A preempted request is safe to retry immediately, which is why it carries `Retry-After: 1`; queue sheds ask clients to wait 2 seconds.
+
+---
+
+## Enabling the scheduler
+
+The scheduler is controlled by CLI flags, accepted by both the Rust `smg` binary and the Python launcher (the `smg` command from `pip install smg`, also the container image's entrypoint). Per-class tuning and per-tenant policy live in a separate optional YAML file.
+
+```bash
+smg launch \
+  --worker-urls http://w1:8000 http://w2:8000 \
+  --priority-scheduler-enabled \
+  --priority-scheduler-default-max-class interactive \
+  --priority-scheduler-config /etc/smg/priority.yaml
+```
+
+### CLI flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--priority-scheduler-enabled` | `false` | Master switch. When unset, the legacy concurrency-limit middleware stays wired and no scheduler is constructed. |
+| `--priority-scheduler-default-max-class` | `default` | Maximum class for tenants not listed in the YAML (`system` \| `interactive` \| `default` \| `bulk`). Case-insensitive and whitespace-tolerant like the header, but an unknown value is a **startup error** naming the four classes, not the header's silent fallback to `default`. |
+| `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class overrides + per-tenant policy). Absent → built-in defaults and an empty tenant policy map. Given without `--priority-scheduler-enabled`, the file is not read and the gateway prints a startup warning. |
+| `--priority-scheduler-tenant-metric-top-n` | `32` | Cap on the distinct tenants the per-tenant counters (`smg_scheduler_clamp_total`, `smg_scheduler_unknown_priority_value_total`) keep as `tenant` series of their own. The first N distinct tenant keys seen keep their own series; every later tenant counts under `tenant="other"`, so an unbounded client population cannot grow the metric's series set. |
+
+While the scheduler is active, the legacy admission flags change meaning: `--queue-size` is not used and each class's `queue_timeout_secs` bounds the admission wait in place of `--queue-timeout-secs`, `--max-concurrent-requests` only sets the fallback capacity while no healthy worker is registered, and a positive `--rate-limit-tokens-per-second` (unless `--max-concurrent-requests` is `0`) adds a request-rate check before admission that sheds with 429 `scheduler_queue_full`. For gRPC and ZMQ workers, `--queue-timeout-secs` still rejects a request that reaches worker selection more than that many seconds after admission, with 503 `selection_queue_timeout` and `Retry-After: 2`. See [Rate Limiting](../concepts/reliability/rate-limiting.md#with-the-priority-scheduler).
+
+!!! warning "Startup behavior"
+    With the scheduler enabled, a bad configuration **stops the gateway at startup** with an error naming the field and the problem: a YAML file that cannot be read or parsed (including an unknown key), an unknown class name in the file or in `--priority-scheduler-default-max-class`, or a value that fails [validation](#validation). The one case that does not stop startup is capacity: if the configured reservation floors + shares sum to more than the fleet's initial live capacity, the gateway logs at `ERROR` and **falls back to legacy admission** — a too-small fleet does not take the data plane down.
+
+---
+
+## YAML configuration
+
+The file referenced by `--priority-scheduler-config` has two top-level maps, both optional. An empty file, or omitting the flag entirely, means "use built-in defaults for every class, no per-tenant overrides." A path that cannot be read is a startup error.
+
+```yaml
+# Per-class tuning. Any class you omit keeps its built-in default.
+classes:
+  interactive:
+    reserved_floor: 128       # always at least 128 slots
+    reserved_per_slot: 0.25   # ...and 25% of capacity once the fleet is large
+    queue_size: 256
+    queue_timeout_secs: 30
+    starvation_threshold_secs: 5
+    can_preempt: true
+  bulk:
+    reserved_floor: 0
+    queue_size: 1024
+    queue_timeout_secs: 300
+    starvation_threshold_secs: 120
+    can_preempt: false
+
+# Per-tenant priority ceiling. Tenants not listed use
+# --priority-scheduler-default-max-class.
+tenant_policies:
+  "auth:acme":
+    max_class: interactive
+  "auth:internal-cron":
+    max_class: system
+```
+
+Class keys and `max_class` values are lowercase: `system`, `interactive`, `default`, `bulk`. An unknown class name in the YAML, like an unknown key, is a configuration error that stops the gateway at startup, unlike the lenient request header.
+
+### Per-class knobs
+
+Each entry under `classes` accepts the following fields. All are per-class.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `reserved_floor` | integer (slots) | Minimum slots reserved for this class — the value the effective reservation never drops below while the pool can hold every class's reservation (on a smaller pool the proportional clamp applies; see [Validation](#validation)). A higher class's *unused* reservation is held back from lower classes; a class's own reservation never reduces its own headroom. |
+| `reserved_per_slot` | float (0.0–1.0+) | Share of live capacity reserved for this class. The effective reservation is the greater of the floor or the share-based reservation: `effective = max(reserved_floor, ceil(reserved_per_slot × capacity))`, recomputed as capacity changes so the reservation tracks the fleet. `0.0` (the default) means purely absolute (just the floor). Must be finite and ≥ 0. If the floors + shares exceed the fleet's initial capacity the gateway falls back to legacy admission; a runtime capacity dip instead clamps reservations proportionally (see [Validation](#validation)). |
+| `queue_size` | integer | Per-class queue depth limit. A request that arrives when the queue is full is rejected with **429**. |
+| `queue_timeout_secs` | integer (seconds) | How long a queued request waits before it is rejected with **503** and `Retry-After: 2`. Must be `> 0`. |
+| `starvation_threshold_secs` | integer (seconds) | Head-of-queue age past which the dispatcher promotes a waiter out of normal priority order (and lets it use a reserved-but-unused slot) to avoid starvation. Must be `> 0`. |
+| `can_preempt` | boolean | Whether admissions in this class may preempt a lower-class in-flight request that has not yet emitted its first byte. |
+
+### Built-in defaults
+
+These apply to any class with no YAML override.
+
+| Class | `reserved_floor` | `reserved_per_slot` | `queue_size` | `queue_timeout_secs` | `starvation_threshold_secs` | `can_preempt` |
+|-------|-----------------:|--------------------:|-------------:|---------------------:|----------------------------:|:-------------:|
+| `system` | 32 | 0.0 | 64 | 30 | 5 | `true` |
+| `interactive` | 128 | 0.25 | 256 | 30 | 5 | `true` |
+| `default` | 0 | 0.10 | 512 | 60 | 30 | `false` |
+| `bulk` | 0 | 0.0 | 1024 | 300 | 120 | `false` |
+
+Higher classes fail fast (short queues, short timeouts) and reserve capacity — `interactive` and `default` reserve a share that grows with the fleet, while `system` keeps a fixed floor (control-plane traffic is low-volume regardless of fleet size). Lower classes wait patiently (deep queues, long timeouts) and reserve nothing.
+
+### Validation
+
+At startup the gateway validates, for every class:
+
+- `queue_timeout_secs > 0`
+- `starvation_threshold_secs > 0`
+- `reserved_per_slot` finite and ≥ 0
+
+A validation failure is a startup error naming the class and the field: the gateway refuses to start rather than falling back to legacy admission.
+
+Capacity is checked separately, against the live fleet. If the effective reservations exceed the fleet's *initial* capacity, the gateway logs at `ERROR` and [falls back to legacy admission](#enabling-the-scheduler) — the one scheduler failure that does not stop startup. A later capacity shrink never triggers that fallback: reservations are recomputed for the new capacity, and if they no longer fit, every class is scaled down proportionally — each keeps the same fraction of what it asked for, with the rounding remainder left unreserved and shared by every class.
+
+---
+
+## Tenant policy
+
+A tenant's priority ceiling is resolved per request:
+
+1. If the tenant key appears in `tenant_policies`, its `max_class` is used.
+2. Otherwise the gateway-wide `--priority-scheduler-default-max-class` applies.
+
+The resolved `max_class` is the upper bound for the [tenant clamp](#tenant-clamp). Tenant keys are the same keys the gateway uses elsewhere for tenancy (for example `auth:acme`).
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `max_class` | `system` \| `interactive` \| `default` \| `bulk` | Highest class this tenant may be admitted under. A request's effective class is `min(header_class, max_class)`. |
+
+---
+
+## Metrics
+
+The scheduler exposes these Prometheus metrics (see the [Metrics Reference](metrics.md) for the full catalog):
+
+| Metric | Type | Key labels | Use |
+|--------|------|------------|-----|
+| `smg_scheduler_admit_total` | Counter | `class`, `outcome` | Admission outcomes (`admitted`, `rejected_queue_full`, `rejected_queue_timeout`, `preempted`, `client_cancelled`). |
+| `smg_scheduler_queue_wait_seconds` | Summary | `class` | Time spent queued before admission, timeout, or cancel. |
+| `smg_scheduler_preemption_total` | Counter | `victim_class`, `by_class` | Successful preemptions. Authoritative preemption count. |
+| `smg_scheduler_clamp_total` | Counter | `tenant`, `requested_class`, `effective_class` | Requests clamped below the class they asked for. The `tenant` label is bounded by [`--priority-scheduler-tenant-metric-top-n`](#cli-flags): tenants past the cap count as `other`. |
+| `smg_scheduler_unknown_priority_value_total` | Counter | `tenant` | Requests with a non-empty unrecognized `x-smg-priority` value. Same bounded `tenant` label. |
+| `smg_scheduler_starvation_promotion_total` | Counter | `class` | Waiters admitted via the starvation override. |
+| `smg_scheduler_inflight` | Gauge | `class` | Current in-flight requests per class. |
+| `smg_scheduler_queue_depth` | Gauge | `class` | Current queued waiters per class. |
+| `smg_scheduler_queue_size_limit` | Gauge | `class` | Configured queue limit per class. |
+| `smg_scheduler_utilization` | Gauge | — | Total in-flight divided by backend capacity. |
+| `smg_scheduler_class_capacity_pressure` | Gauge | `class` | Normalized 0.0–1.0 pressure (worse of queue and slot pressure). |
+
+---
+
+## See also
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+### :material-priority-high: Priority Scheduling Concept
+
+How slots, reservations, preemption, and starvation promotion fit together.
+
+[Priority Scheduling →](../concepts/reliability/priority-scheduling.md)
+
+</div>
+
+<div class="card" markdown>
+
+### :material-cog: Configuration Reference
+
+All gateway CLI flags and configuration options.
+
+[Configuration →](configuration.md)
+
+</div>
+
+<div class="card" markdown>
+
+### :material-chart-box: Metrics Reference
+
+Full catalog of Prometheus metrics.
+
+[Metrics →](metrics.md)
+
+</div>
+
+</div>

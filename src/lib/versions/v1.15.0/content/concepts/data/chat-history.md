@@ -1,0 +1,532 @@
+---
+title: Chat History
+---
+
+# Chat History
+
+SMG supports multiple storage backends for persisting the conversations, conversation items, and stored responses behind the Responses and Conversations APIs, for analytics, debugging, and compliance.
+
+---
+
+## Overview
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+### :material-database: Multiple Backends
+
+Choose from in-memory, PostgreSQL, Redis, or Oracle based on your requirements.
+
+</div>
+
+<div class="card" markdown>
+
+### :material-message-text: Conversation Tracking
+
+Store complete conversation history including messages, tool calls, and reasoning.
+
+</div>
+
+<div class="card" markdown>
+
+### :material-tune: Configurable Retention
+
+Redis entries expire after `--redis-retention-days` (default 30 days). The in-memory backend keeps a record for `--history-memory-retention-secs` (default 86400, one day) and at most `--history-memory-max-responses` stored responses and `--history-memory-max-items` conversation items, the oldest dropped first; it loses everything on restart. PostgreSQL and Oracle keep data until it's deleted.
+
+</div>
+
+</div>
+
+---
+
+## Backend Comparison
+
+| Backend | Use Case | Persistence | Scalability |
+|---------|----------|-------------|-------------|
+| `memory` | Development, testing | Process lifetime | Single instance |
+| `none` | Stateless deployments | None | N/A |
+| `postgres` | Production, self-hosted | Durable | High |
+| `redis` | Caching, ephemeral storage | Configurable TTL | High |
+| `oracle` | Enterprise, OCI deployments | Durable | High |
+
+---
+
+## Configuration
+
+### Backend Selection
+
+```bash
+smg --history-backend <backend> [backend-specific options]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--history-backend` | `memory` | Storage backend: `memory`, `none`, `oracle`, `postgres`, `redis` |
+
+---
+
+## Memory Backend
+
+The default in-process storage. Suitable for development and testing.
+
+```bash
+smg --history-backend memory
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--history-memory-max-responses` | `10000` | Most stored responses kept; the oldest go first, on every write (a stored response takes about 12 KB) |
+| `--history-memory-max-items` | `100000` | Most conversation items kept; the oldest go first and leave every conversation that listed them (an item takes about 1.5 KB) |
+| `--history-memory-retention-secs` | `86400` | How long a record is kept, in seconds, checked on every write; `0` keeps a record until a count bound drops it. A conversation is kept that long after its last use (created, read or updated); a background response still running is not dropped by a count bound |
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+#### :material-check-circle: Advantages
+
+- Zero configuration
+- Fast access
+- No external dependencies
+
+</div>
+
+<div class="card" markdown>
+
+#### :material-close-circle: Limitations
+
+- Data lost on restart
+- Not shared across instances
+- Bounded by record counts and a retention, not by bytes: size the two counts for the process
+
+</div>
+
+</div>
+
+---
+
+## None Backend
+
+Disables history storage entirely. Use for stateless deployments where persistence isn't needed.
+
+```bash
+smg --history-backend none
+```
+
+**Use when**: Privacy requirements prohibit storing conversations, or external systems handle logging.
+
+---
+
+## PostgreSQL Backend
+
+Production-ready storage with PostgreSQL.
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--postgres-db-url` | - | PostgreSQL connection URL |
+| `--postgres-db-url-file` | - | File holding the connection URL alone, such as a mounted secret; surrounding whitespace is dropped |
+| `--postgres-pool-max-size` | `16` | Maximum connection pool size |
+| `--postgres-op-timeout-secs` | `5` | Bound in seconds on each call to the store (the pool wait, the connect, and the statement); must be greater than 0. A call past it is answered `503 storage_unavailable` (see [Store Failures While Serving](#store-failures-while-serving)) |
+
+When `--postgres-db-url` is unset, the URL is read from the environment variable `SMG_POSTGRES_DB_URL`, or from the file named by `--postgres-db-url-file` or `SMG_POSTGRES_DB_URL_FILE`; the flag beats the environment, and a URL together with a URL file is refused at startup. See [Store URLs from the environment or a file](../../getting-started/data-connections.md#store-urls-from-the-environment-or-a-file) to keep the password off the command line.
+
+### Connection URL Format
+
+```
+postgres://[user[:password]@]host[:port]/database[?param=value]
+```
+
+The scheme can also be `postgresql://`. SMG requires a host and a database name.
+
+### Examples
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+#### Basic Connection
+
+```bash
+smg --history-backend postgres \
+  --postgres-db-url "postgres://user:password@localhost:5432/smg"
+```
+
+</div>
+
+<div class="card" markdown>
+
+#### With a Connect Timeout
+
+```bash
+smg --history-backend postgres \
+  --postgres-db-url "postgres://user:password@db.example.com:5432/smg?connect_timeout=30"
+```
+
+</div>
+
+</div>
+
+!!! warning "No TLS to PostgreSQL"
+    SMG connects to PostgreSQL without TLS, so the connection is unencrypted. `sslmode=disable` and `sslmode=prefer` (the default) both connect in plaintext, `sslmode=require` fails to connect, and any other `sslmode` value (such as `verify-full`) is rejected as an invalid URL. To encrypt traffic to the database, put a TLS tunnel between SMG and PostgreSQL, such as a sidecar proxy that connects to the database over TLS.
+
+---
+
+## Redis Backend
+
+High-performance caching with optional persistence and TTL-based retention.
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--redis-url` | - | Redis connection URL |
+| `--redis-url-file` | - | File holding the connection URL alone, such as a mounted secret; surrounding whitespace is dropped |
+| `--redis-pool-max-size` | `16` | Maximum connection pool size |
+| `--redis-retention-days` | `30` | Data retention in days (-1 for persistent) |
+| `--redis-op-timeout-secs` | `5` | Bound in seconds on each call to the store (the pool wait, the connect, and the command); must be greater than 0. A call past it is answered `503 storage_unavailable` (see [Store Failures While Serving](#store-failures-while-serving)) |
+
+When `--redis-url` is unset, the URL is read from the environment variable `SMG_REDIS_URL`, or from the file named by `--redis-url-file` or `SMG_REDIS_URL_FILE`; the flag beats the environment, and a URL together with a URL file is refused at startup. See [Store URLs from the environment or a file](../../getting-started/data-connections.md#store-urls-from-the-environment-or-a-file) to keep the password off the command line.
+
+### Connection URL Format
+
+```
+redis://[:password@]host[:port][/db]
+```
+
+!!! warning "No TLS to Redis"
+    SMG is built without Redis TLS support. A `rediss://` URL passes validation, but SMG fails to start because it cannot create the connection pool.
+
+### Examples
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+#### Basic Connection
+
+```bash
+smg --history-backend redis \
+  --redis-url "redis://localhost:6379"
+```
+
+</div>
+
+<div class="card" markdown>
+
+#### With a Password
+
+```bash
+smg --history-backend redis \
+  --redis-url "redis://:password@redis.example.com:6379"
+```
+
+</div>
+
+<div class="card" markdown>
+
+#### Persistent Storage
+
+```bash
+smg --history-backend redis \
+  --redis-url "redis://localhost:6379" \
+  --redis-retention-days=-1
+```
+
+</div>
+
+</div>
+
+---
+
+## Oracle Backend
+
+Enterprise-grade storage using Oracle Autonomous Database.
+
+### Configuration Options
+
+| Option | Environment Variable | Default | Description |
+|--------|---------------------|---------|-------------|
+| `--oracle-wallet-path` | `ATP_WALLET_PATH` | - | Path to ATP wallet directory |
+| `--oracle-tns-alias` | `ATP_TNS_ALIAS` | - | TNS alias from tnsnames.ora |
+| `--oracle-dsn` | `ATP_DSN` | - | Direct connection descriptor |
+| `--oracle-user` | `ATP_USER` | - | Database username |
+| `--oracle-password` | `ATP_PASSWORD` | - | Database password |
+| `--oracle-external-auth` | `ATP_EXTERNAL_AUTH` | `false` | Use external (OS) authentication instead of username/password; leave `--oracle-user` and `--oracle-password` unset |
+| `--oracle-pool-min` | `ATP_POOL_MIN` | `1` | Must be at least 1 and at most `--oracle-pool-max`. The pool opens connections on demand and doesn't hold a minimum open |
+| `--oracle-pool-max` | `ATP_POOL_MAX` | `16` | Maximum connection pool size |
+| `--oracle-pool-timeout-secs` | `ATP_POOL_TIMEOUT_SECS` | `30` | How long a request waits for a free pooled connection, in seconds. Must be greater than 0 |
+
+`--oracle-dsn` takes precedence: with a DSN, SMG ignores the wallet and TNS alias.
+
+The Python launcher (`smg launch` from pip, and the container image) accepts the same flag names as the Rust `smg` binary, plus the older second spellings `--oracle-username` for `--oracle-user` and `--oracle-connect-descriptor` for `--oracle-dsn`. Unlike the binary, it uses the TNS alias when both an alias and a DSN are given. See [Python Launcher Differences](../../reference/configuration.md#python-launcher-differences).
+
+### Examples
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+#### Using ATP Wallet
+
+```bash
+smg --history-backend oracle \
+  --oracle-wallet-path /path/to/wallet \
+  --oracle-tns-alias mydb_high \
+  --oracle-user admin \
+  --oracle-password "$ORACLE_PASSWORD"
+```
+
+</div>
+
+<div class="card" markdown>
+
+#### Using Direct DSN
+
+```bash
+smg --history-backend oracle \
+  --oracle-dsn "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=db.example.com)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=myservice)))" \
+  --oracle-user admin \
+  --oracle-password "$ORACLE_PASSWORD"
+```
+
+</div>
+
+</div>
+
+---
+
+## Schema Migrations
+
+At startup, the PostgreSQL and Oracle backends create their tables if they don't exist and compare the database's recorded schema version (the `_schema_versions` table) with the migrations SMG ships. SMG applies pending migrations only when auto-migration is on; otherwise it refuses to start and prints the SQL to apply by hand.
+
+On PostgreSQL, a new, empty database — one with no responses table yet — needs no auto-migration for its first start: its tables are created in their final shape and the database is recorded at the latest schema version, so nothing is pending. Schema setup runs in a single transaction under a schema lock, so gateways starting together on one database take turns and all come up. Migrations become pending only when an existing database is behind the schema a newer SMG build expects, typically after an SMG upgrade.
+
+On Oracle, a new, empty database starts with every migration pending, so turn auto-migration on for its first start as well as for upgrades.
+
+To turn auto-migration on:
+
+```bash
+DB_AUTO_MIGRATE=true smg launch --history-backend postgres \
+  --postgres-db-url "postgres://user:password@localhost:5432/smg"
+```
+
+`DB_AUTO_MIGRATE=true` (or `1`) turns it on when no `--schema-config` file sets `auto_migrate`. In a schema config file, `auto_migrate: true` turns it on, and `version: <n>` marks migrations up to `<n>` as already applied. Redis and the in-memory backend have no migrations. See [Schema Migrations](../../reference/configuration.md#schema-migrations).
+
+On PostgreSQL and Oracle, whatever the auto-migration setting, SMG refuses to start against a database whose recorded schema version is **ahead** of the latest migration the running build knows. This typically follows a rollback of the gateway image after a newer build has migrated the database forward: the older build does not know the shape of the newer schema and would otherwise start, then fail on its first read of a changed column. The refusal comes before any history table is touched, so the database stays as the newer build left it.
+
+To recover, upgrade the gateway to the build that migrated the database. To run the older build against the database anyway, set `version:` in the schema config to the database's recorded version (the refusal names the exact value to set); SMG then starts and logs a warning. A higher `version:` also satisfies the check, but it marks migrations up to that number as already applied, so a later upgrade would skip them.
+
+---
+
+## What Gets Stored
+
+### Conversations
+
+Container for a sequence of interactions:
+
+- Conversation ID
+- Creation timestamp
+- Metadata (the key-value object the client attaches)
+- Tenant identity of the creating request, when the gateway resolved one (see [Tenant Scope](#tenant-scope))
+
+### Conversation Items
+
+Individual items within a conversation:
+
+| Type | Description |
+|------|-------------|
+| **Messages** | User and assistant messages with content |
+| **Reasoning** | Model reasoning/thinking steps |
+| **Tool Calls** | Tool invocations and results |
+| **MCP Calls** | MCP server interactions |
+| **Function Calls** | Function calling results |
+
+### Responses
+
+Complete response records including:
+
+- Input items
+- Output (model response)
+- Tool calls executed
+- Model information
+- Timestamps and metadata
+- Token usage
+- Tenant identity of the creating request, when the gateway resolved one (see [Tenant Scope](#tenant-scope))
+
+---
+
+## Tenant Scope
+
+Every stored response, conversation, and conversation item records the tenant identity the gateway resolved for the request that created it, when it resolved one. A response or conversation stored under a tenant is served only to callers of that tenant.
+
+That holds on every route that reads, continues, or deletes a stored record: a response's tenant gates getting it or its input items, deleting or cancelling it, and continuing it with `previous_response_id`; a conversation's tenant gates naming it as the `conversation` of a new response and every `/v1/conversations` operation. Another tenant's ID is answered exactly as an unknown ID — `404`, or `400` (`previous_response_not_found`) for a `previous_response_id` — so a response or conversation ID tells a caller nothing about another tenant's records.
+
+A conversation item's tenant guards it only where a request reaches the stored item directly by its ID, rather than through a conversation that holds it: an `item_reference` to another tenant's item answers `404` exactly as a missing item would, and adding an item under an `id` that another tenant's item already uses is refused with `400` (`Item id '...' cannot be used`) rather than serving or overwriting it.
+
+Access to a conversation's items is governed by the conversation alone: every caller the conversation is visible to can list, get, and delete each of its items — and receives them as model context — whatever tenant an individual item records. Items a tenanted caller adds to a conversation stored without a tenant are therefore readable and deletable by every caller of that conversation.
+
+A tenant is stored only for an identity the gateway can vouch for, as its canonical tenant key — the same key [tenant rate limiting](../../reference/tenant-rate-limiting.md) uses:
+
+| Caller | Stored tenant |
+|--------|---------------|
+| A per-tenant API key (`--tenant-api-key tenant_id:key`) | `auth:<tenant_id>` |
+| A trusted tenant header (`--trust-tenant-header`, header named by `--tenant-header-name`, default `x-smg-tenant-id`) | `header:<value>` |
+| The shared `--api-key` | `auth:` followed by the hex SHA-256 of the key — one identity for every caller of the key |
+| No API key and no trusted header (callers known by IP address only, or anonymous) | None |
+
+An identity from an API key wins over the header: a caller that authenticates with any API key is stored under that key's identity even when it also sends the trusted header.
+
+The shared `--api-key` identity has two consequences: all of its callers share one scope and can read each other's stored history, and rotating the key changes the identity, so records stored under the old key answer as unknown IDs afterward.
+
+A tenant ID can be at most 200 bytes: a longer `--tenant-api-key` tenant ID is refused at startup, and a longer trusted header value is rejected with `400` (`invalid_tenant_header`) rather than silently ignored.
+
+Records stored **without** a tenant stay readable, continuable, and deletable by every caller. That covers records created while the gateway resolved no tenant identity for the caller (known by IP address only, or anonymous), and records stored before SMG recorded tenants — an upgrade does not retroactively scope existing records.
+
+A history loaded through `previous_response_id` ends at the first record stored under another tenant, the same as it would at a missing record; when the referenced response itself belongs to another tenant, the request is rejected with `400` (`previous_response_not_found`). See the [Responses API](../../reference/api/responses.md#error-responses) for the per-route errors.
+
+All backends persist the tenant with each record; on PostgreSQL and Oracle the `tenant` column is added by schema migration 4 (see [Schema Migrations](#schema-migrations)).
+
+---
+
+## Recommended Configurations
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+### :material-laptop: Development
+
+In-memory for fast iteration.
+
+```bash
+smg --history-backend memory
+```
+
+</div>
+
+<div class="card" markdown>
+
+### :material-server-network: Production (Self-Hosted)
+
+PostgreSQL for durable storage.
+
+```bash
+smg --history-backend postgres \
+  --postgres-db-url "postgres://smg:$DB_PASSWORD@postgres:5432/smg" \
+  --postgres-pool-max-size 32
+```
+
+</div>
+
+<div class="card" markdown>
+
+### :material-office-building: Enterprise (OCI)
+
+Oracle for enterprise deployments.
+
+```bash
+smg --history-backend oracle \
+  --oracle-wallet-path /etc/smg/wallet \
+  --oracle-tns-alias smg_high \
+  --oracle-user smg_app \
+  --oracle-password "$ATP_PASSWORD" \
+  --oracle-pool-max 32
+```
+
+</div>
+
+<div class="card" markdown>
+
+### :material-lightning-bolt: Caching Layer
+
+Redis for high-performance ephemeral storage.
+
+```bash
+smg --history-backend redis \
+  --redis-url "redis://:$REDIS_PASSWORD@redis.example.com:6379" \
+  --redis-retention-days 7 \
+  --redis-pool-max-size 64
+```
+
+</div>
+
+</div>
+
+---
+
+## Store Failures While Serving
+
+Every call to a PostgreSQL or Redis store is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (default 5 seconds). The bound covers one store call as a whole — the wait for a pooled connection, the connect, and the statement or command itself — so a request cannot hang on a store that accepts connections but does not answer.
+
+A store that is down, or slower than the per-call bound, fails the request with `503` and the code `storage_unavailable` on every endpoint that stores or reads history: creating a response that is stored or continues history (`store` unset or `true`, `previous_response_id`, or `conversation`), getting, deleting, or cancelling a stored response, listing its input items, and every `/v1/conversations` operation. On a streaming create the response record is written before the terminal event, so a record that could not be written ends the stream with a `response.failed` event carrying the same `storage_unavailable` code rather than a `503` answer. The request can be retried once the store answers again.
+
+A failure the store itself answered — a refused statement, a record that cannot be decoded — keeps the endpoint's own `500` answer (for example `storage_error`), which a retry would not fix. See the [Responses API errors](../../reference/api/responses.md#common-errors) for the per-route codes.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| Startup fails with `is unreachable at start-up` or `did not answer within the start-up bound` | History store down, not answering, or wrong connection URL | Check that the store is running and verify the connection URL |
+| Startup fails with `ahead of the latest migration this build knows` | Gateway rolled back after a newer build migrated the database | Upgrade the gateway, or set `version:` in the schema config (see [Schema Migrations](#schema-migrations)) |
+| Requests answered `503` with code `storage_unavailable` | History store down, or store calls running past the per-call bound | Restore the store; for a healthy but slow store, raise `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (see [Store Failures While Serving](#store-failures-while-serving)) |
+| Pool exhaustion | High concurrency | Increase pool size |
+| Data not persisting | Wrong backend | Verify `--history-backend` setting |
+| Redis data expiring | TTL too short | Increase `--redis-retention-days` |
+
+### Pool Configuration
+
+```bash
+# PostgreSQL
+--postgres-db-url "postgres://...?connect_timeout=30"
+--postgres-pool-max-size 64
+
+# Oracle
+--oracle-pool-timeout-secs 60
+--oracle-pool-max 64
+
+# Redis
+--redis-pool-max-size 64
+```
+
+---
+
+## What's Next?
+
+<div class="grid" markdown>
+
+<div class="card" markdown>
+
+### :material-shield-lock: Authentication
+
+Secure access to your SMG deployment.
+
+[Authentication →](../security/authentication.md)
+
+</div>
+
+<div class="card" markdown>
+
+### :material-chart-box: Metrics Reference
+
+Monitor storage backend performance.
+
+[Metrics Reference →](../../reference/metrics.md)
+
+</div>
+
+<div class="card" markdown>
+
+### :material-shield-check: High Availability
+
+Deploy SMG in a highly available configuration.
+
+[High Availability →](../architecture/high-availability.md)
+
+</div>
+
+</div>

@@ -1,0 +1,211 @@
+---
+title: Extension API
+---
+
+# Extension API Reference
+
+This page documents non-OpenAI extension endpoints exposed by SMG.
+
+---
+
+## Auth Model
+
+SMG endpoint auth is route-group based:
+
+| Route group | Auth behavior |
+|---|---|
+| Public routes | No auth: `/health`, `/liveness`, `/readiness`, `/health_generate`, `/engine_metrics`, `/loads`, `/v1/models`, `/v1/models/{model}`, `/get_model_info`, and `/get_server_info` |
+| Protected routes | `Authorization: Bearer <key>` with the shared `--api-key` or a per-tenant `--tenant-api-key` key; open when neither is set (`/v1/tokenize`, `/generate`, `/v1/chat/completions`, and the other inference routes) |
+| Control-plane routes | With [control-plane auth](../../getting-started/control-plane-auth.md) configured (`--control-plane-api-keys` or `--control-plane-api-keys-file`, or `--jwt-issuer` with `--jwt-audience`), a control-plane API key or JWT: the admin role for every method, the user role for `GET` and `HEAD` only. Otherwise only the shared `--api-key` is accepted: per-tenant keys are rejected, a gateway with tenant keys but no `--api-key` answers every control-plane request with `401`, and a gateway with no keys at all leaves these routes open |
+
+With control-plane auth configured, a missing or invalid credential gets `401` and a valid credential whose role does not allow the method gets `403`; `GET` [`/config`](#configuration-and-secrets) is the one read kept to the admin role. The shared `--api-key` is not accepted on control-plane routes in that mode.
+
+If JWT validation fails to initialize at startup (for example, when OIDC discovery fails), the control-plane rules stay in force: the configured control-plane API keys keep working — whether set by flag, environment variable, or key file — and JWTs and every other token get `401` until the gateway is restarted with a working JWT setup.
+
+---
+
+## Public Extension Endpoints
+
+These endpoints are registered without any auth middleware:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Same as `/liveness` |
+| `GET` | `/liveness` | Process liveness probe |
+| `GET` | `/readiness` | Traffic readiness probe; see [Gateway Probe Endpoints](../../concepts/reliability/health-checks.md#gateway-probe-endpoints) |
+| `GET` | `/health_generate` | Generation health check, forwarded to HTTP workers; gRPC and ZMQ deployments answer `501` |
+| `GET` | `/engine_metrics` | The engines' own Prometheus metrics in one exposition; see [Engine Metrics Passthrough](../metrics.md#engine-metrics-passthrough) |
+| `GET` | `/loads` | Fleet engine load from the gateway's cached load snapshot (optional `?model=` filter); see [Get Loads](admin.md#get-loads) |
+| `GET` | `/v1/models` | List models; see [List Models](openai.md#list-models) |
+| `GET` | `/v1/models/{model}` | One model's card; `{model}` takes the rest of the path, so IDs with slashes work raw or percent-encoded; see [Retrieve Model](openai.md#retrieve-model) |
+| `GET` | `/get_model_info` | Model metadata, forwarded to an HTTP worker; gRPC and ZMQ deployments answer `501` |
+| `GET` | `/get_server_info` | Server metadata, forwarded to an HTTP worker; gRPC and ZMQ deployments answer `501` |
+
+---
+
+## Protected Utility Endpoints
+
+These run behind protected-route auth middleware:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/tokenize` | Convert text to token IDs |
+| `POST` | `/v1/detokenize` | Convert token IDs to text |
+| `POST` | `/generate` | Native generate endpoint |
+| `POST` | `/rerank` | Native rerank endpoint |
+| `POST` | `/v1/rerank` | OpenAI-style rerank endpoint |
+| `POST` | `/v1/messages` | Messages endpoint |
+| `POST` | `/v1/messages/count_tokens` | Count the input tokens of a Messages request; see [Count Tokens](messages.md#count-tokens) |
+| `POST` | `/v1/classify` | Classification endpoint |
+| `POST` | `/v1/decisions` | OpenAI Decisions API; regular HTTP workers and regular SGLang gRPC workers serve it, other backends answer `501`. See [Decisions](openai.md#decisions) |
+| `POST` | `/v1/embeddings` | OpenAI-compatible embeddings endpoint |
+| `POST` | `/v1/interactions` | Gemini Interactions API; only the Gemini provider backend serves it, other backends answer `501` |
+| `POST` | `/v1/systemone` | Native System One API; only regular HTTP workers serve it, deployments without a regular HTTP worker for the model answer `501` |
+
+`/v1/systemone` relays a non-streaming System One request to a regular HTTP worker's own `/v1/systemone`. Request fields SMG does not know are forwarded unchanged, and the worker's response — status, headers, and body, backend errors included — is returned as is.
+
+Before relaying, SMG checks that `model` names a served model (unknown models answer `404`), that `state` is text or structured JSON, and that `questions` maps at least one name to a question, with at least one criterion on each `score` question; a body that fails these checks answers `400`.
+
+These pages cover the other inference endpoints, which use the same auth:
+
+- [OpenAI-Compatible API](openai.md): `/v1/chat/completions`, `/v1/completions`, `/v1/decisions`, `/v1/audio/transcriptions`, and the `/v1/realtime` routes
+- [Responses API](responses.md): `/v1/responses` and `/v1/conversations`
+- [Anthropic Messages API](messages.md): `/v1/messages` and `/v1/messages/count_tokens`
+
+---
+
+## Control-Plane Endpoints
+
+These endpoints are for gateway operations and administration. They use the control-plane auth described in [Auth Model](#auth-model).
+
+By default they answer on the data listener (`--port`), alongside the serving routes. With `--admin-port` set, the endpoints in every section below and the [RL control-plane routes](#rl-control-plane-endpoints) answer on a dedicated admin listener instead, and the data listener answers `404` for them. The probe routes `/health`, `/liveness`, and `/readiness` answer on both listeners, so the admin listener can be checked on its own. The public `/loads` stays on the data listener, while its deprecated control-plane alias `/get_loads` moves with the rest.
+
+The split changes where the routes answer, not who may call them: the auth above applies on the admin listener unchanged. See the [Listeners reference](../configuration.md#listeners) and [Admin Listener](../../getting-started/control-plane-auth.md#admin-listener).
+
+### Worker Management
+
+| Method | Path |
+|---|---|
+| `GET`, `POST` | `/workers` |
+| `GET`, `PUT`, `PATCH`, `DELETE` | `/workers/{worker_id}` |
+
+### Tokenizer Management
+
+| Method | Path |
+|---|---|
+| `GET`, `POST` | `/v1/tokenizers` |
+| `GET`, `DELETE` | `/v1/tokenizers/{tokenizer_id}` |
+| `GET` | `/v1/tokenizers/{tokenizer_id}/status` |
+
+### Parser Utilities
+
+| Method | Path |
+|---|---|
+| `POST` | `/parse/function_call` |
+| `POST` | `/parse/reasoning` |
+
+### WASM Management
+
+| Method | Path |
+|---|---|
+| `GET`, `POST` | `/wasm` |
+| `DELETE` | `/wasm/{module_uuid}` |
+
+The WASM routes need `--enable-wasm`; without it they answer `503`. Their refusals use the control plane's `{"error", "code"}` envelope; see [WASM Module Management](admin.md#wasm-module-management) for the statuses and codes.
+
+### Profiling
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/start_profile` | Start the engine profiler on every worker, or only on the worker whose URL equals `url` in the optional JSON body |
+| `POST` | `/stop_profile` | Stop the profiler, with the same optional `url` |
+
+`/start_profile` also accepts the engine's profiler options (`output_dir`, `start_step`, `num_steps`, `activities`, `with_stack`, `record_shapes`, `profile_by_stage`). SMG sends them as the JSON body of an HTTP worker's own `/start_profile`, or through the `StartProfile` RPC to SGLang, TokenSpeed, and vLLM gRPC workers. A ZMQ worker is profiled over its engine's wire when that wire carries control calls: an SGLang scheduler's always does, and a TokenSpeed scheduler's does when every rank declared the control reply at its handshake. A vLLM ZMQ engine's wire carries none, so those workers are reported under `failed`, as is a TokenSpeed ZMQ scheduler without the control reply. A TokenSpeed [EPD](../../concepts/routing/pd-disaggregation.md#epd-encode-prefill-decode) encode worker refuses `StartProfile` and `StopProfile`, and is reported under `failed` (`UNIMPLEMENTED`). TensorRT-LLM gRPC and MLX gRPC workers do not support profiling and are reported as failed. Both routes answer `200` when every targeted worker succeeds, `206` with `successful` and `failed` lists when any fails, and `404` when no worker matches.
+
+A vLLM gRPC worker starts and stops the engine's own torch profiler on every rank; the trace directory and the profiler options are fixed by the engine's launch configuration and cannot be set per request. A `/start_profile` that sets any of the options above therefore lists vLLM workers under `failed`; to profile them, send a start that sets none of these options (a body with only `url` is fine).
+
+### Diagnostics
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/inflight` | The requests this gateway process is serving right now: its instance id and their sequence numbers |
+| `POST` | `/heap_profile` | A jemalloc heap profile of this gateway process, written under `--jemalloc-prof-dir` (a `jemalloc-profiling` build; `501` otherwise) |
+
+Both are control-plane routes. See [Diagnostics](admin.md#diagnostics) for the response shapes and the preconditions a heap profile needs.
+
+### Configuration and Secrets
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/config` | The effective configuration, with every secret redacted and the API keys in force named by fingerprint |
+| `POST` | `/secrets/reload` | Read the key files named at startup again and put their keys in force |
+
+Unlike the other control-plane routes, these two are mounted only when [control-plane auth](../../getting-started/control-plane-auth.md) is configured; on a gateway started without it the paths are unknown and answer `404` on both listeners. Both need the admin role: `/secrets/reload` as a mutation, and `GET /config` as a read kept to the admin role, so a user-role credential gets `403`.
+
+`/secrets/reload` reads the files given with `--api-key-file`, `--tenant-api-keys-file`, and `--control-plane-api-keys-file` again; a key given on the command line or in the environment stands as the start read it. The route answers `200` with the files read and whether each key set changed, `409` when no key came from a file at startup, and `422` when a file cannot be used — every key set then stands as it was.
+
+### Cache and Load Utilities
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/flush_cache` | Flush the KV prefix cache on every worker that supports it |
+| `GET` | `/loads` | Fleet engine load from the gateway's cached load snapshot (optional `?model=` filter) |
+| `GET` | `/get_loads` | Deprecated alias of `/loads` |
+
+`/loads` is registered with the public routes and needs no auth; `/flush_cache` and the deprecated `/get_loads` alias are control-plane routes. See [Cache Management](admin.md#cache-management) for request and response details.
+
+---
+
+## HA / Mesh Management Endpoints
+
+SMG has no HTTP endpoints for mesh management; a request to any `/ha/*` path gets `404`. Mesh routers talk to each other over gRPC on `--mesh-port`. To inspect a mesh, use the mesh metrics, the router logs, and each router's `GET /workers`; see [High Availability](../../concepts/architecture/high-availability.md#monitoring).
+
+---
+
+## RL Control Plane Endpoints
+
+Mounted only when SMG starts with `--enable-rl`; without it, every `/v1/rl/*` path returns `404`. These routes use the same auth as the other control-plane routes (see [Auth Model](#auth-model)).
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/v1/rl/workers` | List workers with engine, parallelism, health, weight version, and capabilities |
+| `GET` | `/v1/rl/workers/{id}` | One worker (`404 worker_not_found` for an unknown ID) |
+| `GET`, `POST` | `/v1/rl/workers/{id}/engine/{path}` | Forward one engine-native request to one worker's control endpoint; the response status mirrors the engine's |
+| `GET`, `POST` | `/v1/rl/engine/{path}?selector=...` | Send the same request to every worker matching a label selector; `200` when every target succeeds, `207` with per-worker `failed[]` otherwise |
+
+See [RL Control Plane](../../getting-started/rl-control-plane.md) for request and response shapes, selectors, errors, timeouts, metrics, and the `smg.rl` Python client.
+
+---
+
+## Quick Examples
+
+Tokenize:
+
+```bash
+curl -X POST http://localhost:30000/v1/tokenize \
+  -H "Content-Type: application/json" \
+  -d '{"model":"meta-llama/Llama-3.1-8B-Instruct","prompt":"hello"}'
+```
+
+List workers. `ADMIN_TOKEN` is an admin control-plane API key or JWT when control-plane auth is configured, and the shared `--api-key` otherwise. With `--admin-port` set, this request and the tokenizer listing below go to the admin listener's port instead of the data port used here:
+
+```bash
+curl http://localhost:30000/workers \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+```
+
+List tokenizers:
+
+```bash
+curl http://localhost:30000/v1/tokenizers \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+```
+
+---
+
+## Related Pages
+
+- [Admin API Reference](admin.md)
+- [Configuration Reference](../configuration.md#control-plane-authentication)
+- [Getting Started: Control Plane Auth](../../getting-started/control-plane-auth.md)
+- [Getting Started: Control Plane Operations](../../getting-started/control-plane-operations.md)

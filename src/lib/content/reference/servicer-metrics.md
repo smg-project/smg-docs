@@ -10,7 +10,7 @@ The listener serves `GET /metrics` when the servicer is given a metrics address.
 
 In the Helm chart, a gRPC `workers[]` entry with `metrics.enabled: true` enables the listener through the launcher's variables: the engine pod gets `SMG_<ENGINE>_SERVICER_METRICS_PORT` set to `metrics.port` (default `29100`), and the port goes on the worker's Service, which the chart's worker ServiceMonitor scrapes under `router.metrics.serviceMonitor.enabled`; see [Monitoring](../getting-started/monitoring.md#kubernetes-servicemonitor). A gRPC worker's `servicerImpl` value names an implementation explicitly and is exported as `SMG_<ENGINE>_SERVICER_IMPL`; when `servicerImpl` is unset, `metrics.enabled` exports `SMG_<ENGINE>_SERVICER_IMPL=rust`, naming the servicer that serves the endpoint. `servicerImpl: "python"` together with `metrics.enabled` is refused by the launcher before the engine starts.
 
-Every family carries `model` (the served model) and `wire` (the engine family the servicer serves: `vllm`, `sglang`, `tokenspeed` or `trtllm`). The request families carry `rank`, the data-parallel rank the request ran on (`other` for a rank beyond the configured width, built on first use). Most series are registered when the servicer starts, per rank and per label value, so they are on the first scrape at zero; the exceptions are named in their entries: a gRPC code's error series at its first error, the string-stop family only on a servicer that matches stop strings itself, the media families only on one that processes media itself. The request path never builds a key, hashes a label or takes a lock: one clock read at arrival, one clock read plus one histogram push and two atomic adds at the first output, one atomic add (and, with the inter-token histogram on, one clock read and one push) per output chunk, and one clock read plus a handful of pushes when the stream ends.
+Every family carries `model` (the served model) and `wire` (the engine family the servicer serves: `vllm`, `sglang`, `tokenspeed` or `trtllm`). The request families carry `rank`, the data-parallel rank the request ran on (`other` for a rank beyond the configured width, built on first use). Most series are registered when the servicer starts, per rank and per label value, so they are on the first scrape at zero; the exceptions are named in their entries: a gRPC code's error series at its first error, the string-stop family only on a servicer that matches stop strings itself, the media-processing families only on the vLLM wire, and the media-identity family only on the SGLang wire, its outcome series at their first count. The request path never builds a key, hashes a label or takes a lock: one clock read at arrival, one clock read plus one histogram push and two atomic adds at the first output, one atomic add (and, with the inter-token histogram on, one clock read and one push) per output chunk, and one clock read plus a handful of pushes when the stream ends.
 
 ---
 
@@ -217,7 +217,7 @@ Observations the pressure sampler dropped, by family (`inter_token_latency`).
 
 ## Media Families
 
-Requests whose media the worker side processes. Registered only when the servicer processes media itself: a wire that measures no media exports no media series.
+Requests whose media the worker side handles. The three processing families are registered only on the vLLM wire when the servicer starts, so they are on the first scrape at zero even while no request carries media. The SGLang wire records only `smg_servicer_media_identity_total`, whose outcome series appear at their first count; TokenSpeed and TensorRT-LLM export no media series.
 
 ### `smg_servicer_media_items_per_request`
 
@@ -238,6 +238,16 @@ Seconds a request's worker-side media spent in a stage: `wait` (for a processing
 ### `smg_servicer_media_requests_total`
 
 Requests with worker-side media, by outcome: `ok`, `refused` (before processing: references this worker does not take, a missing processor, no slot), or the processor's verdict, `client` (the caller's media), `transient` (a transient failure), `invalid` (an invalid request), `unavailable` (an unavailable processor), `internal` (a failed processor).
+
+| Type | Labels |
+|------|--------|
+| Counter | `outcome` |
+
+### `smg_servicer_media_identity_total`
+
+SGLang requests' worker-side media preprocessing and [prefill-decode](../concepts/architecture/multimodal.md#prefill-decode-disaggregation) media reuse, by outcome: `processed` (the servicer handed a request's media references — image or video URLs without pixels — to its media processor; counted at the handoff, so a failed attempt counts), `prepared` (a prefill servicer built a validated pixel-less identity — token ids, placeholder ranges and grid tensors — and returned it early for its decode peer), `reused` (a decode servicer accepted the identity a request carried and skipped refetching and reprocessing the media), `fallback` (the request carried an identity that was not accepted — the servicer is not the decode side, reuse is not enabled, or validation failed — so the original inputs were kept and the media processed as usual).
+
+Recorded only on the `sglang` wire. Nothing is registered up front: an outcome's series appears at its first count. One request can count under more than one outcome: a fallback that then reprocesses also counts `processed`, and a prefill request that preprocesses counts `processed` and then `prepared`.
 
 | Type | Labels |
 |------|--------|

@@ -48,7 +48,7 @@ Adds a new tokenizer from a local path or HuggingFace model ID.
 
 Loading runs in the background. Poll [Get Tokenizer Status](#get-tokenizer-status) with the returned `id`.
 
-**Response:** `409 Conflict` when a tokenizer with this `name` is already registered. The `error` message names the existing tokenizer's id:
+**Response:** `409 Conflict` when a tokenizer with this `name` is already registered. The `error` message names the existing tokenizer's ID:
 ```json
 {
   "error": "Tokenizer 'llama3-tokenizer' already exists with id 550e8400-e29b-41d4-a716-446655440000",
@@ -56,7 +56,7 @@ Loading runs in the background. Poll [Get Tokenizer Status](#get-tokenizer-statu
 }
 ```
 
-When the gateway's job queue is not running, or does not accept the job because it is full or shutting down, the response is `503` with code `SERVICE_UNAVAILABLE` in the same envelope.
+**Response:** `503 Service Unavailable` when the gateway's job queue is not running, or it does not accept the job because it is full or shutting down. The body is the same envelope, with code `SERVICE_UNAVAILABLE`.
 
 ---
 

@@ -48,14 +48,15 @@ Adds a new tokenizer from a local path or HuggingFace model ID.
 
 Loading runs in the background. Poll [Get Tokenizer Status](#get-tokenizer-status) with the returned `id`.
 
-**Response:** `409 Conflict` when a tokenizer with this `name` is already registered. The `id` is the existing tokenizer's:
+**Response:** `409 Conflict` when a tokenizer with this `name` is already registered. The `error` message names the existing tokenizer's ID:
 ```json
 {
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "failed",
-  "message": "Tokenizer 'llama3-tokenizer' already exists"
+  "error": "Tokenizer 'llama3-tokenizer' already exists with id 550e8400-e29b-41d4-a716-446655440000",
+  "code": "TOKENIZER_ALREADY_EXISTS"
 }
 ```
+
+**Response:** `503 Service Unavailable` when the gateway's job queue is not running, or it does not accept the job because it is full or shutting down. The body is the same envelope, with code `SERVICE_UNAVAILABLE`.
 
 ---
 
@@ -104,10 +105,8 @@ Returns details for a specific tokenizer. `{tokenizer_id}` is the tokenizer's ID
 **Response:** `404 Not Found`
 ```json
 {
-  "error": {
-    "message": "Tokenizer 'llama3-tokenizer' not found",
-    "type": "tokenizer_not_found"
-  }
+  "error": "Tokenizer 'llama3-tokenizer' not found",
+  "code": "TOKENIZER_NOT_FOUND"
 }
 ```
 
@@ -143,10 +142,8 @@ Returns the loading status of a tokenizer. A loaded tokenizer can be looked up b
 **Response:** `404 Not Found`
 ```json
 {
-  "error": {
-    "message": "Tokenizer '550e8400-e29b-41d4-a716-446655440000' not found and no pending job",
-    "type": "not_found"
-  }
+  "error": "Tokenizer '550e8400-e29b-41d4-a716-446655440000' not found and no pending job",
+  "code": "TOKENIZER_NOT_FOUND"
 }
 ```
 
@@ -171,8 +168,8 @@ Removes a tokenizer. `{tokenizer_id}` is the tokenizer's ID or its name.
 **Response:** `404 Not Found`
 ```json
 {
-  "success": false,
-  "message": "Tokenizer 'llama3-tokenizer' not found"
+  "error": "Tokenizer 'llama3-tokenizer' not found",
+  "code": "TOKENIZER_NOT_FOUND"
 }
 ```
 
@@ -1094,11 +1091,9 @@ The admin endpoints do not share one error format. The body depends on the part 
 |--------|--------|------|
 | Control-plane auth | `401`, `403` | Plain text, such as `Missing or invalid Authorization header`, `Invalid authentication token`, or `Admin role required for this control plane operation`. A `401` carries `WWW-Authenticate: Bearer realm="control-plane"` |
 | `--api-key` auth, when control-plane auth is not configured | `401` | Empty |
-| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor. [Add WASM Module](#add-wasm-module) instead answers `400` in the `{"error", "code"}` envelope |
+| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor. [Add WASM Module](#add-wasm-module) and [Add Tokenizer](#add-tokenizer) instead answer `400` in the `{"error", "code"}` envelope |
 | [Worker endpoints](#worker-errors) | `400`, `404`, `409`, `500` | `{"error": "<message>", "code": "<CODE>"}` |
-| [Get Tokenizer](#get-tokenizer), [Get Tokenizer Status](#get-tokenizer-status) | `404` | `{"error": {"message": "<message>", "type": "tokenizer_not_found"}}`, with `"type": "not_found"` from Get Tokenizer Status |
-| [Add Tokenizer](#add-tokenizer) | `409`, `503` | The `202` body shape with `"status": "failed"` |
-| [Remove Tokenizer](#remove-tokenizer) | `404` | `{"success": false, "message": "<message>"}` |
+| [Tokenizer endpoints](#tokenizer-management) | `404`, `409`, `503` | `{"error": "<message>", "code": "<CODE>"}` — `TOKENIZER_NOT_FOUND`, `TOKENIZER_ALREADY_EXISTS`, or `SERVICE_UNAVAILABLE` |
 | `/parse/function_call`, `/parse/reasoning` | `400`, `503` | `{"error": "<message>", "success": false}` |
 | [Add WASM Module](#add-wasm-module), when a module failed to load | `400` | The module list, with `"add_result": {"Error": "<message>"}` on each module that failed |
 | Every other refusal from the [WASM routes](#wasm-module-management), including any of them without `--enable-wasm` | `400`, `404`, `500`, `503`, `504` | `{"error": "<message>", "code": "<CODE>"}` |

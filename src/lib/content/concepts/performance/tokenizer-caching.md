@@ -302,7 +302,7 @@ To make a prompt that writes the date reproducible, set `SOURCE_DATE_EPOCH` in S
 
 `tojson` matches the filter HuggingFace Transformers registers for chat templates, replacing minijinja's built-in: `{{ tools | tojson }}` writes a value — typically a request's tool declarations — as Python's `json.dumps` would, compact by default. It takes the Transformers keywords, all optional: `ensure_ascii` (default `false`; `true` escapes non-ASCII characters as `\uXXXX`), `indent`, `separators` (an item/key separator pair of strings; defaults to Python's `(', ', ': ')` for compact output and `(',', ': ')` once any indent is given) and `sort_keys` (default `false`; `true` sorts map keys). An unknown keyword argument fails the render.
 
-`indent` reads as Python's `json.dumps` reads it: an integer indents that many spaces per nesting level; a bool counts as the integer it is in Python (`true` is one space); a string is the literal indent, such as `"\t"`. An empty indent — zero, a negative integer, or `""` — still breaks the lines while indenting nothing. An indent of any other kind, such as a float, fails the render.
+`indent` reads as Python's `json.dumps` reads it: an integer indents that many spaces per nesting level; a bool counts as the integer it is in Python (`true` is one space); a string is the literal indent, such as `"\t"`; `none` is no indent at all, the same as leaving the keyword out. An empty indent — zero, a negative integer, or `""` — still breaks the lines while indenting nothing. An indent of any other kind, such as a float, fails the render.
 
 #### Template Examples
 

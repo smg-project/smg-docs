@@ -136,7 +136,9 @@ SMG learns the block size from the `BlockStored` events themselves; set SMG's `-
 
 TokenSpeed works the same way, and the TokenSpeed gRPC server *is* the SMG gRPC entrypoint, so there is no separate `--grpc` flag. A worker launched without `--kv-events-config` already publishes — the servicer turns the scheduler's ZMQ publisher on at a port found free on the host, and `SMG_TOKENSPEED_SERVICER_KV_EVENTS=0` leaves it off.
 
-Two launches get no automatic publisher. An encode worker (`--disaggregation-mode encode`) has no KV cache and is left as given. On a hybrid model (Gated DeltaNet, Mamba or KDA layers) the servicer leaves the publisher off and logs why once (`KV event publishing left off: ...`): such a model keeps its recurrent state in State groups of TokenSpeed's cache, and TokenSpeed's KV-event drain aborts the engine on such a group. An explicit `--kv-events-config` turns the publisher on anyway.
+An encode worker (`--disaggregation-mode encode`) has no KV cache and gets no automatic publisher; its configuration is left as given.
+
+A hybrid model (Gated DeltaNet, Mamba or KDA layers) keeps its recurrent state in State groups of TokenSpeed's cache, and whether the publisher turns on by itself for such a model depends on the engine installed beside the servicer. An engine whose KV events name their cache group — its `KVEvent.BlockStored` carries `group_idx` — publishes the model's history chain beside its State checkpoints, and the publisher turns on as for any other model. An engine whose events carry no group publishes a boundary only while every group holds it, so the model's history chain would never reach the router: on such an engine the servicer leaves the publisher off and logs why once (`KV event publishing left off: ...`). An explicit `--kv-events-config` turns the publisher on anyway.
 
 Pass `--kv-events-config` to pin the endpoint and enable gap replay:
 
@@ -239,7 +241,7 @@ INFO KV event stream connected worker_url=grpc://worker-1:50051 start_seq=0
 
 If you do not see the first line with `kind=Events` for a worker, the worker is not a gRPC worker, or the policy that places it is not `cache_aware`. The placing policy is the model's (`--policy`, or the first worker's `policy` label) for a regular worker, and the role's `--prefill-policy`, `--decode-policy` or `--encode-policy` — not the model's — for a prefill, decode or encode worker. The same line with `kind=Loads` announces a stream of the worker's load records alone, not a KV-event subscription.
 
-If events are disabled on the worker — an explicit `--kv-events-config` without a ZMQ publisher, the worker's `SMG_<ENGINE>_SERVICER_KV_EVENTS=0`, or a TokenSpeed hybrid model — the servicer rejects the stream and SMG stops trying:
+If events are disabled on the worker — an explicit `--kv-events-config` without a ZMQ publisher, the worker's `SMG_<ENGINE>_SERVICER_KV_EVENTS=0`, or a TokenSpeed hybrid model on an engine whose KV events carry no cache group — the servicer rejects the stream and SMG stops trying:
 
 ```text
 WARN Backend does not implement SubscribeKvEvents, disabling KV event subscription for this worker worker_url=grpc://worker-1:50051

@@ -82,7 +82,8 @@ POST /v1/messages
 | `service_tier` | string | No | `auto` or `standard_only`. |
 | `container` | object | No | Container for code execution (beta). |
 | `mcp_servers` | array | No | MCP servers for the request (beta). Required when `tools` has an `mcp_toolset` entry; see [MCP Tools](#mcp-tools). |
-| `rid` | string | No | Extension: request ID passed to the backend for log correlation. |
+| `thread` | object | No | Open or continue a message thread (beta): `{"type": "create"}` stores the request and its answer under the answer's `id`, and `{"type": "continue", "previous_message_id": "msg_..."}` sends only the messages since that answer. See [Message Threads](#message-threads). |
+| `rid` | string | No | Extension: request ID passed to the backend for log correlation. On a [message thread](#message-threads) turn, SMG replaces it with an ID it mints; see [Request IDs on Thread Turns](#request-ids-on-thread-turns). |
 
 SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management`, are kept and forwarded to HTTP workers and the Anthropic API.
 
@@ -287,6 +288,96 @@ data: {"type":"message_stop"}
 
 ---
 
+## Message Threads
+
+Message threads (beta) let a client send only each turn's new messages: SMG keeps the conversation's earlier turns in its own memory and rebuilds the whole conversation on every continue. SMG resolves the thread before it selects a backend, so threads behave the same on every backend, and a backend — the Anthropic API included — always receives a plain request carrying the whole conversation, without the `thread` field.
+
+A request with `thread: {"type": "create"}` opens a thread. It is a complete request — the whole conversation so far, with its `system`, `tools`, and every other field — and SMG stores it with its answer under the answer's `id`:
+
+```bash
+curl http://localhost:30000/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "max_tokens": 1024,
+    "system": "You are a concise assistant.",
+    "messages": [
+      {"role": "user", "content": "What is the meaning of life?"}
+    ],
+    "thread": {"type": "create"}
+  }'
+```
+
+A request with `thread: {"type": "continue", "previous_message_id": "msg_..."}` names the `id` of a stored answer and carries only the messages since that answer. SMG rebuilds the conversation — the create turn's `system` and `tools`, every stored turn's messages and answer, then the new messages — checks the fixed fields against the create turn's, and routes the result as a plain request:
+
+```bash
+curl http://localhost:30000/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "And in one sentence?"}
+    ],
+    "thread": {"type": "continue", "previous_message_id": "msg_abc123"}
+  }'
+```
+
+Always take `previous_message_id` from the `id` of the answer just received: when a backend's answer arrives under an `id` that already names a stored turn, SMG reissues the answer under a fresh id, in the body the client reads and in the store. An id may be continued more than once — each continue forks the thread from that answer — and a second continue of the same id is never refused: SMG does not answer the Anthropic API's `thread_already_continued` error.
+
+### What a Continue Request Sends
+
+| Fields | Rule |
+|--------|------|
+| `system`, `tools` | Must be omitted: the thread keeps the create request's. A continue carrying either is refused with `400` (`thread_continue_carries_create_fields`). |
+| `model`, `tool_choice`, `thinking`, `mcp_servers`, `container`, `output_config`, `output_format`, and every field SMG does not model (such as `context_management`) | Fixed: each must repeat exactly what the create request sent. Changing a value, adding a field the create request did not send, or dropping one it did is refused with `400` (`thread_fingerprint_mismatch`), and the error message names the changed fields. |
+| `messages` | The messages since the answer being continued — at least one. In a tool loop, a `tool_result` block that opens the continue request answers the stored answer's `tool_use` call; tool pairing is checked on the rebuilt conversation. |
+| `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `metadata`, `stream`, `service_tier`, `rid` | Free: may change on every turn. |
+
+### Storage and Lifetime
+
+Turns live in the gateway process's own memory; threads do not use the [history backend](../../concepts/data/chat-history.md) (`--history-backend`) that stores Responses. A restart loses every thread, and in a deployment with several gateway instances, a continue finds its thread only on the instance that served the earlier turns. The store keeps the newest 10,000 turns, across all threads and tenants, each for one hour after it was written; past the count, the oldest turns are evicted first. Neither bound is configurable, and a thread whose create turn is gone can no longer be continued.
+
+A turn is stored only when its answer is a complete, non-streaming `200` message. A request with `"stream": true` is accepted and answered normally — a streamed continue still rebuilds and routes the whole conversation — but its turn is never stored, so its own answer cannot be continued. An error response and an answer SMG could not read back also leave the turn unstored.
+
+Turns are scoped to the tenant that created them, under the same rule as stored Responses (see [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)): another tenant's `previous_message_id` is answered exactly as an unknown one, and a turn stored by a caller with no tenant identity can be continued by every caller.
+
+### Thread Errors
+
+A continue that SMG cannot serve is refused before any backend runs:
+
+| Status | Code | Cause |
+|--------|------|-------|
+| `404` | `thread_not_found` | Nothing can be continued from `previous_message_id`: an unknown id, an evicted or expired turn, another tenant's thread, a turn that was never stored (a streamed answer, an error response), or new messages the rebuilt conversation does not accept, such as a `tool_result` that matches no stored `tool_use`. |
+| `400` | `thread_fingerprint_mismatch` | The continue request changed a fixed field; the error message names the fields. |
+
+Both carry their code in the body's `error.details.error_code` and in the `X-SMG-Error-Code` header:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "not_found_error",
+    "message": "thread: no thread can be continued from `msg_abc123`; send the whole conversation in a new create request",
+    "details": {"error_code": "thread_not_found"}
+  },
+  "request_id": "..."
+}
+```
+
+Threads are best effort, and `thread_not_found` is the normal way one ends. Retrying the continue as sent changes nothing: replay the whole conversation — every turn's messages and answers — in a new create request, as the Anthropic SDKs' thread helper does on its own.
+
+### Request IDs on Thread Turns
+
+On a thread turn, the `rid` in the body never becomes the message's `id`: SMG replaces it with a fresh `msg_` id before routing, so a repeated client `rid` cannot make two turns share an id. The client's `rid` still comes back as the answer's `request-id` header — the header the Anthropic SDKs read the request id from — when it is 1 to 128 visible-ASCII characters and the response does not already carry that header.
+
+!!! note "Streamed-through bodies"
+    Like the other [request-body rules](#request-body), threads need a parsed body. A `/v1/messages` body the HTTP router [streams through unparsed](../../concepts/performance/request-streaming.md) is forwarded to the worker with its `thread` field intact, and SMG neither stores nor rebuilds anything for it.
+
+---
+
 ## Count Tokens
 
 ```text
@@ -308,6 +399,8 @@ Returns the number of input tokens a Messages request would use, without generat
 | `output_config` | object | No | `effort` shapes the rendered prompt as it does on `/v1/messages`; a `format` is accepted but takes no part in the count. |
 
 There is no `max_tokens`. Any other field, such as `context_management` or `mcp_servers`, is forwarded unchanged to HTTP workers; on gRPC and ZMQ backends such fields are accepted but take no part in the count, which uses only the fields above.
+
+The one exception is `thread`, refused with `400` (`thread_not_counted`) whatever its value: a count reads a whole conversation, so to count a [message thread](#message-threads)'s next turn, send the full conversation — `system`, `tools`, and all messages — without the `thread` field.
 
 ### Example
 

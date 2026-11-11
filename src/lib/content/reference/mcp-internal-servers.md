@@ -43,7 +43,7 @@ A client-declared function tool that has the same name as an internal tool stays
 | Other live streaming events, on every path | No |
 | Hosted-tool items from built-in routing (`web_search_call`, `code_interpreter_call`, `file_search_call`, `image_generation_call`) | No |
 
-On gRPC or ZMQ workers, a streamed response is stored with the items its live events carried, so the record returned by `GET /v1/responses/{response_id}` includes the internal servers' `mcp_list_tools` and `mcp_call` items. To keep an internal server's items out of the stored record on these workers, send the request non-streaming.
+On gRPC or ZMQ workers, a streamed response is stored with the items its live events carried, so the record returned by `GET /v1/responses/{response_id}` includes an internal server's `mcp_list_tools` and `mcp_call` items. To keep an internal server's items out of the stored record on these workers, send the request non-streaming.
 
 If an internal server also sets `builtin_type`, its hosted-tool items stay visible. Its `mcp_list_tools` item is hidden either way, as it is for every server with `builtin_type` set.
 

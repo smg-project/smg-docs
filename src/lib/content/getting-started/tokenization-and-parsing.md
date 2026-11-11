@@ -201,7 +201,7 @@ The result is a `RenderedChat` dict:
 |---|---|
 | `text` | The prompt text |
 | `token_ids` | The token IDs SMG feeds the model |
-| `from_text` | Whether `token_ids` is the flat encode of `text` (`encode(text, add_special_tokens=False)`). `False` for renderers that encode segment by segment — Kimi-K3, and DeepSeek V3.2 / V4 / V4.1 when message text spells a control token — whose IDs no encode of the text reproduces: use `token_ids`, never re-encode `text` |
+| `from_text` | Whether `token_ids` is the flat encode of `text` (`encode(text, add_special_tokens=False)`). `False` for a prompt encoded segment by segment, whose IDs no encode of the text reproduces: always on Kimi-K3; on DeepSeek V3.2 / V4 / V4.1 and on Mistral checkpoints that ship `tekken.json`, when request text spells a control token. Use `token_ids`, never re-encode `text` |
 | `generation_prompt` | Whether the renderer wrote its generation header after the conversation |
 | `continued_final_message` | Whether the renderer kept the final message open, as `continue_final_message` asks |
 | `warnings` | The rewrites SMG made to the request while rendering it, which serving only logs: tool-call `arguments` that are not a JSON object rendered as `{}`, message extensions of another provider's profile dropped, deprecated fields migrated |

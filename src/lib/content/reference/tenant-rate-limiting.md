@@ -121,7 +121,7 @@ Any validation failure is the same as an unparsable file: the gateway refuses to
 |--------|-----------|---------------------|----------------|
 | **429** Too Many Requests | Reservation denied — the tenant (or matching model rule) doesn't have enough budget right now | `tenant_rate_limit_exceeded` | `Retry-After: <seconds>` — present only for a finite wait |
 
-The response body is the gateway's standard JSON error envelope:
+On every route except `/v1/messages`, the response body is the gateway's standard JSON error envelope:
 
 ```json
 {
@@ -131,6 +131,19 @@ The response body is the gateway's standard JSON error envelope:
     "message": "Tenant rate limit exceeded for this request",
     "param": null
   }
+}
+```
+
+On `/v1/messages`, the denial body is re-shaped into the [Messages API's error envelope](api/messages.md#errors) instead. The **429** status, the `X-SMG-Error-Code` header, and `Retry-After` carry over unchanged, but the body carries no `code` or `param` field — the machine-readable code travels only in the header:
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "rate_limit_error",
+    "message": "Tenant rate limit exceeded for this request"
+  },
+  "request_id": "msg_abc123"
 }
 ```
 

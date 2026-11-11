@@ -90,6 +90,8 @@ A few accounting details avoid over- or under-charging a tenant:
 
 A denied reservation returns **429** with the gateway's standard JSON error envelope (`X-SMG-Error-Code: tenant_rate_limit_exceeded`). When the wait is finite, the response also carries `Retry-After: <seconds>`. When the request's estimated cost exceeds the tenant's *total* capacity — meaning it could never be admitted no matter how long the client waits — `Retry-After` is omitted rather than sent as an effectively-infinite number.
 
+On `/v1/messages`, the denial body is re-shaped into the [Messages API's error envelope](../../reference/api/messages.md#errors) instead; the **429** status, the `X-SMG-Error-Code` header, and `Retry-After` carry over unchanged.
+
 ---
 
 ## Current scope

@@ -217,7 +217,7 @@ Observations the pressure sampler dropped, by family (`inter_token_latency`).
 
 ## Media Families
 
-Requests whose media the worker side processes. The three processing families are registered only on the vLLM wire, when the servicer starts, so they are on the first scrape at zero even while no request carries media; no other wire exports them. The SGLang wire's worker-side media shows only in `smg_servicer_media_identity_total`, whose outcome series appear at their first count; TokenSpeed and TensorRT-LLM export no media series.
+Requests whose media the worker side handles. The three processing families are registered only on the vLLM wire, when the servicer starts, so they are on the first scrape at zero even while no request carries media; no other wire exports them. The SGLang wire's worker-side media shows only in `smg_servicer_media_identity_total`, whose outcome series appear at their first count; TokenSpeed and TensorRT-LLM export no media series.
 
 ### `smg_servicer_media_items_per_request`
 
@@ -245,7 +245,9 @@ Requests with worker-side media, by outcome: `ok`, `refused` (before processing:
 
 ### `smg_servicer_media_identity_total`
 
-SGLang requests' worker-side media preprocessing and [prefill-decode](../concepts/architecture/multimodal.md#prefill-decode-disaggregation) media reuse, by outcome: `processed` (the servicer handed a request's media references — image or video URLs without pixels — to its media processor; counted at the handoff, so a failed attempt counts), `prepared` (a prefill servicer built a validated pixel-less identity — token ids, placeholder ranges and grid tensors — and returned it early for its decode peer), `reused` (a decode servicer accepted the identity a request carried and skipped refetching and reprocessing the media), `fallback` (the request carried an identity that was not accepted — the servicer is not the decode side, reuse is not enabled, or validation failed — so the original inputs were kept and the media processed as usual). Recorded only on the `sglang` wire. Nothing is registered up front: an outcome's series appears at its first count. One request can count under more than one outcome: a fallback that then reprocesses also counts `processed`, and a prefill request that preprocesses counts `processed` and then `prepared`.
+SGLang requests' worker-side media preprocessing and [prefill-decode](../concepts/architecture/multimodal.md#prefill-decode-disaggregation) media reuse, by outcome: `processed` (the servicer handed a request's media references — image or video URLs without pixels — to its media processor; counted at the handoff, so a failed attempt counts), `prepared` (a prefill servicer built a validated pixel-less identity — token ids, placeholder ranges and grid tensors — and returned it early for its decode peer), `reused` (a decode servicer accepted the identity a request carried and skipped refetching and reprocessing the media), `fallback` (the request carried an identity that was not accepted — the servicer is not the decode side, reuse is not enabled, or validation failed — so the original inputs were kept and the media processed as usual).
+
+Recorded only on the `sglang` wire. Nothing is registered up front: an outcome's series appears at its first count. One request can count under more than one outcome: a fallback that then reprocesses also counts `processed`, and a prefill request that preprocesses counts `processed` and then `prepared`.
 
 | Type | Labels |
 |------|--------|

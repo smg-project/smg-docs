@@ -11,7 +11,7 @@ Connect SMG to an MCP server and let the model call its tools through `/v1/respo
 #### Before you begin
 
 - Completed the [Getting Started](index.md) guide
-- SMG serving a model that supports tool calling, from gRPC workers or an OpenAI-compatible provider
+- SMG serving a model that supports tool calling, from gRPC or ZMQ workers or an OpenAI-compatible provider
 - An MCP server that speaks Streamable HTTP, or a local MCP server that runs over stdio
 
 </div>

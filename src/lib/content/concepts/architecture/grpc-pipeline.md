@@ -163,7 +163,9 @@ A checkpoint may also ship a processor `chat_template.json` beside the tokenizer
 
 Templates render with minijinja 2.24, so two Python Jinja2 behaviors work: conditional expressions inside keyword arguments (`namespace(name=x if x else '')`) compile, and booleans and none render as `True`, `False` and `None`.
 
-A checkpoint that ships the Mistral family's `tekken.json` vocabulary file renders its Jinja templates the way the family's reference library builds a prompt: the control tokens the template writes — `[INST]`, `</s>` and the rest, the `bos_token` and `eos_token` variables it reads included — encode as the control tokens, while the same spellings typed into a request (message content, tool definitions, documents or `chat_template_kwargs`) stay plain text. The rule follows the file, whether the gateway loads the `tekken.json` itself or a `tokenizer.json` beside it, and a template given by a model card or `--chat-template` renders under the same rule. It applies only to prompts the gateway renders: a flat encode — [`/v1/tokenize`](../../getting-started/tokenization-and-parsing.md#tokenize) or the Python library's `encode` — still reads a control spelling as its token.
+A checkpoint that ships the Mistral family's `tekken.json` vocabulary file renders its Jinja templates the way the family's reference library builds a prompt: a control token the template writes — `[INST]`, `</s>` and the rest, the `bos_token` and `eos_token` variables it reads included — encodes as its token, while the same spelling typed into a request (message content, tool definitions, documents or `chat_template_kwargs`) stays plain text.
+
+The rule follows the file, whether the gateway loads the `tekken.json` itself or a `tokenizer.json` beside it, and a template given by a model card or `--chat-template` renders under the same rule. It applies only to prompts the gateway renders: a flat encode — [`/v1/tokenize`](../../getting-started/tokenization-and-parsing.md#tokenize) or the Python library's `encode` — still reads a control spelling as its token.
 
 ### Native Renderers
 

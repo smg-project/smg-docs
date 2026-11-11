@@ -136,7 +136,7 @@ The other paths also budget MCP calls, but enforce the limit differently:
 | Path | Limit | When the limit is reached |
 |------|-------|---------------------------|
 | gRPC workers, gpt-oss (Harmony) models | `max_tool_calls` MCP calls (at most 10), and at most 10 model turns | The batch that would exceed the budget is not executed. The response ends with `status: "failed"` and `error.code` `max_tool_calls_exceeded`; a stream ends with a `response.failed` event carrying the same error. More than 10 turns end the request with an error. |
-| OpenAI-compatible provider | `max_tool_calls` MCP calls (at most 10) | The response completes with `incomplete_details.reason` `max_tool_calls`, and calls that did not run appear as failed `mcp_call` items. A stream ends normally with `response.completed` carrying the same response record. |
+| OpenAI-compatible provider | `max_tool_calls` MCP calls (at most 10) | The response completes with `incomplete_details.reason` `max_tool_calls`. Each call that did not run appears in its own output format with `status: "failed"`: an `mcp_call` whose `error` says `Not executed - response stopped due to limit`, or, for a tool with a hosted [response format](#built-in-tools-and-response-formats), its hosted item such as `web_search_call`. A stream ends normally with `response.completed` carrying the same response record. |
 | Messages API (Anthropic provider) | At most 10 rounds of tool calls | Non-streaming requests fail with `502` and code `mcp_max_iterations`. Streaming responses end with an `error` event. |
 
 On the OpenAI-compatible provider and in the Messages API, SMG runs every tool call in the loop through MCP, so a call to one of the client's own function tools comes back to the model as a failed tool call. Mix client function tools with MCP tools only on gRPC workers.
@@ -200,7 +200,7 @@ A failed call does not fail the request. SMG sends the error back to the model a
 - `error` follows OpenAI's `mcp_call.error` schema: `mcp_protocol_error` and `http_error` (each with `code` and `message`), or `mcp_tool_execution_error` (with `content`). SMG emits `mcp_tool_execution_error`.
 - A legacy item whose `error` is a plain string, such as one stored by an older SMG, still parses, with its `error` converted to `mcp_tool_execution_error`.
 - For regular (non-Harmony) models in streaming mode, SMG also sends a `response.mcp_call.failed` event. Its `error` field is the plain message, an SMG extension.
-- Hosted-tool items such as `web_search_call` always end as `completed`. Failure details are in their content.
+- Hosted-tool items such as `web_search_call` end as `completed` whenever the call ran, even when it failed; the failure details are in their content. The exception is a call that did not run because the OpenAI-compatible provider's [tool-call limit](#other-paths) stopped the loop before it: its hosted item has `status: "failed"`.
 - On the OpenAI-compatible provider, non-streaming responses currently report a failed call as a `completed` `mcp_call` with the error text in `output`.
 
 ---

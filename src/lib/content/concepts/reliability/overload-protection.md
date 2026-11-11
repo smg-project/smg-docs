@@ -282,12 +282,12 @@ X-SMG-Error-Code: worker_overload_protection_shed
 
 ## Load Monitoring
 
-The load monitor feeds overload protection, the load-aware routing policies (`cache_aware`, `power_of_two`, `least_load`), [`GET /loads`](../../reference/api/admin.md#get-loads), the `engine_load` field of `GET /workers`, and the `smg_engine_*` gauges. Every worker has live load state from registration onward, whatever the routing policy and whether or not anything consumes the data: each group is polled at `--load-monitor-interval`, and a gRPC worker whose stream delivers load records is served by the stream, with the poll as its fallback (see [Polling](#polling)).
+The load monitor feeds overload protection, the load-aware routing policies (`cache_aware`, `power_of_two`, `least_load`), [`GET /loads`](../../reference/api/admin.md#get-loads), the `engine_load` field of `GET /workers`, and the `smg_engine_*` gauges. It covers every worker from registration onward, whatever the routing policy and whether or not anything consumes the data: each group is polled at `--load-monitor-interval`, and a gRPC worker whose stream delivers load records is served by the stream, with the poll as its fallback (see [Polling](#polling)).
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--load-monitor-interval` | `10` | Seconds between polls of each worker group. Must be `> 0`. Also the `Retry-After` value on overload sheds. |
-| `--disable-load-monitoring` | off | A group is polled only when a load-aware policy (or `--dp-minimum-tokens-scheduler`), `--engine-metrics`, or overload protection on one of its workers needs the data. The same gate decides whether a gRPC worker's load-record stream is opened: a worker nothing needs load data for is neither polled nor subscribed. It never stops the loads that routing or protection depends on; with the default `cache_aware` policy, groups are still polled. |
+| `--disable-load-monitoring` | off | A group is polled only when a load-aware policy (or `--dp-minimum-tokens-scheduler`), `--engine-metrics`, or overload protection on one of its workers needs the data. The same gate decides whether a gRPC worker's records-only load stream is opened: a worker nothing needs load data for is neither polled nor subscribed. It never cuts off a load feed that routing or protection depends on; with the default `cache_aware` policy, groups are still polled. |
 | `--engine-metrics` | off | Forces polling so the `smg_engine_*` gauges are populated when nothing else needs the data. Only matters together with `--disable-load-monitoring`: by default every successful poll is already exported. The Python launchers do not accept this flag. |
 
 See [Load Monitoring Configuration](../../reference/configuration.md#load-monitoring-configuration) for the full reference.

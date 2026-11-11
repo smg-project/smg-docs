@@ -56,7 +56,7 @@ Loading runs in the background. Poll [Get Tokenizer Status](#get-tokenizer-statu
 }
 ```
 
-A gateway whose job queue is not up, or whose queue took no job (full, or shutting down), answers `503` (`SERVICE_UNAVAILABLE`) in the same envelope.
+When the gateway's job queue is not running or does not accept the job (full, or shutting down), the response is `503` with code `SERVICE_UNAVAILABLE` in the same envelope.
 
 ---
 

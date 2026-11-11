@@ -221,13 +221,13 @@ See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for 
 | `smg_mm_timing process_multimodal_plan` | Media counts (`image_count`, `audio_count`, `video_count`, `video_frame_count`), per-phase times (`media_fetch_decode_ms`, `config_lookup_ms`, `preprocess_ms`, `token_expand_ms`, `total_ms`), and token counts before and after placeholder expansion (`original_tokens`, `expanded_tokens`) |
 | `smg_mm_timing mm_tensor_payload_inline`, `smg_mm_timing mm_shm_write` | Tensor transport: inline sends and shared-memory writes |
 | `smg_mm_timing assemble_tokenspeed`, `smg_mm_timing assemble_tokenspeed_item`, `smg_mm_timing tokenspeed_shm_write_direct` | TokenSpeed request assembly |
-| `smg_mm_timing video_decode_backend`, `smg_mm_timing video_tempfile_write` | Video decoding (target `llm_multimodal::media`) |
+| `smg_mm_timing video_decode_backend`, `smg_mm_timing video_tempfile_write` | Video decoding (target `llm_multimodal::media`). These two lines are enabled only by the `SMG_LOG_MM_TIMING` environment variable; `--log-mm-timing` does not turn them on |
 
 ```bash
 smg launch --worker-urls grpc://worker:50051 --model-path Qwen/Qwen2.5-VL-7B-Instruct --log-mm-timing
 ```
 
-The older `SMG_LOG_MM_TIMING` environment variable (`1`, `true`, `yes`, or `on`) still turns the logs on when the flag is absent, but it is deprecated: SMG logs a warning, and support ends in the next minor release.
+The older `SMG_LOG_MM_TIMING` environment variable (`1`, `true`, `yes`, or `on`) still turns the logs on when the flag is absent, and it is the only switch for the two video-decoding lines, but it is deprecated: SMG logs a warning, and support ends in the next minor release.
 
 The timing lines do not record where each request's media is processed; the `smg_mm_processing_total` metric counts that, labeled with the model, the processing location (`router` or `worker`), and the reason. See the [Metrics Reference](../reference/metrics.md#multimodal-metrics) for the reason values and [Multimodal](../concepts/architecture/multimodal.md) for the processing pipeline.
 
@@ -501,6 +501,8 @@ smg launch \
 ### Request ID Propagation
 
 Every request to the main listener gets an ID. SMG takes it from the first of these request headers that is present: `x-request-id`, `x-correlation-id`, `x-trace-id`, `request-id` (replace the list with `--request-id-headers`). Otherwise it generates one with an OpenAI-style prefix (`chatcmpl-`, `cmpl-`, `gnt-`, `resp-`, `msg_`, or `req-`) followed by 24 random letters and digits. The ID is returned in the `x-request-id` response header and recorded as `request_id` on the request's `http_request` span, so it appears on the lines logged while the request is handled, as long as SMG logs at `info` or more verbose. A request in the Messages API's shape — one to `/v1/messages`, or one carrying an `anthropic-version` header — is answered with the same ID in a `request-id` header too, which the Anthropic SDKs read; a `request-id` the response already carries, such as one relayed from a proxied upstream, is kept.
+
+SMG honors an inbound ID only when it is 1 to 128 visible ASCII characters. A value that is empty, longer, or contains a space, control character, or non-ASCII byte is dropped (never echoed or logged) and a fresh ID is generated instead. Either way, the chosen ID is written back onto the request header as its only value, so the worker receives the same ID the gateway logs and returns.
 
 ```bash
 # Send request with custom ID

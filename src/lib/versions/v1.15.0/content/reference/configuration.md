@@ -272,7 +272,7 @@ These flags cap how many Prefill requests the gateway keeps in flight on each pr
 |--------|---------|-------------|
 | `--prefill-max-inflight-requests-per-worker` | `-1` (off) | Maximum in-flight Prefill requests per prefill worker. Any value of 0 or less turns the gate off, and setting either queue flag then fails startup validation. A positive value requires PD or EPD mode and is rejected together with `--priority-scheduler-enabled`. |
 | `--prefill-queue-size` | unset (`100` with the gate on) | Requests that may wait for a Prefill slot. A request that finds the queue full, or no queue (`0`), gets `429` (`pd_prefill_queue_full`). |
-| `--prefill-queue-timeout-secs` | unset (`60` with the gate on) | Maximum time a request waits for a Prefill slot before it gets `429` (`pd_prefill_queue_timeout`). Must be greater than 0 when the queue is on; the check applies the defaults, so an explicit `0` passes startup validation only next to `--prefill-queue-size 0`. |
+| `--prefill-queue-timeout-secs` | unset (`60` with the gate on) | Maximum time a request waits for a Prefill slot before it gets `429` (`pd_prefill_queue_timeout`). On the gRPC router the wait is also capped by `--queue-timeout-secs`, counted from admission, past which the request gets `503` (`selection_queue_timeout`). Must be greater than 0 when the queue is on; the check applies the defaults, so an explicit `0` passes startup validation only next to `--prefill-queue-size 0`. |
 
 ### Worker Startup Configuration
 
@@ -603,7 +603,7 @@ Gateway-wide admission control for the inference routes. For behavior and sizing
 |--------|---------|-------------|
 | `--max-concurrent-requests` | `-1`: 1024 per available core, at least 4096 | Maximum standing concurrent requests. Each admission permit is held for the full response, including streaming bodies. `-1` (the default) derives the cap from the host; `0` disables the limit. |
 | `--queue-size` | `100` | Requests that may wait for a permit when the limit is reached. A request that finds the queue full, or no queue (`0`), gets `429` (`admission_queue_full`). |
-| `--queue-timeout-secs` | `60` | Maximum time a request waits in the queue before it gets `503` (`admission_queue_timeout`). Must be greater than 0 when `--queue-size` is greater than 0. |
+| `--queue-timeout-secs` | `60` | Maximum time a request waits in the queue before it gets `503` (`admission_queue_timeout`). On the gRPC router (gRPC and ZMQ workers) it also bounds how long a request may spend inside the gateway before worker selection, counted from its admission (or its acceptance when no admission layer runs) and including the prefill-admission wait of a PD or EPD request; a request over it gets `503` (`selection_queue_timeout`). The HTTP router and the HTTP PD router are not bounded this way. Must be greater than 0 when `--queue-size` is greater than 0. |
 | `--rate-limit-tokens-per-second` | unset | Refill rate of the admission token bucket, whose capacity is `--max-concurrent-requests`. It has no effect while that limit is off. Unset or `0` means no refill: `--max-concurrent-requests` bounds standing concurrency alone. A positive value adds a sustained admission rate on top of the concurrency cap: admission spends budget that only the refill replaces, bursting up to the capacity, while a finished request frees its concurrency slot but returns no budget, so requests in flight never exceed `--max-concurrent-requests`. With `--priority-scheduler-enabled`, a positive value instead caps admissions at this many requests per second, in bursts of up to `--max-concurrent-requests`; excess requests get `429` (`scheduler_queue_full`). Must be 0 or more. |
 
 ---
@@ -614,7 +614,7 @@ Priority-aware admission, disabled by default. The YAML format, request header, 
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--priority-scheduler-enabled` | `false` | Use the priority-aware admission scheduler instead of the concurrency-limit middleware. If the scheduler cannot start, the gateway logs an error and keeps the legacy path. |
+| `--priority-scheduler-enabled` | `false` | Use the priority-aware admission scheduler instead of the concurrency-limit middleware. A bad scheduler configuration (an unreadable or unparsable YAML file, an unknown key or class name, a value that fails validation) stops the gateway at startup. Only reservations that exceed the fleet's initial capacity make the gateway log an error and keep the legacy path. See [Startup behavior](priority-scheduler.md#cli-flags). |
 | `--priority-scheduler-default-max-class` | `default` | Maximum priority class for tenants not listed in the YAML: `system`, `interactive`, `default`, or `bulk`. Case-insensitive, surrounding spaces ignored. With the scheduler enabled, an unknown value is a configuration error at start-up (the error names the four classes); the flag is not read otherwise. |
 | `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class tuning and per-tenant policy). Unset uses the built-in defaults. |
 | `--priority-scheduler-tenant-metric-top-n` | `32` | Bound on the `tenant` label of the scheduler's clamp and unknown-priority counters: the first N tenant keys keep a series of their own, every later one counts under `other`, so a client-chosen tenant population cannot grow the series set. |

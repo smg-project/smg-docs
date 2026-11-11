@@ -341,7 +341,7 @@ Requests processed by the router, counted once at request entry. A request the g
 | Counter | `router_type`, `backend_type`, `connection_mode`, `model`, `endpoint`, `streaming` |
 
 - `router_type`: `http`, `grpc`, `openai`
-- `backend_type`: `regular`, `pd` (prefill-decode and encode-prefill-decode), `external`. The latency and token families below also use `harmony`, for Harmony-mode (gpt-oss) chat on the gRPC router.
+- `backend_type`: `regular`, `pd` (prefill-decode and encode-prefill-decode), `external`. The latency and token families below, `smg_router_request_errors_total` (for Harmony stream failures), and the two PD first-token histograms (`smg_pd_ttft_seconds`, `smg_pd_decode_ttft_seconds`) also use `harmony`, for Harmony-mode (gpt-oss) chat on the gRPC router.
 - `connection_mode`: `http`, `grpc`, `websocket`, `webrtc`. Requests to ZMQ workers run through the gRPC pipeline and are counted with `router_type="grpc"` and `connection_mode="grpc"`.
 - `endpoint`: `chat`, `generate`, `completions`, `responses`, `messages`, `decisions`, `systemone`, `interactions`, `embeddings`, `classify`, `rerank`, `audio_transcriptions`, `realtime`, `realtime_sessions`, `realtime_client_secrets`, `realtime_transcription`, or `other` for routes without a dedicated label
 - `streaming`: `true`, `false`
@@ -618,7 +618,7 @@ Whole Messages responses a table read that the gateway refused (HTTP 500), by ta
 
 Signals that only the gateway can measure, because it is the one component that sees both the prefill and the decode leg of a disaggregated request. Durations are recorded once per request, not per retry attempt. See [PD Disaggregation](../concepts/routing/pd-disaggregation.md).
 
-The duration histograms share the labels `backend_type` (always `pd`), `model`, and `runtime`, the worker's runtime type (for example `sglang`, `vllm`, or `tokenspeed`).
+The duration histograms share the labels `backend_type`, `model`, and `runtime`. `backend_type` is `pd`, except that Harmony-mode (gpt-oss) requests served prefill-decode record `smg_pd_ttft_seconds` and `smg_pd_decode_ttft_seconds` with `harmony`, so a `{backend_type="pd"}` filter leaves them out. `runtime` is the worker's runtime type (for example `sglang`, `vllm`, or `tokenspeed`).
 
 #### `smg_pd_ttft_seconds`
 

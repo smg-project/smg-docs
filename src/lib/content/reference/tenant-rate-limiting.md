@@ -134,6 +134,8 @@ The response body is the gateway's standard JSON error envelope:
 }
 ```
 
+On `/v1/messages`, the denial body is re-shaped into the [Messages API's error envelope](api/messages.md#errors) instead: `{"type": "error", "error": {"type": "rate_limit_error", "message": ...}, "request_id": ...}`. The body carries no `code` or `param` field — the machine-readable code travels only in the `X-SMG-Error-Code` header — and the **429** status and `Retry-After` carry over unchanged.
+
 !!! tip "When `Retry-After` is absent"
     If the request's estimated token cost exceeds the scope's *total* capacity — meaning no amount of waiting would ever admit it — the gateway omits `Retry-After` instead of sending an effectively-infinite wait time. Every other denial (the budget is just temporarily exhausted) carries a real `Retry-After` value.
 

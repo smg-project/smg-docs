@@ -221,6 +221,7 @@ smg/
 │   ├── engine_zmq_adapter/     # engine-zmq-adapter: translates each engine's gRPC proto to the same-host ZMQ engine wire
 │   ├── engine_zmq_client/      # engine-zmq-client: ZMQ transport for same-host engine connections
 │   ├── external_router/        # smg-external-router: third-party provider routers
+│   ├── gateway_perf/           # gateway-perf: the gateway's cost per request, base against head, on a CPU mock bed (the perf-* make targets)
 │   ├── grpc_client/            # smg-grpc-client: engine gRPC clients, .proto files, Python and Go packages
 │   ├── kv_index/               # kv-index: radix trees for cache-aware routing
 │   ├── mcp/                    # smg-mcp: Model Context Protocol client
@@ -580,6 +581,10 @@ cargo bench --locked --bench tool_parser_benchmark
 ```
 
 When a PR touches benchmarked code, the matching `benchmark-*` workflow (manual policy, radix tree, request processing, tokenizer, or tool parser) runs its benchmark. The GPU `benchmarks` job (`e2e_test/benchmarks`, driven by genai-bench) is advisory: a missed latency threshold is reported as a warning and does not block merge.
+
+To measure what a gateway change costs or saves per request — on CPU alone, with no GPU and no engine — `crates/gateway_perf` (the `perf-*` make targets) runs an A/B bed that compares a base revision with your working tree: one release-build gateway in front of mock engines that answer from a script, loaded by an open-loop client. Run `make perf-base` once to build the base gateway (`origin/main`, or `PERF_BASE_REV=<rev>`), then `make perf-alloc` (allocation calls and KiB requested per request, which don't move with machine load) and `make perf-cpu` (instructions and cycles per request where `perf stat` can count them, and CPU time per request always). Each run prints a Numbers table ready for a pull-request body; `make perf-report PERF_OUT=target/gateway-perf/<stamp>/<target>` reprints it.
+
+`make perf-mem` watches RSS growth across request windows on one gateway per side (base against head), `make perf-live` ramps the offered rate to find the capacity under SLO flags, and `make perf-bed` smoke-tests the bed. `PERF_PATHS` selects the request paths to measure (one cell per path), `PERF_REQUESTS` sets the requests per cell (`perf-mem` takes `PERF_MEM_PATHS` and `PERF_MEM_REQUESTS` instead), `PERF_REPEATS` sets the interleaved repeats per side on `perf-cpu` and `perf-alloc`, and `PERF_GATES` names a threshold file for a verdict column. `crates/gateway_perf/README.md` describes the available request paths and engine fleets and how to read the numbers.
 
 ---
 

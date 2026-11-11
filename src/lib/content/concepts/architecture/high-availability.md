@@ -178,7 +178,9 @@ With the flags set, the mesh listener serves TLS with the node's certificate and
 
 Issue every router a certificate from the same CA that carries the node's IP — the address its peers dial, so its `--mesh-advertise-host` — as an IP SAN. A dial verifies the peer's certificate against the address it dials, and mesh addresses are always IPs (see the note above), so a certificate with only a hostname never matches. An IPv6 node's SAN is the unbracketed address: `fd00::7`, not `[fd00::7]`.
 
-The private key must be PKCS#8 PEM. Each of the three files must exist and be readable at startup, or the router fails to start with an error naming the flag whose file it cannot read; the router also warns when the key file is readable or writable by its group or by others. The mesh listener reads the certificate and key once at startup and does not reload them; to rotate certificates, restart the router.
+The private key must be PKCS#8 PEM. Each of the three files must exist and be readable at startup, or the router fails to start with an error naming the flag whose file it cannot read. A file that is readable but holds no usable material — a certificate file with no certificate in it, a key file holding something other than the key, an empty CA file — also keeps the router from starting, rather than leaving it running outside the mesh.
+
+The router warns when the key file is readable or writable by its group or by others. The mesh listener reads the certificate and key once at startup and does not reload them; to rotate certificates, restart the router.
 
 Configure every router in the cluster the same way: a router with the flags serves and dials only TLS, a router without them only plaintext, so a mixed cluster's routers cannot reach each other.
 
@@ -633,6 +635,8 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 | Startup fails with `Invalid mesh peer URL` (Python CLI) or `Invalid value for field 'mesh_peer_urls'` (Rust binary) | A peer address is a hostname | Pass `IP:port`; on Kubernetes, use router discovery |
 | Startup fails with `mesh advertise address cannot be unspecified` | `--mesh-host` is `0.0.0.0` and `--mesh-advertise-host` is unset | Set `--mesh-advertise-host` to the node's IP |
 | Startup fails with `mesh port cannot be 0` | `--mesh-port 0` | Use a fixed port |
+| Startup fails with `Failed to bind the mesh listener on <addr> (--mesh-port): Address already in use` | Another process holds the mesh port | Stop that process or pick another `--mesh-port` |
+| Startup fails with `Failed to start the mesh server` and `the mesh TLS material cannot be used for the mesh listener` | A `--mesh-tls-*` file exists but cannot be used: a certificate file with no certificate in it, a key file holding something other than the key, or an empty CA file | Check that `--mesh-tls-cert` holds the node certificate, `--mesh-tls-key` its PKCS#8 key, and `--mesh-tls-ca-cert` the CA certificate; see [Mesh mTLS](#mesh-mtls) |
 | A router logs `No peer address available to connect` every round | No `--mesh-peer-urls` is set and no peer has joined its membership table (for example, router discovery found none) | Set `--mesh-peer-urls` to another router's `IP:port`, or configure router discovery |
 | A joining router logs `Error connecting to peer init_peer` with growing retry delays | Its `--mesh-peer-urls` peer is not reachable yet | The dial is retried with backoff and the routers join once the peer is up; if it never connects, check the address, port, and network path |
 | A router stays out of the mesh after a restart or partition | Its peers hold it as `DOWN` or `LEAVING` and no longer probe it | Restart it under a new name, or use router discovery; see [Node Status States](#node-status-states) |

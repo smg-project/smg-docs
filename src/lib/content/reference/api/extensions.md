@@ -64,7 +64,7 @@ These run behind protected-route auth middleware:
 
 `/rerank` and `/v1/rerank` score a request's `documents` against its `query` and answer the ranked results. Regular HTTP workers serve the request at their own `POST /v1/rerank`, and a disaggregated HTTP deployment serves it through its prefill/decode pair (see [PD disaggregation](../../concepts/routing/pd-disaggregation.md)); other backends answer `501` with code `rerank_not_implemented`.
 
-The native `/rerank` body requires `model` (which selects the worker), a non-empty `query`, and a non-empty `documents` array of strings, and takes an optional `top_k` (at least 1; all documents when absent), `return_documents` (default `true`), `rid` (a request ID, string or array, echoed as the response `id`), and `user`; a body that fails these checks answers `400`.
+The native `/rerank` body requires `model` (which selects the worker), a non-blank `query`, and a non-empty `documents` array of strings, and takes an optional `top_k` (at least 1; all documents when absent), `return_documents` (default `true`), `rid` (a request ID, string or array), and `user`; a body that fails these checks answers `400`.
 
 `/v1/rerank` takes the OpenAI-compatible shape: the same fields with `model` optional and the limit spelled `top_n` (the native `top_k` spelling is read too; absent and `0` both mean all documents).
 

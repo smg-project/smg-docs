@@ -194,7 +194,11 @@ Reviews follow [REVIEW.md](https://github.com/smg-project/smg/blob/main/REVIEW.m
 - Focus on logic errors, security problems, missing error handling (swallowed errors, silent fallbacks to defaults), incorrect defaults or config values, and broken cross-references. Skip formatting-only changes and dependency bumps with no code changes.
 - Approve small, clean PRs fast. The faster the turnaround, the fewer giant PRs reviewers face later.
 
-REVIEW.md also lists the subsystem pitfalls reviewers look for; config changes, for example, must reach the CLI arguments (`main.rs`), `config/types.rs`, the two conversion paths in `cli/configure.rs`, the Python bindings, and the Go SDK. Automated reviewers comment on PRs as well: CodeRabbit, and, for branches pushed to smg-project/smg rather than forks, a Claude-based review that uses the same severity markers.
+REVIEW.md also lists the subsystem pitfalls reviewers look for; config changes, for example, must reach the CLI arguments (`main.rs`), `config/types.rs`, the two conversion paths in `cli/configure.rs`, the Python bindings, and the Go SDK.
+
+Two automated reviewers, Claude (`claude[bot]`) and Codex (`smg-codex-review[bot]`), review every pull request — drafts included — that a user with write access opens from a branch of smg-project/smg; a pull request from a fork gets neither. Each announces itself on the PR when it starts, reviews a new push incrementally, and posts inline comments with the severity markers above. Each requests changes when it finds a 🔴 Important issue and approves when it finds none; a later push that settles the findings lifts the request — Codex approves, while Claude dismisses its request on the incremental review and approves on its next full one. The two also grade each other's root findings in-thread with 🤝 Agree, ⚠️ Disagree, or ❓ Unsure, so a disputed comment shows both views.
+
+Commenting `@claude review` or `@codex review` on the PR runs a fresh full review. A reply in a thread Codex opened — or a comment in any review thread that mentions `@codex` — gets an answer from Codex in that thread. All of these are ignored on forks and from users without write access.
 
 ---
 

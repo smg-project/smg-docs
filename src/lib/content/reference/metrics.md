@@ -1112,7 +1112,9 @@ KV event batches received, by worker and what the subscriber did with each.
 |------|--------|
 | Counter | `worker`, `disposition` |
 
-Dispositions: `applied` (a live batch applied to the index), `snapshot` (a chunk of a relay's state snapshot, applied in place of the worker's earlier state), `stale` (a sequence number the rank's cursor had already passed, skipped), `load_only` (a batch carrying the engine's load record and no cache events: the load is read, nothing is indexed).
+Dispositions: `applied` (a live batch applied to the index), `snapshot` (a chunk of a relay's state snapshot, applied in place of the worker's earlier state), `stale` (a sequence number the rank's cursor had already passed, skipped), `load_only` (a batch carrying the engine's load record and no cache events: the load is read, nothing is indexed), `other_rank` (under `--dp-aware`, another data-parallel rank's batch or snapshot chunk: it moves that rank's cursor, but its blocks are that rank's cache and stay out of this worker's index), `not_indexed` (a batch carrying cache events on a stream opened for the worker's load records alone, from a servicer too old to honor that request: any load record it carries is read, its events are dropped).
+
+Under `--dp-aware` an engine's ranks register as separate workers that share the engine's one event stream, which carries every rank's batches. Each rank's worker runs every batch through admission — all ranks' cursors move, and gaps are detected as on a worker that stands for its whole engine — but indexes only its own rank's batches and those that name no rank, which belong to every rank; another rank's batches count as `other_rank`.
 
 #### `smg_kv_event_gaps_total`
 
@@ -1123,6 +1125,8 @@ Sequence gaps in a worker's KV event stream, by outcome.
 | Counter | `worker`, `outcome` |
 
 Outcomes: `replay_requested` (the first sight of a gap: the subscriber reconnects asking the publisher to replay the missing batches), `unrecovered_kept` (the replay did not bring them and the stream went on from the live events with the worker's index kept; the rank counts as degraded), `unrecovered_cleared` (the same for a gap too large to keep the index: the worker's index state was cleared first).
+
+On a rank's worker under `--dp-aware` the outcomes cover every rank of the shared stream, but another rank's unrecovered gap touches only that rank's cursor: `unrecovered_cleared` clears nothing there, and `smg_kv_event_degraded_ranks` counts only the ranks whose batches the worker indexes.
 
 #### `smg_kv_event_missed_batches_total`
 
@@ -1145,6 +1149,8 @@ Reasons: `publisher_restart` (a rank's sequence numbers started over), `out_of_r
 #### `smg_kv_event_degraded_ranks`
 
 Data-parallel ranks of the worker whose index may be stale: a gap that was not replayed, or a relay snapshot that started after the engine's earliest blocks. Back to `0` when the state is resynced.
+
+Under `--dp-aware` a rank's worker counts only the cursors whose batches it indexes: its own rank's, plus rank 0's once a batch that names no rank (which every rank's worker indexes) has arrived on rank 0's cursor. Another rank's unreplayed gap says nothing about this worker's index and does not show here.
 
 | Type | Labels |
 |------|--------|

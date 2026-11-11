@@ -436,7 +436,11 @@ When no prefill shares a protocol with any decode, requests fail with 503 `no_co
 
 ### Decode Admission Window (gRPC)
 
-Before a gRPC PD or EPD dispatch goes out, SMG claims one room for each backend request on the decode worker, within the running window that engine reports: SGLang's `max_running_requests` or TokenSpeed's `max_num_seqs` (the engines' `--max-running-requests` and `--max-num-seqs` flags). When the window is full, the request waits up to `--pd-admission-wait-secs` (default `30`) and is then shed with 503 `worker_overload_protection_shed` and a `Retry-After` header. `0` sheds immediately. Keep the wait well under the engine's bootstrap deadline (120 seconds on TokenSpeed). Decode workers that report no window, such as vLLM, are not gated. `smg_pd_admission_waits_total` counts dispatches admitted after a wait, and `smg_pd_admission_sheds_total` counts the sheds. See [Overload Protection](../reliability/overload-protection.md).
+Before a gRPC PD or EPD dispatch goes out, SMG claims one room for each backend request on the decode worker, within the running window that engine reports: SGLang's `max_running_requests`, or vLLM's and TokenSpeed's `max_num_seqs` (the engines' `--max-running-requests` and `--max-num-seqs` flags). When the window is full, the request waits up to `--pd-admission-wait-secs` (default `30`) and is then shed with 503 `worker_overload_protection_shed` and a `Retry-After` header. `0` sheds immediately. Keep the wait well under the engine's bootstrap deadline (120 seconds on TokenSpeed). Decode workers that report no window are not gated. The wait is first come, first served: a room that frees goes to the request that has waited longest for one.
+
+The decode pick prefers a partner with a free room — a room in its window that no claim holds and no waiting request is in line for. When some of the pick's candidates have one and others are full, the full ones are skipped for that pick; a candidate that reports no window always counts as having a room. When every candidate is full, the policy chooses as usual and the dispatch waits at its pick's gate.
+
+The `smg_pd_admission_window` gauge publishes each decode worker's window as the gate reads it, `0` when the engine reports none and the gate is off for that worker. `smg_pd_admission_waits_total` counts dispatches admitted after a wait, and `smg_pd_admission_sheds_total` counts the sheds. See [Overload Protection](../reliability/overload-protection.md).
 
 ### Context Length (gRPC)
 
@@ -550,6 +554,7 @@ Long prompts with short outputs need relatively more prefill capacity. Short pro
 | `smg_pd_rendezvous_failures_total` | Counter | `leg` (the worker type of the leg whose rendezvous failed), `phase` | A rendezvous failed: a bootstrap port did not accept the registration probe (`probe`); or, on the gRPC path, the same probe — rerun when a decode engine failed a request without a reason — found the prefill leg's port dead (`request`, counted on the prefill leg), or an engine reported that the legs never met (`bootstrap`) or that the KV handoff after they met failed (`transfer`) |
 | `smg_pd_admission_waits_total` | Counter | — | gRPC dispatches admitted after waiting for a decode slot |
 | `smg_pd_admission_sheds_total` | Counter | — | gRPC dispatches shed at the decode admission window |
+| `smg_pd_admission_window` | Gauge | `worker` | Each decode worker's running window as the admission gate reads it, set when the worker registers; `0` when the engine reports none and the gate is off for that worker |
 
 Related series:
 

@@ -83,7 +83,7 @@ POST /v1/messages
 | `container` | object | No | Container for code execution (beta). |
 | `mcp_servers` | array | No | MCP servers for the request (beta). Required when `tools` has an `mcp_toolset` entry; see [MCP Tools](#mcp-tools). |
 | `thread` | object | No | Open or continue a message thread (beta): `{"type": "create"}` stores the request and its answer under the answer's `id`, and `{"type": "continue", "previous_message_id": "msg_..."}` sends only the messages since that answer. See [Message Threads](#message-threads). |
-| `rid` | string | No | Extension: request ID passed to the backend for log correlation. On a [message thread](#message-threads) turn, SMG replaces it with an ID it mints; the client's value comes back as the answer's `request-id` header ([details](#request-ids-on-thread-turns)). |
+| `rid` | string | No | Extension: request ID passed to the backend for log correlation. On a [message thread](#message-threads) turn, SMG replaces it with an ID it mints; see [Request IDs on Thread Turns](#request-ids-on-thread-turns). |
 
 SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management`, are kept and forwarded to HTTP workers and the Anthropic API.
 
@@ -398,7 +398,9 @@ Returns the number of input tokens a Messages request would use, without generat
 | `thinking` | object | No | Thinking configuration. |
 | `output_config` | object | No | `effort` shapes the rendered prompt as it does on `/v1/messages`; a `format` is accepted but takes no part in the count. |
 
-There is no `max_tokens`. A `thread` field is refused with `400` (`thread_not_counted`), whatever its value: a count reads a whole conversation, so to count a [message thread](#message-threads)'s next turn, send the full conversation — `system`, `tools`, and all messages — without the `thread` field. Any other field, such as `context_management` or `mcp_servers`, is forwarded unchanged to HTTP workers; on gRPC and ZMQ backends such fields are accepted but take no part in the count, which uses only the fields above.
+There is no `max_tokens`. Any other field, such as `context_management` or `mcp_servers`, is forwarded unchanged to HTTP workers; on gRPC and ZMQ backends such fields are accepted but take no part in the count, which uses only the fields above.
+
+The one exception is `thread`, refused with `400` (`thread_not_counted`) whatever its value: a count reads a whole conversation, so to count a [message thread](#message-threads)'s next turn, send the full conversation — `system`, `tools`, and all messages — without the `thread` field.
 
 ### Example
 

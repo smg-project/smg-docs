@@ -217,7 +217,7 @@ Observations the pressure sampler dropped, by family (`inter_token_latency`).
 
 ## Media Families
 
-Requests whose media the worker side handles. The three processing families are registered only on the vLLM wire, when the servicer starts, so they are on the first scrape at zero even while no request carries media; no other wire exports them. The SGLang wire's worker-side media shows only in `smg_servicer_media_identity_total`, whose outcome series appear at their first count; TokenSpeed and TensorRT-LLM export no media series.
+Requests whose media the worker side handles. The three processing families are registered only on the vLLM wire, when the servicer starts, so they are on the first scrape at zero even while no request carries media; no other wire exports them. The SGLang wire records only `smg_servicer_media_identity_total`, whose outcome series appear at their first count; TokenSpeed and TensorRT-LLM export no media series.
 
 ### `smg_servicer_media_items_per_request`
 

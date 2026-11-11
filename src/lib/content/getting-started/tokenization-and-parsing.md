@@ -201,7 +201,7 @@ The result is a `RenderedChat` dict:
 |---|---|
 | `text` | The prompt text |
 | `token_ids` | The token IDs SMG feeds the model |
-| `from_text` | Whether `token_ids` is the flat encode of `text` (`encode(text, add_special_tokens=False)`). `False` for renderers that encode segment by segment — Kimi-K3, and DeepSeek V3.2 / V4 / V4.1 when message text spells a control token — whose IDs no encode of the text reproduces: use `token_ids`, never re-encode `text` |
+| `from_text` | Whether `token_ids` is the flat encode of `text` (`encode(text, add_special_tokens=False)`). `False` for a prompt encoded segment by segment, whose IDs no encode of the text reproduces: always on Kimi-K3; on DeepSeek V3.2 / V4 / V4.1 and on Mistral checkpoints that ship `tekken.json`, when request text spells a control token. Use `token_ids`, never re-encode `text` |
 | `generation_prompt` | Whether the renderer wrote its generation header after the conversation |
 | `continued_final_message` | Whether the renderer kept the final message open, as `continue_final_message` asks |
 | `warnings` | The rewrites SMG made to the request while rendering it, which serving only logs: tool-call `arguments` that are not a JSON object rendered as `{}`, message extensions of another provider's profile dropped, deprecated fields migrated |
@@ -275,7 +275,7 @@ Unpickling refuses, with `RuntimeError`, a reload that would not behave like the
 
 #### The Fingerprint
 
-`Tokenizer.fingerprint` digests everything the tokenizer's output follows from: the smg build, `model`, the chat template file, a file source itself, and the checkpoint's tokenizer and config files — `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, `vocab.json`, `merges.txt`, SentencePiece `.model` files, `.tiktoken` files, `.jinja` templates, `chat_template.json`, `config.json`, `generation_config.json` and DeepSeek V4.1's `encoding/encoding.py`. Two tokenizers with one fingerprint render and encode alike; the checkpoint's weights and other files don't enter it. The files are read and hashed once, at load, on the calling thread.
+`Tokenizer.fingerprint` digests everything the tokenizer's output follows from: the smg build, `model`, the chat template file, a file source itself, and the checkpoint's tokenizer and config files — `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, `vocab.json`, `merges.txt`, SentencePiece `.model` files, `.tiktoken` files, `tekken.json`, `.jinja` templates, `chat_template.json`, `config.json`, `generation_config.json` and DeepSeek V4.1's `encoding/encoding.py`. Two tokenizers with one fingerprint render and encode alike; the checkpoint's weights and other files don't enter it. The files are read and hashed once, at load, on the calling thread.
 
 Because the fingerprint is in the pickle, a cache keyed on the pickled bytes — `datasets.map`'s — recomputes after a chat template or tokenizer file changes, instead of reusing results the old files produced.
 

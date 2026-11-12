@@ -189,7 +189,7 @@ Under the same `router.metrics.serviceMonitor.enabled` flag, when at least one w
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `smg_worker_health` | Gauge | Health status (1=Ready, 0=not Ready, -1=removed) |
+| `smg_worker_health` | Gauge | Health status (1=Ready, 0=not Ready; a removed worker's series is dropped) |
 | `smg_worker_requests_active` | Gauge | Active requests per worker |
 | `smg_worker_cb_state` | Gauge | Circuit breaker state |
 | `smg_worker_retries_total` | Counter | Retry attempts |
@@ -458,7 +458,7 @@ count(smg_worker_health == 0)
 # Circuit breaker states
 count by (worker) (smg_worker_cb_state == 1)
 
-# Engine KV-cache usage per worker (removed and non-Ready workers report -1)
+# Engine KV-cache usage per worker (a worker out of Ready reports -1)
 max by (worker) (smg_engine_token_usage >= 0)
 ```
 

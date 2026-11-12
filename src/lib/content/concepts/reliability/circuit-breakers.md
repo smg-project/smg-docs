@@ -297,7 +297,7 @@ Once every worker for the model has an open circuit, requests get 503 `no_availa
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `smg_worker_cb_state` | Gauge | `worker` | Current state: `0` closed, `1` open, `2` half-open. Set to `-1` after the worker is removed |
+| `smg_worker_cb_state` | Gauge | `worker` | Current state: `0` closed, `1` open, `2` half-open. A removed worker's series is dropped from the scrape |
 | `smg_worker_cb_transitions_total` | Counter | `worker`, `from`, `to` | State transitions; `from` and `to` are `closed`, `open`, or `half_open` |
 | `smg_worker_cb_outcomes_total` | Counter | `worker`, `outcome` | Recorded outcomes, `success` or `failure`. Capacity pushback records nothing |
 | `smg_worker_cb_consecutive_failures` | Gauge | `worker` | Current consecutive-failure count |
@@ -367,8 +367,8 @@ groups:
           summary: "Circuit breaker open for {{ $labels.worker }}"
 
       - alert: AllCircuitsOpen
-        # Removed workers report -1, so compare against live workers only.
-        expr: count(smg_worker_cb_state == 1) == count(smg_worker_cb_state >= 0)
+        # Removed workers drop out of the scrape, so every series is a registered worker.
+        expr: count(smg_worker_cb_state == 1) == count(smg_worker_cb_state)
         for: 30s
         labels:
           severity: critical

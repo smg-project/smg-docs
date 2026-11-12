@@ -410,7 +410,7 @@ Both are recommended for production deployments. The hash-based policies (`consi
 | Metric | Labels | Description |
 |--------|--------|-------------|
 | `smg_worker_health_checks_total` | `worker_type`, `result` | Probe results; `result` is `success` or `failure` |
-| `smg_worker_health` | `worker` | `1` when the worker is `Ready`, `0` otherwise, and `-1` once the worker has been removed |
+| `smg_worker_health` | `worker` | `1` when the worker is `Ready`, `0` otherwise. A removed worker's series is dropped from the scrape |
 
 ### Useful PromQL Queries
 
@@ -469,8 +469,8 @@ groups:
           summary: "Worker {{ $labels.worker }} is unhealthy"
 
       - alert: MajorityUnhealthy
-        # Removed workers report -1, so count only registered ones
-        expr: count(smg_worker_health == 0) > count(smg_worker_health >= 0) / 2
+        # Removed workers drop out of the scrape, so every series is a registered worker.
+        expr: count(smg_worker_health == 0) > count(smg_worker_health) / 2
         for: 1m
         labels:
           severity: critical

@@ -1089,7 +1089,7 @@ On a build that can dump, every attempt increments `smg_allocator_prof_dumps_tot
 GET /config
 ```
 
-Returns the configuration this gateway process is running with, with every secret redacted: what is actually in force after flags, defaults, and key-file reloads, read from the gateway instead of its command line.
+Returns this gateway process's effective configuration with every secret redacted: what is actually in force after flags, defaults, and key-file reloads, read from the gateway instead of its command line.
 
 The route is mounted only when [control-plane auth](../../getting-started/control-plane-auth.md) is configured (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`). Without it the path does not exist and answers `404` like any unknown path — there is no `--api-key` fallback. The startup log's `GATED CONTROL-PLANE ROUTES` record says whether the route is mounted and, on a start that leaves it off, names the flags that mount it.
 

@@ -607,7 +607,7 @@ A later request may send an earlier answer's `mcp_tool_use` and `mcp_tool_result
 
 When SMG runs the tool loop itself, it rewrites each replayed exchange into the plain pair the model saw the first time, before calling the upstream: an `mcp_tool_use` becomes a `tool_use` block that stays in the assistant message, and its `mcp_tool_result` becomes a `tool_result` block that opens a user message right after it, both under the ids the answer carries. A block of another kind after the results, such as the answer's final text, starts the next assistant message. Consecutive call-and-result pairs — how a non-streaming answer records parallel calls — stay together as one assistant message of calls followed by one user message of results. A request without `mcp_tool_use` or `mcp_tool_result` blocks is left as it came, a plain `tool_use`/`tool_result` history included.
 
-When SMG does not run the loop, the blocks go to the backend as sent: the Anthropic API and HTTP workers receive them unchanged in the forwarded body. On gRPC and ZMQ workers the blocks are accepted but take no part in the rendered prompt.
+When SMG does not run the loop, nothing is rewritten. The Anthropic API and HTTP workers receive the blocks unchanged in the forwarded body; on gRPC and ZMQ workers the blocks are accepted but take no part in the rendered prompt.
 
 ---
 

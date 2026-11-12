@@ -1095,7 +1095,7 @@ The route is mounted only when [control-plane auth](../../getting-started/contro
 
 Because the view names every worker and store address, the read is kept to the `admin` role: a `user` credential gets `403` (`Admin role required for this control plane operation`) just as for a mutation, and the denial is written to the [audit log](../../getting-started/control-plane-auth.md#audit-logging) like any control-plane denial. With `--admin-port` set, the route answers on the admin listener like the other control-plane routes.
 
-**Response:** `200 OK` with three parts (abridged; `config` carries every configuration field):
+**Response:** `200 OK` with three parts. The example below is abridged — a real `config` carries every configuration field:
 
 ```json
 {

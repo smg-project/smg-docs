@@ -32,7 +32,7 @@ These routes are guarded by control-plane auth middleware when configured:
 - Deprecated load alias: `/get_loads` (the public `/loads` route it aliases needs no credential)
 - RL control plane: `/v1/rl/*`, mounted only with `--enable-rl`
 
-Control-plane middleware requires the **admin role** for every method on these routes but the read-only ones: a valid credential with the `user` role may `GET` and `HEAD` them, and gets `403` (`Admin role required for this control plane operation`) on any other method. One read is the exception: [`GET /config`](../reference/api/admin.md#effective-configuration), whose view names every worker and store address, answers a `user` credential with the same `403` — the `admin` role alone reads it. A missing or invalid credential gets `401`.
+Control-plane middleware requires the **admin role** for every method on these routes but the read-only ones: a valid credential with the `user` role may `GET` and `HEAD` them, and gets `403` (`Admin role required for this control plane operation`) on any other method. Two reads are the exception, kept to the `admin` role alone: [`GET /config`](../reference/api/admin.md#effective-configuration), whose view names every worker and store address, and `GET /rate-limits/tenants`; both answer a `user` credential with the same `403`. A missing or invalid credential gets `401`.
 
 Control-plane credentials apply only to these routes. The inference routes, such as `/v1/chat/completions`, check the shared `--api-key` and per-tenant keys instead, and stay open when neither is set. Set `--api-key` as well to protect them.
 
@@ -88,7 +88,7 @@ curl -H "Authorization: Bearer super-secret-key" \
   http://localhost:30000/v1/tokenizers
 ```
 
-Format: `id:name:role:key` where role is `admin` or `user`. Repeat the flag to add more keys. A `user` key reaches the read-only routes (`GET` and `HEAD`, except the admin-only `GET /config`); every other control-plane method answers it with `403`.
+Format: `id:name:role:key` where role is `admin` or `user`. Repeat the flag to add more keys. A `user` key reaches the read-only routes (`GET` and `HEAD`, except the admin-only reads `GET /config` and `GET /rate-limits/tenants`); every other control-plane method answers it with `403`.
 
 SMG refuses to start on a malformed entry, including one with a role other than `admin` or `user`; the error does not echo the entry, since it carries the key.
 
@@ -111,7 +111,7 @@ SMG checks the token's signature (RS256, RS384, RS512, ES256, or ES384, with the
 
 - The role comes from the claim named by `--jwt-role-claim` (default `roles`). Only when that claim is missing does SMG read the `role`, `roles`, `groups`, and `group` claims. `--jwt-role-claim` is a flag of the Rust `smg` binary; the Python launcher (`pip install smg`, and the container image) always uses `roles`.
 - Without `--jwt-role-mapping`, a claim value of `admin` or `user` (in any case) is used as the role.
-- With mappings, only mapped values count. A token with no mapped value gets the `user` role: it may `GET` and `HEAD` control-plane routes (except the admin-only `GET /config`), and any other method answers it with `403`.
+- With mappings, only mapped values count. A token with no mapped value gets the `user` role: it may `GET` and `HEAD` control-plane routes (except the admin-only reads `GET /config` and `GET /rate-limits/tenants`), and any other method answers it with `403`.
 
 Optional explicit JWKS URI:
 

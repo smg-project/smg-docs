@@ -1023,7 +1023,7 @@ The removal runs as a gateway job, waited on for up to 60 seconds. A failure ans
 
 ## Diagnostics
 
-These routes read the gateway process itself rather than its workers. `GET /inflight` and `POST /heap_profile` require admin [authentication](#authentication); [`GET /config`](#effective-configuration) exists only with control-plane auth configured and is read by the `admin` role alone.
+These routes read the gateway process itself rather than its workers. All three are control-plane routes ([authentication](#authentication)); [`GET /config`](#effective-configuration) is stricter: it exists only with control-plane auth configured, and the `admin` role alone may read it.
 
 ### In-flight Requests
 
@@ -1091,7 +1091,7 @@ GET /config
 
 Returns this gateway process's effective configuration with every secret redacted: what is actually in force after flags, defaults, and key-file reloads, read from the gateway instead of its command line.
 
-The route is mounted only when [control-plane auth](../../getting-started/control-plane-auth.md) is configured (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`). Without it the path does not exist and answers `404` like any unknown path — there is no `--api-key` fallback. The startup log's `GATED CONTROL-PLANE ROUTES` record says whether the route is mounted and, on a start that leaves it off, names the flags that mount it.
+The route is mounted only when [control-plane auth](../../getting-started/control-plane-auth.md) is configured (`--control-plane-api-keys` or `--control-plane-api-keys-file`, or `--jwt-issuer` with `--jwt-audience`). Without it the path does not exist and answers `404` like any unknown path — there is no `--api-key` fallback. The startup log's `GATED CONTROL-PLANE ROUTES` record says whether the route is mounted and, on a start that leaves it off, names the flags that mount it.
 
 Because the view names every worker and store address, the read is kept to the `admin` role: a `user` credential gets `403` (`Admin role required for this control plane operation`) just as for a mutation, and the audit log writes the denial line. With `--admin-port` set, the route answers on the admin listener like the other control-plane routes.
 
@@ -1197,6 +1197,6 @@ The tokenizer, worker, WASM, cache flush, [diagnostics](#diagnostics), and depre
 1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT. A missing or invalid credential gets `401`. The `admin` role may use every method; the `user` role may use only `GET` and `HEAD`, and any other method answers it with `403`. The shared `--api-key` is not accepted.
 2. **Without it**: the shared `--api-key`. Per-tenant `--tenant-api-key` keys are rejected, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
 
-[`GET /config`](#effective-configuration) is the exception on both counts: it is the one read kept to the `admin` role, so a `user` credential gets `403` even for `GET`, and without control-plane auth it is not mounted at all — the path answers `404` rather than falling back to the shared `--api-key`.
+[`GET /config`](#effective-configuration) is the exception on both counts: it is a read kept to the `admin` role (`GET /rate-limits/tenants` is the other admin-only read), so a `user` credential gets `403` even for `GET`, and without control-plane auth it is not mounted at all — the path answers `404` rather than falling back to the shared `--api-key`.
 
 Public endpoints need no authentication: the health probes, `/loads`, `/engine_metrics`, and the [Model Information](#model-information) routes. See [Auth Model](extensions.md#auth-model) for every route's tier.

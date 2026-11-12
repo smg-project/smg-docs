@@ -327,7 +327,7 @@ This gate is on by default and independent of the overload thresholds. Keep the 
 | `smg_engine_waiting_requests` | Gauge | `worker`, `model`, `dp_rank` | Engine-reported waiting requests per DP rank, from the worker's load reports (polled or streamed). |
 | `smg_engine_token_usage` | Gauge | `worker`, `model`, `dp_rank` | Engine-reported KV token usage (0.0–1.0) per DP rank, from the worker's load reports (polled or streamed). |
 
-The other `smg_engine_*` gauges (running requests, generation throughput, prefix cache hit rate, and the PD transfer gauges) come from the same reports. While a worker stays registered but is out of `Ready`, its `smg_engine_*` gauges are set to `-1`, so the queries below filter with `>= 0`; a removed worker's series are dropped from the scrape entirely. The full list is in the [Metrics Reference](../../reference/metrics.md).
+The other `smg_engine_*` gauges (running requests, generation throughput, prefix cache hit rate, and the PD transfer gauges) come from the same reports. While a worker stays registered but is out of `Ready`, its `smg_engine_*` gauges are set to `-1`, so the queries below filter with `>= 0`. A removed worker's series are dropped from the scrape entirely. The full list is in the [Metrics Reference](../../reference/metrics.md).
 
 ### Useful PromQL Queries
 

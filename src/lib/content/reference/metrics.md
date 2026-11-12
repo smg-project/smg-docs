@@ -61,7 +61,7 @@ The `model` and `tool_name` caps never evict a value once it is admitted, so the
 
 ### Removed workers
 
-When a worker is removed, every series carrying its `worker` label — `smg_worker_*`, `smg_engine_*`, and the rest — is dropped from `/metrics` with the registration. The scrape does not grow with pod churn, and every per-worker series in it belongs to a currently registered worker, so sums and counts over these series need no filter to exclude removed workers. Writes that race the removal (a late health check, a late request outcome) are discarded. If the same address is registered again, its series start over: gauges are republished with the new worker's state and counters restart from zero.
+When a worker is removed, every series carrying its `worker` label — `smg_worker_*`, `smg_engine_*`, and every other family with that label — is dropped from `/metrics` with the registration. The scrape does not grow with pod churn, and every per-worker series in it belongs to a currently registered worker, so sums and counts over these series need no filter to exclude removed workers. Writes that race the removal (a late health check, a late request outcome) are discarded. If the same address is registered again, its series start over: gauges are republished with the new worker's state and counters restart from zero.
 
 A worker that stays registered keeps its series through status changes. Its `smg_engine_*` gauges are set to the `-1` sentinel while it is out of `Ready`, so filter those with `>= 0` when you aggregate them (see [Engine Load Metrics](#engine-load-metrics)).
 

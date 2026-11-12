@@ -84,7 +84,7 @@ SMG lists an external worker's models while registering it, when it has a key fo
 
 If the call fails or returns no models, the worker isn't registered. Without any key, SMG registers the worker with no model list.
 
-In IGW mode, SMG routes requests to external workers by model, so a worker without a model list adds no routable model and draws no traffic by itself. It accepts any model, though: once another external worker lists the requested model, the provider router serving that request can select the keyless worker when it is the least loaded. Under `--backend`, such a worker accepts any model, and callers send their own key.
+In IGW mode, SMG routes requests to external workers by model, so a worker without a model list adds no routable model and draws no traffic by itself. The worker still accepts any model: once another external worker lists the requested model, the provider router serving that request can select the keyless worker when it is the least loaded. Under `--backend`, such a worker accepts any model, and callers send their own key.
 
 ### `GET /v1/models`
 

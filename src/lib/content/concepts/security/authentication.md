@@ -24,7 +24,7 @@ Support for JWT/OIDC, API keys, and worker authentication to fit your deployment
 
 ### :material-shield-account: Role-Based Access
 
-The admin role has full control plane access; the user role is read-only (`GET` and `HEAD`). Data plane APIs use API keys, not roles.
+The admin role has full control plane access; the user role is read-only (`GET` and `HEAD`, except two admin-only reads). Data plane APIs use API keys, not roles.
 
 </div>
 
@@ -425,7 +425,7 @@ Full access to all control plane APIs:
 - WASM module management (`/wasm/*`)
 - Tokenizer configuration
 - System administration
-- The admin-only reads, which the `user` role may not make: the effective-configuration view ([`GET /config`](../../reference/api/admin.md#effective-configuration)) and the tenant rate-limit document (`GET /rate-limits/tenants`)
+- The admin-only reads: the effective-configuration view ([`GET /config`](../../reference/api/admin.md#effective-configuration)) and the tenant rate-limit document (`GET /rate-limits/tenants`)
 
 ### User Role
 

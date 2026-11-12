@@ -87,7 +87,7 @@ POST /v1/messages
 
 SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management`, are kept and forwarded to HTTP workers and the Anthropic API.
 
-Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `server_tool_use`, `search_result`, `web_search_tool_result`, `tool_search_tool_result`, `tool_reference`, `mcp_tool_use`, or `mcp_tool_result`. Any other block type is rejected with `400`. `mcp_tool_use` and `mcp_tool_result` are the blocks of an earlier [MCP](#mcp-tools) answer sent back; see [Replaying MCP Blocks](#replaying-mcp-blocks) for what each backend does with them. A `system`-role message inside `messages` is accepted, because some clients send one mid-conversation.
+Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `server_tool_use`, `search_result`, `web_search_tool_result`, `tool_search_tool_result`, `tool_reference`, `mcp_tool_use`, or `mcp_tool_result`. Any other block type is rejected with `400`. `mcp_tool_use` and `mcp_tool_result` replay the tool exchange of an earlier [MCP](#mcp-tools) answer; see [Replaying MCP Blocks](#replaying-mcp-blocks) for what each backend does with them. A `system`-role message inside `messages` is accepted, because some clients send one mid-conversation.
 
 ### Example Request
 
@@ -481,7 +481,7 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 
 | Request field | Handling |
 |---------------|----------|
-| `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `system`-role message inside `messages` keeps its position. Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
+| `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `system`-role message inside `messages` keeps its position. A replayed `mcp_tool_use` or `mcp_tool_result` block is refused with `400`; see [Replaying MCP Blocks](#replaying-mcp-blocks). Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
 | `max_tokens`, `temperature`, `top_p`, `top_k` | Sent to the engine as sampling parameters. A `max_tokens` of `0` never reaches the engine; see [`max_tokens` of 0](#max_tokens-of-0). |
 | `stop_sequences` | Sent as stop strings to vLLM, TensorRT-LLM, and TokenSpeed gRPC workers. For SGLang gRPC workers and ZMQ workers, SMG matches them itself and sends only single-token stops to the engine, as stop token IDs. |
 | `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser; with a `tool_choice` of `tool`, only that tool is passed to the chat template. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |
@@ -607,7 +607,7 @@ A later request may send an earlier answer's `mcp_tool_use` and `mcp_tool_result
 
 When SMG runs the tool loop itself, before calling the upstream it rewrites each replayed exchange into the plain pair the model saw the first time: an `mcp_tool_use` becomes a `tool_use` block that stays in the assistant message, and its `mcp_tool_result` becomes a `tool_result` block that opens a user message right after it, both keeping the ids the answer carries. A block of another kind after the results, such as the answer's final text, starts the next assistant message. Consecutive call-and-result pairs — how a non-streaming answer records parallel calls — stay together as one assistant message of calls followed by one user message of results. A request without `mcp_tool_use` or `mcp_tool_result` blocks is left as it came, including one whose history already uses plain `tool_use` and `tool_result` blocks.
 
-When SMG does not run the loop, nothing is rewritten. The Anthropic API and HTTP workers receive the blocks unchanged in the forwarded body; on gRPC and ZMQ workers the blocks are accepted but take no part in the rendered prompt.
+When SMG does not run the loop, nothing is rewritten. The Anthropic API and HTTP workers receive the blocks unchanged in the forwarded body. gRPC and ZMQ workers run no MCP loop and cannot carry the exchange in the rendered prompt, so a request with either block is refused with `400` (`process_messages_failed`) before any worker takes part; the error message names the first such block and its position in `messages`. Send such a conversation to a backend that takes the blocks — the Anthropic API or an HTTP worker — or drop the exchange from the history.
 
 ---
 

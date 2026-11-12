@@ -1093,7 +1093,7 @@ Returns this gateway process's effective configuration with every secret redacte
 
 The route is mounted only when [control-plane auth](../../getting-started/control-plane-auth.md) is configured (`--control-plane-api-keys` or `--control-plane-api-keys-file`, or `--jwt-issuer` with `--jwt-audience`). Without it the path does not exist and answers `404` like any unknown path — there is no `--api-key` fallback. The startup log's `GATED CONTROL-PLANE ROUTES` record says whether the route is mounted and, on a start that leaves it off, names the flags that mount it.
 
-Because the view names every worker and store address, the read is kept to the `admin` role: a `user` credential gets `403` (`Admin role required for this control plane operation`) just as for a mutation, and the audit log writes the denial line. With `--admin-port` set, the route answers on the admin listener like the other control-plane routes.
+Because the view names every worker and store address, the read is kept to the `admin` role: a `user` credential gets `403` (`Admin role required for this control plane operation`) just as for a mutation, and the denial is written to the [audit log](../../getting-started/control-plane-auth.md#audit-logging) like any control-plane denial. With `--admin-port` set, the route answers on the admin listener like the other control-plane routes.
 
 **Response:** `200 OK` with three parts (abridged; `config` carries every configuration field):
 

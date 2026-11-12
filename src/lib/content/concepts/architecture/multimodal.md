@@ -87,14 +87,14 @@ The processor configuration (`config.json`, `preprocessor_config.json`, and, whe
 | `router` | Always preprocess on the router. |
 | `worker` | Forward references. A request with per-item hints (`fps`, `max_long_side_pixel`) is preprocessed on the router instead when SMG can apply the hints itself (it has a processor for the model's family and every media part is an `image_url` or `video_url`), and refused with 400 `multimodal_hint_unsupported_in_worker_mode` when it cannot. Any other request that cannot be forwarded is refused with 400; when no worker of the model advertises a media processor, SMG returns 503 `no_media_ref_capable_worker`. |
 
-A request is forwardable when every media part is an `image_url` or `video_url` without per-item hints (`fps`, `max_long_side_pixel`). Audio parts are never forwarded. The flag falls back to `SMG_MM_PROCESSING` (deprecated; env support ends in the next minor release), then `auto`. An unreadable `SMG_MM_PROCESSING` stops the gateway at startup.
+A request is forwardable when every media part is a plain `image_url`, `video_url`, or audio part (`audio_url`, or `input_audio`, which is forwarded as a base64 `data:` URL) without per-item hints (`fps`, `max_long_side_pixel`). Like images and video, audio forwards only when the model supports worker-side expansion of its audio anchor (Gemma 4, for example), and only to a worker running `--mm-processor inprocess` or `redis`: a worker running [SMG's own pipeline](#smgs-pipeline-on-the-rust-servicer) (`smg`) takes image and video references, never audio. The flag falls back to `SMG_MM_PROCESSING` (deprecated; env support ends in the next minor release), then `auto`. An unreadable `SMG_MM_PROCESSING` stops the gateway at startup.
 
 In `auto`, SMG consults every registered worker of the model, healthy or not, so a health flap does not move a model between modes. Each decision is counted in `smg_mm_processing_total{model,mode,reason}`, with reason `config`, `plan_not_forwardable`, `model_not_opted_in`, `auto_none` (no registered workers), `auto_uniform`, or `auto_mixed`.
 
 On the worker path:
 
 - The request carries the unexpanded prompt (one anchor per item) and the media URLs in prompt order.
-- An inline `data:` URL larger than `SMG_IMAGE_MAX_INPUT_BYTES` or `SMG_VIDEO_MAX_INPUT_BYTES` is refused with `media_ref_too_large`.
+- An inline `data:` URL larger than `SMG_IMAGE_MAX_INPUT_BYTES`, `SMG_VIDEO_MAX_INPUT_BYTES`, or `SMG_AUDIO_MAX_INPUT_BYTES` (each capping its own modality) is refused with `media_ref_too_large`.
 - Every URL scheme must be one the selected worker advertises in its `mm_media_ref_schemes` label: `http`, `https`, and `data`, plus `file` when vLLM runs with `--allowed-local-media-path` (never with the `smg` processor).
 - Direct ZMQ workers and EPD encode workers never take references.
 
@@ -162,7 +162,7 @@ SMG_VLLM_SERVICER_IMPL=rust SMG_VLLM_MM_PROCESSOR=smg \
   vllm serve Qwen/Qwen3-VL-8B-Instruct --grpc
 ```
 
-- The worker serves the model families SMG's pipeline supports (see [Supported Models](#supported-models)); a multimodal model outside them is refused at startup, while a text-only model ignores the setting as it does the other processors. The router still decides per model whether to forward references at all (see [Where Media Is Processed](#where-media-is-processed)): `smg` changes what runs once references arrive, not which models they are forwarded for.
+- The worker serves the model families SMG's pipeline supports (see [Supported Models](#supported-models)); a multimodal model outside them is refused at startup, while a text-only model ignores the setting as it does the other processors. The router still decides per model whether to forward references at all (see [Where Media Is Processed](#where-media-is-processed)): `smg` changes what runs once references arrive, not which models they are forwarded for. The pipeline takes image and video references, never audio: a request carrying audio is placed on the model's `inprocess` or `redis` workers instead.
 - The pipeline reads the model's `config.json` and preprocessor configs from the model directory, or from the tokenizer directory the launcher resolved. The engine's `mm_processor_kwargs` are applied as overrides of the preprocessor config; a key the config has no field for fails the launch rather than being ignored.
 - The worker advertises `mm_processor=smg` and `mm_media_ref_schemes=http,https,data`, and fetches from any host. `--mm-fetch-timeout-ms` and `--mm-video-fetch-timeout-ms` set its download budgets (10 and 30 seconds by default); each budget covers one URL's fetch, from connecting through the last byte, not decoding or inference. vLLM's `--allowed-media-domains` and `--allowed-local-media-path` do not apply, and `file` URLs are never accepted.
 - `--mm-max-inflight` and `--mm-max-item-bytes` apply as above. `--mm-max-items` overrides the model's built-in per-request limits rather than vLLM's `--limit-mm-per-prompt`; `SMG_VLLM_MM_MAX_VIDEO_FRAMES` and the Redis sidecar settings are not used.
@@ -186,6 +186,7 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 | Kimi-K3 | No limit of its own | — | — ³ |
 | Kimi-K2.5 | 10 | — | — |
 | DeepSeek-V4.1 | No limit of its own | — | — |
+| Gemma 4 ⁵ | No limit of its own | No limit of its own ¹ | Images, video, and audio |
 | Llama 4 | 8 | — | Images |
 | LLaVA 1.5, LLaVA-NeXT | 4 | — | — |
 | Phi-3 and Phi-3.5 vision | 4 | — | — |
@@ -199,13 +200,17 @@ SMG picks a model's processor from the model name and its `config.json` `model_t
 
 ⁴ Muse Spark media are served on TokenSpeed workers only: the tensors are packed in a layout the other engines do not read. Each checkpoint's config declares the modalities it takes: images with `image_token_id`, video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`).
 
-Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only. None of the four sets an audio-clip count of its own: `SMG_AUDIO_MAX_COUNT` and the engine's advertised limit bound the count. Muse Spark serves audio on checkpoints that ship the audio tower; each clip is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token), and the clip's placeholder run in the prompt is that token count.
+⁵ Each Gemma 4 checkpoint's config declares the modalities it takes: images with `image_token_id` (and its begin/end marker tokens), video with `video_token_id`, and audio with the audio tower (an `audio_config` plus `audio_token_id`). Audio is served on the vLLM worker path only (see below).
+
+Audio (`audio_url`, `input_audio`) is accepted for Qwen3-Omni, Qwen3-ASR, Inkling, and Muse Spark, on TokenSpeed workers only, and for Gemma 4, on the vLLM worker path only. None of the five sets an audio-clip count of its own: `SMG_AUDIO_MAX_COUNT` and the engine's advertised limit bound the count. Muse Spark serves audio on checkpoints that ship the audio tower; each clip is resampled to 24 kHz and zero-padded to a whole number of audio tokens (1,920 samples per token), and the clip's placeholder run in the prompt is that token count.
+
+Gemma 4 serves audio on checkpoints that ship the audio tower, and SMG has no audio preprocessor for the family, so its clips are never preprocessed on the router: they are forwarded as media references (an `input_audio` part as a base64 `data:` URL) to a worker running `--mm-processor inprocess` or `redis`, and the engine's own processor fetches and expands them (see [Where Media Is Processed](#where-media-is-processed)).
 
 ### Engine Support
 
 | gRPC engine | Images | Video | Audio | What SMG sends |
 |-------------|--------|-------|-------|----------------|
-| vLLM | :material-check: | :material-check: | :material-close: | Preprocessed tensors with per-item content hashes, or media references on the worker path |
+| vLLM | :material-check: | :material-check: | Media references only | Preprocessed tensors with per-item content hashes, or media references on the worker path |
 | TokenSpeed | :material-check: | :material-check: | :material-check: | Preprocessed tensors, one set per item |
 | SGLang | :material-check: | :material-close: | :material-close: | Preprocessed float32 pixel tensors plus the original image bytes |
 | TensorRT-LLM | :material-check: | :material-close: | :material-close: | The original image bytes |
@@ -233,9 +238,9 @@ Concurrent decodes share one CPU budget: each ffmpeg or OpenCV decode gets fewer
 
 | | Default | Per-request override |
 |---|---------|----------------------|
-| Frame rate | The model's reference rate: 1 fps for MiniMax-M3, the video processor config's `fps` for Muse Spark (default 2), 2 fps for other models | `video_url.fps`, from 0.2 to 5.0 |
-| Frame count | Clip duration times the frame rate, kept within 4 to 768 frames. Muse Spark instead follows the checkpoint's video processor config, and GLM-5.3-Flash its family's own loader rule (see below). | — |
-| Frame placement | Spread evenly from the first frame to the last. MiniMax-M3 takes one frame per interval from the start and always keeps the last frame, as its reference does. GLM-5.3-Flash picks frames with its family's loader walk (see below). | — |
+| Frame rate | The model's reference rate: 1 fps for MiniMax-M3, the video processor config's `fps` for Muse Spark (default 2), 2 fps for other models. Gemma 4 samples by frame count, not rate (see below). | `video_url.fps`, from 0.2 to 5.0 |
+| Frame count | Clip duration times the frame rate, kept within 4 to 768 frames. Muse Spark instead follows the checkpoint's video processor config, GLM-5.3-Flash its family's own loader rule, and Gemma 4 vLLM's default loader rule of at most 32 frames (see below). | — |
+| Frame placement | Spread evenly from the first frame to the last. MiniMax-M3 takes one frame per interval from the start and always keeps the last frame, as its reference does. GLM-5.3-Flash picks frames with its family's loader walk, and Gemma 4 keeps every frame of a clip within its 32-frame budget (see below). | — |
 | Frame size | Set by the model's processor | `video_url.max_long_side_pixel`: a multiple of 28 from 150 to 3584, applied to the decoded frames |
 
 `fps` and `max_long_side_pixel` are MiniMax-M3 extensions to the OpenAI content part, and SMG applies them for any model. A part with any of these hints is never forwarded to a worker: even under `--mm-processing worker`, a request carrying one is preprocessed on the router when SMG can apply the hints itself, and refused with 400 `multimodal_hint_unsupported_in_worker_mode` when it cannot (SMG has no processor for the model's family, or the request also carries audio).
@@ -248,9 +253,11 @@ On other model families, `image_url.max_long_side_pixel` must be a positive mult
 {"type": "video_url", "video_url": {"url": "https://example.com/clip.mp4", "fps": 1.0}}
 ```
 
-Models whose reference processor lays video out frame by frame get the same layout from SMG: Qwen3-VL, GLM-5.3-Flash, and MiniMax-M3 prompts carry one block per temporal frame, with a timestamp. For MiniMax-M3, SMG also applies the pixel budget per frame and stamps each frame with the reference timestamp (smg-project/smg#2574, #2575).
+Models whose reference processor lays video out frame by frame get the same layout from SMG: Qwen3-VL, GLM-5.3-Flash, Gemma 4, and MiniMax-M3 prompts carry one block per temporal frame, with a timestamp. For MiniMax-M3, SMG also applies the pixel budget per frame and stamps each frame with the reference timestamp.
 
 GLM-5.3-Flash clips follow the family's own loader rule rather than the 4-to-768-frame window: the clip's duration times the sampling rate, truncated to a whole number of frames, up to 2,048. The frames are placed the way the model's reference loader walks a clip — one frame each time the clip's clock reaches the next sampling instant, with the instants spaced at twice the rate, then re-spread evenly when the walk's count misses the target — and each distinct frame is kept once, in temporal groups of two (an odd count repeats the last frame, as the model's processor does). A per-request `fps` hint still overrides the 2 fps rate; a rate the checkpoint's video processor config states does not move it. A clip shorter than one sampling interval (`1 / rate` seconds: half a second at the default rate) gives the rule no frame to pick, so it is refused with 400 `media_fetch_failed` before any frames are decoded.
+
+Gemma 4 clips follow vLLM's default loader rule rather than the 4-to-768-frame window: a clip of at most 32 frames keeps every frame, and a longer clip gives 32 frames spread evenly from the first to the last. The rule counts frames, not seconds, so a per-request `fps` hint is accepted but does not change which frames are kept. Each sampled frame's placeholder group in the prompt is stamped with the frame's time as `MM:SS` — the frame's source index over the clip's frame rate, or its ordinal at 24 fps when the decoder reports no rate.
 
 Muse Spark clips follow the checkpoint's video processor config rather than the 4-to-768-frame window: frames are sampled evenly across the clip at the config's `fps` (default 2), in whole temporal groups of `temporal_patch_size` frames (default 2), up to the config's `num_frames` (default 96; the released checkpoints raise it). A per-request `fps` hint still overrides the sampling rate. The prompt carries one token block per temporal group, stamped with the time of the group's first sampled frame in the config's `frame_timestamp_format` (default `Time: {timestamp:.1f}s`; `Time: {timestamp:.2f}s` on the released checkpoints).
 
@@ -303,7 +310,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, a clip too short for the model's video sampling (see [Frame Sampling](#frame-sampling)), or an invalid `fps` or `max_long_side_pixel` |
 | 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, a MiniMax-M3 image's planned size over the pixel budget, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
 | 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes do not cover |
-| 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, audio) |
+| 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, or audio to a worker running the gateway's own `smg` pipeline) |
 | 400 | `multimodal_worker_processing_unsupported_model` | `--mm-processing worker`, and vLLM cannot expand the model's anchor |
 | 400 | `multimodal_hint_unsupported_in_worker_mode` | `--mm-processing worker`, and a part carries an `fps` or `max_long_side_pixel` hint that SMG cannot apply itself (it has no processor for the model's family, or the request also carries audio); a hinted request SMG can serve is preprocessed on the router instead |
 | 400 | `media_ref_too_large` | Worker path: an inline `data:` payload is above the byte cap |

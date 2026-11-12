@@ -1430,7 +1430,9 @@ PD gauges, emitted only for ranks whose report carries a disaggregation section:
 | `smg_engine_pd_prefill_queue_reqs` | Gauge | `worker`, `role`, `dp_rank` | Requests in the prefill queue |
 | `smg_engine_pd_decode_queue_reqs` | Gauge | `worker`, `role`, `dp_rank` | Requests in the decode queue |
 
-`role` is the engine-reported role: `prefill`, `decode`, or `null`. Values are whatever the engine reports, so which fields are meaningful depends on the engine. While a worker stays registered without a live load feed — its status left `Ready`, or a replacement at the same address has not yet published its own load — its gauges are set to `-1`, so filter with `>= 0` when you aggregate them. A removed worker's series are dropped from the scrape entirely (see [Removed workers](#removed-workers)). The same load snapshot is available as JSON from `GET /loads` on the main port.
+`role` is the engine-reported role: `prefill`, `decode`, or `null`. Values are whatever the engine reports, so which fields are meaningful depends on the engine. The same load snapshot is available as JSON from `GET /loads` on the main port.
+
+While a worker stays registered without a live load feed — its status left `Ready`, or a replacement at the same address has not yet published its own load — its `smg_engine_*` gauges are set to `-1`, so filter with `>= 0` when you aggregate them. A removed worker's series are dropped from the scrape entirely (see [Removed workers](#removed-workers)).
 
 #### `smg_engine_kv_capacity_tokens`
 

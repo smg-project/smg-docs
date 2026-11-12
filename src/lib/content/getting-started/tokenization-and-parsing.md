@@ -244,7 +244,7 @@ For a plain local checkpoint path, pass `model=`: the ID SMG serves the checkpoi
 | `bos_token`, `eos_token`, `pad_token`, `unk_token`, and their `*_id` counterparts | The checkpoint's special tokens; `None` when it has none |
 | `special_tokens` | All roles (`bos_token`, `eos_token`, `unk_token`, `sep_token`, `pad_token`, `cls_token`, `mask_token`) plus `additional_special_tokens`: every added token marked special, sorted by ID |
 | `eos_token_ids` | The IDs SMG stops generation at: `eos_token_id` from `config.json` and `generation_config.json` merged with the tokenizer's own EOS, deduplicated and sorted |
-| `token_to_id(token)`, `id_to_token(id)` | Vocabulary lookups in the vocabulary's own spelling (`Ġthe` for byte-level vocabularies); `None` on a miss. The built-in encoding an OpenAI model name loads has no vocabulary map, so every lookup is `None` |
+| `token_to_id(token)`, `id_to_token(id)` | Vocabulary lookups in the vocabulary's own spelling (`Ġthe` for byte-level vocabularies); `None` on a miss. On the built-in encoding an OpenAI model name loads, `token_to_id` is always `None`; `id_to_token` answers from the encoding itself — `None` only for an ID it doesn't have or whose bytes aren't UTF-8 text |
 | `source` | The absolute path of the loaded checkpoint or Hub snapshot, or the OpenAI model name |
 | `fingerprint` | A digest of everything the tokenizer's output follows from; tokenizers with one fingerprint render and encode alike. See [The Fingerprint](#the-fingerprint) |
 | `Tokenizer.smg_build` | The smg release and commit the library was built from |

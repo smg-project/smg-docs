@@ -82,7 +82,9 @@ SMG lists an external worker's models while registering it, when it has a key fo
 2. SMG calls `GET <url>/v1/models`, sending the key as `x-api-key` for an `anthropic.com` URL and as `Authorization: Bearer` otherwise, and parses an OpenAI-format list (a `data` array of objects with an `id`).
 3. It registers the worker with those models. IDs that differ only by a date suffix (such as `gpt-4o` and `gpt-4o-2024-08-06`) form one model: the shortest ID, with the others as its aliases.
 
-If the call fails or returns no models, the worker isn't registered. Without any key, SMG registers the worker with no model list. In IGW mode, SMG routes requests to external workers by model, so a worker without a model list receives no traffic there. Under `--backend`, such a worker accepts any model, and callers send their own key.
+If the call fails or returns no models, the worker isn't registered. Without any key, SMG registers the worker with no model list.
+
+In IGW mode, SMG routes requests to external workers by model, so a worker without a model list adds no routable model and draws no traffic by itself. It accepts any model, though: once another external worker lists the requested model, the provider router serving that request can select the keyless worker when it is the least loaded. Under `--backend`, such a worker accepts any model, and callers send their own key.
 
 ### `GET /v1/models`
 

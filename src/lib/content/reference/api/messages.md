@@ -87,7 +87,7 @@ POST /v1/messages
 
 SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management`, are kept and forwarded to HTTP workers and the Anthropic API.
 
-Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `server_tool_use`, `search_result`, `web_search_tool_result`, `tool_search_tool_result`, or `tool_reference`. Any other block type is rejected with `400`. A `system`-role message inside `messages` is accepted, because some clients send one mid-conversation.
+Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `server_tool_use`, `search_result`, `web_search_tool_result`, `tool_search_tool_result`, `tool_reference`, `mcp_tool_use`, or `mcp_tool_result`. Any other block type is rejected with `400`. `mcp_tool_use` and `mcp_tool_result` are the blocks of an earlier [MCP](#mcp-tools) answer sent back; see [Replaying MCP Blocks](#replaying-mcp-blocks) for what each backend does with them. A `system`-role message inside `messages` is accepted, because some clients send one mid-conversation.
 
 ### Example Request
 
@@ -597,9 +597,17 @@ What SMG does:
 }
 ```
 
-In a stream, SMG forwards the upstream events, emits the model's tool calls as `mcp_tool_use` blocks and each result as an `mcp_tool_result` block, and ends with a single `message_delta` and `message_stop`. SMG does not accept `mcp_tool_use` or `mcp_tool_result` blocks in `messages` (see the accepted block types under [Request Body](#request-body)).
+In a stream, SMG forwards the upstream events, emits the model's tool calls as `mcp_tool_use` blocks and each result as an `mcp_tool_result` block, and ends with a single `message_delta` and `message_stop`.
 
 Tool calls use policy-only approval: SMG never pauses the request to ask the client. The gateway runs its built-in default policy, which allows every tool, because the `policy` section of the MCP configuration file is not applied in v1.11.0. See [MCP](../../concepts/extensibility/mcp.md) for server configuration.
+
+### Replaying MCP Blocks
+
+A later request may send an earlier answer's `mcp_tool_use` and `mcp_tool_result` blocks back in `messages` — for example by appending the whole answer as an assistant message — and a [message thread](#message-threads) continues over a stored answer that carries them.
+
+When SMG runs the tool loop itself, it rewrites each replayed exchange into the plain pair the model saw the first time, before calling the upstream: an `mcp_tool_use` becomes a `tool_use` block that stays in the assistant message, and its `mcp_tool_result` becomes a `tool_result` block that opens a user message right after it, both under the ids the answer carries. A block of another kind after the results, such as the answer's final text, starts the next assistant message. Consecutive call-and-result pairs — how a non-streaming answer records parallel calls — stay together as one assistant message of calls followed by one user message of results. A request without `mcp_tool_use` or `mcp_tool_result` blocks is left as it came, a plain `tool_use`/`tool_result` history included.
+
+When SMG does not run the loop, the blocks go to the backend as sent: the Anthropic API and HTTP workers receive them unchanged in the forwarded body. On gRPC and ZMQ workers the blocks are accepted but take no part in the rendered prompt.
 
 ---
 

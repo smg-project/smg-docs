@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from git_test_support import isolate_git
+
 import nightly_docs as docs
 import releases
 import snapshots as s
@@ -218,6 +220,7 @@ class RegressionCatalogTests(unittest.TestCase):
 
 class SnapshotGitTests(unittest.TestCase):
     def setUp(self):
+        isolate_git(self)
         self.old = os.getcwd()
         self.temp = tempfile.TemporaryDirectory()
         self.evidence = tempfile.TemporaryDirectory()

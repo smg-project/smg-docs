@@ -71,6 +71,9 @@ current run's reviewed snapshot.
 Every job in this workflow uses the CPU runner set. Separate PR CI jobs on
 `ubuntu-latest` run mocked Python tests, lint, type checks, and builds without
 model calls.
+Temporary Git test repositories disable automatic maintenance, detachment and
+filesystem monitors in child processes. These settings apply only inside each
+test and keep background Git writers from racing fixture cleanup.
 
 ## Writing policy
 
@@ -85,6 +88,11 @@ working install tags and engine compatibility requirements. Use code changes
 to find gaps, then explain the selected version’s user-facing contract. Historical failure explanations belong in release notes or
 troubleshooting only when they help a user take a specific action.
 Maintenance applies the same policy and invalidates older cached verdicts.
+Nightly writers recheck the edited draft before export. Any remaining reader
+policy violations get one targeted repair pass, capped at 30 assistant rounds
+and 10 minutes, using fresh path/line diagnostics. Both diagnostic reports are
+retained. Export still fails on any remaining violation; scope, independent
+review and build gates remain mandatory.
 
 ## Coverage and limits
 
@@ -105,7 +113,12 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   Blocked corrections count as assessed only with inspected-source evidence and
   either exact page/PR references validated against the prepared open-PR inventory,
   or `depends_on` subsystems whose correction for the same commit must land first.
-  A dependency is accepted only while that subsystem has a proposal tonight, its
+  A dependency is satisfied when its owning scan freshly inspects the same
+  commit and reports it covered against the pinned docs, including a correction
+  whose PR merged between nights. Other page blockers and the waiting scan's own
+  proposals remain intact. A `not_applicable` disposition alone does not settle
+  another subsystem's requested correction. An outstanding dependency needs that
+  subsystem to have a proposal tonight, its
   own queued concern (queued concerns record the subsystem that proposed them), or
   an open PR for the commit. Its own check for the commit also counts when it is
   proposed (a reused queued concern keeps its older source) or blocked on an open
@@ -115,7 +128,7 @@ Maintenance applies the same policy and invalidates older cached verdicts.
   in parallel, the plan settles such a daily wait as blocked when the named
   subsystem proposes tonight, or hands it off when that subsystem was not
   assigned the commit tonight. A named subsystem that was assigned the commit
-  and left no work keeps the check unfinished. The next run assigns the commit to
+  and has neither covered the correction nor left live work keeps the check unfinished. The next run assigns the commit to
   every subsystem a carried daily check waits on, and to every subsystem whose
   ledger entry for that commit is `blocked`, even outside its paths. Each scan
   also sees other subsystems' unfinished checks for its commits.

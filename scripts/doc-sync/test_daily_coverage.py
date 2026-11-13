@@ -475,6 +475,53 @@ class DailyCoverageTests(unittest.TestCase):
                 daily.validate({**own, 'daily_commit_checks': [check]}, self.context,
                                'routing-workers', names)
 
+    def test_covered_owner_settles_a_wait_after_its_correction_has_landed(self):
+        # Nov 13: deploy-config still waited for GET /config after data-security
+        # verified merged docs PR #549 against the same pinned source/docs.
+        own, other = self.dependent_scan()
+        other.update(concerns=[], daily_commit_checks=[self.check(
+            status='covered', evidence='Merged PR #549 documents GET /config on the pinned pages.')])
+        names = ['routing-workers', 'grpc-multimodal']
+        for status in ('deferred', 'blocked'):
+            own['daily_commit_checks'] = [self.check(status=status, depends_on=['grpc-multimodal'])]
+            result = daily.report(self.context, [own, other], names)
+            settled = result['checks'][0]
+            self.assertTrue(result['complete'])
+            self.assertEqual((settled['status'], settled['depends_on']), ('covered', []))
+            self.assertIn('Merged PR #549', settled['evidence'])
+            daily.validate({**own, 'daily_commit_checks': [settled]}, self.context,
+                           'routing-workers', discovery.SHARD_NAMES)
+        # No promotion from an uninspected owner, another commit, or an
+        # uninspected waiting subsystem. Genuine gaps must stay incomplete.
+        for owner in [{**other, 'inspected_commits': []},
+                      {**other, 'daily_commit_checks': [self.check(self.old, status='covered')]}]:
+            self.assertFalse(daily.report(self.context, [own, owner], names)['complete'])
+        own.update(inspected_commits=[], daily_commit_checks=[
+            self.check(status='deferred', depends_on=['grpc-multimodal'])])
+        self.assertFalse(daily.report(self.context, [own, other], names)['complete'])
+
+    def test_covered_dependency_does_not_erase_own_proposals_or_page_blockers(self):
+        own, other = self.dependent_scan()
+        own['concerns'] = [proposal(source_sha=self.latest)]
+        other.update(concerns=[], daily_commit_checks=[self.check(status='covered')])
+        page = [{'pr': 123, 'path': proposal()['doc_paths'][0]}]
+        for concerns, blockers, status in [(['wait-timeout'], [], 'proposed'), ([], page, 'blocked')]:
+            own['daily_commit_checks'] = [self.check(status='blocked', concerns=concerns,
+                blockers=blockers, depends_on=['grpc-multimodal'])]
+            result = daily.report(self.context, [own, other], ['routing-workers'])['checks'][0]
+            self.assertEqual((result['status'], result['concerns'], result['blockers']),
+                             (status, concerns, blockers))
+
+    def test_partial_covered_dependencies_leave_unverified_assigned_owners_unfinished(self):
+        own, other = self.dependent_scan()
+        self.context['daily_assignments']['operations'] = [self.latest]
+        own['daily_commit_checks'] = [self.check(status='blocked',
+            depends_on=['grpc-multimodal', 'operations'])]
+        other.update(concerns=[], daily_commit_checks=[self.check(status='covered')])
+        result = daily.report(self.context, [own, other], ['routing-workers'])['checks'][0]
+        self.assertEqual((result['status'], result['depends_on']), ('deferred', ['operations']))
+        self.assertIn('Satisfied dependencies: grpc-multimodal', result['evidence'])
+
     def prior_proposal(self, **report):
         item = docs.validate_item(proposal(source_sha=self.latest))
         scan = {'shard': 'api-protocols', 'concerns': [item]}

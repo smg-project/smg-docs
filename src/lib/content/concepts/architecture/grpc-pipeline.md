@@ -435,7 +435,7 @@ A request's options select a variant of the table rather than a different reader
 - With no tools declared (an empty `tools` list counts as a declaration), the table reads without its calls, so call syntax stays in `content` as text. MiniMax models are the exception: their Chat Completions responses are scanned for calls even without tools (see [Provider Profiles](../../reference/api/openai.md#provider-profiles)), so their table keeps its calls, and a call the model writes comes back as a call, not as text.
 - With `separate_reasoning: false`, the table reads without its thought, so reasoning stays in `content`. On the Messages API, thinking blocks are always separate, so only the calls vary.
 
-`tool_choice: none` over declared tools selects no variant: the table keeps its calls. Chat Completions and Messages requests render their tools under `none` exactly as under `auto`: the prompt keeps the definitions, and the choice itself is passed to the template, so a session that toggles the choice between turns keeps its prompt prefix — and the model may write a call anyway.
+`tool_choice: none` over declared tools selects no variant: the table keeps its calls. Chat Completions and Messages requests render their tools under `none` exactly as under `auto`: the prompt keeps the definitions, and the choice itself is passed to the template. A session that toggles the choice between turns therefore keeps its prompt prefix — and the model may write a call anyway.
 
 The table reads such a call whole, and the gateway drops it: none of it reaches the client, as a call or as content; the text around it stays `content` as under `auto`; and a `tool_calls` finish becomes `stop`. Each dropped call increments the per-table counter `smg_symphony_calls_forbidden_total`. On MiniMax models the drop also covers a `tool_choice: none` chat request with no tools declared, since those responses are scanned for calls regardless.
 
@@ -477,7 +477,7 @@ When a request forces a tool call or asks for structured output, SMG attaches a 
 
 In the regular gRPC pipeline, the tool constraint is generated **after the prompt is rendered and tokenized** (`model_gateway/src/routers/grpc/regular/stages/chat/preparation.rs`):
 
-1. Narrow the tools the template renders: an `allowed_tools` choice renders its subset; every other `tool_choice` — `auto`, `none`, a named function — renders every declared tool
+1. Narrow the tools the template renders: an `allowed_tools` choice renders its subset; every other `tool_choice` — `auto`, `none`, `required`, a named function — renders every declared tool
 2. Render the prompt (chat template or native renderer)
 3. Tokenize
 4. Process multimodal inputs (see [Multimodal Pipeline](multimodal.md))

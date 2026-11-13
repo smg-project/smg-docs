@@ -437,7 +437,7 @@ A request's options select a variant of the table rather than a different reader
 
 `tool_choice: none` over declared tools selects no variant: the table keeps its calls. Chat Completions and Messages requests render their tools under `none` exactly as under `auto`: the prompt keeps the definitions, and the choice itself is passed to the template, so a session that toggles the choice between turns keeps its prompt prefix — and the model may write a call anyway.
 
-The table reads such a call whole, and the gateway drops it: none of it reaches the client, as a call or as content; the text around it stays `content` as under `auto`; and a `tool_calls` finish becomes `stop`. Each dropped call counts per table in `smg_symphony_calls_forbidden_total`. On MiniMax models the drop also covers a chat request with no tools declared, since those responses are scanned for calls regardless.
+The table reads such a call whole, and the gateway drops it: none of it reaches the client, as a call or as content; the text around it stays `content` as under `auto`; and a `tool_calls` finish becomes `stop`. Each dropped call increments the per-table counter `smg_symphony_calls_forbidden_total`. On MiniMax models the drop also covers a `tool_choice: none` chat request with no tools declared, since those responses are scanned for calls regardless.
 
 Under the legacy parsers, no tool parser runs for a request with `tool_choice: none`, so on that path call markup stays in `content` as text.
 

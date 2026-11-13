@@ -139,11 +139,10 @@ prompt — whether the model behind the worker accepts images is covered in
 [Multimodal](../../concepts/architecture/multimodal.md). A part the chat pipeline has no
 form for is refused with `400` `unsupported_content_part`, naming the part, before
 anything reaches a worker; it is never silently dropped from the prompt. That covers
-`input_file` (the chat pipeline carries text, image, audio, and video parts but no file
-part, and SMG keeps no file store to resolve a `file_id` from) and an `input_image`
-without an `image_url` (a `file_id` alone cannot be resolved either). gpt-oss (Harmony)
-models carry text parts only: any `input_image` or `input_file` is rejected with `400`
-`harmony_build_failed`.
+`input_file` (the chat pipeline has no file part, and SMG keeps no file store to resolve
+a `file_id` from) and an `input_image` without an `image_url` (a `file_id` alone cannot
+be resolved either). gpt-oss (Harmony) models carry text parts only: any `input_image`
+or `input_file` is rejected with `400` `harmony_build_failed`.
 
 Replayed history is held to a different rule. A message in a stored response replayed
 through `previous_response_id`, or in a conversation item a response wrote, is replayed

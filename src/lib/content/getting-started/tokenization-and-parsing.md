@@ -35,7 +35,7 @@ To get the same token IDs in Python without a running gateway — and to render 
 | `model` | string | Name of a loaded tokenizer (required) |
 | `prompt` | string or array of strings | Text to tokenize (required) |
 
-`model` is the name a tokenizer was loaded under: a worker's model ID, the `--model-path` or `--tokenizer-path` value the gateway started with, or the `name` given to `POST /v1/tokenizers`. A tokenizer ID also works, and an empty string or `"unknown"` picks the loaded tokenizer whose name sorts first. The endpoint doesn't add special tokens such as BOS.
+`model` is the name a tokenizer was loaded under: a worker's model ID, the `--model-path` or `--tokenizer-path` value the gateway started with, or the `name` given to `POST /v1/tokenizers`. A tokenizer ID also works, and so does a [model alias](../reference/configuration.md#model-aliases), which selects the canonical model's tokenizer, as on the serving routes. An empty string or `"unknown"` picks the loaded tokenizer whose name sorts first. The endpoint doesn't add special tokens such as BOS.
 
 Single input:
 

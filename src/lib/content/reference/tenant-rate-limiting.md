@@ -111,7 +111,7 @@ Checked on every document the gateway takes in — the startup file before any t
 - No two rules within the same tenant may share the same `exact` value, or the same `prefix` value (an `exact` and a `prefix` rule *may* share the same literal string — they're different match kinds).
 - Unknown YAML fields anywhere in the document are rejected rather than silently ignored (so a typo like `tenant:` instead of `tenants:` fails loudly instead of compiling to an empty override list).
 
-At startup, any validation failure is the same as an unparsable file: the gateway refuses to start. On a runtime write, it is a `400` (`INVALID_DOCUMENT`) naming the failure, and the live policy stands.
+At startup, any validation failure is the same as an unparsable file: the gateway refuses to start. On a runtime write, a failure answers `400` naming it, and the live policy stands — with code `INVALID_DOCUMENT`, except for an unknown field, which is caught while the body is parsed and answers code `BAD_REQUEST`, like any body that is not the document.
 
 ---
 

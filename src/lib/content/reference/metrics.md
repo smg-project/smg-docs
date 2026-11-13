@@ -61,7 +61,9 @@ The `model` and `tool_name` caps never evict a value once it is admitted, so the
 
 ### Removed workers
 
-The exporter cannot delete a series, so when a worker is removed SMG overwrites its per-worker gauges instead: `smg_worker_health` and `smg_worker_cb_state` become `-1`, `smg_worker_requests_active` and the circuit-breaker streak gauges become `0`, and the worker's `smg_engine_*` gauges become `-1`, as they also do while a worker is out of Ready. `smg_worker_http2` keeps its last value. Filter on the value (for example `== 1` or `>= 0`) when you aggregate these gauges.
+When a worker is removed, every series carrying its `worker` label — `smg_worker_*`, `smg_engine_*`, and every other family with that label — is dropped from `/metrics` with the registration. The scrape does not grow with pod churn, and every per-worker series in it belongs to a currently registered worker, so sums and counts over these series need no filter to exclude removed workers. Writes that race the removal (a late health check, a late request outcome) are discarded. If the same address is registered again, its series start over: gauges are republished with the new worker's state and counters restart from zero.
+
+A worker that stays registered keeps its series through status changes. Its `smg_engine_*` gauges are set to the `-1` sentinel while it is out of `Ready`, so filter those with `>= 0` when you aggregate them (see [Engine Load Metrics](#engine-load-metrics)).
 
 ---
 
@@ -981,7 +983,9 @@ Worker health status.
 
 | Type | Labels | Values |
 |------|--------|--------|
-| Gauge | `worker` | `1` = Ready, `0` = any other status (pending, not ready, failed, or draining), `-1` = removed |
+| Gauge | `worker` | `1` = Ready, `0` = any other status (pending, not ready, failed, or draining) |
+
+A removed worker's series is dropped from the scrape; see [Removed workers](#removed-workers).
 
 ```promql
 # Count healthy workers
@@ -1309,7 +1313,9 @@ Circuit breaker state per worker.
 
 | Type | Labels | Values |
 |------|--------|--------|
-| Gauge | `worker` | `0` = closed, `1` = open, `2` = half-open, `-1` = worker removed |
+| Gauge | `worker` | `0` = closed, `1` = open, `2` = half-open |
+
+A removed worker's series is dropped from the scrape; see [Removed workers](#removed-workers).
 
 ```promql
 # Workers with open circuits
@@ -1424,7 +1430,9 @@ PD gauges, emitted only for ranks whose report carries a disaggregation section:
 | `smg_engine_pd_prefill_queue_reqs` | Gauge | `worker`, `role`, `dp_rank` | Requests in the prefill queue |
 | `smg_engine_pd_decode_queue_reqs` | Gauge | `worker`, `role`, `dp_rank` | Requests in the decode queue |
 
-`role` is the engine-reported role: `prefill`, `decode`, or `null`. Values are whatever the engine reports, so which fields are meaningful depends on the engine. When a worker is removed or leaves Ready, its gauges are set to `-1`. The same load snapshot is available as JSON from `GET /loads` on the main port.
+`role` is the engine-reported role: `prefill`, `decode`, or `null`. Values are whatever the engine reports, so which fields are meaningful depends on the engine. The same load snapshot is available as JSON from `GET /loads` on the main port.
+
+While a worker stays registered without a live load feed — its status left `Ready`, or a replacement at the same address has not yet published its own load — its `smg_engine_*` gauges are set to `-1`, so filter with `>= 0` when you aggregate them. A removed worker's series are dropped from the scrape entirely (see [Removed workers](#removed-workers)).
 
 #### `smg_engine_kv_capacity_tokens`
 
@@ -1443,7 +1451,7 @@ Load-monitor tick decisions, by worker and mode: `poll` (no pushed load record o
 | Counter | `worker`, `mode` |
 
 ```promql
-# KV-cache usage per worker (removed and non-Ready workers report -1)
+# KV-cache usage per worker (a worker out of Ready reports -1)
 max by (worker) (smg_engine_token_usage >= 0)
 
 # Requests waiting in engines, per model

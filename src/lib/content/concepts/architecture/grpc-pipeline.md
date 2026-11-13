@@ -432,14 +432,16 @@ The responses the separate Harmony pipeline serves — gpt-oss Chat Completions 
 
 A request's options select a variant of the table rather than a different reader, matching what the legacy path would run:
 
-- With no tools declared, the table reads without its calls, so call syntax stays in `content` as text; an empty `tools` list counts as a declaration. MiniMax models are the exception: their Chat Completions responses are scanned for calls even without tools (see [Provider Profiles](../../reference/api/openai.md#provider-profiles)), so their table keeps its calls, and a call the model writes comes back as a call, not as text.
+- With no tools declared (an empty `tools` list counts as a declaration), the table reads without its calls, so call syntax stays in `content` as text. MiniMax models are the exception: their Chat Completions responses are scanned for calls even without tools (see [Provider Profiles](../../reference/api/openai.md#provider-profiles)), so their table keeps its calls, and a call the model writes comes back as a call, not as text.
 - With `separate_reasoning: false`, the table reads without its thought, so reasoning stays in `content`. On the Messages API, thinking blocks are always separate, so only the calls vary.
 
 `tool_choice: none` over declared tools selects no variant: the table keeps its calls. Chat Completions and Messages requests render their tools under `none` exactly as under `auto`: the prompt keeps the definitions, and the choice itself is passed to the template, so a session that toggles the choice between turns keeps its prompt prefix — and the model may write a call anyway.
 
 The table reads such a call whole, and the gateway drops it: none of it reaches the client, as a call or as content; the text around it stays `content` as under `auto`; and a `tool_calls` finish becomes `stop`. Each dropped call counts per table in `smg_symphony_calls_forbidden_total`. On MiniMax models the drop also covers a chat request with no tools declared, since those responses are scanned for calls regardless.
 
-Under the legacy parsers, no tool parser runs for a request with `tool_choice: none`, so on that path call markup stays in `content` as text. On `/v1/responses` the prompt does not keep the definitions: that API withholds the request's own function tools under `none` (MCP tools stay offered).
+Under the legacy parsers, no tool parser runs for a request with `tool_choice: none`, so on that path call markup stays in `content` as text.
+
+On `/v1/responses` the prompt does not keep the definitions: that API withholds the request's own function tools under `none` (MCP tools stay offered).
 
 ### Constraints Under Symphony
 

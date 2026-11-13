@@ -1023,7 +1023,7 @@ The removal runs as a gateway job, waited on for up to 60 seconds. A failure ans
 
 ## Diagnostics
 
-Two admin routes read the gateway process itself rather than its workers. Both require admin [authentication](#authentication).
+These routes read the gateway process itself rather than its workers. All three are control-plane routes ([authentication](#authentication)); [`GET /config`](#effective-configuration) is stricter: it exists only with control-plane auth configured, and the `admin` role alone may read it.
 
 ### In-flight Requests
 
@@ -1083,6 +1083,80 @@ On a build that can dump, every attempt increments `smg_allocator_prof_dumps_tot
 
 ---
 
+### Effective Configuration
+
+```text
+GET /config
+```
+
+Returns this gateway process's effective configuration with every secret redacted: what is actually in force after flags, defaults, and key-file reloads, read from the gateway instead of its command line.
+
+The route is mounted only when [control-plane auth](../../getting-started/control-plane-auth.md) is configured (`--control-plane-api-keys` or `--control-plane-api-keys-file`, or `--jwt-issuer` with `--jwt-audience`). Without it the path does not exist and answers `404` like any unknown path — there is no `--api-key` fallback. The startup log's `GATED CONTROL-PLANE ROUTES` record says whether the route is mounted and, on a start that leaves it off, names the flags that mount it.
+
+Because the view names every worker and store address, the read is kept to the `admin` role: a `user` credential gets `403` (`Admin role required for this control plane operation`) just as for a mutation, and the denial is written to the [audit log](../../getting-started/control-plane-auth.md#audit-logging) like any control-plane denial. With `--admin-port` set, the route answers on the admin listener like the other control-plane routes.
+
+**Response:** `200 OK` with three parts. The example below is abridged — a real `config` carries every configuration field:
+
+```json
+{
+  "build": {
+    "version": "1.16.0-dev",
+    "git_commit": "25c21070",
+    "git_branch": "main",
+    "git_status": "clean",
+    "build_time": "2026-11-10T04:21:07Z",
+    "build_mode": "release",
+    "target": "x86_64-unknown-linux-gnu",
+    "rustc": "rustc 1.91.0"
+  },
+  "secret_sources": {
+    "api_key": "env",
+    "tenant_api_keys": { "source": "file", "entries": 2 },
+    "control_plane_api_keys": { "source": "file", "entries": 3 },
+    "postgres_db_url": "flag",
+    "redis_url": null
+  },
+  "config": {
+    "mode": {
+      "type": "regular",
+      "worker_urls": ["http://***@gpu1:8000"]
+    },
+    "host": "0.0.0.0",
+    "port": 30000,
+    "api_key": "a1b2c3d4e5f60718",
+    "tenant_api_keys": [
+      { "tenant_id": "team-red", "fingerprint": "0f1e2d3c4b5a6978" }
+    ],
+    "postgres": {
+      "db_url": "postgres://smg:****@db:5432/smg",
+      "pool_max": 4
+    },
+    "ca_certificates": 1
+  }
+}
+```
+
+| Part | Contents |
+|------|----------|
+| `build` | The binary that answers: its `version`, `git_commit`, `git_branch`, `git_status`, `build_time`, `build_mode`, `target` triple, and `rustc` version |
+| `secret_sources` | Where this start read each secret — `flag` (the command line), `env`, `file`, or `launcher` (a value passed by the launcher that started the gateway) — and `null` for a secret that was not given. The values are never here. The tenant and control-plane key sets are objects with the `source` and the number of `entries` in force |
+| `config` | Every configuration field, as the gateway serializes it, with the secret-bearing fields rewritten as below |
+
+How `config` rewrites each secret-bearing field:
+
+| Field | In the view |
+|-------|-------------|
+| `api_key` | The key's fingerprint — the first 16 hex digits of its SHA-256, the same value the access log's optional `key_id` field records — or `null` with no key |
+| `tenant_api_keys` | One `{tenant_id, fingerprint}` entry per key |
+| `mode` | The configured routing mode, with any credentials in a worker URL masked whole: `http://user:secret@gpu1:8000` becomes `http://***@gpu1:8000` |
+| `postgres`, `redis` | The store configuration with its URL's password masked (`****`), in the userinfo and in a `password` query parameter alike |
+| `oracle` | The store configuration without its `password` field |
+| `ca_certificates` | The number of configured CA certificates, not their bytes |
+
+The key fingerprints and entry counts name the keys currently in force: after a reload of the key files (`POST /secrets/reload`), the view names the reloaded keys, not the start's. TLS private keys and the MCP configuration are never serialized into the view, and a configuration field not classified as safe to show is left out rather than passed through.
+
+---
+
 ## Error Responses
 
 The admin endpoints do not share one error format. The body depends on the part of SMG that rejects the request:
@@ -1118,9 +1192,11 @@ Errors that the gateway generates itself, for example when no worker is availabl
 
 ## Authentication
 
-The tokenizer, worker, WASM, cache flush, and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
+The tokenizer, worker, WASM, cache flush, [diagnostics](#diagnostics), and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
 
 1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT. A missing or invalid credential gets `401`. The `admin` role may use every method; the `user` role may use only `GET` and `HEAD`, and any other method answers it with `403`. The shared `--api-key` is not accepted.
 2. **Without it**: the shared `--api-key`. Per-tenant `--tenant-api-key` keys are rejected, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
+
+[`GET /config`](#effective-configuration) is the exception on both counts: it is a read kept to the `admin` role (`GET /rate-limits/tenants` is the other admin-only read), so a `user` credential gets `403` even for `GET`, and without control-plane auth it is not mounted at all — the path answers `404` rather than falling back to the shared `--api-key`.
 
 Public endpoints need no authentication: the health probes, `/loads`, `/engine_metrics`, and the [Model Information](#model-information) routes. See [Auth Model](extensions.md#auth-model) for every route's tier.

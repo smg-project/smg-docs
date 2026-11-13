@@ -24,7 +24,7 @@ Support for JWT/OIDC, API keys, and worker authentication to fit your deployment
 
 ### :material-shield-account: Role-Based Access
 
-The admin role has full control plane access; the user role is read-only (`GET` and `HEAD`). Data plane APIs use API keys, not roles.
+The admin role has full control plane access; the user role is read-only (`GET` and `HEAD`, except two admin-only reads). Data plane APIs use API keys, not roles.
 
 </div>
 
@@ -139,7 +139,7 @@ SMG refuses to start on a malformed mapping: one without `=`, or with a gateway 
 | Gateway Role | Permissions |
 |--------------|-------------|
 | `admin` | Full access to all control plane APIs (workers, WASM modules, tokenizers) |
-| `user` | Read-only control plane access: `GET` and `HEAD`; any other method answers `403` |
+| `user` | Read-only control plane access: `GET` and `HEAD`, except the admin-only reads `GET /config` and `GET /rate-limits/tenants`; any other method answers `403` |
 
 ### Supported Claims
 
@@ -323,7 +323,7 @@ smg \
   --control-plane-api-keys "user1:Read Only Service:user:sk-readonly-key-67890"
 ```
 
-A `user` key can read the control plane (`GET` and `HEAD`); any other control plane method answers it with `403` (see [Role-Based Access Control](#role-based-access-control)).
+A `user` key can read the control plane (`GET` and `HEAD`, except the admin-only reads `GET /config` and `GET /rate-limits/tenants`); any other control plane method answers it with `403` (see [Role-Based Access Control](#role-based-access-control)).
 
 ### Environment Variable Configuration
 
@@ -425,10 +425,11 @@ Full access to all control plane APIs:
 - WASM module management (`/wasm/*`)
 - Tokenizer configuration
 - System administration
+- The admin-only reads: the effective-configuration view ([`GET /config`](../../reference/api/admin.md#effective-configuration)) and the tenant rate-limit document (`GET /rate-limits/tenants`)
 
 ### User Role
 
-Read-only control plane access: `GET` and `HEAD` on the control plane routes. Every other method answers a `user` credential with `403 Admin role required for this control plane operation`.
+Read-only control plane access: `GET` and `HEAD` on the control plane routes. Every other method answers a `user` credential with `403 Admin role required for this control plane operation`. Two reads are the exception, kept to the `admin` role: `GET /config`, whose view names every worker and store address, and `GET /rate-limits/tenants`; both answer a `user` credential with the same `403`.
 
 Roles don't apply to data plane routes (chat completions, completions, embeddings, and the rest): those accept only `--api-key` and `--tenant-api-key` credentials, never JWTs or control plane API keys. `/v1/models` is public.
 

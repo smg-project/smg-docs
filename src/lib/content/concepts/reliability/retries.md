@@ -86,7 +86,7 @@ A `500` a worker produced itself — its own response on the HTTP wire, or a gRP
 
 When no other worker can take the attempt — the pool has a single worker, or every alternative is unavailable, unable to serve the request, or has itself answered `500` — the `500` is returned to the client at once, skipping the remaining attempts and their backoff. The HTTP router relays the response as the worker sent it, body included.
 
-Only the worker's own `500` is definitive. The `502` the gateway answers when the worker's connection fails, a `500` the gateway synthesizes for a fault of its own, and a worker-sent `502`, `503`, or `504` all stay replayable on the same worker under the normal rules. The rule covers HTTP workers in regular mode and gRPC and ZMQ workers; for HTTP workers in PD mode and for external providers, a `500` is retried like any other [retryable status](#retryable-status-codes).
+Only the worker's own `500` is definitive. The `502` the gateway returns when the worker's connection fails, a `500` the gateway synthesizes for a fault of its own, and a worker-sent `502`, `503`, or `504` all stay replayable on the same worker under the normal rules. The rule covers HTTP workers in regular mode and gRPC and ZMQ workers; for HTTP workers in PD mode and for external providers, a `500` is retried like any other [retryable status](#retryable-status-codes).
 
 ### Where Retries Apply
 
@@ -144,7 +144,7 @@ SMG retries responses with these status codes. The list is global: per-worker `r
 
 SMG's own errors use these codes too. In regular HTTP mode, a failed connection to the worker — refused, reset or closed before the response head, or cut off mid-body while the gateway buffers the response — is a `502`, and a connect timeout, or a worker connection the OS gives up on, is a `504`; in PD mode a transport failure on either leg, those timeouts included, is a `502`; on the gRPC router, a worker connection that fails under the call (a reset or a close with the call in flight, a GOAWAY of either side, a stream reset below gRPC, or a call the worker's side cancelled) is a `502`. On the HTTP router (regular and PD) and the gRPC router, "no available workers" (every candidate unhealthy or circuit-open) is a `503` with `Retry-After: 1`, returned without a retry. The request's own timeout — `--request-timeout-secs`, or the worker's `timeout_secs`, running out — is a `504` in both modes, also returned without a retry (see [Never Retried](#never-retried)).
 
-These `502`s are the gateway's answer for the worker's transport failure, not the worker's own verdict on the request: the circuit breaker samples them, and they stay replayable under the normal rules, on that worker too. A `500` the gateway synthesizes for a fault of its own stays replayable the same way. See [When a Worker Answers 500](#when-a-worker-answers-500).
+These `502`s are the gateway's answer to the worker's transport failure, not the worker's own verdict on the request: the circuit breaker samples them, and they stay replayable under the normal rules, even on the same worker. A `500` the gateway synthesizes for a fault of its own stays replayable the same way. See [When a Worker Answers 500](#when-a-worker-answers-500).
 
 Requests with other status codes (e.g., 400 Bad Request, 401 Unauthorized) are **not retried** because they would likely fail again.
 

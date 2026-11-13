@@ -144,7 +144,7 @@ store to resolve a `file_id` from). gpt-oss (Harmony) models carry text parts on
 `input_image` or `input_file` is refused with `400` `harmony_build_failed`.
 
 Replayed history is held to a different rule. A message in a stored response loaded
-through `previous_response_id`, or in a conversation item a response wrote, is replayed
+through `previous_response_id`, or one a response wrote into a conversation, is replayed
 without the parts the serving pipeline never carried — an `input_file` always, an
 `input_image` without an `image_url`, and on gpt-oss (Harmony) models every `input_image`.
 The stored turn was answered without those parts, so the continuation is served rather

@@ -1317,7 +1317,7 @@ Errors that the gateway generates itself, for example when no worker is availabl
 
 ## Authentication
 
-The tokenizer, worker, WASM, cache flush, [diagnostics](#diagnostics), and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
+The tokenizer, worker, WASM, cache flush, [diagnostics](#diagnostics), [tenant rate-limit policy](#tenant-rate-limit-policy), and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
 
 1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT. A missing or invalid credential gets `401`. The `admin` role may use every method; the `user` role may use only `GET` and `HEAD`, and any other method answers it with `403`. The shared `--api-key` is not accepted.
 2. **Without it**: the shared `--api-key`. Per-tenant `--tenant-api-key` keys are rejected, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.

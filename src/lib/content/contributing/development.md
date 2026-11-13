@@ -559,7 +559,7 @@ On pull requests, CI runs each GPU and third-party-provider lane only when the f
 | GPUs | Lanes (engines) |
 |------|-----------------|
 | None (CPU) | Classes marked for the mock engine in the chat, completions, router, and Responses suites, on the scripted mock worker (`e2e-cpu-mock`) |
-| 1 | Chat (SGLang, vLLM, TensorRT-LLM, TokenSpeed); chat over ZMQ (vLLM, TokenSpeed); worker-side multimodal processing (vLLM); completions and embeddings (SGLang, vLLM); realtime (vLLM); router suite (SGLang, vLLM); Responses API (SGLang); Go bindings (SGLang) |
+| 1 | Chat (SGLang, vLLM, TensorRT-LLM, TokenSpeed); chat on the deprecated Python gRPC servicer (SGLang, vLLM); chat over ZMQ (vLLM, TokenSpeed, SGLang); worker-side multimodal processing (vLLM); completions and embeddings (SGLang, vLLM); realtime (vLLM); router suite (SGLang, vLLM); Responses API (SGLang); Go bindings (SGLang) |
 | 2 | PD disaggregation (SGLang, vLLM with NIXL or Mooncake, TokenSpeed); PD multimodal (vLLM); ZMQ data-parallel chat (vLLM, TokenSpeed) |
 | 4 | Chat (SGLang, vLLM, TensorRT-LLM); router suite (SGLang); EPD multimodal (TokenSpeed); PD topologies (SGLang, vLLM, TokenSpeed) |
 | Other | Third-party provider lanes on CPU runners (Anthropic Messages, OpenAI Responses and Realtime, xAI Responses); Kubernetes discovery on a kind cluster and MLX on Apple silicon, in separate workflows |

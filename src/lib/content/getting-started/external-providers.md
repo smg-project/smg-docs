@@ -190,7 +190,7 @@ curl http://localhost:30000/v1/chat/completions \
   }'
 ```
 
-Anthropic and Gemini models are served on their own APIs, not on `/v1/chat/completions`: send Anthropic models to `/v1/messages` and Gemini models to `/v1/interactions`. To serve one of these providers from a gateway, start it with `--backend anthropic` or `--backend gemini` (see [Cloud API Workers](multiple-workers.md#cloud-api-workers)).
+Anthropic and Gemini models are served on their own APIs, not on `/v1/chat/completions`: send Anthropic models to `/v1/messages` and Gemini models to `/v1/interactions`. In IGW mode, registering the provider's worker is enough — the gateway runs every provider router, so those routes serve the worker's models on the same gateway as `/v1/chat/completions`. To run a gateway dedicated to one provider's router alone, start it with `--backend anthropic` or `--backend gemini` (see [Cloud API Workers](multiple-workers.md#cloud-api-workers)).
 
 ---
 

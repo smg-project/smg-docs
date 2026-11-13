@@ -1223,7 +1223,7 @@ Replaces the document against the ETag read: read the document, then send the wh
 
 The `If-Match` precondition is what makes concurrent writes safe: a write against an ETag that is no longer the live revision's is refused with `412`, so two operators racing on the same revision cannot silently overwrite each other — the loser re-reads and writes against the new revision. `If-Match: *` would match any revision, which is no protection, so it counts as missing (`428`).
 
-**`?dry_run=true`** runs every check and answers what the document would change without applying anything: the response carries `"applied": false`, the live revision, and the `summary` and `changes` of the document given — no `buckets`, and the revision stands.
+**`?dry_run=true`** runs every check — the `If-Match` precondition included — and applies nothing: the response reports what the document would change, with `"applied": false`, the live revision, and the `summary` and `changes` of the document given — no `buckets`.
 
 **Request body:** the whole document, as in the `GET` response's `document` field.
 

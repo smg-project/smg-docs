@@ -253,7 +253,7 @@ smg launch \
 - **No deletion**: old files are kept; see [Log Rotation](#log-rotation)
 - **Non-blocking I/O**: dedicated writer threads write the files and stdout; a writer that falls more than 128,000 lines behind drops new lines for its sink rather than slowing requests
 - **Batched writes**: the writer threads write in batches, not one write per line. The first line after a quiet moment opens a 5 ms window, and the lines queued within it leave in one write, whole and in order; a batch that reaches 64 KiB is written at once, window or not. Only the writer thread waits for the window; when you tail stdout or a log file, the batching delays a line's appearance by at most 5 ms
-- **Shutdown flush**: a clean shutdown flushes the queued lines and the batch still being gathered; a process that dies without one loses at most the open 5 ms batch window's lines, on top of what sat in its writer queue
+- **Shutdown flush**: a clean shutdown flushes the queued lines and the batch still being gathered; a process that dies without one loses at most one 5 ms window of lines, on top of what sat in its writer queue
 - **Dropped-line reporting**: drops are counted per sink in the `smg_log_dropped_lines` metric; while drops continue, SMG logs a WARN line every 30 seconds (`log lines dropped: the writer queue was full`, with the total and the count since the last report); see the [Metrics Reference](../reference/metrics.md#log-writer-metrics)
 - **Directory creation**: SMG creates the directory if it does not exist
 

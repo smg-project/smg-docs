@@ -201,9 +201,10 @@ response's `function_call` by sending back only the matching `function_call_outp
 the earlier turns held by `previous_response_id` or `conversation`. A `store: false`
 request that replays the history, as in the previous example, likewise needs no new user
 message after the tool result. On gpt-oss (Harmony) models each result's `call_id` must
-match a `function_call` earlier in the resolved input — the replayed items plus any
-history loaded from `previous_response_id` — and an unmatched result is rejected with
-`400` `harmony_build_failed` (`No function call found for call_id: ...`).
+match a `function_call` earlier in the resolved input — the history loaded from
+`previous_response_id` or `conversation`, then the items the request itself sends — and
+an unmatched result is rejected with `400` `harmony_build_failed`
+(`No function call found for call_id: ...`).
 
 ### Tool Configuration
 

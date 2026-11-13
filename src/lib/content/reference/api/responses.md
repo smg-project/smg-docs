@@ -139,19 +139,21 @@ prompt — whether the model behind the worker accepts images is covered in
 [Multimodal](../../concepts/architecture/multimodal.md). A part the chat pipeline has no
 form for is refused with `400` `unsupported_content_part`, naming the part, before
 anything reaches a worker; it is never silently dropped from the prompt. That covers
-`input_file` (SMG keeps no file store, so neither `file_data` nor a `file_id` can be
-resolved) and an `input_image` without an `image_url` (a `file_id` alone cannot be
-resolved either). gpt-oss (Harmony) models carry text parts only: any `input_image` or
-`input_file` is rejected with `400` `harmony_build_failed`.
+`input_file` (the chat pipeline carries text, image, audio, and video parts but no file
+part, and SMG keeps no file store to resolve a `file_id` from) and an `input_image`
+without an `image_url` (a `file_id` alone cannot be resolved either). gpt-oss (Harmony)
+models carry text parts only: any `input_image` or `input_file` is rejected with `400`
+`harmony_build_failed`.
 
 Replayed history is held to a different rule. A message in a stored response replayed
 through `previous_response_id`, or in a conversation item a response wrote, is replayed
 without the parts the serving pipeline never carried — an `input_file` always, an
-`input_image` without `image_url`, and on gpt-oss (Harmony) models every `input_image`.
+`input_image` without an `image_url`, and on gpt-oss (Harmony) models every `input_image`.
 The stored turn was answered without those parts, so the continuation is served rather
 than refused over a history the client cannot edit. A conversation item the client added
-itself through [Create Conversation Items](#create-conversation-items) keeps every part,
-and an unsupported part there is refused like one in the request's own input.
+itself through [Create Conversation Items](#create-conversation-items) keeps every part:
+the next response over the conversation refuses an unsupported part there just as it
+would one in its own input.
 
 **Replaying a function call and its result:**
 
@@ -175,10 +177,11 @@ and an unsupported part there is refused like one in the request's own input.
 ```
 
 A `function_call_output.output` is a string or an array of content parts, and an empty
-result is allowed. gRPC workers concatenate the text parts in order; a result that
-contains media is refused with `400` `unsupported_content_part` (`harmony_build_failed`
-on gpt-oss models). HTTP workers receive the array unchanged. A replayed `function_call`
-keeps its `namespace` when it has one.
+result is allowed. gRPC workers concatenate the `input_text` and `output_text` parts in
+order; a result with any other part, such as an image or a file, is refused with `400`
+`unsupported_content_part` (`harmony_build_failed` on gpt-oss models). HTTP workers
+receive the array unchanged. A replayed `function_call` keeps its `namespace` when it
+has one.
 
 **Tool results without a new message:**
 
@@ -1444,9 +1447,9 @@ vocabulary.
 |-------------|--------|-------------|
 | 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), or the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...) |
 | 400 | `previous_response_not_found` | `previous_response_id` is not in SMG's storage, or is another tenant's response |
-| 400 | `unsupported_content_part` | gRPC: a message content part the chat pipeline has no form for (`input_file`, or `input_image` without `image_url`), or media in a `function_call_output`; see [Input Formats](#input-formats) |
+| 400 | `unsupported_content_part` | gRPC: a message content part the chat pipeline has no form for (`input_file`, or `input_image` without `image_url`), or a non-text part in a `function_call_output`; see [Input Formats](#input-formats) |
 | 400 | `convert_request_failed` | gRPC: an input item kind the chat pipeline does not carry, such as a `computer_call` |
-| 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, media in a `function_call_output`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |
+| 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a non-text part in a `function_call_output`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |
 | 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |
 | 401 | — | Invalid or missing API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |

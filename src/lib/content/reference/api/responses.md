@@ -136,15 +136,14 @@ is rejected with `400` before the request reaches a worker.
 gRPC workers, `input_text`, `output_text`, and `refusal` parts carry text, and an
 `input_image` with an `image_url` (an HTTP(S) URL or data URI) becomes an image in the
 prompt — whether the model behind the worker accepts images is covered in
-[Multimodal](../../concepts/architecture/multimodal.md). A part the chat pipeline has no
-form for is refused with `400` `unsupported_content_part`, naming the part, before
-anything reaches a worker; it is never silently dropped from the prompt. That covers
-`input_file` (the chat pipeline has no file part, and SMG keeps no file store to resolve
-a `file_id` from) and an `input_image` without an `image_url` (a `file_id` alone cannot
-be resolved either). gpt-oss (Harmony) models carry text parts only: any `input_image`
-or `input_file` is rejected with `400` `harmony_build_failed`.
+[Multimodal](../../concepts/architecture/multimodal.md). Any other part is refused with
+`400` `unsupported_content_part`, naming the part, before anything reaches a worker; it
+is never silently dropped from the prompt. That covers `input_file` (the chat pipeline
+carries no file part) and an `input_image` without an `image_url` (SMG keeps no file
+store to resolve a `file_id` from). gpt-oss (Harmony) models carry text parts only: any
+`input_image` or `input_file` is refused with `400` `harmony_build_failed`.
 
-Replayed history is held to a different rule. A message in a stored response replayed
+Replayed history is held to a different rule. A message in a stored response loaded
 through `previous_response_id`, or in a conversation item a response wrote, is replayed
 without the parts the serving pipeline never carried — an `input_file` always, an
 `input_image` without an `image_url`, and on gpt-oss (Harmony) models every `input_image`.
@@ -1446,7 +1445,7 @@ vocabulary.
 |-------------|--------|-------------|
 | 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), or the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...) |
 | 400 | `previous_response_not_found` | `previous_response_id` is not in SMG's storage, or is another tenant's response |
-| 400 | `unsupported_content_part` | gRPC: a message content part the chat pipeline has no form for (`input_file`, or `input_image` without `image_url`), or a non-text part in a `function_call_output`; see [Input Formats](#input-formats) |
+| 400 | `unsupported_content_part` | gRPC: an unsupported message content part (`input_file`, or `input_image` without `image_url`), or a non-text part in a `function_call_output`; see [Input Formats](#input-formats) |
 | 400 | `convert_request_failed` | gRPC: an input item kind the chat pipeline does not carry, such as a `computer_call` |
 | 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a non-text part in a `function_call_output`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |
 | 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |

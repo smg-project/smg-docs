@@ -269,7 +269,7 @@ X-SMG-Error-Code: worker_overload_protection_shed
 - **Not retried internally**: the gateway's retry layer never retries a shed, so the answer comes back immediately rather than after rounds of backoff against the same verdict.
 - **Trustworthy code**: `X-SMG-Error-Code` is set only by the gateway and is stripped from responses forwarded from workers, so it always marks a decision this gateway made.
 - **Dispatch-time re-check**, under `--worker-overload-shed` only: if the chosen worker is flagged between selection and dispatch, the request is shed with the message `Worker '<url>' for model '<model>' became overloaded before dispatch`. The gateway sheds instead of re-selecting; the flag only moves when a load report arrives, so this window is rare. Without the flag the dispatch stands: the worker was the right choice when it was made.
-- **Mixed causes shed**: workers that are out for another reason (unhealthy, or circuit breaker open) are left out of the verdict, so a pool whose every routable worker is overloaded sheds even while other workers are down or circuit-blocked. A pool with no routable worker at all falls through to the ordinary `503 no_available_workers` instead.
+- **Mixed causes shed**: the verdict counts only the routable candidates, so a pool whose every routable worker is overloaded sheds even while other workers are unhealthy or circuit-blocked.
 
 !!! note "Changed in v1.11.0"
     In v1.10.x an overload shed used the generic `503 no_available_workers` code. Since v1.11.0 sheds carry their own `worker_overload_protection_shed` code, so alerts and upstream proxies can tell a shed apart from an availability failure.

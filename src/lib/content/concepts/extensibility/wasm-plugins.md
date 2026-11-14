@@ -246,7 +246,7 @@ curl -X POST http://localhost:30000/wasm \
 
 SMG loads each module before it answers. The response lists every module with an `add_result`: `{"Success": "<module uuid>"}`, or `{"Error": "<message>"}` for a module that failed.
 
-The status is `200` only when every module was added. A failure has a status by its cause — `400` for a module that failed to load, `503` for one the job queue refused, `504` for a load that outlived its 300-second wait and may still finish — and the response carries the highest status among the failures. See [Add WASM Module](../../reference/api/admin.md#add-wasm-module) for the details.
+The status is `200` only when every module was added. A failure has a status by its cause: `400` for a module that failed to load, `503` for one the job queue refused, `504` for a load that outlived its 300-second wait and may still finish. The response carries the highest status among the failures. See [Add WASM Module](../../reference/api/admin.md#add-wasm-module) for the details.
 
 ### List Plugins
 

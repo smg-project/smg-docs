@@ -926,7 +926,7 @@ The only supported `module_type` is `Middleware`. Valid `Middleware` attach poin
 
 **Response:** `200 OK` when every module was added. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message). Each requested module gets its own UUID, so two modules with the same `name` in one request get distinct UUIDs.
 
-The gateway loads the modules one at a time, waiting up to 300 seconds for each; a load that fails or outlives the wait puts the reason in that module's `add_result`.
+The gateway loads the modules one at a time, waiting up to 300 seconds for each; a failure puts its reason in that module's `add_result`.
 
 Each failure has a status by its cause, and the response carries the highest status among them, so one module refused by a full queue (`503`) beside one that failed to load (`400`) answers `503`:
 
@@ -934,7 +934,7 @@ Each failure has a status by its cause, and the response carries the highest sta
 |--------|------|
 | `400 Bad Request` | The module's load job ran and failed; the `add_result` error is the module's own failure reason |
 | `503 Service Unavailable` | The job queue took no job for the module (full, or shutting down) |
-| `504 Gateway Timeout` | The load did not finish within the 300-second wait. The job keeps running and may still register the module, so the `add_result` error names the UUID such a late registration carries; re-read [`GET /wasm`](#list-wasm-modules) to see whether it did |
+| `504 Gateway Timeout` | The load did not finish within the 300-second wait. The job keeps running and may still register the module, so the `add_result` error names the UUID a late registration carries; re-read [`GET /wasm`](#list-wasm-modules) to see whether the module appeared |
 
 The response to a fully successful request:
 

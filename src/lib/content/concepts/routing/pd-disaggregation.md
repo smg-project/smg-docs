@@ -548,7 +548,7 @@ Long prompts with short outputs need relatively more prefill capacity. Short pro
 
 | Metric | Type | Labels | Recorded |
 |--------|------|--------|----------|
-| `smg_pd_ttft_seconds` | Histogram | `backend_type`, `model`, `runtime` | Prefill dispatch to the first decode output. HTTP PD, and gRPC streaming on all runtimes |
+| `smg_pd_ttft_seconds` | Histogram | `backend_type`, `model`, `runtime` | Prefill dispatch to the first decode output. HTTP PD, and gRPC streaming on SGLang, vLLM, and TokenSpeed pairs |
 | `smg_pd_prefill_duration_seconds` | Histogram | `backend_type`, `model`, `runtime` | Prefill-leg duration. HTTP PD and gRPC vLLM |
 | `smg_pd_kv_transfer_duration_seconds` | Histogram | `backend_type`, `model`, `runtime` | Prefill completion to decode dispatch. gRPC vLLM |
 | `smg_pd_decode_ttft_seconds` | Histogram | `backend_type`, `model`, `runtime` | Decode dispatch to the first decode token, the engines' KV transfer included. gRPC streaming, recorded together with `smg_pd_ttft_seconds` |
@@ -564,7 +564,7 @@ Related series:
 
 - `smg_worker_selection_total` counts picks per leg (`worker_type` is `prefill`, `decode`, or `encode`), with `connection_mode`, `model`, and `policy` labels.
 - `smg_worker_requests_active` shows in-flight requests per worker (`worker` label).
-- `smg_router_ttft_seconds` with `backend_type="pd"` (gRPC) also anchors at the prefill dispatch, so it reports the time the client waits; `smg_router_generation_duration_seconds` shares the same base. `smg_pd_ttft_seconds` measures the same span, with the `runtime` label and the phase breakdown above.
+- `smg_router_ttft_seconds` with `backend_type="pd"` (gRPC) anchors at the same prefill dispatch as `smg_pd_ttft_seconds`, so both report the time the client waits; `smg_pd_ttft_seconds` adds the `runtime` label and the phase breakdown above. `smg_router_generation_duration_seconds` starts its clock at the same dispatch.
 - `smg_engine_pd_kv_transfer_latency_ms`, `smg_engine_pd_kv_transfer_speed_gb_s`, `smg_engine_pd_prefill_queue_reqs`, and `smg_engine_pd_decode_queue_reqs` (labels `worker`, `role`, `dp_rank`) are published when an engine's load report includes disaggregation statistics, as the SGLang gRPC servicer's does.
 
 See the [Metrics Reference](../../reference/metrics.md) for every metric.

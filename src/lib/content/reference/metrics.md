@@ -383,7 +383,9 @@ sum by (error_type) (rate(smg_router_request_errors_total[5m]))
 
 ### `smg_router_ttft_seconds`
 
-Time to first token, recorded for streaming responses on the gRPC router. The clock starts at the answering attempt's RPC dispatch; for `backend_type="pd"` that is the prefill dispatch of the pair, so the value includes the prefill and KV-transfer time. [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) measures the same span with the pair's `runtime` label and a per-phase breakdown beside it.
+Time to first token, recorded for streaming responses on the gRPC router. The clock starts at the answering attempt's RPC dispatch; for `backend_type="pd"` that is the prefill dispatch of the pair (after the encode call, when an encode-prefill-decode pair's encode worker pushes its embeddings), so the value includes the prefill and KV-transfer time. [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) measures the same span with the pair's `runtime` label and a per-phase breakdown beside it.
+
+A collected (non-streaming) answer records no first token. Neither does a streamed Responses answer on the Harmony (gpt-oss) pipeline: through a prefill-decode pair it records only [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) and [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds).
 
 | Type | Labels |
 |------|--------|
@@ -458,7 +460,7 @@ sum(rate(smg_router_tokens_total{token_type="output"}[5m])) / sum(rate(smg_route
 
 ### `smg_router_generation_duration_seconds`
 
-Total generation time of a streaming response on the gRPC router. The clock starts at the same instant as [`smg_router_ttft_seconds`](#smg_router_ttft_seconds): the answering attempt's RPC dispatch, which for `backend_type="pd"` is the prefill dispatch of the pair.
+Total generation time of a gRPC-routed answer, streamed or collected, from the answering attempt's RPC dispatch to the answer's end. The clock starts at the same instant as [`smg_router_ttft_seconds`](#smg_router_ttft_seconds): for `backend_type="pd"`, the prefill dispatch of the pair.
 
 | Type | Labels |
 |------|--------|
@@ -539,11 +541,11 @@ Output tokens the engine streamed for a choice after the gateway's own stop had 
 
 Signals that only the gateway can measure, because it is the one component that sees both the prefill and the decode leg of a disaggregated request. Durations are recorded once per request, not per retry attempt. See [PD Disaggregation](../concepts/routing/pd-disaggregation.md).
 
-The four histograms (`smg_pd_ttft_seconds`, `smg_pd_prefill_duration_seconds`, `smg_pd_kv_transfer_duration_seconds`, and `smg_pd_decode_ttft_seconds`) share the labels `backend_type`, `model`, and `runtime`, the pair's runtime type (for example `sglang`, `vllm`, or `tokenspeed`). `backend_type` is `pd`, except on `smg_pd_ttft_seconds` and `smg_pd_decode_ttft_seconds` from a Harmony-mode (gpt-oss) stream, which carry `harmony`.
+The four histograms share the labels `backend_type`, `model`, and `runtime`, the pair's runtime type (for example `sglang`, `vllm`, or `tokenspeed`). `backend_type` is `pd`, except on `smg_pd_ttft_seconds` and `smg_pd_decode_ttft_seconds` from a Harmony-mode (gpt-oss) stream, which carry `harmony`.
 
 #### `smg_pd_ttft_seconds`
 
-End-to-end time to first token of a disaggregated request, from the prefill dispatch to the first decode token (the decode response head on the HTTP PD router). On gRPC streams it is recorded together with [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds) at the first decode token, off one clock reading, so for a sequential pair the prefill, KV-transfer, and decode phases add up to it exactly. `smg_router_ttft_seconds{backend_type="pd"}` shares the prefill-dispatch anchor; this family adds the `runtime` label.
+End-to-end time to first token of a disaggregated request, from the prefill dispatch to the first decode token (the decode response head on the HTTP PD router). On gRPC streams it and [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds) are recorded together at the first decode token, so for a sequential pair the prefill, KV-transfer, and decode phases add up to it exactly. `smg_router_ttft_seconds{backend_type="pd"}` shares the prefill-dispatch anchor; this metric adds the `runtime` label.
 
 | Type | Labels |
 |------|--------|

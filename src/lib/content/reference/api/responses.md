@@ -922,7 +922,7 @@ curl "http://localhost:30000/v1/responses/resp_abc123def456/input_items?limit=50
 }
 ```
 
-`has_more` is `true` while stored items follow the page. To walk the whole list, pass
+`has_more` is `true` when stored items follow the page. To walk the whole list, pass
 each page's `last_id` as the next request's `after` until `has_more` is `false`. An
 `after` ID the list does not hold starts the page at its first item; an `after` naming
 the last item in the chosen order returns an empty page with `has_more: false` and

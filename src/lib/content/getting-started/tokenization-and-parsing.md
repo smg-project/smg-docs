@@ -103,12 +103,15 @@ A batch request returns `text` as an array of strings. For tiktoken-based tokeni
 
 ### Errors
 
-Errors use the body `{"error": {"message": "...", "type": "..."}}`:
+Both endpoints answer errors in the gateway's standard [error envelope](../reference/api/openai.md#error-format), `{"error": {"type": ..., "code": ..., "message": ..., "param": ...}}`, as the model routes do. `type` is `invalid_request_error` on the 400 and 404 responses and `server_error` on the 500; the detail is in `code`:
 
-| Status | `type` | Cause |
+| Status | `code` | Cause |
 |--------|--------|-------|
-| 400 | `tokenizer_not_found` | No tokenizer is loaded under that name (the message lists the loaded names), or none is loaded at all |
+| 400 | `invalid_json`, `missing_required_parameter`, `invalid_type`, `json_parse_error`, ... | The body does not parse, misses a required field, gives one the wrong type, or isn't sent as `Content-Type: application/json`; `param` names the offending field when one is known |
+| 404 | `model_not_found` | No tokenizer is loaded under that name (the message lists the loaded names), or none is loaded at all |
 | 500 | `tokenization_error` / `detokenization_error` | The tokenizer failed on the input |
+
+The 404 and 500 responses repeat `code` in the `X-SMG-Error-Code` header; the body-validation 400s omit that header, as on every route.
 
 ---
 

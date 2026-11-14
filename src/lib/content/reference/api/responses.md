@@ -1446,9 +1446,9 @@ vocabulary.
 |-------------|--------|-------------|
 | 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), or the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...) |
 | 400 | `previous_response_not_found` | `previous_response_id` is not in SMG's storage, or is another tenant's response |
-| 400 | `unsupported_content_part` | gRPC: an unsupported message content part (`input_file`, or `input_image` without `image_url`), or a non-text part in a `function_call_output`; see [Input Formats](#input-formats) |
+| 400 | `unsupported_content_part` | gRPC: an unsupported message content part (`input_file`, or `input_image` without `image_url`), or a `function_call_output` part other than `input_text` or `output_text`; see [Input Formats](#input-formats) |
 | 400 | `convert_request_failed` | gRPC: an input item kind the chat pipeline does not carry, such as a `computer_call` |
-| 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a non-text part in a `function_call_output`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |
+| 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a `function_call_output` part other than `input_text` or `output_text`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |
 | 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |
 | 401 | — | Invalid or missing API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |

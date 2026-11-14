@@ -216,7 +216,7 @@ These error answers all use the standard [error envelope](../../reference/api/op
 
 Plugins are managed via the Admin API at runtime. These routes need `--enable-wasm` (without it they answer `503`) and are protected like the other admin routes.
 
-A request these routes refuse answers in the control plane's `{"error": "<message>", "code": "<CODE>"}` envelope; see [WASM Module Management](../../reference/api/admin.md#wasm-module-management) for the statuses and codes.
+A request these routes refuse answers in the control plane's `{"error": "<message>", "code": "<CODE>"}` envelope; only a load's per-module results use their own `add_result` shape. See [WASM Module Management](../../reference/api/admin.md#wasm-module-management) for the statuses and codes.
 
 ### Deploy Plugins
 

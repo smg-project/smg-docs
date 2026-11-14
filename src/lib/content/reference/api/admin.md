@@ -1223,7 +1223,7 @@ Replaces the document against the ETag read: read the document, then send the wh
 
 The `If-Match` precondition is what makes concurrent writes safe: a write against an ETag that is no longer the live revision's is refused with `412`, so two operators racing on the same revision cannot silently overwrite each other — the loser re-reads and writes against the new revision. `If-Match: *` would match any revision, which is no protection, so it counts as missing (`428`).
 
-**`?dry_run=true`** runs every check — the `If-Match` precondition included — and applies nothing: the response reports what the document would change, with `"applied": false`, the live revision, and the `summary` and `changes` of the document given — no `buckets`.
+**`?dry_run=true`** runs every check — the `If-Match` precondition included — and applies nothing: the response reports what the document would change, with `"applied": false`, the live revision, and the `summary` and `changes` of the document given — no `buckets`. `dry_run` is the only query key the route accepts: a misspelt key (`dryRun`, `dry-run`) is refused with `400` naming it rather than ignored, so a write meant as a dry run never applies the document it meant to preview.
 
 **Request body:** the whole document, as in the `GET` response's `document` field.
 
@@ -1260,14 +1260,14 @@ The `If-Match` precondition is what makes concurrent writes safe: a write agains
 | `changes` | What the document changes against the revision it was checked against: the tenant keys added, removed (those tenants fall to the default policy), and changed, and whether `default_policy` differs |
 | `buckets` | What the application did to the live buckets; absent on a dry run. `kept`: buckets whose limits stand, kept with their fill. `replaced`: buckets re-created at new limits with their spending carried over. `dropped`: buckets of a scope the document no longer names (a model rule that is gone) |
 
-A bucket's fill survives the write wherever its limits are unchanged, and a changed limit carries the scope's current spending into the new bucket — a tenant mid-minute cannot get a fresh budget out of a policy write. Reservations in flight settle against the buckets that replaced theirs.
+An applied write forgives no tokens already spent: a tenant mid-minute cannot get a fresh budget out of a policy write, and reservations in flight settle against the buckets that replaced theirs.
 
 **Errors**, in the control plane's `{"error", "code"}` envelope:
 
 | Status | `code` | When |
 |--------|--------|------|
 | `400` | `INVALID_DOCUMENT` | The document fails the checks the start applies to its file; the error names the failure (a duplicate `tenant_key`, a `header:` key without `--trust-tenant-header`, a non-canonical key, and so on) |
-| `400` | `BAD_REQUEST` | The body is not the document — broken JSON, an unknown field, a wrong type, a missing `Content-Type: application/json` — or the query string does not parse |
+| `400` | `BAD_REQUEST` | The body is not the document — broken JSON, an unknown field, a wrong type, a missing `Content-Type: application/json` — or the query string does not parse or names a key other than `dry_run` |
 | `413` | `PAYLOAD_TOO_LARGE` | The body exceeds `--max-payload-size` |
 | `409` | `RATE_LIMITER_DISABLED` | The gateway runs without a tenant rate limiter; there is no document |
 | `409` | `POLICY_NOT_REPLACEABLE` | The rate-limit backend in use holds no document and takes no new policy while running |

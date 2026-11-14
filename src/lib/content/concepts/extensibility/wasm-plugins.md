@@ -216,7 +216,7 @@ These error answers all use the standard [error envelope](../../reference/api/op
 
 Plugins are managed via the Admin API at runtime. These routes need `--enable-wasm` (without it they answer `503`) and are protected like the other admin routes.
 
-A request these routes refuse answers in the control plane's `{"error": "<message>", "code": "<CODE>"}` envelope; see [WASM Module Management](../../reference/api/admin.md#wasm-module-management) for the statuses and codes.
+A request these routes refuse answers in the control plane's `{"error": "<message>", "code": "<CODE>"}` envelope; only a load's per-module results use their own `add_result` shape. See [WASM Module Management](../../reference/api/admin.md#wasm-module-management) for the statuses and codes.
 
 ### Deploy Plugins
 
@@ -244,7 +244,9 @@ curl -X POST http://localhost:30000/wasm \
   }'
 ```
 
-SMG loads each module before it answers. The response lists every module with an `add_result`: `{"Success": "<module uuid>"}`, or `{"Error": "<message>"}` for a module that failed, in which case the status is `400`.
+SMG loads each module before it answers. The response lists every module with an `add_result`: `{"Success": "<module uuid>"}`, or `{"Error": "<message>"}` for a module that failed.
+
+The status is `200` only when every module was added. A failure has a status by its cause: `400` for a module that failed to load, `503` for one the job queue refused, `504` for a load that outlived its 300-second wait and may still finish. The response carries the highest status among the failures. See [Add WASM Module](../../reference/api/admin.md#add-wasm-module) for the details.
 
 ### List Plugins
 

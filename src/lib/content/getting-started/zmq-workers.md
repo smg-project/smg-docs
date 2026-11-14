@@ -365,7 +365,8 @@ The flag belongs to the Rust `smg` binary; the Python launcher (`smg launch` and
 
 Even under `hash`, these requests keep the least-loaded pick:
 
-- A request without a sticky key, and every prompt of a completion request that batches several prompts.
+- A request without a sticky key.
+- Every prompt of a completion request that batches several prompts.
 - A request whose key hashes to a rank the worker's connection can't place a pin on; each such request is logged at debug. A vLLM pin names an engine's index, so pins reach the indices from 0 up to the first one the group lacks, and a vLLM group launched at a non-zero data-parallel start rank takes no pins at all. A TokenSpeed pin goes to the connection's rank-th engine, so every engine of the group takes pins.
 
 On a disaggregated TokenSpeed pair whose prefill side is a grouped ZMQ worker, the pin rides in the request's [bootstrap room](../concepts/routing/pd-disaggregation.md) instead of a rank field: the gateway moves the room so that the room modulo the prefill group's engine count equals the key's rank, and the prefill engine runs the request on the rank its room names. The decode side gets the same room, so a decode group of the same size follows the prefill rank. The samples of an `n > 1` request get rooms of their own with the same remainder, so they all follow the key's rank. A batched or EPD request, or a disaggregated request on another runtime, keeps its randomly minted room, unpinned (logged once per gateway process).

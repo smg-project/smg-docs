@@ -277,14 +277,16 @@ Several clips in one request are preprocessed in parallel (smg-project/smg#2595)
 
 ### Media Counts
 
-A few model families keep built-in per-request limits; most declare their media without a count of their own (see [Supported Models](#supported-models)). Either way, SMG never sends more items than the per-request limit the model's workers advertise for their engine. These deployment settings replace a family's own count:
+A few model families keep built-in per-request limits; most declare their media without a count of their own (see [Supported Models](#supported-models)). Either way, SMG never sends more items than the per-request limit the model's workers advertise for their engine: vLLM's `--limit-mm-per-prompt` or SGLang's `--limit-mm-data-per-request`, carried in the `mm_item_limits` worker label as `<modality>=<count>` pairs (for example `audio=1,image=8,video=2`). The smallest limit any registered worker of the model advertises for a modality applies, healthy or not, and SMG checks the count before any media is fetched, so a request never depends on which worker is picked.
+
+These deployment settings replace a family's own count:
 
 | Setting | Scope | Description |
 |---------|-------|-------------|
 | `--mm-per-request-image-limit` | Images, every model | Replaces each model's image limit (at least 1), for example to match the engine's `--limit-mm-per-prompt`. Takes precedence over `SMG_IMAGE_MAX_COUNT` (smg-project/smg#2381). |
 | `SMG_IMAGE_MAX_COUNT`, `SMG_VIDEO_MAX_COUNT`, `SMG_AUDIO_MAX_COUNT` | One modality, every model | Environment overrides that raise or lower the limit; unset, zero, or non-numeric values are ignored (smg-project/smg#2153). |
 
-Neither setting enables a modality the model does not support. When you raise a limit, raise the engine's own limit to match. On the worker path, the vLLM worker also enforces its own item limits.
+Neither setting enables a modality the model does not support, and neither raises the limit above what the workers advertise: when you raise a limit, raise the engine's own limit to match. On the worker path, the vLLM worker also enforces its own item limits.
 
 ### Sizes and Timeouts
 
@@ -423,7 +425,7 @@ See [PD Disaggregation](../routing/pd-disaggregation.md) for how the legs are pa
 | `smg_mm_shm_write_failures_total` | `runtime` | Shared-memory writes that failed and fell back to inline |
 | `smg_admission_queue_rejected_total` | `reason` | Includes `multimodal_inflight` (429) and `multimodal_too_large` (413) refusals |
 
-`GET /workers` shows the labels behind these decisions: `mm_processor`, `mm_processor_source`, `mm_media_ref_schemes`, `supports_vision`, and `shm_namespace_id`. See the [Metrics Reference](../../reference/metrics.md) for every metric.
+`GET /workers` shows the labels behind these decisions: `mm_processor`, `mm_processor_source`, `mm_media_ref_schemes`, `mm_item_limits`, `supports_vision`, and `shm_namespace_id`. See the [Metrics Reference](../../reference/metrics.md) for every metric.
 
 ---
 

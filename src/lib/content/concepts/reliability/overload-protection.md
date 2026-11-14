@@ -241,7 +241,9 @@ While a worker is overloaded:
 
 ### When Every Worker Is Overloaded
 
-When every worker the request could have been routed to (the pool selection drew from: same model, worker type, and transport) is overloaded, the gateway never queues it. By default it **steers**: the request goes to the worker with the fewest requests this gateway has in flight to it (ties drawn at random), and the placement counts in `smg_worker_overload_fallback_total{stage="selection"}`. The two placements exempt above are placed by their policy instead and counted the same way. A fleet that is uniformly over its ceilings is still a fleet, and refusing the request would turn a load signal into an outage.
+When every worker the request could have been routed to is overloaded, the gateway never queues it. The verdict is judged over the **routable candidates** in the pool that selection drew from (same model, worker type, and transport): the workers that are healthy with a closed or half-open [circuit breaker](circuit-breakers.md). A worker that is out for another reason — unhealthy, or blocked by its circuit breaker — neither suppresses the verdict on the rest of the pool nor receives the request. A pool with no routable worker at all is neither steered nor shed: the request gets the ordinary `503 no_available_workers`, whether or not its workers are also overloaded.
+
+By default the gateway **steers**: the request goes to the routable worker with the fewest requests this gateway has in flight to it (ties drawn at random), and the placement counts in `smg_worker_overload_fallback_total{stage="selection"}`. The two placements exempt above are placed by their policy instead and counted the same way. A fleet that is uniformly over its ceilings is still a fleet, and refusing the request would turn a load signal into an outage.
 
 With `--worker-overload-shed` the gateway **sheds** instead, rejecting the request at once:
 
@@ -267,7 +269,7 @@ X-SMG-Error-Code: worker_overload_protection_shed
 - **Not retried internally**: the gateway's retry layer never retries a shed, so the answer comes back immediately rather than after rounds of backoff against the same verdict.
 - **Trustworthy code**: `X-SMG-Error-Code` is set only by the gateway and is stripped from responses forwarded from workers, so it always marks a decision this gateway made.
 - **Dispatch-time re-check**, under `--worker-overload-shed` only: if the chosen worker is flagged between selection and dispatch, the request is shed with the message `Worker '<url>' for model '<model>' became overloaded before dispatch`. The gateway sheds instead of re-selecting; the flag only moves when a load report arrives, so this window is rare. Without the flag the dispatch stands: the worker was the right choice when it was made.
-- **Mixed causes are not a shed**: if some candidates are out for another reason (unhealthy, or circuit breaker open) and the rest are overloaded, the request gets the ordinary `503 no_available_workers`.
+- **A mixed-cause pool still sheds**: the verdict counts only the routable candidates, so a pool whose every routable worker is overloaded sheds even while its other workers are unhealthy or blocked by their circuit breakers.
 
 !!! note "Changed in v1.11.0"
     In v1.10.x an overload shed used the generic `503 no_available_workers` code. Since v1.11.0 sheds carry their own `worker_overload_protection_shed` code, so alerts and upstream proxies can tell a shed apart from an availability failure.
@@ -317,11 +319,11 @@ This gate is on by default and independent of the overload thresholds. Keep the 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `smg_workers_overloaded` | Gauge | `model` | Workers of the model currently excluded by overload protection. Updated when a worker's verdict changes. |
-| `smg_worker_overload_shed_total` | Counter | `stage` | Requests shed with `worker_overload_protection_shed`. `stage` is `selection` (every candidate overloaded), `dispatch` (chosen worker flagged before dispatch), or `pd_admission` (decode window full). |
+| `smg_worker_overload_shed_total` | Counter | `stage` | Requests shed with `worker_overload_protection_shed`. `stage` is `selection` (every routable candidate overloaded), `dispatch` (chosen worker flagged before dispatch), or `pd_admission` (decode window full). |
 | `smg_worker_overload_fallback_total` | Counter | `stage` | Requests placed although every worker they could use was overloaded, because shedding is off: routed to the least-loaded worker or, for a cache-aware prefill pool of a prefill/decode pair or a request `consistent_hashing` places by routing key, placed by that policy. `stage` is `selection`. |
 | `smg_worker_stalled` | Gauge | `worker`, `reason` | `1` while a liveness veto excludes the worker from routing. `reason` is `unreachable` or `wedged`. |
 | `smg_worker_stall_transitions_total` | Counter | `worker`, `reason` | Liveness vetoes set on the worker, counted each time one lands. |
-| `smg_worker_liveness_fallback_total` | Counter | `stage` | Requests routed to a worker the liveness tracker vetoed because every candidate was vetoed. `stage` is `selection`. |
+| `smg_worker_liveness_fallback_total` | Counter | `stage` | Requests routed to a worker the liveness tracker vetoed because every routable candidate was vetoed. `stage` is `selection`. |
 | `smg_pd_admission_waits_total` | Counter | none | gRPC PD dispatches that waited for decode room and were admitted. |
 | `smg_pd_admission_sheds_total` | Counter | none | gRPC PD dispatches shed by the decode admission window. |
 | `smg_engine_waiting_requests` | Gauge | `worker`, `model`, `dp_rank` | Engine-reported waiting requests per DP rank, from the worker's load reports (polled or streamed). |

@@ -134,7 +134,7 @@ is rejected with `400` before the request reaches a worker.
 
 **Message content parts.** A message's `content` is a string or an array of parts. On
 gRPC workers, `input_text`, `output_text`, and `refusal` parts carry text, and an
-`input_image` with an `image_url` (an HTTP(S) URL or data URI) becomes an image in the
+`input_image` with an `image_url` (an HTTP(S) URL or a `data:` URL) becomes an image in the
 prompt — whether the model behind the worker accepts images is covered in
 [Multimodal](../../concepts/architecture/multimodal.md). Any other part is refused with
 `400` `unsupported_content_part`, naming the part, before anything reaches a worker; it

@@ -471,7 +471,7 @@ Each audit event is an `INFO` log record with target `smg::audit`; the layout of
 
 Both lines of a mutation carry the same `principal`, `auth_method`, `role`, `method`, `path`, and `request_id`, so one request ID correlates them. A read (`GET` or `HEAD`) writes the admission line alone. A denied or unauthenticated request also writes only the admission line, recording the denial — no handler ran, so there is no outcome line. `--disable-audit-logging` silences both lines.
 
-An admitted mutation runs to its outcome line even when nobody is waiting for the answer. A client that disconnects early abandons only its wait: the handler still completes, and the line records the status the handler actually answered.
+The outcome line does not depend on the client staying connected. A client that disconnects early abandons only its wait: the mutation still runs to its answer, and the line records the status the handler actually answered.
 
 [Graceful shutdown](../reliability/graceful-shutdown.md) counts an admitted mutation among the in-flight requests it drains, so an orderly stop waits for the mutation and its outcome line — including one whose client already left — within the ordinary shutdown grace period. Only a stop that cuts the mutation short, such as the grace period expiring with it still running or the process being killed outright, leaves the admission line standing alone. For an admitted mutation, an admission line with no outcome line therefore means the gateway stopped with it in flight, not that the handler failed; a failure writes a `failed` outcome line.
 

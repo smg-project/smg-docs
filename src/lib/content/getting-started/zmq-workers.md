@@ -52,7 +52,7 @@ The engine never sees text, so SMG also does the work that the engine's API serv
 | EOS (vLLM) | Attaches the model's EOS token IDs to every request: from `config.json` and `generation_config.json` when `--model-path` is a local directory, otherwise from the tokenizer. TokenSpeed and SGLang stop at EOS on their own |
 | Default `max_tokens` (vLLM) | Uses the context length the engine reported at handshake minus the prompt length |
 | `n > 1` | Sends `n` single-sample requests and merges the results; an explicit `seed` becomes `seed + i` for sample `i`, so samples differ but stay reproducible (vLLM and TokenSpeed; the SGLang wire carries no `seed`) |
-| Data-parallel ranks | Picks the least-loaded engine inside a grouped worker (see [Data-Parallel Engines](#data-parallel-engines)) |
+| Data-parallel ranks | Picks the least-loaded engine inside a grouped worker, or the sticky key's engine under `--grouped-dp-sticky hash` (see [Data-Parallel Engines](#data-parallel-engines)) |
 
 ---
 
@@ -345,7 +345,7 @@ Start the engine group with its data-parallel size. A TokenSpeed attention-DP gr
 
 ### Rank Selection
 
-Output batches carry the producing rank's scheduler load: running requests, waiting requests, and KV-cache usage (vLLM's scheduler stats, or TokenSpeed's load snapshot). For each request, SMG scores every rank in the group and sends the request to the lowest score:
+Output batches carry the producing rank's scheduler load: running requests, waiting requests, and KV-cache usage (vLLM's scheduler stats, or TokenSpeed's load snapshot). For each request it doesn't pin to a rank (pinning is off by default; see below), SMG scores every rank in the group and sends the request to the lowest score:
 
 ```text
 score = max(requests SMG has in flight on the rank, running + waiting)
@@ -357,10 +357,19 @@ score = max(requests SMG has in flight on the rank, running + waiting)
 - Ties rotate across ranks. A TokenSpeed build that sends no load snapshot is scored on SMG's in-flight counts alone.
 - vLLM MoE models run their data-parallel ranks in lockstep and pause the whole group when idle. SMG sends the wake-up that vLLM's data-parallel coordinator process would otherwise send, so no coordinator runs. Ranks of dense models run independently.
 
-Rank selection happens inside the connection. Routing policies see the group as one worker, and requests are never pinned to a rank.
+Rank selection happens inside the connection, and routing policies see the group as one worker. By default (`--grouped-dp-sticky off`), no request is pinned to a rank: every request goes to the least-loaded engine, so a multi-turn conversation's requests scatter across the engines' separate prefix caches.
 
-!!! note "TokenSpeed attention-DP rank affinity uses gRPC"
-    Rank affinity for TokenSpeed attention data parallelism keeps multi-turn requests on the rank that holds their prefix cache. It works over gRPC with `--dp-aware`: the TokenSpeed gRPC servicer advertises a `dp_size` label only when the engine and its protocol stubs support rank pinning (the capability handshake) and the width is above 1, and the gateway then registers one worker per rank and pins `data_parallel_rank` on each request. Single-rank engines register as ordinary, unpinned workers. None of this applies over ZMQ: TokenSpeed ZMQ requests carry no rank field, and ZMQ workers can't be dp-aware expanded.
+`--grouped-dp-sticky hash` pins each request that carries a sticky key to the key's engine instead: rank `xxh3(key) mod N`, counted from 0, where `N` is the group's engine count — `--zmq-engine-count` or `dp_size`, or the size the group declared at the handshake when no count was set. The flag is the Rust `smg` binary's; the Python launcher's `smg launch` does not take it. The key is the [sticky-session key](../concepts/routing/sticky-sessions.md): the first valid `--routing-key-headers` header (`x-smg-routing-key` by default), or the body `rid` when `--routing-key-override` is on. xxh3 is fixed by its specification, so a key keeps its engine across requests, gateway restarts, and gateway replicas, however unevenly the keys fall, and a conversation that sends the same key every turn keeps hitting one engine's prefix cache.
+
+Even under `hash`, these requests keep the least-loaded pick:
+
+- A request without a sticky key, and every prompt of a completion request that batches several prompts.
+- A request whose key hashes to a rank the worker's connection can't place a pin on. A vLLM pin names an engine's index, so pins reach the indices from 0 up to the first one the group lacks: a vLLM group launched at a non-zero data-parallel start rank takes no pins at all, and its keyed requests are served unpinned (each is logged at debug). A TokenSpeed pin goes to the connection's rank-th engine, so every engine of the group takes pins.
+
+On a disaggregated TokenSpeed pair whose prefill side is a grouped ZMQ worker, the pin rides in the request's [bootstrap room](../concepts/routing/pd-disaggregation.md) instead of a rank field: the gateway moves the room so that the room modulo the prefill group's engine count equals the key's rank, the prefill engine runs the request on the rank its room names, and the decode side gets the same room, so a decode group of the same size follows the prefill rank. The samples of an `n > 1` request get rooms of their own with the same remainder, so they all follow the key's rank. A batched or EPD request, or a disaggregated request on another runtime, keeps its randomly minted room, unpinned (logged once per gateway process).
+
+!!! note "TokenSpeed attention-DP rank affinity over gRPC"
+    Rank affinity for TokenSpeed attention data parallelism keeps multi-turn requests on the rank that holds their prefix cache. Over gRPC it works with `--dp-aware`: the TokenSpeed gRPC servicer advertises a `dp_size` label only when the engine and its protocol stubs support rank pinning (the capability handshake) and the width is above 1, and the gateway then registers one worker per rank and pins `data_parallel_rank` on each request. Single-rank engines register as ordinary, unpinned workers. None of this applies over ZMQ, where workers can't be dp-aware expanded; the ZMQ counterpart is `--grouped-dp-sticky hash` on a grouped worker, described above.
 
 ---
 
@@ -409,7 +418,7 @@ Rank selection happens inside the connection. Routing policies see the group as 
 | No embeddings | `501` with code `unsupported_backend`: `ZMQ backend does not support embeddings yet` |
 | No engine admin operations | `POST /flush_cache` skips ZMQ workers, and profiling fails with `start_profile is not supported over ZMQ`. LoRA loading, weight updates, and sleep/wake aren't available over ZMQ |
 | No tokenizer from the engine | The gateway loads it from `--model-path` or `--tokenizer-path` (or the worker's `model_path`/`tokenizer_path` labels) |
-| No rank pinning | See [Rank Selection](#rank-selection) |
+| Rank pinning inside a grouped worker | Opt-in, sticky keys only: the default sends every request to the least-loaded engine, and `--grouped-dp-sticky hash` pins requests by their sticky key (see [Rank Selection](#rank-selection)) |
 | vLLM multimodal | Mixed image and video in one request: `400`, `the vLLM ZMQ backend takes one modality per request ...`. Worker-side media processing (media references) needs a gRPC vLLM worker: `400`, `multimodal_not_supported` |
 | TokenSpeed logprobs | `top_logprobs` above 1, or `token_ids_logprob`: `400`, `... not supported over the TokenSpeed ZMQ backend` |
 | TokenSpeed MRoPE models | Outside the Qwen3.5 lineage and Qwen3-Omni: `400`, `... MRoPE position tensors of this model are not derivable over the TokenSpeed ZMQ wire (the Qwen3.5 lineage's and Qwen3-Omni's are); use the gRPC transport for this model`. A multimodal request to a Qwen3.5-lineage engine whose handshake omits any of the layout facts: `400`, `... need its MRoPE position table, which the launcher's model facts (spatial_merge_size, image_token_id, video_token_id) did not provide ...`. The handshake has no field for the clock Qwen3-Omni's rule needs, so every multimodal request to a Qwen3-Omni engine gets that refusal, naming `thinker_config.vision_config.spatial_merge_size`, `thinker_config.position_id_per_seconds`, and `thinker_config.seconds_per_chunk`; serve Qwen3-Omni media on a [gRPC worker](grpc-workers.md#rust-tokenspeed-servicer) |

@@ -737,8 +737,8 @@ GET /v1/responses/{response_id}
 | `stream` | boolean | Optional; only `false` is accepted. This route returns the stored response as one JSON object; SMG keeps no event stream of a stored response to join, so omit `stream` or send `stream=false` |
 
 An `include` value outside the set is rejected with `400` (`invalid_value`, `param`
-naming the entry, such as `include[0]`); any `stream` value other than `false` with
-`400` (`invalid_query_parameter`). Other query parameters are ignored. The query is
+naming the entry, such as `include[0]`); any `stream` value other than `false` is
+rejected with `400` (`invalid_query_parameter`). Other query parameters are ignored. The query is
 checked before the lookup, so an invalid value is answered `400` even when the
 response ID is unknown.
 

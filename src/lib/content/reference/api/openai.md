@@ -244,9 +244,10 @@ SMG does not interpret the tag: every key besides `type` is carried to the worke
 as the client wrote it, unknown keys included. On gRPC and ZMQ workers the tag is the
 request's constraint and the engine's grammar backend enforces it (see
 [Combining with Structured Output](../../concepts/architecture/grpc-pipeline.md#combining-with-structured-output));
-when that backend is xgrammar, the JSON schemas inside the tag are checked before the
-engine for schema keywords xgrammar drops, and a tag that carries one is refused with the
-keyword and its place named. HTTP workers receive the field as sent. Like the JSON
+when that backend resolves to xgrammar, the Rust servicers and the ZMQ direct backend
+check the JSON schemas inside the tag for keywords xgrammar drops, and refuse a tag that
+carries one before the engine, with the keyword and its place named. HTTP workers receive
+the field as sent. Like the JSON
 formats, a `structural_tag` format does not combine with the `regex` or `ebnf` extensions
 (`400` `regex_conflicts_with_json` / `ebnf_conflicts_with_json`).
 

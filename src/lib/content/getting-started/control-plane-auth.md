@@ -146,7 +146,9 @@ This lets human admins use OIDC while service automation uses API keys.
 
 With control-plane auth configured, SMG can audit control-plane requests as INFO lines on the `smg::audit` log target. Every request it authenticates, denies, or rejects gets an admission line with the message `control_plane_audit`.
 
-An admitted request other than a `GET` or `HEAD` also gets an outcome line, `control_plane_mutation`, once its handler has answered: it carries the handler's HTTP status and, when the handler named one, the resource it acted on, such as a worker, tokenizer, or WASM-module ID. The two lines share a `request_id`. See [Audit Log Format](../concepts/security/authentication.md#audit-log-format) for the full field list.
+An admitted request other than a `GET` or `HEAD` also gets an outcome line, `control_plane_mutation`, once it has run to its answer: it carries the HTTP status of that answer and, when the handler named one, the resource it acted on, such as a worker, tokenizer, or WASM-module ID. The two lines share a `request_id`. See [Audit Log Format](../concepts/security/authentication.md#audit-log-format) for the full field list.
+
+The outcome line does not depend on the client staying connected: an admitted mutation runs to completion and writes its line with the status the handler actually answered, even when nobody read the answer. A handler that fails without answering is answered and recorded as a `500` with `outcome` `failed`. Graceful shutdown drains an admitted mutation like any other in-flight request, so the line is written before an orderly exit; only a stop that cuts the mutation short — the shutdown grace period running out, or a killed process — leaves the admission line alone.
 
 Whether SMG writes these lines by default depends on how you run it:
 

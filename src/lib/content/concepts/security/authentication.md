@@ -467,9 +467,11 @@ The Python launcher (`smg launch` from pip, and the container image) works the o
 Each audit event is an `INFO` log record with target `smg::audit`; the layout of the record follows your log format (`--log-json` for JSON). A control-plane call writes up to two lines:
 
 - **`control_plane_audit`** — the admission line, written before the handler runs, for every request that reaches the control plane authentication check: successes, `403` role denials, and `401` authentication failures.
-- **`control_plane_mutation`** — the outcome line, written after the handler of an admitted request other than a `GET` or `HEAD` has answered. It records what the handler answered: the HTTP `status`, an `outcome` of `success` for a 2xx status and `failed` for any other, and the `resource` the handler acted on, when it named one.
+- **`control_plane_mutation`** — the outcome line, written once an admitted request other than a `GET` or `HEAD` has run to its answer. It records the HTTP `status` of that answer, an `outcome` of `success` for a 2xx status and `failed` for any other, and the `resource` the handler acted on, when it named one. A handler that fails without answering (a panic) is answered `500`, and its outcome line says so: `status` `500`, `outcome` `failed`, and no `resource`.
 
 Both lines of a mutation carry the same `principal`, `auth_method`, `role`, `method`, `path`, and `request_id`, so one request ID correlates them. A read (`GET` or `HEAD`) writes the admission line alone. A denied or unauthenticated request also writes only the admission line, recording the denial — no handler ran, so there is no outcome line. `--disable-audit-logging` silences both lines.
+
+An admitted mutation runs to its outcome line even when nobody is waiting for the answer. A client that disconnects early abandons only its wait: the handler still completes, and the line records the status it actually answered. [Graceful shutdown](../reliability/graceful-shutdown.md) counts an admitted mutation among the in-flight requests it drains, so an orderly stop waits for the mutation and its outcome line — including one whose client already left — within the ordinary shutdown grace period. Only a stop that cuts the mutation short, such as the grace period expiring with it still running or the process being killed outright, leaves the admission line standing alone; that trail means the gateway stopped with the mutation in flight, not that the handler failed — a failure writes a `failed` outcome line.
 
 ### Audit Event Fields
 
@@ -483,7 +485,7 @@ Both lines of a mutation carry the same `principal`, `auth_method`, `role`, `met
 | `path` | Request path |
 | `resource` | What the handler acted on: a worker ID, a tokenizer ID, WASM module UUIDs (comma-joined for a batch), `secrets` for a key-file reload (`POST /secrets/reload`), or `rate-limits/tenants` for an applied tenant rate-limit policy write (a `PUT /rate-limits/tenants` dry run names none). Only on a `control_plane_mutation` line whose handler named one; left out everywhere else |
 | `outcome` | On the admission line, `success` (admitted) or `denied` — decided before the handler runs; on the outcome line, `success` (a 2xx status) or `failed` (any other status) |
-| `status` | The HTTP status the handler answered. Only on the `control_plane_mutation` line; the admission line carries none |
+| `status` | The HTTP status the request was answered with: the handler's answer, or the `500` recorded for a handler that failed without one. Only on the `control_plane_mutation` line; the admission line carries none |
 | `request_id` | Correlation ID for request tracing; a mutation's admission and outcome lines share it |
 | `details` | Why the request was denied or failed authentication |
 

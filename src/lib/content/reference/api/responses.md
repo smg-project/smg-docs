@@ -734,7 +734,7 @@ GET /v1/responses/{response_id}
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `include` | array | Optional; repeatable, also accepted as `include[]`. Must name includable fields — the same set [Get Conversation Item](#get-conversation-item) accepts. A valid value does not change the returned object: the stored response already carries everything SMG kept of it |
-| `stream` | boolean | Optional; only `false` is accepted. This route returns the stored response as one JSON object; SMG keeps no event stream of a stored response to join, so omit `stream` or send `stream=false` |
+| `stream` | boolean | Optional; only `false` is accepted — this route returns the stored response as one JSON object, and SMG keeps no event stream of a stored response to join |
 
 An `include` value outside the set is rejected with `400` (`invalid_value`, `param`
 naming the entry, such as `include[0]`); any `stream` value other than `false` is
@@ -889,13 +889,12 @@ GET /v1/responses/{response_id}/input_items
 | `order` | string | `desc` | `desc` lists the last-sent item first; `asc` lists items in the order the request sent them |
 | `after` | string | - | An item ID; the page starts at the item after it in the chosen order |
 
-`include` is validated exactly as on [Get Response](#get-response): a bad value is
-rejected with `400` (`invalid_value`), a valid one changes nothing.
-
 A `limit` that is not an integer from 1 to 100, or an `order` other than `asc`/`desc`,
 is rejected with `400` (`invalid_query_parameter`), the message naming the parameter.
-Other query parameters are ignored. The query is checked before the lookup, so an
-invalid value is answered `400` even when the response ID is unknown.
+`include` is validated exactly as on [Get Response](#get-response): a bad value is
+rejected with `400` (`invalid_value`), a valid one changes nothing. Other query
+parameters are ignored. The query is checked before the lookup, so an invalid value
+is answered `400` even when the response ID is unknown.
 
 ### Example Request
 

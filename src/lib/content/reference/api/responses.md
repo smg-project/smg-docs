@@ -924,9 +924,9 @@ curl "http://localhost:30000/v1/responses/resp_abc123def456/input_items?limit=50
 
 `has_more` is `true` when stored items follow the page. To walk the whole list, pass
 each page's `last_id` as the next request's `after` until `has_more` is `false`. An
-`after` ID the list does not hold starts the page at the list's first item; an `after` naming
-the last item in the chosen order returns an empty page with `has_more: false` and
-`first_id`/`last_id` null.
+`after` ID the list does not hold starts the page at the first item in the chosen order;
+an `after` naming the last item in that order returns an empty page with `has_more: false`
+and `first_id`/`last_id` null.
 
 An item stored without an ID — or with an empty one — is listed under a `msg_` ID
 derived from the response ID and the item's position. The derived ID is the same on

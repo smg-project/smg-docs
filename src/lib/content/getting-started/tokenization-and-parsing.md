@@ -107,7 +107,7 @@ Both endpoints answer errors in the gateway's standard [error envelope](../refer
 
 | Status | `code` | Cause |
 |--------|--------|-------|
-| 400 | `invalid_json`, `missing_required_parameter`, `invalid_type`, `json_parse_error`, ... | The body does not parse, misses a required field, gives one the wrong type, or isn't sent as `Content-Type: application/json`; `param` names the field when one is known (`prompt`, `tokens`) |
+| 400 | `invalid_json`, `missing_required_parameter`, `invalid_type`, `json_parse_error`, ... | The body does not parse, misses a required field, gives one the wrong type, or isn't sent as `Content-Type: application/json`; `param` names the offending field when one is known |
 | 404 | `model_not_found` | No tokenizer is loaded under that name (the message lists the loaded names), or none is loaded at all |
 | 500 | `tokenization_error` / `detokenization_error` | The tokenizer failed on the input |
 

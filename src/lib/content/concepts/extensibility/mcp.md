@@ -157,7 +157,7 @@ The deadline covers the whole call, including any re-issue after a reconnect. Th
 
 ### Interrupted Calls
 
-If the connection to an MCP server drops while a call is in flight, SMG cannot tell whether the server ran it, so it re-issues the call only when running it twice is safe: when the server listed the tool with the `readOnlyHint` or `idempotentHint` annotation set to `true`. A tool listed without annotations, or with neither hint set to `true`, is not eligible. An eligible call waits for SMG to [reconnect the static server](#static-servers) and then runs once more on the new connection, under whatever is left of the original 120-second deadline. If reconnection fails, the call fails with the connection error.
+If the connection to an MCP server drops while a call is in flight, SMG cannot tell whether the server ran it, so it re-issues the call only when the tool is declared safe to run twice: when the server listed it with the `readOnlyHint` or `idempotentHint` annotation set to `true`. A tool listed without annotations, or with neither hint set to `true`, is not eligible. An eligible call waits for SMG to [reconnect the static server](#static-servers) and then runs once more on the new connection, under whatever is left of the original 120-second deadline. If reconnection fails, the call fails with the connection error.
 
 A call to any other tool fails with:
 

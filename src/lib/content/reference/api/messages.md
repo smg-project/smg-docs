@@ -87,7 +87,15 @@ POST /v1/messages
 
 SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management`, are kept and forwarded to HTTP workers and the Anthropic API.
 
-Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `server_tool_use`, `search_result`, `web_search_tool_result`, `tool_search_tool_result`, `tool_reference`, `mcp_tool_use`, or `mcp_tool_result`. Any other block type is rejected with `400`. `mcp_tool_use` and `mcp_tool_result` replay the tool exchange of an earlier [MCP](#mcp-tools) answer; see [Replaying MCP Blocks](#replaying-mcp-blocks) for what each backend does with them. A `system`-role message inside `messages` is accepted, because some clients send one mid-conversation.
+Content blocks in `messages` may be `text`, `image`, `document`, `tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `server_tool_use`, `search_result`, `web_search_tool_result`, `tool_search_tool_result`, `tool_reference`, `mcp_tool_use`, or `mcp_tool_result`. `mcp_tool_use` and `mcp_tool_result` replay the tool exchange of an earlier [MCP](#mcp-tools) answer; see [Replaying MCP Blocks](#replaying-mcp-blocks) for what each backend does with them. A `system`-role message inside `messages` is accepted, because some clients send one mid-conversation.
+
+A block whose `type` is not on this list, or any block SMG cannot read, is refused with `400`; so is a `content` that is neither a string nor an array of blocks. The error message names the failure by its position and its own reason:
+
+- an unknown `type`: ``messages[1].content[0].type: unknown variant `container_upload`, ...``, with the accepted types listed
+- a missing required field: `` messages[0].content[0]: missing field `tool_use_id` ``
+- a `content` of the wrong JSON type: ``messages[0].content: invalid type: null, expected a string or an array of content blocks``
+
+Blocks in a `system` prompt and in a `tool_result`'s `content` are refused the same way. The error envelope's `param` also carries the position, as a path ending in the field at fault, such as `messages[0].content[0].tool_use_id`; see [Errors](#errors).
 
 ### Example Request
 
@@ -617,12 +625,26 @@ SMG produces Anthropic's error format (`{"type": "error", ...}`) only inside an 
 
 | Source | Status | Body |
 |--------|--------|------|
-| Body is not valid JSON, a required field is missing, or a field has the wrong type | `400` | `{"error": {"message": "...", "type": "invalid_request_error", "code": "json_parse_error"}}` |
+| Body is not valid JSON, or a field is missing, unknown, or holds the wrong type or value | `400` | `{"error": {"message": "...", "type": "invalid_request_error", "param": "...", "code": "..."}}` — `code` and `param` are described below |
 | Body fails validation (for example empty `messages` or `tool_choice` without `tools`) | `400` | `{"error": {"message": "...", "type": "invalid_request_error", "code": 400}}` |
 | Gateway authentication fails | `401` | Empty |
 | SMG itself: routing, the gRPC pipeline, the MCP tool loop | Varies | The standard JSON error envelope, plus an `X-SMG-Error-Code` header |
 | HTTP or PD worker | Upstream status | The upstream body, unchanged |
 | The Anthropic API | Upstream status | The upstream body, minus the organization and project identifiers in its error message (see [Anthropic API Backend](#anthropic-api-backend)) |
+
+In the `400` for a body SMG cannot read, `code` names the failure:
+
+| Failure | `code` |
+|---------|--------|
+| The body is not valid JSON | `invalid_json` |
+| A required field is not there | `missing_required_parameter` |
+| A field the API does not know | `unknown_parameter` |
+| A value of the wrong shape | `invalid_type` |
+| A value outside an enumeration, an unknown block `type` included | `invalid_value` |
+| A negative integer where the field cannot be negative | `integer_below_min_value` |
+| The `Content-Type: application/json` header is missing, or the body fails to parse for any other reason | `json_parse_error` |
+
+`param` is the failing field's path, `null` when no field is known. A content block SMG cannot read is named by its position, in `param` and in the `message`; see [Request Body](#request-body).
 
 The standard envelope carries the Messages API's error type in `type` (`invalid_request_error` for a 400, `authentication_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `overloaded_error` for a 503, `timeout_error` for a 504, `api_error` for another 5xx) and repeats `code` in the `X-SMG-Error-Code` header. For example, an over-long prompt on a gRPC worker:
 

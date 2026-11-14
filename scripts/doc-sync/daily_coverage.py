@@ -307,7 +307,8 @@ def live_work(name, sha, scans, context):
 def dependency(check, scan, scans, context, handoff=False):
     """Settle a cross-subsystem wait only while it can end.
 
-    A blocked wait needs live work from every named subsystem. Scans run in
+    A fresh covered assessment satisfies its named dependency. Other blocked
+    waits need live work from every remaining subsystem. Scans run in
     parallel, so a deferred wait whose only open step is another subsystem's
     correction settles as blocked once that subsystem proposes tonight. With
     handoff (daily checks), a wait on a subsystem that was not assigned the
@@ -320,6 +321,23 @@ def dependency(check, scan, scans, context, handoff=False):
             or check['status'] == 'deferred' and (check.get('blockers')
                                                   or sha not in scan['inspected_commits'])):
         return check
+    # A correction can land between nights. The owning scan's fresh, inspected
+    # covered disposition settles that dependency; requiring an open proposal
+    # after its PR merged leaves the other subsystem waiting forever (#549).
+    covered = {name: next((c for other in scans if other['shard'] == name
+                           and sha in other['inspected_commits']
+                           for c in other.get('daily_commit_checks', [])
+                           if c['source_sha'] == sha and c['status'] == 'covered'), None)
+               for name in depends}
+    satisfied = [name for name in depends if covered[name] is not None]
+    if satisfied:
+        depends = [name for name in depends if name not in satisfied]
+        note = ' [Satisfied dependencies: ' + '; '.join(
+            f"{name}: {covered[name]['evidence']}" for name in satisfied) + ']'
+        check = {**check, 'depends_on': depends, 'evidence': check['evidence'] + note}
+        if not depends:
+            return {**check, 'status': ('blocked' if check.get('blockers') else
+                                       'proposed' if check.get('concerns') else 'covered')}
     assigned = context.get('daily_assignments', {})
     idle = [name for name in depends if not live_work(name, sha, scans, context)]
     stalled = [name for name in idle if not handoff or sha in assigned.get(name, [])]

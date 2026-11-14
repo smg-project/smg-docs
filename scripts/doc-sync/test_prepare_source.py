@@ -7,9 +7,13 @@ import tempfile
 import unittest
 
 import prepare_source
+from git_test_support import isolate_git
 
 
 class PrepareSourceTests(unittest.TestCase):
+    def setUp(self):
+        isolate_git(self)
+
     def test_branch_tools_survive_checkout_and_doc_commit_has_only_docs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

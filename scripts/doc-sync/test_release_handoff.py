@@ -1,9 +1,12 @@
 import json
+
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+
+from git_test_support import isolate_git
 
 import discovery
 import nightly_docs as docs
@@ -13,6 +16,7 @@ from test_nightly_docs import proposal, pr
 
 class CollectorTests(unittest.TestCase):
     def setUp(self):
+        isolate_git(self)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

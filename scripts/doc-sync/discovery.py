@@ -587,10 +587,15 @@ def scan_context(context, slug, assignments, backlog=0):
     else:
         required = set(context.get('daily_assignments', {}).get(slug, []))
         audit_candidates = release_handoff.assigned(context, slug)
+    # Publication quotas belong to the central planner, not source assessment.
+    # Exposing max_prs=3 caused verified daily gaps to be left unproposed in run
+    # 43528997261 even after a focused pass, failing mandatory coverage.
     # The ledger and backlog plan are bookkeeping, not discovery evidence.
     shared = {k: v for k, v in context.items()
-              if k not in ('commit_ledger', 'backlog_batches', 'publication_attempts')}
-    return {**shared, "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
+              if k not in ('commit_ledger', 'backlog_batches', 'publication_attempts',
+                           'max_prs', 'requested_max_prs')}
+    return {**shared, 'proposal_limit': docs.MAX_PRS,
+            "code_history": [f"{i}: {line}" for i, line in enumerate(history, 1)],
             "release_audit_candidates": audit_candidates,
             "pending_concerns": visible_pending(context, slug, backlog),
             # Other subsystems' unfinished checks for the same commits show who
@@ -613,6 +618,7 @@ def scan_schema(scoped):
     and evidence guards still decide whether the assessment is complete.
     """
     schema = json.loads(Path(__file__).with_name('scan-schema.json').read_text())
+    schema['properties']['concerns']['maxItems'] = scoped.get('proposal_limit', docs.MAX_PRS)
     ids = [str(number) for number in scoped['required_commit_ids']]
     schema['properties']['daily_commit_checks'].update(
         properties={number: {'$ref': '#/definitions/daily_check'} for number in ids}, required=ids)

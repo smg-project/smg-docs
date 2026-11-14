@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from git_test_support import isolate_git
+
 import nightly_docs as docs
 
 
@@ -233,6 +235,7 @@ class DailyLimitTests(unittest.TestCase):
 
 class GitGuardTests(unittest.TestCase):
     def setUp(self):
+        isolate_git(self)
         self.original = os.getcwd()
         self.temp = tempfile.TemporaryDirectory()
         os.chdir(self.temp.name)
@@ -303,6 +306,24 @@ class GitGuardTests(unittest.TestCase):
                     self.assertRaisesRegex(ValueError, 'allowlist'):
                 docs.reader_docs_preflight(self.item, self.base, report)
             self.assertFalse(report.exists())
+
+    def test_fresh_preflight_catches_example_link_added_by_the_editor(self):
+        self.path.write_text('The chart exposes a separate admin Service.\n')
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / 'report.json'
+            env = {'GITHUB_OUTPUT': str(Path(directory) / 'output')}
+            with patch.dict(os.environ, env):
+                docs.reader_docs_preflight(self.item, self.base, report)
+                self.assertEqual(json.loads(report.read_text())['violations'], [])
+                self.path.write_text('The chart exposes a separate admin Service.\n'
+                    '[Example](https://github.com/smg-project/smg/blob/main/deploy/helm/example.yaml)\n')
+                docs.reader_docs_preflight(self.item, self.base, report)
+            self.assertEqual(json.loads(report.read_text())['violations'], [
+                {'path': str(self.path), 'line': 2, 'rule': 'code-change-reference'}])
+            with self.assertRaisesRegex(ValueError, 'code-change'):
+                docs.export_bundle(self.item, self.base, Path(directory) / 'bundle.json')
+            self.path.write_text('The chart exposes a separate admin Service.\n')
+            docs.export_bundle(self.item, self.base, Path(directory) / 'bundle.json')
 
     def test_reader_preflight_skips_clean_output(self):
         with tempfile.TemporaryDirectory() as tmp:

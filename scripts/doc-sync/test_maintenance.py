@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from git_test_support import isolate_git
+
 import maintenance as m
 from test_nightly_docs import proposal
 
@@ -529,6 +531,7 @@ class PromotionTests(unittest.TestCase):
 
 class PublicationTests(unittest.TestCase):
     def setUp(self):
+        isolate_git(self)
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.original = os.getcwd()

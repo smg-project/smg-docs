@@ -491,7 +491,7 @@ The Harmony pipeline (gpt-oss) builds its structural tags before encoding (`mode
 | Request | Constraint |
 |---------|------------|
 | No tools, or `tool_choice` is `auto` | None. The parser extracts calls from free-form output |
-| `tool_choice` is `none` over declared tools | None. No call comes back: a table drops any call the model writes, and the legacy parsers run no tool parser, leaving call markup in `content` (see [What the Table Reads](#what-the-table-reads)) |
+| `tool_choice` is `none` over declared tools | None. No call comes back: a table drops any call the model writes; the legacy parsers run no tool parser, so call markup stays in `content` as text (see [What the Table Reads](#what-the-table-reads)) |
 | `tool_choice` is `required`, names a function, or is `allowed_tools` with `mode: "required"` | A **structural tag** when `--tool-call-parser` or an override sets a parser that has one; otherwise a **JSON schema** |
 
 | Type | Parsers | What it constrains |

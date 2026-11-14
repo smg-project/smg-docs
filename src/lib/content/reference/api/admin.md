@@ -924,9 +924,17 @@ Registers one or more WASM modules. The gateway computes each file's SHA-256 has
 
 The only supported `module_type` is `Middleware`. Valid `Middleware` attach points are `OnRequest`, `OnResponse`, and `OnError`, but `OnError` modules never run: the middleware calls only `OnRequest` and `OnResponse` modules, and skips `OnResponse` for streaming responses.
 
-**Response:** `200 OK` on full success, `400 Bad Request` if any module failed to register. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message). Each requested module gets its own UUID, so two modules with the same `name` in one request get distinct UUIDs.
+**Response:** `200 OK` when every module was added. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message). Each requested module gets its own UUID, so two modules with the same `name` in one request get distinct UUIDs.
 
-The gateway loads the modules one at a time, waiting up to 300 seconds for each; a load that fails or outlives the wait puts the reason in that module's `add_result`.
+The gateway loads the modules one at a time, waiting up to 300 seconds for each; a load that fails or outlives the wait puts the reason in that module's `add_result`. Each failure has a status by its cause, and the response carries the highest status among them, so one module refused by a full queue (`503`) beside one that failed to load (`400`) answers `503`:
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | The module's load job ran and failed; the `add_result` error is the module's own failure reason |
+| `503 Service Unavailable` | The job queue took no job for the module (full, or shutting down) |
+| `504 Gateway Timeout` | The load did not finish within the 300-second wait. The job keeps running and may still register the module, so the `add_result` error names the UUID such a late registration carries; re-read [`GET /wasm`](#list-wasm-modules) to see whether it did |
+
+A fully successful request:
 
 ```json
 {
@@ -1015,6 +1023,7 @@ The removal runs as a gateway job, waited on for up to 60 seconds. A failure ans
 |--------|--------|------|
 | `400` | `BAD_REQUEST` | `module_uuid` is not a UUID; the error names the value |
 | `404` | `WASM_MODULE_NOT_FOUND` | No module has this UUID |
+| `409` | `CONFLICT` | Another caller is already waiting on a job for this module; the job runs once and its outcome goes to that caller. The error names the module UUID: `A job for <uuid> is in flight; wait for its outcome` |
 | `503` | `SERVICE_UNAVAILABLE` | The gateway runs without `--enable-wasm`, the job queue is not up, or the queue took no job (full, or shutting down) |
 | `504` | `GATEWAY_TIMEOUT` | The removal did not finish within the 60-second wait. The job keeps running and may still complete; re-read [`GET /wasm`](#list-wasm-modules) to see whether the module is gone |
 | `500` | `INTERNAL_SERVER_ERROR` | The removal job ran and failed, or the module table could not be read |
@@ -1294,8 +1303,8 @@ The admin endpoints do not share one error format. The body depends on the part 
 | [Tokenizer endpoints](#tokenizer-management) | `404`, `409`, `503` | `{"error": "<message>", "code": "<CODE>"}` — `TOKENIZER_NOT_FOUND`, `TOKENIZER_ALREADY_EXISTS`, or `SERVICE_UNAVAILABLE` |
 | [Tenant rate-limit policy](#tenant-rate-limit-policy) | `400`, `409`, `412`, `413`, `428` | `{"error": "<message>", "code": "<CODE>"}` — see [its status table](#replace-the-policy-document) |
 | `/parse/function_call`, `/parse/reasoning` | `400`, `503` | `{"error": "<message>", "success": false}` |
-| [Add WASM Module](#add-wasm-module), when a module failed to load | `400` | The module list, with `"add_result": {"Error": "<message>"}` on each module that failed |
-| Every other refusal from the [WASM routes](#wasm-module-management), including any of them without `--enable-wasm` | `400`, `404`, `500`, `503`, `504` | `{"error": "<message>", "code": "<CODE>"}` |
+| [Add WASM Module](#add-wasm-module), when a module failed | `400`, `503`, or `504` — the highest status among the modules' failures | The module list, with `"add_result": {"Error": "<message>"}` on each module that failed |
+| Every other refusal from the [WASM routes](#wasm-module-management), including any of them without `--enable-wasm` | `400`, `404`, `409`, `500`, `503`, `504` | `{"error": "<message>", "code": "<CODE>"}` |
 | The gateway, on forwarded routes such as `/get_model_info` | `503` and others | The gateway error envelope below |
 
 Errors that the gateway generates itself, for example when no worker is available, use this envelope and repeat `code` in the `X-SMG-Error-Code` response header:

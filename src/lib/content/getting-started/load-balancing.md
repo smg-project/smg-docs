@@ -120,6 +120,8 @@ smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
 
 **Priority:** `X-SMG-Target-Worker` > routing-key header > body `rid` (with `--routing-key-override`) > implicit keys > random fallback
 
+`Authorization` is not an implicit key — every client sharing an API key would land on the same worker — so a request whose only routing signal is an `Authorization` header uses the random fallback.
+
 Best for session affinity and user-to-worker pinning.
 
 ---

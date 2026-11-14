@@ -380,6 +380,8 @@ smg --policy consistent_hashing --worker-urls http://w1:8000 http://w2:8000
 
 **Priority order:** `X-SMG-Target-Worker` → routing-key header → body `rid` (with `--routing-key-override`) → implicit keys (`X-Forwarded-For`, `Cookie`) → random fallback
 
+`Authorization` is not an implicit key: a credential identifies a tenant or service account rather than a session, so every client sharing an API key would hash to the same worker. Requests whose only routing signal is an `Authorization` header use the random fallback.
+
 See [Sticky Sessions and Routing Keys](sticky-sessions.md) for how routing keys are derived and validated.
 
 **Use when:** Session affinity needed, user-to-worker pinning, or consistent routing for stateful applications.

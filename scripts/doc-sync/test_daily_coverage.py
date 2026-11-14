@@ -44,6 +44,23 @@ class DailyCoverageTests(unittest.TestCase):
         self.assertEqual(self.context['daily_assignments']['operations'], [self.latest])
         self.assertEqual(self.context['code_history'], self.history)
 
+    def test_publication_quota_does_not_ration_discovery_or_followup_proposals(self):
+        import discovery_followup
+        for cap in (0, 3):
+            with self.subTest(cap=cap):
+                self.context.update(max_prs=cap, requested_max_prs=cap)
+                scoped = discovery.scan_context(self.context, 'api-protocols', self.assignments)
+                scan = {**self.scans[0], 'daily_commit_checks': []}
+                focused = discovery_followup.prepare(self.context, scan, self.assignments)
+                for model_context in (scoped, focused):
+                    self.assertNotIn('max_prs', model_context)
+                    self.assertNotIn('requested_max_prs', model_context)
+                    self.assertEqual(model_context['proposal_limit'], docs.MAX_PRS)
+                    self.assertEqual(discovery.scan_schema(model_context)['properties']['concerns']['maxItems'],
+                                     docs.MAX_PRS)
+                self.assertEqual(self.context['max_prs'], cap)
+                self.assertEqual(self.context['requested_max_prs'], cap)
+
     def test_delayed_run_and_unfinished_checks_extend_window(self):
         self.context['daily_window']['commits'] = []
         prior = {'source_sha': self.recent, 'daily_coverage': {'checks': [

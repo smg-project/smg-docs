@@ -21,7 +21,8 @@ def prepare(context, scan, assignments):
     commits = required(context, scan)
     scoped = discovery.scan_context(context, scan['shard'], assignments)
     ids = [i for i, line in enumerate(context['code_history'], 1) if line.split()[0] in commits]
-    return {**scoped, 'scan_mode': 'daily-followup', 'required_commit_ids': ids,
+    return {**scoped, 'proposal_limit': discovery.docs.MAX_PRS - len(scan['concerns']),
+            'scan_mode': 'daily-followup', 'required_commit_ids': ids,
             'focus_commit_ids': ids, 'daily_assignments': {scan['shard']: commits},
             'release_audit_candidates': [],
             'pending_concerns': [p for p in scoped['pending_concerns']

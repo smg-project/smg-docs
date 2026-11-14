@@ -44,6 +44,8 @@ class FollowupTests(unittest.TestCase):
         self.assertEqual(len(scoped['code_history']), 3)
         self.assertEqual(scoped['release_audit_candidates'], [])
         self.assertEqual(scoped['previous_scan'], original)
+        self.assertEqual(scoped['proposal_limit'], 99)
+        self.assertEqual(discovery.scan_schema(scoped)['properties']['concerns']['maxItems'], 99)
         self.assertEqual(discovery.scan_schema(scoped)['properties']['daily_commit_checks']['required'], ['1'])
         self.assertEqual((self.context, original), before)
         self.assertEqual(followup.required(self.context, {**original, 'backlog': 1}), [])

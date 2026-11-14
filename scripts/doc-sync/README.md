@@ -96,6 +96,11 @@ review and build gates remain mandatory.
 
 ## Coverage and limits
 
+- Discovery receives a per-scan proposal limit of 100, independent of publication
+  slots. Publication caps are omitted from model contexts so limited manual runs
+  and an exhausted daily quota cannot suppress verified proposals or mandatory
+  commit coverage. Planning still enforces the requested cap, shared daily quota
+  and page conflicts, retaining unselected work in the pending queue.
 - The initial source cutoff is **2026-06-27T00:00:00Z**, the requested 90-day
   lookback at setup. It is fixed, not rolling; older unfinished work stays eligible.
   Every main run supplies all first-parent commits since then reachable from its

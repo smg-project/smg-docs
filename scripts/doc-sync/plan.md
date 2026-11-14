@@ -6,6 +6,12 @@ other scans own scan_responsibilities. The deploy-config scan owns CLI syntax;
 subsystem scans own runtime behavior.
 
 Use code_history and source_diffs/<sha>.patch to discover concrete user gaps.
+proposal_limit is the maximum concerns returned by THIS scan, independent of
+the number of PRs the run may publish. Propose verified gaps even when publication
+slots are exhausted or other concerns edit the same page; the central planner
+handles quota, page conflicts and the pending queue. A publication limit is never
+a reason to omit a verified proposal or leave a required assessment deferred.
+Do not chase a quota: unverified work must still be deferred honestly.
 First inspect EVERY required_commit_id for your subsystem, reading its patch,
 current implementation/tests, and related documentation. These include the past
 24 hours at the pinned source snapshot, changes missed between runs, and unfinished

@@ -323,7 +323,7 @@ This gate is on by default and independent of the overload thresholds. Keep the 
 | `smg_worker_overload_fallback_total` | Counter | `stage` | Requests placed although every worker they could use was overloaded, because shedding is off: routed to the least-loaded worker or, for a cache-aware prefill pool of a prefill/decode pair or a request `consistent_hashing` places by routing key, placed by that policy. `stage` is `selection`. |
 | `smg_worker_stalled` | Gauge | `worker`, `reason` | `1` while a liveness veto excludes the worker from routing. `reason` is `unreachable` or `wedged`. |
 | `smg_worker_stall_transitions_total` | Counter | `worker`, `reason` | Liveness vetoes set on the worker, counted each time one lands. |
-| `smg_worker_liveness_fallback_total` | Counter | `stage` | Requests routed to a worker the liveness tracker vetoed because every candidate was vetoed. `stage` is `selection`. |
+| `smg_worker_liveness_fallback_total` | Counter | `stage` | Requests routed to a worker the liveness tracker vetoed because every routable candidate was vetoed. `stage` is `selection`. |
 | `smg_pd_admission_waits_total` | Counter | none | gRPC PD dispatches that waited for decode room and were admitted. |
 | `smg_pd_admission_sheds_total` | Counter | none | gRPC PD dispatches shed by the decode admission window. |
 | `smg_engine_waiting_requests` | Gauge | `worker`, `model`, `dp_rank` | Engine-reported waiting requests per DP rank, from the worker's load reports (polled or streamed). |

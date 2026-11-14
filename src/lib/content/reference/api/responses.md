@@ -729,6 +729,19 @@ GET /v1/responses/{response_id}
 |-----------|------|-------------|
 | `response_id` | string | The response ID (e.g., `resp_abc123`) |
 
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `include` | array | Optional; repeatable, also accepted as `include[]`. Must name includable fields — the same set [Get Conversation Item](#get-conversation-item) accepts. A valid value does not change the returned object: the stored response already carries everything SMG kept of it |
+| `stream` | boolean | Optional; only `false` is accepted. This route returns the stored response as one JSON object; SMG keeps no event stream of a stored response to join, so omit `stream` or send `stream=false` |
+
+An `include` value outside the set is rejected with `400` (`invalid_value`, `param`
+naming the entry, such as `include[0]`); any `stream` value other than `false` with
+`400` (`invalid_query_parameter`). Other query parameters are ignored. The query is
+checked before the lookup, so an invalid value is answered `400` even when the
+response ID is unknown.
+
 ### Example Request
 
 ```bash
@@ -868,10 +881,21 @@ GET /v1/responses/{response_id}/input_items
 |-----------|------|-------------|
 | `response_id` | string | The response ID |
 
+### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | integer | 20 | Items per page, 1 to 100 |
+| `order` | string | `desc` | `desc` lists the last-sent item first; `asc` lists items in the order the request sent them |
+| `after` | string | - | An item ID; the page starts at the item after it in the chosen order |
+
+`include` is validated exactly as on [Get Response](#get-response): a bad value is
+rejected with `400` (`invalid_value`), a valid one changes nothing.
+
 ### Example Request
 
 ```bash
-curl http://localhost:30000/v1/responses/resp_abc123def456/input_items
+curl "http://localhost:30000/v1/responses/resp_abc123def456/input_items?limit=50&order=asc"
 ```
 
 ### Response
@@ -893,8 +917,22 @@ curl http://localhost:30000/v1/responses/resp_abc123def456/input_items
 }
 ```
 
-All stored input items are returned in one page (`has_more` is always `false`). Items
-stored without an ID get a generated `msg_` ID.
+`has_more` is `true` while stored items follow the page. To walk the whole list, pass
+each page's `last_id` as the next request's `after` until `has_more` is `false`. An
+`after` ID the list does not hold starts the page at its first item; an `after` naming
+the last item in the chosen order returns an empty page with `has_more: false` and
+`first_id`/`last_id` null.
+
+An item stored without an ID — or with an empty one — is listed under a `msg_` ID
+derived from the response ID and the item's position. The derived ID is the same on
+every read, so a page's `last_id` works as the next request's `after` whichever item
+it names.
+
+A `limit` that is not an integer from 1 to 100, or an `order` other than `asc`/`desc`,
+is rejected with `400` (`invalid_query_parameter`), the message naming the parameter.
+Other query parameters are ignored. As on [Get Response](#get-response), the query is
+checked before the lookup, so an invalid value is answered `400` even when the
+response ID is unknown.
 
 An unknown ID — or another tenant's response — returns `404` with code `not_found`.
 
@@ -1450,6 +1488,8 @@ vocabulary.
 | 400 | `convert_request_failed` | gRPC: an input item kind the chat pipeline does not carry, such as a `computer_call` |
 | 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a `function_call_output` part other than `input_text` or `output_text`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |
 | 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |
+| 400 | `invalid_query_parameter` | A query value the stored-response read routes do not accept, the message naming the parameter: `stream` on [Get Response](#get-response), `limit` or `order` on [List Response Input Items](#list-response-input-items) |
+| 400 | `invalid_value` | A bad `include` value on [Get Response](#get-response), [List Response Input Items](#list-response-input-items), or [Get Conversation Item](#get-conversation-item); `param` names the offending entry, such as `include[0]` |
 | 401 | — | Invalid or missing API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |
 | 404 | `conversation_not_found` | The `conversation` does not exist, or belongs to another tenant |

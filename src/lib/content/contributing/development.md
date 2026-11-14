@@ -150,7 +150,7 @@ Features of the `smg` package (`model_gateway/Cargo.toml`):
 
 | Feature | Default | Effect |
 |---------|---------|--------|
-| `grpc-client` | yes | Marker feature that gates no code; gRPC worker support is always compiled in. The non-default `grpc-server` is also a marker |
+| `grpc-client` | yes | Marker feature that gates no code; gRPC worker support is always compiled in |
 | `jemalloc-stats` | yes | Exports jemalloc allocator gauges: `smg_allocator_allocated_bytes`, `smg_allocator_active_bytes`, `smg_allocator_resident_bytes`, and `smg_allocator_metadata_bytes` |
 | `providers` | yes | Umbrella for the three provider features below |
 | `provider-openai` | via `providers` | The OpenAI-compatible router, which also serves xAI and custom providers |

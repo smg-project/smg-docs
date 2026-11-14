@@ -95,7 +95,7 @@ A block whose `type` is not on this list, or any block SMG cannot read, is refus
 - a missing required field: `` messages[0].content[0]: missing field `tool_use_id` ``
 - a `content` of the wrong JSON type: ``messages[0].content: invalid type: null, expected a string or an array of content blocks``
 
-A `system` prompt's blocks and the blocks of a `tool_result`'s `content` are refused the same way. The error envelope's `param` also carries the position, as a path ending in the field at fault, such as `messages[0].content[0].tool_use_id`; see [Errors](#errors).
+Blocks in a `system` prompt and in a `tool_result`'s `content` are refused the same way. The error envelope's `param` also carries the position, as a path ending in the field at fault, such as `messages[0].content[0].tool_use_id`; see [Errors](#errors).
 
 ### Example Request
 
@@ -632,7 +632,7 @@ SMG produces Anthropic's error format (`{"type": "error", ...}`) only inside an 
 | HTTP or PD worker | Upstream status | The upstream body, unchanged |
 | The Anthropic API | Upstream status | The upstream body, minus the organization and project identifiers in its error message (see [Anthropic API Backend](#anthropic-api-backend)) |
 
-In the `400` for a body SMG cannot read, `code` names the failure: `invalid_json` for a body that is not JSON; `missing_required_parameter`, `unknown_parameter`, `invalid_type`, `invalid_value`, or `integer_below_min_value` for a field; `json_parse_error` for a missing `Content-Type: application/json` header or another parse failure. `param` is the failing field's path, `null` when no field is known. A content block SMG cannot read is named by its position, in `param` and in the `message`; see [Request Body](#request-body).
+In the `400` for a body SMG cannot read, `code` names the failure: `invalid_json` for a body that is not JSON; `missing_required_parameter` for a field that is not there, `unknown_parameter` for a field the API does not know, `invalid_type` for a value of the wrong shape, `invalid_value` for a value outside an enumeration (an unknown block `type` included), or `integer_below_min_value` for a negative integer where the field cannot be negative; `json_parse_error` for a missing `Content-Type: application/json` header or another parse failure. `param` is the failing field's path, `null` when no field is known. A content block SMG cannot read is named by its position, in `param` and in the `message`; see [Request Body](#request-body).
 
 The standard envelope carries the Messages API's error type in `type` (`invalid_request_error` for a 400, `authentication_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `overloaded_error` for a 503, `timeout_error` for a 504, `api_error` for another 5xx) and repeats `code` in the `X-SMG-Error-Code` header. For example, an over-long prompt on a gRPC worker:
 

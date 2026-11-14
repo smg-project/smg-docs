@@ -133,6 +133,13 @@ SMG removes one trailing retry suffix, then one trailing turn suffix:
 
 Stripping only computes the key; the request keeps its full `rid`. On gRPC workers outside PD mode, SMG sends the `rid` as the engine request ID, so the suffixes let every turn and retry carry a distinct ID while sharing one key.
 
+!!! note "Message thread turns"
+    On a [message thread](../../reference/api/messages.md#message-threads) turn — a Messages request with `thread` — SMG replaces the body `rid` with a minted `msg_` ID before any policy reads it. With the override enabled, the client's `rid` still pins the conversation: when no configured routing-key header carries a valid value, SMG carries the original `rid` in the first header named in `--routing-key-headers`, where it gets the same lineage stripping as any header key. A thread's create and continue turns therefore pin under the same key as plain requests sending the same `rid`s. A valid routing-key header on the request wins instead, following [Key Precedence](#key-precedence).
+
+    A `rid` longer than 128 bytes is over the header value cap, so SMG carries its stripped key instead. The carried key is then stripped once more, like any header key, so a nested `rid` over the cap pins one level coarser than on a plain request: an over-cap `rid` shaped like `conv_t1_t2` pins as `conv`, not `conv_t1`. A conversation whose nested `rid` grows past 128 bytes moves to that coarser pin from the turn that crosses the cap.
+
+    A `rid` SMG cannot carry — its stripped key exceeds 128 bytes, or it is not a valid header value (it contains a newline, for example) — leaves the turn routing under its minted `msg_` ID: a fresh key on every turn, so the turn shares no pin with the rest of the conversation.
+
 ### Routing-Key Headers
 
 `--routing-key-headers` takes an ordered list of header names; the default is `x-smg-routing-key`. Each name must be a valid HTTP header name, or SMG refuses to start, and names match case-insensitively. For each request, SMG walks the list and takes the first header whose value is:

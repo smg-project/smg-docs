@@ -108,7 +108,7 @@ POST /v1/chat/completions
 | `tools` | array | No | Function tools the model may call |
 | `tool_choice` | string/object | No | `none`, `auto`, `required`, `{"type": "function", "function": {"name": "..."}}`, or `{"type": "allowed_tools", "mode": "auto", "tools": [...]}` (`mode` is `auto` or `required`). Every value except `none` and `auto` requires tools, and a named function must exist in them |
 | `parallel_tool_calls` | boolean | No | Allow parallel function calls |
-| `response_format` | object | No | `text`, `json_object`, or `json_schema`. See [Structured Output](#structured-output) |
+| `response_format` | object | No | `text`, `json_object`, `json_schema`, or `structural_tag`. See [Structured Output](#structured-output) |
 | `reasoning_effort` | string/number | No | Reasoning effort; a number is converted to its decimal string. See [Thinking and Reasoning Effort](#thinking-and-reasoning-effort) |
 | `thinking` | object | No | Typed thinking control (`type`, `effort`, `keep`, `clear_thinking`). See [Thinking and Reasoning Effort](#thinking-and-reasoning-effort) |
 | `user` | string | No | End-user identifier |
@@ -123,7 +123,7 @@ SMG also accepts these SGLang-style extensions on Chat Completions:
 | `min_p` | number | Min-p sampling threshold (0-1) |
 | `min_tokens` | integer | Minimum tokens to generate; must not exceed `max_completion_tokens` |
 | `repetition_penalty` | number | Repetition penalty (0-2) |
-| `regex`, `ebnf` | string | Constrain the output. Only one of `regex`, `ebnf`, and a `json_schema` response format may be set, and neither combines with a JSON `response_format` |
+| `regex`, `ebnf` | string | Constrain the output. Only one of the two may be set, and neither combines with a JSON or `structural_tag` `response_format` |
 | `stop_token_ids` | array | Token IDs that stop generation |
 | `ignore_eos`, `no_stop_trim` | boolean | Keep generating past EOS; keep the stop sequence in the output |
 | `skip_special_tokens` | boolean | Drop special tokens when detokenizing (default `true`) |
@@ -218,12 +218,41 @@ restrict the accepted values per model family.
 - `{"type": "text"}`
 - `{"type": "json_object"}`
 - `{"type": "json_schema", "json_schema": {"name": "...", "schema": {...}, "strict": true}}`
+- `{"type": "structural_tag", ...}` — a structural tag: the tagged sections of the output it names are each held to a JSON schema, with free text allowed around them
 
 For `json_schema`, `name` must not be empty and `schema` must be a JSON object (`{}` is
 allowed). A string, array, boolean, number, or `null` schema is rejected with `400`
 `json_schema_schema_not_object` before the request reaches any worker, on every backend,
 unless the HTTP router streams the request to the worker unparsed (see
 [Request Streaming](../../concepts/performance/request-streaming.md)).
+
+For `structural_tag`, the rest of the object describes the tag in whichever spelling the
+engine's grammar compiler takes — a `format` object, or the older `structures` array with
+`triggers`:
+
+```json
+{
+  "type": "structural_tag",
+  "structures": [
+    {"begin": "<w>", "schema": {"type": "object"}, "end": "</w>"}
+  ],
+  "triggers": ["<w>"]
+}
+```
+
+SMG does not interpret the tag: every key besides `type` is carried to the worker exactly
+as the client wrote it, unknown keys included. On gRPC and ZMQ workers the tag is the
+request's constraint and the engine's grammar backend enforces it (see
+[Combining with Structured Output](../../concepts/architecture/grpc-pipeline.md#combining-with-structured-output));
+HTTP workers receive the field as sent.
+
+When the engine's grammar backend resolves to xgrammar, the Rust servicers and the ZMQ
+direct backend check the JSON schemas inside the tag for keywords xgrammar drops; a schema
+that uses one is refused before it reaches the engine, with the keyword and its place in
+the tag named.
+
+Like the JSON formats, a `structural_tag` format does not combine with the `regex` or
+`ebnf` extensions (`400` `regex_conflicts_with_json` / `ebnf_conflicts_with_json`).
 
 #### Example Request
 

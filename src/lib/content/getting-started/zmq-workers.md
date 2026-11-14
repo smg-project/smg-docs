@@ -361,7 +361,7 @@ Rank selection happens inside the connection, and routing policies see the group
 
 `--grouped-dp-sticky hash` pins each request that carries a sticky key to the key's engine instead: rank `xxh3(key) mod N`, counted from 0, where `N` is the group's engine count — `--zmq-engine-count` or `dp_size`, or the size the group declared at the handshake when no count was set. The key is the [sticky-session key](../concepts/routing/sticky-sessions.md): the first valid `--routing-key-headers` header (`x-smg-routing-key` by default), or the body `rid` when `--routing-key-override` is on. xxh3 is fixed by its specification, so a key keeps its engine across requests, gateway restarts, and gateway replicas, and a conversation that sends the same key every turn keeps hitting one engine's prefix cache. The trade-off is balance: keys may fall unevenly across the engines, and hash placement never rebalances them.
 
-The flag belongs to the Rust `smg` binary; the Python launcher (`smg launch` and `smg serve`) does not accept it yet.
+The flag belongs to the Rust `smg` binary; the Python launcher (`smg launch` and `smg serve`) does not accept it.
 
 Even under `hash`, these requests keep the least-loaded pick:
 

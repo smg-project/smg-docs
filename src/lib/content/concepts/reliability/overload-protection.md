@@ -319,7 +319,7 @@ This gate is on by default and independent of the overload thresholds. Keep the 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `smg_workers_overloaded` | Gauge | `model` | Workers of the model currently excluded by overload protection. Updated when a worker's verdict changes. |
-| `smg_worker_overload_shed_total` | Counter | `stage` | Requests shed with `worker_overload_protection_shed`. `stage` is `selection` (every candidate overloaded), `dispatch` (chosen worker flagged before dispatch), or `pd_admission` (decode window full). |
+| `smg_worker_overload_shed_total` | Counter | `stage` | Requests shed with `worker_overload_protection_shed`. `stage` is `selection` (every routable candidate overloaded), `dispatch` (chosen worker flagged before dispatch), or `pd_admission` (decode window full). |
 | `smg_worker_overload_fallback_total` | Counter | `stage` | Requests placed although every worker they could use was overloaded, because shedding is off: routed to the least-loaded worker or, for a cache-aware prefill pool of a prefill/decode pair or a request `consistent_hashing` places by routing key, placed by that policy. `stage` is `selection`. |
 | `smg_worker_stalled` | Gauge | `worker`, `reason` | `1` while a liveness veto excludes the worker from routing. `reason` is `unreachable` or `wedged`. |
 | `smg_worker_stall_transitions_total` | Counter | `worker`, `reason` | Liveness vetoes set on the worker, counted each time one lands. |

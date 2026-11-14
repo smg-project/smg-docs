@@ -738,9 +738,9 @@ GET /v1/responses/{response_id}
 
 An `include` value outside the set is rejected with `400` (`invalid_value`, `param`
 naming the entry, such as `include[0]`); any `stream` value other than `false` is
-rejected with `400` (`invalid_query_parameter`). Other query parameters are ignored. The query is
-checked before the lookup, so an invalid value is answered `400` even when the
-response ID is unknown.
+rejected with `400` (`invalid_query_parameter`). Other query parameters are ignored.
+The query is checked before the lookup, so an invalid value is answered `400` even
+when the response ID is unknown.
 
 ### Example Request
 
@@ -892,6 +892,11 @@ GET /v1/responses/{response_id}/input_items
 `include` is validated exactly as on [Get Response](#get-response): a bad value is
 rejected with `400` (`invalid_value`), a valid one changes nothing.
 
+A `limit` that is not an integer from 1 to 100, or an `order` other than `asc`/`desc`,
+is rejected with `400` (`invalid_query_parameter`), the message naming the parameter.
+Other query parameters are ignored. The query is checked before the lookup, so an
+invalid value is answered `400` even when the response ID is unknown.
+
 ### Example Request
 
 ```bash
@@ -927,12 +932,6 @@ An item stored without an ID — or with an empty one — is listed under a `msg
 derived from the response ID and the item's position. The derived ID is the same on
 every read, so a page's `last_id` works as the next request's `after` whichever item
 it names.
-
-A `limit` that is not an integer from 1 to 100, or an `order` other than `asc`/`desc`,
-is rejected with `400` (`invalid_query_parameter`), the message naming the parameter.
-Other query parameters are ignored. As on [Get Response](#get-response), the query is
-checked before the lookup, so an invalid value is answered `400` even when the
-response ID is unknown.
 
 An unknown ID — or another tenant's response — returns `404` with code `not_found`.
 

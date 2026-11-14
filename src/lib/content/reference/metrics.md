@@ -881,7 +881,7 @@ Process-lifetime totals of the tokenizer's encode and decode paths, read on ever
 
 #### `smg_tokenizer_encode_path_loads_total`
 
-Hugging Face tokenizers loaded, by the encode path chosen at load: `v1` (the opt-in tokenizers v1 pipeline), `native` (the direct byte-level encoder) or `tokenizers` (the reference implementation). A tokenizer loaded twice counts twice.
+Hugging Face tokenizers loaded, by the encode path chosen at load: `v1` (the opt-in tokenizers v1 pipeline), `native` (the direct byte-level encoder) or `tokenizers` (the reference implementation). A tiktoken vocabulary whose ranks, split pattern and special tokens fit the direct encoder also counts as a `native` load; one that does not fit keeps the file's own encoder for its encodes and is not counted under any path. A tokenizer loaded twice counts twice.
 
 | Type | Labels |
 |------|--------|
@@ -889,7 +889,7 @@ Hugging Face tokenizers loaded, by the encode path chosen at load: `v1` (the opt
 
 #### `smg_tokenizer_encode_fallbacks_total`
 
-Inputs the direct byte-level encoder gave up to the reference implementation after the load's choice; the `reason` is always `piece_declined` (the model declined a piece). Text not in NFC under an NFC normalizer is normalized on the direct path itself and does not fall back.
+Inputs the direct byte-level encoder gave up after the load's choice: a Hugging Face tokenizer's input is then encoded by the reference implementation, and a tiktoken vocabulary's by the file's own encoder. The `reason` is always `piece_declined` (the model declined a piece). Text not in NFC under an NFC normalizer is normalized on the direct path itself and does not fall back.
 
 | Type | Labels |
 |------|--------|

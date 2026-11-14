@@ -345,7 +345,7 @@ Start the engine group with its data-parallel size. A TokenSpeed attention-DP gr
 
 ### Rank Selection
 
-Output batches carry the producing rank's scheduler load: running requests, waiting requests, and KV-cache usage (vLLM's scheduler stats, or TokenSpeed's load snapshot). For each request it doesn't pin to a rank (pinning is off by default; see below), SMG scores every rank in the group and sends the request to the lowest score:
+Output batches carry the producing rank's scheduler load: running requests, waiting requests, and KV-cache usage (vLLM's scheduler stats, or TokenSpeed's load snapshot). For each request that isn't pinned to a rank (pinning is off by default; see below), SMG scores every rank in the group and sends the request to the lowest score:
 
 ```text
 score = max(requests SMG has in flight on the rank, running + waiting)
@@ -359,12 +359,12 @@ score = max(requests SMG has in flight on the rank, running + waiting)
 
 Rank selection happens inside the connection, and routing policies see the group as one worker. By default (`--grouped-dp-sticky off`), no request is pinned to a rank: every request goes to the least-loaded engine, so a multi-turn conversation's requests scatter across the engines' separate prefix caches.
 
-`--grouped-dp-sticky hash` pins each request that carries a sticky key to the key's engine instead: rank `xxh3(key) mod N`, counted from 0, where `N` is the group's engine count — `--zmq-engine-count` or `dp_size`, or the size the group declared at the handshake when no count was set. The flag is the Rust `smg` binary's; the Python launcher's `smg launch` does not take it. The key is the [sticky-session key](../concepts/routing/sticky-sessions.md): the first valid `--routing-key-headers` header (`x-smg-routing-key` by default), or the body `rid` when `--routing-key-override` is on. xxh3 is fixed by its specification, so a key keeps its engine across requests, gateway restarts, and gateway replicas, however unevenly the keys fall, and a conversation that sends the same key every turn keeps hitting one engine's prefix cache.
+`--grouped-dp-sticky hash` pins each request that carries a sticky key to the key's engine instead: rank `xxh3(key) mod N`, counted from 0, where `N` is the group's engine count — `--zmq-engine-count` or `dp_size`, or the size the group declared at the handshake when no count was set. The key is the [sticky-session key](../concepts/routing/sticky-sessions.md): the first valid `--routing-key-headers` header (`x-smg-routing-key` by default), or the body `rid` when `--routing-key-override` is on. xxh3 is fixed by its specification, so a key keeps its engine across requests, gateway restarts, and gateway replicas — however unevenly the keys fall — and a conversation that sends the same key every turn keeps hitting one engine's prefix cache. The flag belongs to the Rust `smg` binary; the Python launcher (`smg launch` and `smg serve`) does not take it yet.
 
 Even under `hash`, these requests keep the least-loaded pick:
 
 - A request without a sticky key, and every prompt of a completion request that batches several prompts.
-- A request whose key hashes to a rank the worker's connection can't place a pin on. A vLLM pin names an engine's index, so pins reach the indices from 0 up to the first one the group lacks: a vLLM group launched at a non-zero data-parallel start rank takes no pins at all, and its keyed requests are served unpinned (each is logged at debug). A TokenSpeed pin goes to the connection's rank-th engine, so every engine of the group takes pins.
+- A request whose key hashes to a rank the worker's connection can't place a pin on; each such request is logged at debug. A vLLM pin names an engine's index, so pins reach the indices from 0 up to the first one the group lacks, and a vLLM group launched at a non-zero data-parallel start rank takes no pins at all. A TokenSpeed pin goes to the connection's rank-th engine, so every engine of the group takes pins.
 
 On a disaggregated TokenSpeed pair whose prefill side is a grouped ZMQ worker, the pin rides in the request's [bootstrap room](../concepts/routing/pd-disaggregation.md) instead of a rank field: the gateway moves the room so that the room modulo the prefill group's engine count equals the key's rank, the prefill engine runs the request on the rank its room names, and the decode side gets the same room, so a decode group of the same size follows the prefill rank. The samples of an `n > 1` request get rooms of their own with the same remainder, so they all follow the key's rank. A batched or EPD request, or a disaggregated request on another runtime, keeps its randomly minted room, unpinned (logged once per gateway process).
 

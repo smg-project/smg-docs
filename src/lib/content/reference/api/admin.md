@@ -928,7 +928,7 @@ The only supported `module_type` is `Middleware`. Valid `Middleware` attach poin
 
 The gateway loads the modules one at a time, waiting up to 300 seconds for each; a failure puts its reason in that module's `add_result`.
 
-Each failure has a status by its cause, and the response carries the highest status among them, so one module refused by a full queue (`503`) beside one that failed to load (`400`) answers `503`:
+Each failure has a status by its cause, and the response carries the highest status among them, so a request with one module refused by a full queue (`503`) beside one that failed to load (`400`) answers `503`:
 
 | Status | When |
 |--------|------|

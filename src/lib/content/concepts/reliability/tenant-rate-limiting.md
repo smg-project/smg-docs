@@ -70,6 +70,16 @@ See the [reference page](../../reference/tenant-rate-limiting.md) for the exact 
 
 ---
 
+## Replacing the policy without a restart
+
+The policy file is read once, at startup, but a running gateway's policy is replaceable through the control plane: `GET /rate-limits/tenants` answers the document in force with a revision and an ETag, and `PUT /rate-limits/tenants` replaces it against that ETag (`If-Match`), so two operators racing on the same revision cannot silently overwrite each other. A written document is checked by the same rules as the startup file — but where an invalid file stops a start, an invalid write is refused with `400` and the live policy stands. A dry run (`?dry_run=true`) reports what the document would change without applying anything.
+
+A write does not reset budgets already spent: buckets whose limits are unchanged keep their fill, buckets at changed limits carry their spending over, and in-flight reservations settle against the buckets that replaced theirs — a tenant cannot clear its mid-minute spending by having its policy rewritten.
+
+Both routes exist only with [control-plane auth](../../getting-started/control-plane-auth.md) configured and are kept to the `admin` role, the read included. The replacement is per gateway process and is not persisted: the gateway never rewrites the policy file, a restart reads the file again, and every instance holds a document of its own. See [Replacing the policy at runtime](../../reference/tenant-rate-limiting.md#replacing-the-policy-at-runtime) on the reference page for the routes' exact contract.
+
+---
+
 ## `n>1` and streaming are counted correctly
 
 A few accounting details avoid over- or under-charging a tenant:
@@ -82,6 +92,7 @@ A few accounting details avoid over- or under-charging a tenant:
 ## Failure handling
 
 - **Startup fails closed:** with `--tenant-rate-limit-enabled`, a missing `--tenant-rate-limit-config`, a file that can't be read or parsed, or a policy that fails validation stops the gateway at startup. An operator who turned rate limiting on never gets a gateway that silently runs unlimited.
+- **A runtime policy write fails closed too:** a document sent to `PUT /rate-limits/tenants` that fails the same checks is refused with `400`, and the live policy stays in force (see [Replacing the policy without a restart](#replacing-the-policy-without-a-restart)).
 - **Missing tenant identity fails open:** if a request somehow reaches the reserve stage without a resolved tenant identity (it shouldn't, since the tenant-resolution middleware runs on every serving route), the gateway logs a warning and skips reservation rather than blocking the request on missing context.
 
 ---
@@ -129,7 +140,7 @@ Decisions reserves on the gRPC router only, and the worker transport matters the
 
 The `--tenant-rate-limit-*` flags belong to the Rust `smg` binary. The Python launcher (`smg launch` from pip, and the container image) does not accept them in v1.12.0.
 
-Enforcement is also **per gateway instance**: a tenant's true limit across several independent SMG instances is roughly the configured value multiplied by the instance count. A distributed backend for exact cluster-wide enforcement is a possible future extension behind the same interface, not something this version provides.
+Enforcement is also **per gateway instance**: a tenant's true limit across several independent SMG instances is roughly the configured value multiplied by the instance count. The same holds for a [runtime policy write](#replacing-the-policy-without-a-restart) — it replaces the document of the instance that received it, and each instance holds a revision of its own. SMG provides no distributed backend for exact cluster-wide enforcement.
 
 There are no dedicated Prometheus metrics for tenant rate-limit decisions. Denials show up only as `429` responses, which the generic `smg_http_responses_total` counter records with `error_code="tenant_rate_limit_exceeded"`; admissions and settlement deltas aren't observable.
 

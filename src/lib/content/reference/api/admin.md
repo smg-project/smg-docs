@@ -1,6 +1,6 @@
 # Admin API Reference
 
-SMG provides administrative endpoints for managing tokenizers, workers, WASM modules, and engine caches, plus read-only model and server information.
+SMG provides administrative endpoints for managing tokenizers, workers, WASM modules, engine caches, and the tenant rate-limit policy, plus read-only model and server information.
 
 !!! tip "Related Documentation"
     For health probes, the full route list, and each route's auth tier, see [Gateway Extensions](extensions.md).
@@ -1157,6 +1157,130 @@ The key fingerprints and entry counts name the keys currently in force: after a 
 
 ---
 
+## Tenant Rate-Limit Policy
+
+```text
+GET /rate-limits/tenants
+PUT /rate-limits/tenants
+```
+
+Reads and replaces the [tenant rate-limit policy](../tenant-rate-limiting.md) of a running gateway. The document is the policy in the same shape as the `--tenant-rate-limit-config` YAML file, carried as JSON; a replacement takes effect immediately, without a restart.
+
+Like [`GET /config`](#effective-configuration), both methods are mounted only when [control-plane auth](../../getting-started/control-plane-auth.md) is configured: without it the path answers `404` on every listener, with no `--api-key` fallback. The read is kept to the `admin` role — the other admin-only read — so a `user` credential gets `403` even for `GET`. With `--admin-port` set, the routes answer on the admin listener like the other control-plane routes.
+
+On a gateway running without `--tenant-rate-limit-enabled` there is no document, and both methods answer `409` with code `RATE_LIMITER_DISABLED`; a gateway whose rate-limit backend holds no document answers `409` with code `POLICY_NOT_REPLACEABLE`.
+
+### Read the Policy Document
+
+```text
+GET /rate-limits/tenants
+```
+
+Returns the document in force and the record of its application. The start's file is revision `1` under the principal `startup`; every applied write is the next revision under the control-plane principal that wrote it. The response carries the `etag` in the `ETag` header and the `revision` in `x-smg-config-revision`.
+
+**Response:** `200 OK`
+
+```json
+{
+  "document": {
+    "default_policy": {
+      "tokens_per_minute": 100000,
+      "requests_per_minute": 600,
+      "model_rules": []
+    },
+    "tenants": [
+      {
+        "tenant_key": "auth:team-red",
+        "tokens_per_minute": 500000,
+        "requests_per_minute": 3000,
+        "model_rules": []
+      }
+    ]
+  },
+  "revision": 1,
+  "etag": "\"6a1fc0…9e3\"",
+  "applied_at": "2026-11-13T08:15:00Z",
+  "principal": "startup"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `document` | The policy in force: `default_policy` and `tenants`, exactly the [YAML file's fields](../tenant-rate-limiting.md#yaml-configuration) as JSON. The default policy carries no `tenant_key` |
+| `revision` | `1` for the start's file, one more per applied write |
+| `etag` | The quoted SHA-256 of `document` as JSON — the `ETag` header's value, and what a write's `If-Match` must carry |
+| `applied_at` | When this revision was put in force (RFC 3339) |
+| `principal` | Who put it in force: a control-plane principal, or `startup` for the start's file |
+
+### Replace the Policy Document
+
+```text
+PUT /rate-limits/tenants
+PUT /rate-limits/tenants?dry_run=true
+```
+
+Replaces the document against the ETag read: read the document, then send the whole new document as the JSON body with `If-Match: <etag>`. The gateway checks the body exactly as the start checks its file — every [validation rule](../tenant-rate-limiting.md#validation), including the `--trust-tenant-header` requirement for `header:` keys — and on success puts it in force as the next revision under the calling principal. One write runs at a time, from the ETag check to the swap.
+
+The `If-Match` precondition is what makes concurrent writes safe: a write against an ETag that is no longer the live revision's is refused with `412`, so two operators racing on the same revision cannot silently overwrite each other — the loser re-reads and writes against the new revision. `If-Match: *` would match any revision, which is no protection, so it counts as missing (`428`).
+
+**`?dry_run=true`** runs every check — the `If-Match` precondition included — and applies nothing: the response reports what the document would change, with `"applied": false`, the live revision, and the `summary` and `changes` of the document given — no `buckets`. `dry_run` is the only query key the route accepts: a misspelt key (`dryRun`, `dry-run`) is refused with `400` naming it rather than ignored, so a write meant as a dry run never applies the document it meant to preview.
+
+**Request body:** the whole document, as in the `GET` response's `document` field.
+
+**Response:** `200 OK` — the revision in force after the call (the new one; on a dry run, the live one), its `etag` and `revision` repeated in the `ETag` and `x-smg-config-revision` headers:
+
+```json
+{
+  "applied": true,
+  "revision": 2,
+  "etag": "\"93ccd1…40b\"",
+  "applied_at": "2026-11-13T09:02:41Z",
+  "principal": "ops-admin",
+  "summary": {
+    "tenants": 2,
+    "model_rules": 3,
+    "default_tokens_per_minute": 100000,
+    "default_requests_per_minute": 600
+  },
+  "changes": {
+    "tenants_added": ["auth:team-blue"],
+    "tenants_removed": [],
+    "tenants_changed": ["auth:team-red"],
+    "default_changed": false
+  },
+  "buckets": { "kept": 4, "replaced": 2, "dropped": 1 }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `applied` | `false` on a dry run: nothing was swapped and the live revision stands |
+| `revision`, `etag`, `applied_at`, `principal` | The revision in force after the call, as in the `GET` response |
+| `summary` | The shape of the document given: its number of `tenants` entries, its model rules counted across every policy (the default's included), and the default policy's two limits |
+| `changes` | What the document changes against the revision it was checked against: the tenant keys added, removed (those tenants fall to the default policy), and changed, and whether `default_policy` differs |
+| `buckets` | What the application did to the live buckets; absent on a dry run. `kept`: buckets whose limits stand, kept with their fill. `replaced`: buckets re-created at new limits with their spending carried over. `dropped`: buckets of a scope the document no longer names (a model rule that is gone) |
+
+An applied write forgives no tokens already spent: a tenant mid-minute cannot get a fresh budget out of a policy write, and reservations in flight settle against the buckets that replaced theirs.
+
+**Errors**, in the control plane's `{"error", "code"}` envelope:
+
+| Status | `code` | When |
+|--------|--------|------|
+| `400` | `INVALID_DOCUMENT` | The document fails the checks the start applies to its file; the error names the failure (a duplicate `tenant_key`, a `header:` key without `--trust-tenant-header`, a non-canonical key, and so on) |
+| `400` | `BAD_REQUEST` | The body is not the document — broken JSON, an unknown field, a wrong type, a missing `Content-Type: application/json` — or the query string does not parse or names a key other than `dry_run` |
+| `413` | `PAYLOAD_TOO_LARGE` | The body exceeds `--max-payload-size` |
+| `409` | `RATE_LIMITER_DISABLED` | The gateway runs without a tenant rate limiter; there is no document |
+| `409` | `POLICY_NOT_REPLACEABLE` | The rate-limit backend in use holds no document and takes no new policy while running |
+| `412` | `PRECONDITION_FAILED` | `If-Match` names another revision; the message names the revision in force, and the live `ETag` and `x-smg-config-revision` are in the headers |
+| `428` | `PRECONDITION_REQUIRED` | `If-Match` is missing or `*` — read the document first. The live `ETag` and revision are in the headers |
+
+An applied write is recorded in the [audit log](../../getting-started/control-plane-auth.md#audit-logging) with resource `rate-limits/tenants`; a dry run names no resource.
+
+!!! warning "The revision lives in this gateway's memory"
+    A write replaces the policy of the gateway process it was sent to, and nothing else. The gateway never writes the document back to the `--tenant-rate-limit-config` file: a restart reads the start's file again, as revision `1` under `startup`, and other gateway instances each hold a document of their own. To make a change durable or fleet-wide, update the file (and roll it out), or send the write to every instance.
+
+---
+
 ## Error Responses
 
 The admin endpoints do not share one error format. The body depends on the part of SMG that rejects the request:
@@ -1165,9 +1289,10 @@ The admin endpoints do not share one error format. The body depends on the part 
 |--------|--------|------|
 | Control-plane auth | `401`, `403` | Plain text, such as `Missing or invalid Authorization header`, `Invalid authentication token`, or `Admin role required for this control plane operation`. A `401` carries `WWW-Authenticate: Bearer realm="control-plane"` |
 | `--api-key` auth, when control-plane auth is not configured | `401` | Empty |
-| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor. [Add WASM Module](#add-wasm-module) and [Add Tokenizer](#add-tokenizer) instead answer `400` in the `{"error", "code"}` envelope |
+| A request body that does not parse | `400`, `415`, `422` | Plain text from the JSON extractor. [Add WASM Module](#add-wasm-module), [Add Tokenizer](#add-tokenizer), and the [tenant rate-limit policy write](#replace-the-policy-document) instead answer `400` in the `{"error", "code"}` envelope |
 | [Worker endpoints](#worker-errors) | `400`, `404`, `409`, `500` | `{"error": "<message>", "code": "<CODE>"}` |
 | [Tokenizer endpoints](#tokenizer-management) | `404`, `409`, `503` | `{"error": "<message>", "code": "<CODE>"}` — `TOKENIZER_NOT_FOUND`, `TOKENIZER_ALREADY_EXISTS`, or `SERVICE_UNAVAILABLE` |
+| [Tenant rate-limit policy](#tenant-rate-limit-policy) | `400`, `409`, `412`, `413`, `428` | `{"error": "<message>", "code": "<CODE>"}` — see [its status table](#replace-the-policy-document) |
 | `/parse/function_call`, `/parse/reasoning` | `400`, `503` | `{"error": "<message>", "success": false}` |
 | [Add WASM Module](#add-wasm-module), when a module failed to load | `400` | The module list, with `"add_result": {"Error": "<message>"}` on each module that failed |
 | Every other refusal from the [WASM routes](#wasm-module-management), including any of them without `--enable-wasm` | `400`, `404`, `500`, `503`, `504` | `{"error": "<message>", "code": "<CODE>"}` |
@@ -1192,11 +1317,11 @@ Errors that the gateway generates itself, for example when no worker is availabl
 
 ## Authentication
 
-The tokenizer, worker, WASM, cache flush, [diagnostics](#diagnostics), and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
+The tokenizer, worker, WASM, cache flush, [diagnostics](#diagnostics), [tenant rate-limit policy](#tenant-rate-limit-policy), and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
 
 1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT. A missing or invalid credential gets `401`. The `admin` role may use every method; the `user` role may use only `GET` and `HEAD`, and any other method answers it with `403`. The shared `--api-key` is not accepted.
 2. **Without it**: the shared `--api-key`. Per-tenant `--tenant-api-key` keys are rejected, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
 
-[`GET /config`](#effective-configuration) is the exception on both counts: it is a read kept to the `admin` role (`GET /rate-limits/tenants` is the other admin-only read), so a `user` credential gets `403` even for `GET`, and without control-plane auth it is not mounted at all — the path answers `404` rather than falling back to the shared `--api-key`.
+[`GET /config`](#effective-configuration) and the [tenant rate-limit policy routes](#tenant-rate-limit-policy) are the exception on both counts: `GET /config` and `GET /rate-limits/tenants` are reads kept to the `admin` role, so a `user` credential gets `403` even for `GET`, and without control-plane auth none of these routes (`PUT /rate-limits/tenants` included) is mounted at all — the paths answer `404` rather than falling back to the shared `--api-key`.
 
 Public endpoints need no authentication: the health probes, `/loads`, `/engine_metrics`, and the [Model Information](#model-information) routes. See [Auth Model](extensions.md#auth-model) for every route's tier.

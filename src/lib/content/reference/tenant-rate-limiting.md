@@ -4,7 +4,7 @@ title: Tenant Rate Limiting Reference
 
 # Tenant Rate Limiting Reference
 
-Precise contract for per-tenant token/request rate limiting: every configuration knob, the YAML policy schema, and the exact response shape. For how it works conceptually — the reserve/settle model, retry handling, `n>1` accounting — see [Tenant Rate Limiting](../concepts/reliability/tenant-rate-limiting.md).
+Precise contract for per-tenant token/request rate limiting: every configuration knob, the YAML policy schema, the runtime replacement routes, and the exact response shape. For how it works conceptually — the reserve/settle model, retry handling, `n>1` accounting — see [Tenant Rate Limiting](../concepts/reliability/tenant-rate-limiting.md).
 
 Tenant rate limiting is **disabled by default**. When enabled, it is enforced on every serving router, each reserving once per logical request before any dispatch:
 
@@ -99,7 +99,7 @@ A tenant not listed under `tenants` uses `default_policy`, with its own buckets:
 
 ### Validation
 
-Checked once, at load, before the gateway ever serves traffic on this config:
+Checked on every document the gateway takes in — the startup file before any traffic is served on it, and every document written through [`PUT /rate-limits/tenants`](#replacing-the-policy-at-runtime) by exactly the same rules:
 
 - `default_policy` must **not** set `tenant_key`; every entry under `tenants` **must**.
 - Tenant keys must be non-empty, have no surrounding whitespace, be unique across `tenants`, and be a canonical serving-path tenant key: `auth:<id>`, `header:<id>`, `ip:<address>`, or exactly `anonymous` — a bare ID copy-pasted without its prefix is rejected rather than silently never matching.
@@ -111,7 +111,24 @@ Checked once, at load, before the gateway ever serves traffic on this config:
 - No two rules within the same tenant may share the same `exact` value, or the same `prefix` value (an `exact` and a `prefix` rule *may* share the same literal string — they're different match kinds).
 - Unknown YAML fields anywhere in the document are rejected rather than silently ignored (so a typo like `tenant:` instead of `tenants:` fails loudly instead of compiling to an empty override list).
 
-Any validation failure is the same as an unparsable file: the gateway refuses to start.
+At startup, any validation failure is the same as an unparsable file: the gateway refuses to start. On a runtime write, a failure answers `400` naming it, and the live policy stands — with code `INVALID_DOCUMENT`, except for an unknown field, which is caught while the body is parsed and answers code `BAD_REQUEST`, like any body that is not the document.
+
+---
+
+## Replacing the policy at runtime
+
+The `--tenant-rate-limit-config` file is read once, at startup, but the policy itself can be replaced on a running gateway through two control-plane routes:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/rate-limits/tenants` | The document in force — the same shape as the YAML above, carried as JSON — with its `revision`, `etag`, `applied_at`, and `principal`. The `ETag` and `x-smg-config-revision` response headers carry the `etag` and the `revision` |
+| `PUT` | `/rate-limits/tenants` | Replace the document against the ETag read: `If-Match` must carry the live revision's ETag (`428` without it, `412` against another revision's). `?dry_run=true` reports what would change and applies nothing |
+
+Both routes are mounted only with [control-plane auth](../getting-started/control-plane-auth.md) configured (`404` without it, with no `--api-key` fallback) and are kept to the `admin` role, the read included. The start's file is revision `1` under the principal `startup`; every applied write is the next revision under the principal that wrote it. A written document is checked exactly as the start checks its file — every [validation rule above](#validation) — and a failure answers `400` naming it, with the live policy left standing.
+
+An applied write is immediate and precise about the live buckets: a bucket whose limits are unchanged keeps its fill, a bucket whose limits changed is replaced with its spending carried over, and a bucket of a scope the new document no longer names — a model rule that is gone — is dropped. A tenant the new document no longer names falls to `default_policy`, its spending carried. In-flight reservations settle against the replacement buckets, so a policy write forgives no tokens already spent.
+
+The revision lives in this gateway's memory: the configured file is never rewritten, a restart reads it again (revision `1`, `startup`), and every gateway instance holds a document of its own — a write reaches one process, not the fleet. See [Tenant Rate-Limit Policy](api/admin.md#tenant-rate-limit-policy) in the Admin API reference for the full request and response shapes and every status code (`400`/`409`/`412`/`413`/`428`).
 
 ---
 

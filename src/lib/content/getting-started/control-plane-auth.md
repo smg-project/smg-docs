@@ -29,10 +29,11 @@ These routes are guarded by control-plane auth middleware when configured:
 - Profiling: `/start_profile`, `/stop_profile`
 - Diagnostics of the gateway process: `/inflight`, `/heap_profile`
 - Effective configuration: `/config`, mounted only when control-plane auth is configured (`404` without it)
+- Tenant rate-limit policy: `/rate-limits/tenants` (`GET` and `PUT`), mounted only when control-plane auth is configured (`404` without it)
 - Deprecated load alias: `/get_loads` (the public `/loads` route it aliases needs no credential)
 - RL control plane: `/v1/rl/*`, mounted only with `--enable-rl`
 
-Control-plane middleware requires the **admin role** for every method on these routes but the read-only ones: a valid credential with the `user` role may `GET` and `HEAD` them, and gets `403` (`Admin role required for this control plane operation`) on any other method. Two reads are the exception, kept to the `admin` role alone: [`GET /config`](../reference/api/admin.md#effective-configuration), whose view names every worker and store address, and `GET /rate-limits/tenants`; both answer a `user` credential with the same `403`. A missing or invalid credential gets `401`.
+Control-plane middleware requires the **admin role** for every method on these routes but the read-only ones: a valid credential with the `user` role may `GET` and `HEAD` them, and gets `403` (`Admin role required for this control plane operation`) on any other method. Two reads are the exception, kept to the `admin` role alone: [`GET /config`](../reference/api/admin.md#effective-configuration), whose view names every worker and store address, and [`GET /rate-limits/tenants`](../reference/api/admin.md#tenant-rate-limit-policy); both answer a `user` credential with the same `403`. A missing or invalid credential gets `401`.
 
 Control-plane credentials apply only to these routes. The inference routes, such as `/v1/chat/completions`, check the shared `--api-key` and per-tenant keys instead, and stay open when neither is set. Set `--api-key` as well to protect them.
 
@@ -52,7 +53,7 @@ When no control-plane API keys and no JWT settings are configured, the routes ab
 | `--tenant-api-key` only | Every request gets `401` |
 | None | Open to anyone |
 
-`GET /config` does not fall back: a gateway without control-plane auth does not mount it, and the path answers `404` whatever other keys are set.
+`GET /config` and the `/rate-limits/tenants` routes (`GET` and `PUT`) do not fall back: a gateway without control-plane auth does not mount them, and the paths answer `404` whatever other keys are set.
 
 This fallback is for a gateway where control-plane auth is not configured at all. For what happens when configured JWT auth fails to initialize at startup, see [Option B: JWT / OIDC](#option-b-jwt-oidc).
 

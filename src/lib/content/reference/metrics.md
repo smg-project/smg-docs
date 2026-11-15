@@ -383,7 +383,7 @@ sum by (error_type) (rate(smg_router_request_errors_total[5m]))
 
 ### `smg_router_ttft_seconds`
 
-Time to first token, recorded for streaming responses on the gRPC router. The clock starts at the answering attempt's RPC dispatch; for `backend_type="pd"` that is the prefill dispatch of the pair, so the value includes the prefill and KV-transfer time (for an encode-prefill-decode request whose encode worker pushes its embeddings, that dispatch comes after the encode call). [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) measures the same span, with the pair's `runtime` label and a per-phase breakdown beside it.
+Time to first token, recorded for streaming responses on the gRPC router. The clock starts at the answering attempt's RPC dispatch; for `backend_type="pd"` that is the prefill dispatch of the pair, so the value includes the prefill and KV-transfer time. For an encode-prefill-decode request whose encode worker pushes its embeddings, the clock starts after the encode call, at the prefill dispatch. [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) measures the same span, with the pair's `runtime` label and a per-phase breakdown beside it.
 
 A collected (non-streaming) answer records no first token. Neither does a streamed Responses answer on the Harmony (gpt-oss) pipeline: through a prefill-decode pair, its first token lands only in [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) and [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds).
 
@@ -460,7 +460,7 @@ sum(rate(smg_router_tokens_total{token_type="output"}[5m])) / sum(rate(smg_route
 
 ### `smg_router_generation_duration_seconds`
 
-Total generation time of a gRPC-routed answer, streamed or collected. The clock runs from the answering attempt's RPC dispatch — the same start as [`smg_router_ttft_seconds`](#smg_router_ttft_seconds), so for `backend_type="pd"` the prefill dispatch of the pair — to the answer's end. A Responses answer on the Harmony (gpt-oss) pipeline records no generation duration.
+Total generation time of a gRPC-routed answer, streamed or collected. The clock runs from the answering attempt's RPC dispatch to the answer's end; the dispatch anchor is the same as [`smg_router_ttft_seconds`](#smg_router_ttft_seconds), so for `backend_type="pd"` it is the prefill dispatch of the pair. A Responses answer on the Harmony (gpt-oss) pipeline records no generation duration.
 
 | Type | Labels |
 |------|--------|
@@ -561,7 +561,7 @@ Duration of the prefill leg. Recorded by the HTTP PD router and for sequential P
 
 #### `smg_pd_kv_transfer_duration_seconds`
 
-The relay of a sequential (vLLM) pair on the gRPC router: from the prefill response draining to the decode dispatch, gateway work only. The engines' own KV transfer runs inside [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds).
+The relay phase of a sequential (vLLM) pair on the gRPC router, from the prefill response draining to the decode dispatch. It measures gateway work only; the engines' own KV transfer runs inside [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds).
 
 | Type | Labels |
 |------|--------|

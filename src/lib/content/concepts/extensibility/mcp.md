@@ -401,7 +401,7 @@ Streaming filtering depends on the backend. On an OpenAI-compatible provider, a 
 ## Security
 
 - **The model never sees credentials.** It receives tool names, descriptions, input schemas, and results. Server URLs, tokens, and headers stay in SMG.
-- **Clients see tool metadata.** `mcp_list_tools` output items list each server's tool names, descriptions, and input schemas. Mark a static server [internal](#internal-servers) to keep them out of non-streaming responses and out of streams on an OpenAI-compatible provider; streams on gRPC or ZMQ workers still carry them.
+- **Clients see tool metadata.** `mcp_list_tools` output items list each server's tool names, descriptions, and input schemas. Mark a static server [internal](#internal-servers) to keep them out of responses; only streams on gRPC or ZMQ workers, and their stored records, still carry them.
 - **Static credentials live in the config file.** See [Keeping Credentials Out of Config Files](#keeping-credentials-out-of-config-files).
 - **Dynamic credentials come from the request** (`authorization` and `headers`, or `authorization_token` in the Messages API). They are used only for connections pooled under those exact credentials.
 - **No exported audit trail.** SMG keeps its approval decisions in an in-memory buffer (the latest 10,000), but does not currently expose that buffer through an API or the logs. Use the [metrics](#metrics) and your MCP servers' own logs to audit tool activity.

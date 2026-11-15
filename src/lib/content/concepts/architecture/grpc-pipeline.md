@@ -445,7 +445,7 @@ On `/v1/responses`, the prompt does not keep the definitions: that API withholds
 
 ### Constraints Under Symphony
 
-When a table reads a request, its structural tag stands in for the constraint of a forced or required `tool_choice`, and for a JSON answer format — a chat `response_format` or a Messages `output_config.format` — so the engine's constrained output is in exactly the syntax the table parses. The engine receives the tag alone, never the tag and a competing constraint:
+When a table reads a request, its structural tag stands in for the constraint of a forced or required `tool_choice`, and for a JSON answer format — a chat JSON `response_format` or a Messages `output_config.format` — so the engine's constrained output is in exactly the syntax the table parses. The engine receives the tag alone, never the tag and a competing constraint:
 
 - A registry table with no tag for the forced call leaves the decision to the [legacy constraint rules](#when-a-constraint-is-sent). When those send a JSON schema, the output has no table markers, so the legacy parsers read that response and `x-smg-parser` reports `legacy`.
 - A registry table with no tag for the JSON answer, or a request that continues the assistant's message, leaves the answer's schema — `response_format`'s or the Messages format's — to the engine's JSON schema, as the legacy path does; the table still reads that response.
@@ -459,11 +459,13 @@ The whole-turn grammar refuses what it cannot hold, with 400 `invalid_parser_con
 
 On any other worker — the default `requested` policy, or a `constrained_decoding_start` of `after_reasoning` or missing — and wherever the whole turn's grammar cannot start, the rules above stand.
 
+A chat `structural_tag` response format is not an answer format a table stands in for: no answer tag, [`auto` tag](#grammar-on-auto-tool-choice) or whole-turn grammar is shaped over the client's own tag; `hf` does not refuse it the way it refuses a `regex` or an `ebnf`; and the engine receives it as it arrived (see [Combining with Structured Output](#combining-with-structured-output)). A forced or required `tool_choice` still follows the rules above, so a table that constrains the call sends the table's tag in place of the client's.
+
 ### Grammar on `auto` Tool Choice
 
 A worker whose `constrained_decoding` policy is `always` — set as a [worker label or spec field](../../reference/api/admin.md#worker-spec), or reported by the engine itself — tells the gateway its engine takes a grammar on every turn. When a table reads a chat or Messages request that allows calls under `auto` (or no `tool_choice`), the gateway then sends the table's tag for the request's callable tools: no call required, at most one when `parallel_tool_calls` is `false` (Messages: `disable_parallel_tool_use`). The default policy, `requested`, sends a grammar only when the request asks for one.
 
-Nothing is sent, and nothing refused, when the request carries a constraint of its own (a JSON `response_format` or Messages `output_config.format`, a `regex`, an `ebnf`), has no callable tools, forbids calls with `tool_choice: none`, continues the assistant's message, or the table has no tag for the calls. On an `hf`-read model, a worker whose engine starts its grammar at the first token gets the [whole-turn grammar](#constraints-under-symphony) in this tag's place, where that grammar starts.
+Nothing is sent, and nothing refused, when the request carries a constraint of its own (a JSON or `structural_tag` `response_format`, a Messages `output_config.format`, a `regex`, an `ebnf`), has no callable tools, forbids calls with `tool_choice: none`, continues the assistant's message, or the table has no tag for the calls. On an `hf`-read model, a worker whose engine starts its grammar at the first token gets the [whole-turn grammar](#constraints-under-symphony) in this tag's place, where that grammar starts.
 
 Under PD disaggregation the decode worker's policy applies. The gateway decides the constraint on the worker selected for the request, and a retry re-shapes the tag for the worker it picks. When the policy chose the constraint — this tag, or the whole-turn grammar — a retry re-selects only workers that decide it the same way; a constraint the request itself asked for suits any worker.
 
@@ -484,7 +486,7 @@ In the regular gRPC pipeline, the tool constraint is generated **after the promp
 5. **Build the tool constraint** (`generate_tool_constraint`)
 6. Build the stop decoder, then worker selection and dispatch
 
-The Harmony pipeline (gpt-oss) builds its structural tags before encoding (`model_gateway/src/routers/grpc/harmony/stages/preparation.rs`). It rejects a request that combines a forced tool call with `response_format`.
+The Harmony pipeline (gpt-oss) builds its structural tags before encoding (`model_gateway/src/routers/grpc/harmony/stages/preparation.rs`). It rejects a request that combines a forced tool call with `response_format`. A `structural_tag` response format is the request's own tag on this pipeline too, and goes to the engine as it arrived.
 
 ### When a Constraint Is Sent
 
@@ -514,9 +516,17 @@ Some parsers add rules on top of their structural tag:
 
 ### Combining with Structured Output
 
-A request carries at most one constraint. `response_format` becomes a JSON schema (`json_object` is `{"type": "object"}`), and `text` adds nothing. The `regex` and `ebnf` request extensions each add a constraint of their own. For SGLang, vLLM and TokenSpeed workers, the gateway rejects a request that sets more than one of these with 400 `invalid_request_parameters`. If a forced tool call applies as well, the gateway keeps the output-format constraint and drops the tool one for SGLang, TensorRT-LLM and TokenSpeed workers, and keeps only the tool constraint for vLLM workers.
+A request carries at most one constraint. A JSON `response_format` becomes a JSON schema (`json_object` is `{"type": "object"}`), a `structural_tag` response format is a constraint kind of its own (below), and `text` adds nothing. The `regex` and `ebnf` request extensions each add a constraint of their own. A `regex` or an `ebnf` set beside a response format that constrains the output — a JSON kind or a structural tag — is rejected with 400 `regex_conflicts_with_json` or `ebnf_conflicts_with_json`, and `regex` set beside `ebnf` with `multiple_constraints`. If a forced tool call applies as well, the gateway keeps the output-format constraint and drops the tool one for SGLang, TensorRT-LLM and TokenSpeed workers, and keeps only the tool constraint for vLLM workers.
 
-A Messages request's [`output_config.format`](../../reference/api/messages.md#structured-output) (or `output_format`, its earlier top-level name) becomes a JSON schema the same way — except when its `tool_choice` forces a tool call: the turn then ends in a call, not a text answer, and the format is not sent.
+A `structural_tag` [response format](../../reference/api/openai.md#structured-output) is a grammar of the request's own, written in whichever spelling the engine's grammar compiler takes — a `format` object, or the older `structures` array with `triggers`. Apart from the xgrammar keyword check below, nothing inside the tag is judged: on SGLang, vLLM, TensorRT-LLM and TokenSpeed workers it travels in the wire's own structural-tag field, carrying the client's object as it was sent — `type`, then every other key in the order it was written, unknown keys included.
+
+No [Symphony table](#constraints-under-symphony) shapes a tag or grammar over the client's tag. When a forced tool call applies as well, a Symphony table that constrains the call sends its tag in place of the client's; under the legacy parsers the per-engine precedence above decides.
+
+Before the client's tag reaches an engine whose grammar backend resolves to xgrammar — the backend is named `xgrammar`, or nothing is configured and the engine's default applies — the [Rust servicers](../../getting-started/grpc-workers.md), which read that configuration off the engine they launched, check the JSON schemas inside the tag, on every engine wire alike: each element of type `json_schema` or `qwen_xml_parameter` (its schema sits under `json_schema`), and each structure's `schema` in the older spelling. A schema that uses a keyword xgrammar drops (`multipleOf`, `uniqueItems`, ...) is refused before the engine, since xgrammar would otherwise compile the schema with the keyword dropped and enforce less than the schema asks; the refusal names the keyword, its place in the tag, and the tags around it by their `begin`.
+
+The [ZMQ direct backend](../../getting-started/zmq-workers.md) did not launch the engine and cannot read its grammar backend. It runs this check only on its vLLM wire, where it assumes the engine's default backend, xgrammar. On its SGLang and TokenSpeed wires nothing in the tag is judged ahead of the engine, even when that engine runs xgrammar: a schema that uses a dropped keyword reaches the engine and compiles with the keyword dropped, enforcing less than the schema asks.
+
+A Messages request's [`output_config.format`](../../reference/api/messages.md#structured-output) (or `output_format`, its earlier top-level name) becomes a JSON schema the way a JSON `response_format` does — except when its `tool_choice` forces a tool call: the turn then ends in a call, not a text answer, and the format is not sent. A Messages request names no structural tag of its own.
 
 ### Enforcement
 

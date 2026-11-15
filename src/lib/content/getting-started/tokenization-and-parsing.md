@@ -111,7 +111,7 @@ Both endpoints answer errors in the gateway's standard [error envelope](../refer
 | 404 | `model_not_found` | No tokenizer is loaded under that name (the message lists the loaded names), or none is loaded at all |
 | 500 | `tokenization_error` / `detokenization_error` | The tokenizer failed on the input |
 
-As on every route, the 404 and 500 responses repeat `code` in the `X-SMG-Error-Code` header; the request-validation 400s omit it.
+The 404 and 500 responses repeat `code` in the `X-SMG-Error-Code` header; the request-validation 400s omit it.
 
 ---
 

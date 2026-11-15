@@ -1487,7 +1487,7 @@ vocabulary.
 | 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a `function_call_output` part other than `input_text` or `output_text`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |
 | 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |
 | 400 | `invalid_query_parameter` | A query value the stored-response read routes do not accept, the message naming the parameter: `stream` on [Get Response](#get-response), `limit` or `order` on [List Response Input Items](#list-response-input-items) |
-| 400 | `invalid_value` | A bad `include` value on [Get Response](#get-response), [List Response Input Items](#list-response-input-items), or [Get Conversation Item](#get-conversation-item); `param` names the offending entry, such as `include[0]` |
+| 400 | `invalid_value` | A bad `include` query value on [Get Response](#get-response), [List Response Input Items](#list-response-input-items), or [Get Conversation Item](#get-conversation-item); `param` names the offending entry, such as `include[0]` |
 | 401 | — | Invalid or missing API key (empty body) |
 | 404 | `model_not_found` | No worker serves the model |
 | 404 | `conversation_not_found` | The `conversation` does not exist, or belongs to another tenant |

@@ -103,7 +103,7 @@ A batch request returns `text` as an array of strings. For tiktoken-based tokeni
 
 ### Errors
 
-Both endpoints answer errors in the gateway's standard [error envelope](../reference/api/openai.md#error-format) — an `error` object with `type`, `code`, `message` and `param` — as the model routes do. `type` is `invalid_request_error` on the 400 and 404 responses and `server_error` on the 500; the detail is in `code`:
+Both endpoints answer errors in the gateway's standard [error envelope](../reference/api/openai.md#error-format), as the model routes do: an `error` object with `type`, `code`, `message` and `param`. `type` is `invalid_request_error` on the 400 and 404 responses and `server_error` on the 500; the detail is in `code`:
 
 | Status | `code` | Cause |
 |--------|--------|-------|

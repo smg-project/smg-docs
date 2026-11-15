@@ -392,7 +392,9 @@ Set `proxy` on each server that needs one. `http` and `https` are proxy URLs, `n
 
 ## Internal Servers
 
-Set `internal: true` on a static server when its tools support the model behind the scenes and should not show up in responses. The model can still call them, but SMG removes the server's `mcp_list_tools` item and its `mcp_call` items from non-streaming Responses output. On an OpenAI-compatible provider, a live stream never announces an internal server's `mcp_list_tools` item, and the final `response.completed` event and the stored record leave the server's items out as well; the server's `mcp_call` events still stream live. On gRPC or ZMQ workers, streaming events are not filtered. See [Internal MCP Servers](../../reference/mcp-internal-servers.md) for the exact rules.
+Set `internal: true` on a static server when its tools support the model behind the scenes and should not show up in responses. The model can still call them, but SMG removes the server's `mcp_list_tools` item and its `mcp_call` items from non-streaming Responses output.
+
+Streaming filtering depends on the backend. On an OpenAI-compatible provider, a live stream never announces an internal server's `mcp_list_tools` item, and the final `response.completed` event and the stored record leave the server's items out as well; the server's `mcp_call` events still stream live. On gRPC or ZMQ workers, streaming events are not filtered. See [Internal MCP Servers](../../reference/mcp-internal-servers.md) for the exact rules.
 
 ---
 

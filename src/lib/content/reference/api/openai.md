@@ -218,7 +218,7 @@ restrict the accepted values per model family.
 - `{"type": "text"}`
 - `{"type": "json_object"}`
 - `{"type": "json_schema", "json_schema": {"name": "...", "schema": {...}, "strict": true}}`
-- `{"type": "structural_tag", ...}` — a structural tag: the tagged sections of the output it names are each held to a JSON schema, with free text allowed around them
+- `{"type": "structural_tag", ...}` — the tagged sections of the output it names are each held to a JSON schema, with free text allowed around them
 
 For `json_schema`, `name` must not be empty and `schema` must be a JSON object (`{}` is
 allowed). A string, array, boolean, number, or `null` schema is rejected with `400`

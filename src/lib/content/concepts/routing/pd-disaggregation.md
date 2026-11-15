@@ -564,7 +564,7 @@ Related series:
 
 - `smg_worker_selection_total` counts picks per leg (`worker_type` is `prefill`, `decode`, or `encode`), with `connection_mode`, `model`, and `policy` labels.
 - `smg_worker_requests_active` shows in-flight requests per worker (`worker` label).
-- `smg_router_ttft_seconds` with `backend_type="pd"` (gRPC) anchors at the same prefill dispatch as `smg_pd_ttft_seconds`, so the two report the same time to first token; `smg_pd_ttft_seconds` adds the `runtime` label and the phase breakdown above. `smg_router_generation_duration_seconds` starts its clock at the same dispatch.
+- `smg_router_ttft_seconds` with `backend_type="pd"` (gRPC) anchors at the same prefill dispatch as `smg_pd_ttft_seconds`, so the two report the same time to first token; `smg_pd_ttft_seconds` adds the `runtime` label, and the table above breaks the span into phases. `smg_router_generation_duration_seconds` starts its clock at the same dispatch.
 - `smg_engine_pd_kv_transfer_latency_ms`, `smg_engine_pd_kv_transfer_speed_gb_s`, `smg_engine_pd_prefill_queue_reqs`, and `smg_engine_pd_decode_queue_reqs` (labels `worker`, `role`, `dp_rank`) are published when an engine's load report includes disaggregation statistics, as the SGLang gRPC servicer's does.
 
 See the [Metrics Reference](../../reference/metrics.md) for every metric.

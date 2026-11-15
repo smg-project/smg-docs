@@ -240,10 +240,10 @@ engine's grammar compiler takes — a `format` object, or the older `structures`
 }
 ```
 
-SMG does not interpret the tag: the object is carried to the worker as the client wrote
-it — `type`, then every other key in the order written, unknown keys included. On gRPC
-and ZMQ workers the tag is the request's constraint and the engine's grammar backend
-enforces it (see
+Apart from the keyword check below, SMG does not interpret the tag: the object is carried
+to the worker as the client wrote it — `type`, then every other key in the order written,
+unknown keys included. On gRPC and ZMQ workers the tag is the request's constraint and
+the engine's grammar backend enforces it (see
 [Combining with Structured Output](../../concepts/architecture/grpc-pipeline.md#combining-with-structured-output));
 HTTP workers receive the field as sent.
 

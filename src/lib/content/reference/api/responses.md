@@ -733,12 +733,14 @@ GET /v1/responses/{response_id}
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `include` | array | Optional; repeatable, also accepted as `include[]`. Must name includable fields — the same set [Get Conversation Item](#get-conversation-item) accepts. A valid value does not change the returned object: the stored response already carries everything SMG kept of it |
-| `stream` | boolean | Optional; only `false` is accepted — this route returns the stored response as one JSON object, and SMG keeps no event stream of a stored response to join |
+| `include` | array | Optional; repeatable, also accepted as `include[]`. Must name includable fields — the same set [Get Conversation Item](#get-conversation-item) accepts |
+| `stream` | boolean | Optional; only `false` is accepted — this route returns the stored response as one JSON object |
 
 An `include` value outside the set is rejected with `400` (`invalid_value`, `param`
-naming the entry, such as `include[0]`); any `stream` value other than `false` is
-rejected with `400` (`invalid_query_parameter`). Other query parameters are ignored.
+naming the entry, such as `include[0]`); a valid one is accepted but does not change
+the returned object — the stored response already carries everything SMG kept of it.
+Any other `stream` value is rejected with `400` (`invalid_query_parameter`): SMG keeps
+no event stream of a stored response to join. Other query parameters are ignored.
 The query is checked before the lookup, so an invalid value is answered `400` even
 when the response ID is unknown.
 

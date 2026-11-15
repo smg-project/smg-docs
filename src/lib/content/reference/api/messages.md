@@ -581,7 +581,7 @@ What SMG does:
 1. Connects to the servers in `mcp_servers`. If none connects, it returns `502` with code `mcp_connection_failed`.
 2. Replaces `mcp_servers` and the `mcp_toolset` entries with the enabled MCP tools as regular tools, and sets `tool_choice` to `auto` if the request had none.
 3. Runs each tool the model calls, sends the results back to the model, and repeats until the model stops calling tools, for at most 10 rounds of tool calls. If the model still calls tools after the 10th round, a non-streaming request fails with `502` (`mcp_max_iterations`). A stream ends with an `error` event right after the 10th round, without calling the model again.
-4. Returns each call as an `mcp_tool_use` block (id prefixed `mcptoolu_`) followed by its `mcp_tool_result` block, then the model's final content:
+4. Returns each call as an `mcp_tool_use` block (id prefixed `mcptoolu_`) followed by its `mcp_tool_result` block, then the model's final content. Every `mcp_tool_result` carries `is_error` — `false` for a call that succeeded, `true` for one that failed, never `null`:
 
 ```json
 {
@@ -597,7 +597,7 @@ What SMG does:
       "type": "mcp_tool_result",
       "tool_use_id": "mcptoolu_01AbCdEf",
       "content": [{"type": "text", "text": "..."}],
-      "is_error": null
+      "is_error": false
     },
     {"type": "text", "text": "The top result describes..."}
   ],
@@ -605,7 +605,7 @@ What SMG does:
 }
 ```
 
-In a stream, SMG forwards the upstream events, emits the model's tool calls as `mcp_tool_use` blocks and each result as an `mcp_tool_result` block, and ends with a single `message_delta` and `message_stop`.
+In a stream, SMG forwards the upstream events, emits the model's tool calls as `mcp_tool_use` blocks and each result as an `mcp_tool_result` block carrying the same `is_error` boolean, and ends with a single `message_delta` and `message_stop`.
 
 Tool calls use policy-only approval: SMG never pauses the request to ask the client. The gateway runs its built-in default policy, which allows every tool, because the `policy` section of the MCP configuration file is not applied in v1.11.0. See [MCP](../../concepts/extensibility/mcp.md) for server configuration.
 

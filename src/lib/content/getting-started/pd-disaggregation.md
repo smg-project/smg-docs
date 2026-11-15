@@ -416,8 +416,6 @@ curl http://localhost:30000/v1/chat/completions \
 
 PD mode serves Chat Completions, Completions, the Anthropic Messages API, and the Responses API on both transports. `/v1/messages/count_tokens` works on both as well: over HTTP it goes to a single prefill worker, and over gRPC SMG answers it from the model's tokenizer without contacting a worker.
 
-Gateway-side token counting on gRPC PD applies since v1.13.0: v1.12.0 and earlier answer `/v1/messages/count_tokens` on gRPC PD with `501 Not Implemented`.
-
 ---
 
 ## vLLM vs SGLang PD at a Glance

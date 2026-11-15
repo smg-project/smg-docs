@@ -929,8 +929,8 @@ and `first_id`/`last_id` null.
 
 An item stored without an ID — or with an empty one — is listed under a `msg_` ID
 derived from the response ID and the item's position. The derived ID is the same on
-every read, so a page's `last_id` works as the next request's `after` whichever item
-it names.
+every read, so a page's `last_id` works as the next request's `after` even when it
+names an item stored without one.
 
 An unknown ID — or another tenant's response — returns `404` with code `not_found`.
 

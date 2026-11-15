@@ -227,8 +227,22 @@ unless the HTTP router streams the request to the worker unparsed (see
 [Request Streaming](../../concepts/performance/request-streaming.md)).
 
 For `structural_tag`, the rest of the object describes the tag in whichever spelling the
-engine's grammar compiler takes — a `format` object, or the older `structures` array with
-`triggers`:
+engine's grammar compiler takes — a `format` object:
+
+```json
+{
+  "type": "structural_tag",
+  "format": {
+    "type": "triggered_tags",
+    "triggers": ["<w>"],
+    "tags": [
+      {"begin": "<w>", "content": {"type": "json_schema", "json_schema": {"type": "object"}}, "end": "</w>"}
+    ]
+  }
+}
+```
+
+or the older `structures` array with `triggers`:
 
 ```json
 {
@@ -247,10 +261,11 @@ the engine's grammar backend enforces it (see
 [Combining with Structured Output](../../concepts/architecture/grpc-pipeline.md#combining-with-structured-output));
 HTTP workers receive the field as sent.
 
-When the engine's grammar backend resolves to xgrammar, the Rust servicers and the ZMQ
-direct backend check the JSON schemas inside the tag for keywords xgrammar drops; a schema
-that uses one is refused before it reaches the engine, with the keyword and its place in
-the tag named.
+When the engine's grammar backend resolves to xgrammar, the
+[Rust servicers](../../getting-started/grpc-workers.md) and the
+[ZMQ direct backend](../../getting-started/zmq-workers.md) check the JSON schemas inside
+the tag for keywords xgrammar drops; a schema that uses one is refused before it reaches
+the engine, with the keyword and its place in the tag named.
 
 Like the JSON formats, a `structural_tag` format does not combine with the `regex` or
 `ebnf` extensions (`400` `regex_conflicts_with_json` / `ebnf_conflicts_with_json`).

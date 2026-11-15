@@ -150,7 +150,7 @@ An admitted request other than a `GET` or `HEAD` also gets an outcome line, `con
 
 The outcome line does not depend on the client staying connected: a client that disconnects early abandons only its wait — the mutation still runs to its answer, and the line records the status the handler actually answered. When a handler fails without answering (a panic), the request is answered and recorded as a `500` with `outcome` `failed`.
 
-[Graceful shutdown](../concepts/reliability/graceful-shutdown.md) drains an admitted mutation like any other in-flight request, so the line is written before an orderly exit; only a stop that cuts the mutation short — the shutdown grace period running out, or a killed process — leaves the admission line alone.
+[Graceful shutdown](../concepts/reliability/graceful-shutdown.md) drains an admitted mutation like any other in-flight request, so the line is written before an orderly exit; only a stop that cuts the mutation short — the shutdown grace period running out, or a killed process — leaves the admission line standing alone.
 
 Whether SMG writes these lines by default depends on how you run it:
 

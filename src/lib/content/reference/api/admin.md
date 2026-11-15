@@ -926,7 +926,7 @@ The only supported `module_type` is `Middleware`. Valid `Middleware` attach poin
 
 **Response:** `200 OK` when every module was added. The response body echoes every requested module with an `add_result` field indicating success (carrying the assigned UUID) or failure (carrying the error message). Each requested module gets its own UUID, so two modules with the same `name` in one request get distinct UUIDs.
 
-The gateway loads the modules one at a time, waiting up to 300 seconds for each; a failure puts its reason in that module's `add_result` and does not stop the remaining modules. A module that loaded stays registered even when the request answers a failure status, so check each `add_result` rather than the status alone.
+The gateway loads the modules one at a time, waiting up to 300 seconds for each; one module's failure does not stop the remaining modules. A module that loaded stays registered even when the request answers a failure status, so check each `add_result` rather than the status alone.
 
 Each failure's status depends on its cause, and the response carries the highest status among the failures, so a request with one module refused by a full queue (`503`) beside one that failed to load (`400`) answers `503`:
 

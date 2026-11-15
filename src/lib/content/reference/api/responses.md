@@ -892,7 +892,7 @@ GET /v1/responses/{response_id}/input_items
 A `limit` that is not an integer from 1 to 100, or an `order` other than `asc`/`desc`,
 is rejected with `400` (`invalid_query_parameter`), the message naming the parameter.
 `include` is validated exactly as on [Get Response](#get-response): a bad value is
-rejected with `400` (`invalid_value`), a valid one changes nothing. Other query
+rejected with `400` (`invalid_value`), and a valid value does not change the list. Other query
 parameters are ignored. The query is checked before the lookup, so an invalid value
 is answered `400` even when the response ID is unknown.
 

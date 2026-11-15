@@ -460,7 +460,7 @@ sum(rate(smg_router_tokens_total{token_type="output"}[5m])) / sum(rate(smg_route
 
 ### `smg_router_generation_duration_seconds`
 
-Total generation time of a gRPC-routed answer, streamed or collected, from the answering attempt's RPC dispatch to the answer's end. The clock starts at the same instant as [`smg_router_ttft_seconds`](#smg_router_ttft_seconds): for `backend_type="pd"`, the prefill dispatch of the pair.
+Total generation time of a gRPC-routed answer, streamed or collected, from the answering attempt's RPC dispatch to the answer's end. The clock starts at the same instant as [`smg_router_ttft_seconds`](#smg_router_ttft_seconds): for `backend_type="pd"`, the prefill dispatch of the pair. A Responses answer on the Harmony (gpt-oss) pipeline records no generation duration.
 
 | Type | Labels |
 |------|--------|
@@ -541,7 +541,7 @@ Output tokens the engine streamed for a choice after the gateway's own stop had 
 
 Signals that only the gateway can measure, because it is the one component that sees both the prefill and the decode leg of a disaggregated request. Durations are recorded once per request, not per retry attempt. See [PD Disaggregation](../concepts/routing/pd-disaggregation.md).
 
-The four histograms share the labels `backend_type`, `model`, and `runtime`, the pair's runtime type (for example `sglang`, `vllm`, or `tokenspeed`). `backend_type` is `pd`, except on `smg_pd_ttft_seconds` and `smg_pd_decode_ttft_seconds` from a Harmony-mode (gpt-oss) stream, which carry `harmony`.
+The four histograms share the labels `backend_type`, `model`, and `runtime`, the pair's runtime type (for example `sglang`, `vllm`, or `tokenspeed`). `backend_type` is `pd`, except on `smg_pd_ttft_seconds` and `smg_pd_decode_ttft_seconds` from a stream on the Harmony (gpt-oss) pipeline, which carry `harmony`.
 
 #### `smg_pd_ttft_seconds`
 

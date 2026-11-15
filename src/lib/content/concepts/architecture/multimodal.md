@@ -277,7 +277,7 @@ Several clips in one request are preprocessed in parallel (smg-project/smg#2595)
 
 ### Media Counts
 
-A few model families keep built-in per-request limits; most declare their media without a count of their own (see [Supported Models](#supported-models)). Either way, SMG never sends more items than the per-request limit the model's workers advertise for their engine: vLLM's `--limit-mm-per-prompt` or SGLang's `--limit-mm-data-per-request`, carried in the `mm_item_limits` worker label as `<modality>=<count>` pairs (for example `audio=1,image=8,video=2`). The smallest limit any registered worker of the model advertises for a modality applies, healthy or not, and SMG checks the count before any media is fetched, so a request never depends on which worker is picked.
+A few model families keep built-in per-request limits; most declare their media without a count of their own (see [Supported Models](#supported-models)). Either way, SMG never sends more items than the per-request limit the model's workers advertise for their engine: vLLM's `--limit-mm-per-prompt` or SGLang's `--limit-mm-data-per-request`, carried in the `mm_item_limits` worker label as `<modality>=<count>` pairs (for example `audio=1,image=8,video=2`). SMG consults every registered worker of the model, healthy or not: the smallest limit advertised for a modality applies, and the check runs before any media is fetched, so a request never depends on which worker is picked.
 
 These deployment settings replace a family's own count:
 

@@ -359,11 +359,9 @@ score = max(requests SMG has in flight on the rank, running + waiting)
 
 Rank selection happens inside the connection, and routing policies see the group as one worker. By default (`--grouped-dp-sticky off`), no request is pinned to a rank: every request goes to the least-loaded engine, so a multi-turn conversation's requests scatter across the engines' separate prefix caches.
 
-`--grouped-dp-sticky hash` pins each request that carries a sticky key to the key's engine instead: rank `xxh3(key) mod N`, counted from 0, where `N` is the group's engine count — `--zmq-engine-count` or `dp_size`, or the size the group declared at the handshake when no count was set. The key is the [sticky-session key](../concepts/routing/sticky-sessions.md): the first valid `--routing-key-headers` header (`x-smg-routing-key` by default), or the body `rid` when `--routing-key-override` is on.
+`--grouped-dp-sticky hash` (with `smg serve`, `--router-grouped-dp-sticky hash`) pins each request that carries a sticky key to the key's engine instead: rank `xxh3(key) mod N`, counted from 0, where `N` is the group's engine count — `--zmq-engine-count` or `dp_size`, or the size the group declared at the handshake when no count was set. The key is the [sticky-session key](../concepts/routing/sticky-sessions.md): the first valid `--routing-key-headers` header (`x-smg-routing-key` by default), or the body `rid` when `--routing-key-override` is on.
 
 xxh3 is fixed by its specification, so a key keeps its engine across requests, gateway restarts, and gateway replicas, and a conversation that sends the same key every turn keeps hitting one engine's prefix cache. The trade-off is balance: keys may fall unevenly across the engines, and hash placement never rebalances them.
-
-`--grouped-dp-sticky` is a flag of the Rust `smg` binary (`cargo install smg` or a source build); the Python launcher (`smg launch` and `smg serve` from `pip install smg`, and the container image) does not accept it.
 
 Even under `hash`, these requests keep the least-loaded pick:
 

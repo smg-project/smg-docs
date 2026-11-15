@@ -561,7 +561,15 @@ Duration of the prefill leg. Recorded by the HTTP PD router and for sequential P
 
 #### `smg_pd_kv_transfer_duration_seconds`
 
-KV-transfer window, from the prefill leg draining to the decode request being sent. Recorded for sequential (vLLM) PD on the gRPC router.
+The relay of a sequential (vLLM) pair on the gRPC router: from the prefill response draining to the decode dispatch, gateway work only. The engines' own KV transfer runs inside [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds).
+
+| Type | Labels |
+|------|--------|
+| Histogram | `backend_type`, `model`, `runtime` |
+
+#### `smg_pd_decode_ttft_seconds`
+
+The PD decode phase: from the decode dispatch to the first decode token, the engines' KV transfer and the decode scheduling included (the whole TTFT under parallel dispatch, which sends both legs together). Recorded on gRPC streams together with [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds); the HTTP PD router records only the end-to-end value.
 
 | Type | Labels |
 |------|--------|
@@ -616,14 +624,6 @@ The running window the PD admission gate bounds a decode worker by: the engine's
 | Type | Labels |
 |------|--------|
 | Gauge | `worker` |
-
-#### `smg_pd_decode_ttft_seconds`
-
-The PD decode phase: from the decode dispatch to the first decode token, the engines' KV transfer and the decode scheduling included (the whole TTFT under parallel dispatch, which sends both legs together). Recorded on gRPC streams together with [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds); the HTTP PD router records only the end-to-end value.
-
-| Type | Labels |
-|------|--------|
-| Histogram | `backend_type`, `model`, `runtime` |
 
 #### `smg_pd_prefill_admission_inflight`
 

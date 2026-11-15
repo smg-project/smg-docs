@@ -383,9 +383,9 @@ sum by (error_type) (rate(smg_router_request_errors_total[5m]))
 
 ### `smg_router_ttft_seconds`
 
-Time to first token, recorded for streaming responses on the gRPC router. The clock starts at the answering attempt's RPC dispatch; for `backend_type="pd"` that is the prefill dispatch of the pair (after the encode call, for an encode-prefill-decode request whose encode worker pushes its embeddings), so the value includes the prefill and KV-transfer time. [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) measures the same span with the pair's `runtime` label and a per-phase breakdown beside it.
+Time to first token, recorded for streaming responses on the gRPC router. The clock starts at the answering attempt's RPC dispatch; for `backend_type="pd"` that is the prefill dispatch of the pair (after the encode call, for an encode-prefill-decode request whose encode worker pushes its embeddings), so the value includes the prefill and KV-transfer time. [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) measures the same span, carries the pair's `runtime` label, and sits beside a per-phase breakdown.
 
-A collected (non-streaming) answer records no first token. Neither does a streamed Responses answer on the Harmony (gpt-oss) pipeline: through a prefill-decode pair it records only [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) and [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds).
+A collected (non-streaming) answer records no first token. Neither does a streamed Responses answer on the Harmony (gpt-oss) pipeline: through a prefill-decode pair, its first token lands only in [`smg_pd_ttft_seconds`](#smg_pd_ttft_seconds) and [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds).
 
 | Type | Labels |
 |------|--------|
@@ -541,7 +541,7 @@ Output tokens the engine streamed for a choice after the gateway's own stop had 
 
 Signals that only the gateway can measure, because it is the one component that sees both the prefill and the decode leg of a disaggregated request. Durations are recorded once per request, not per retry attempt. See [PD Disaggregation](../concepts/routing/pd-disaggregation.md).
 
-The four histograms share the labels `backend_type`, `model`, and `runtime`, the pair's runtime type (for example `sglang`, `vllm`, or `tokenspeed`). `backend_type` is `pd`, except on `smg_pd_ttft_seconds` and `smg_pd_decode_ttft_seconds` from a stream on the Harmony (gpt-oss) pipeline, which carry `harmony`.
+The four histograms share the labels `backend_type`, `model`, and `runtime` — the pair's runtime type (for example `sglang`, `vllm`, or `tokenspeed`). `backend_type` is `pd`, except on `smg_pd_ttft_seconds` and `smg_pd_decode_ttft_seconds` from a stream on the Harmony (gpt-oss) pipeline, which carry `harmony`.
 
 #### `smg_pd_ttft_seconds`
 

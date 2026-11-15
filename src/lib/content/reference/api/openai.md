@@ -262,10 +262,14 @@ the engine's grammar backend enforces it (see
 HTTP workers receive the field as sent.
 
 When the engine's grammar backend resolves to xgrammar, the
-[Rust servicers](../../getting-started/grpc-workers.md) and the
-[ZMQ direct backend](../../getting-started/zmq-workers.md) check the JSON schemas inside
+[Rust servicers](../../getting-started/grpc-workers.md) check the JSON schemas inside
 the tag for keywords xgrammar drops; a schema that uses one is refused before it reaches
-the engine, with the keyword and its place in the tag named.
+the engine, with the keyword and its place in the tag named. The
+[ZMQ direct backend](../../getting-started/zmq-workers.md) cannot read the engine's
+grammar backend and runs this check only on its vLLM wire. On its SGLang and TokenSpeed
+wires the tag's schemas are not checked, even when that engine runs xgrammar: a schema
+that uses a dropped keyword reaches the engine and compiles with the keyword dropped,
+enforcing less than the schema asks.
 
 Like the JSON formats, a `structural_tag` format does not combine with the `regex` or
 `ebnf` extensions (`400` `regex_conflicts_with_json` / `ebnf_conflicts_with_json`).

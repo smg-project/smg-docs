@@ -363,7 +363,7 @@ Rank selection happens inside the connection, and routing policies see the group
 
 xxh3 is fixed by its specification, so a key keeps its engine across requests, gateway restarts, and gateway replicas, and a conversation that sends the same key every turn keeps hitting one engine's prefix cache. The trade-off is balance: keys may fall unevenly across the engines, and hash placement never rebalances them.
 
-`--grouped-dp-sticky` is a flag of the Rust `smg` binary; the Python launcher (`smg launch` and `smg serve`) does not accept it.
+`--grouped-dp-sticky` is a flag of the Rust `smg` binary (`cargo install smg` or a source build); the Python launcher (`smg launch` and `smg serve` from `pip install smg`, and the container image) does not accept it.
 
 Even under `hash`, these requests keep the least-loaded pick:
 

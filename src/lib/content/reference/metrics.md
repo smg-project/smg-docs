@@ -561,7 +561,7 @@ Duration of the prefill leg. Recorded by the HTTP PD router and for sequential P
 
 #### `smg_pd_kv_transfer_duration_seconds`
 
-The relay phase of a sequential (vLLM) pair on the gRPC router, from the prefill response draining to the decode dispatch. It measures gateway work only; the engines' own KV transfer runs inside [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds).
+The relay phase of a sequential (vLLM) pair on the gRPC router, from the end of the prefill response to the decode dispatch. It measures gateway work only; the engines' own KV transfer runs inside [`smg_pd_decode_ttft_seconds`](#smg_pd_decode_ttft_seconds).
 
 | Type | Labels |
 |------|--------|

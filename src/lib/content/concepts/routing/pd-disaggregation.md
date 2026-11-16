@@ -450,9 +450,11 @@ The `smg_pd_admission_window` gauge publishes each decode worker's window as the
 
 ### Prefill Admission Queue
 
-The decode window above enforces a limit the decode engine reports; the prefill side has a gateway-side counterpart. A positive `--prefill-max-inflight-requests-per-worker` caps how many prefill requests this gateway keeps in flight on each prefill worker, counting only its own dispatches, in PD mode on both transports and in EPD mode. The default (`-1`) leaves prefill load unbounded. Startup validation rejects a positive value outside PD or EPD mode and together with [`--priority-scheduler-enabled`](../../reference/priority-scheduler.md), and rejects either queue flag without a positive value.
+The decode window above enforces a limit the decode engine reports; the prefill side has a gateway-side counterpart. A positive `--prefill-max-inflight-requests-per-worker` caps how many prefill requests this gateway keeps in flight on each prefill worker, counting only its own dispatches, in PD mode on both transports and in EPD mode. The default (`-1`) leaves prefill load unbounded. Startup validation rejects a positive value outside PD or EPD mode, rejects the combination with [`--priority-scheduler-enabled`](../../reference/priority-scheduler.md), and rejects either queue flag without a positive value.
 
-A request that finds every eligible prefill worker at the limit waits in one FIFO queue per gateway process — the queue is not per worker, and a waiting request holds no worker. Only the queue head runs the prefill policy, over the workers with a free slot at that moment, so a queued request can be admitted to a different worker than its first look would have picked, and a newer request cannot slip past the queue even when a slot is free. An admitted request holds its slot for its whole prefill phase; releasing it — or cancelling the request — wakes the queue head, as do worker registrations, removals, and health changes. On the gRPC path, the sub-requests of an [`n>1` fan-out](#parallel-sampling-n1) share one slot.
+A request that finds every eligible prefill worker at the limit waits in one FIFO queue per gateway process — the queue is not per worker, and a waiting request holds no worker. Only the queue head runs the prefill policy, over the workers with a free slot at that moment, so a queued request can be admitted to a different worker than its first look would have picked, and a newer request cannot slip past the queue even when a slot is free.
+
+An admitted request holds its slot for its whole prefill phase; releasing it — or cancelling the request — wakes the queue head, as do worker registrations, removals, and health changes. On the gRPC path, the sub-requests of an [`n>1` fan-out](#parallel-sampling-n1) share one slot.
 
 The gate refuses with its own 429s, neither of which carries a `Retry-After` header:
 
@@ -461,7 +463,7 @@ The gate refuses with its own 429s, neither of which carries a `Retry-After` hea
 
 Both refusals are this gateway's own backpressure, so the [retry](../reliability/retries.md) layer never replays them: a replay would only line the request up behind the same limit again. A worker's own 429 or 503, arriving under any other error code, is retried as usual — the error code decides, not the status. A request with no healthy prefill worker to wait for is refused with the role's own error (for example 503 `no_available_workers`), not a queue code.
 
-On the gRPC path the wait also counts against `--queue-timeout-secs` (default `60`), the bound on how long a request may be held inside the gateway ahead of worker selection, counted from its admission — whichever bound ends first answers. A wait that exhausts that budget is refused with 503 `selection_queue_timeout` and a `Retry-After` header instead of the queue's own 429. See [Rate Limiting](../reliability/rate-limiting.md) for the gateway's admission queue. HTTP PD requests are bounded by the prefill queue's own timeout alone.
+On the gRPC path the wait also counts against `--queue-timeout-secs` (default `60`), the bound on how long a request may be held inside the gateway ahead of worker selection, counted from its admission into the gateway: a wait that outlives that bound is refused with 503 `selection_queue_timeout` and a `Retry-After` header instead of the queue's own 429. See [Rate Limiting](../reliability/rate-limiting.md) for the gateway's admission queue. HTTP PD requests are bounded by the prefill queue's own timeout alone.
 
 Monitor the gate with the `smg_pd_prefill_admission_*` series (see [Monitoring](#pd-metrics)); the flags are detailed in the [configuration reference](../../reference/configuration.md#prefill-admission).
 
@@ -553,7 +555,7 @@ SMG assigns each pod the role of the selector it matches. Prefill (and encode) p
 
 ### Prefill Workers
 
-Prefill is **compute-bound**. Its cost grows with prompt length, and every request's time to first token includes the prefill and the KV transfer. Add prefill capacity when time to first token (`smg_pd_ttft_seconds`) climbs while the decode workers have headroom.
+Prefill is **compute-bound**. Its cost grows with prompt length, and every request's time to first token includes the prefill and the KV transfer. Add prefill capacity when time to first token (`smg_pd_ttft_seconds`) climbs while the decode workers have headroom, or, with the [prefill admission queue](#prefill-admission-queue) on, when requests queue or are refused there (`smg_pd_prefill_admission_queued`, `smg_pd_prefill_admission_rejections_total`).
 
 ### Decode Workers
 

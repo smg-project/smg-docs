@@ -148,6 +148,19 @@ On chat completions, Messages, and realtime calls, the gateway logs a preview of
 
 ---
 
+## Provider Response Headers
+
+What a caller sees of the provider's response headers depends on how SMG relays the answer:
+
+- **Streamed Responses and Messages answers relayed straight from the provider** — a `/v1/responses` or `/v1/messages` stream with no SMG-run tools — forward the provider's response headers, rate-limit headers (`x-ratelimit-*`, `anthropic-ratelimit-*`) included. A header the provider sends more than once (`set-cookie`, `vary`, `link`, `www-authenticate`) keeps every value, in order. The streamed Responses answer also carries `x-smg-routed-worker-id` with the registered URL of the worker that served it; the streamed Messages answer carries the gateway's own `content-type`, `cache-control`, and `connection` values and drops the provider's `content-length`.
+- **A fixed list never crosses, even on the relayed streams**: the hop-by-hop headers (`connection`, `keep-alive`, `proxy-authenticate`, `proxy-authorization`, `te`, `trailers`, `transfer-encoding`, `upgrade`), `content-encoding`, `host`, SMG's own `X-SMG-Error-Code` marker — so that header always marks a gateway decision — and the provider's `server` header, so callers cannot see which provider software answered; SMG's own answers carry no `server` header.
+- **Chat completions and buffered JSON answers keep at most the provider's `content-type`.** A chat completions answer — streamed or not — and a non-streaming Messages answer relay the provider's body under the provider's `content-type` and no other provider header; non-streaming Responses and Gemini Interactions answers are rebuilt by the gateway.
+- **The SMG-run MCP tool-loop streams forward nothing of the provider's.** When SMG runs the tools itself — a `/v1/messages` stream with [`X-SMG-MCP: enabled` and an `mcp_toolset`](../reference/api/messages.md#mcp-tools), or a `/v1/responses` stream whose MCP tools SMG executes — the stream is assembled by the gateway across model turns, and its headers are the gateway's alone.
+- **`x-request-id` is always the gateway's.** Every answer carries the request ID SMG assigned (see [Request ID Propagation](logging.md#request-id-propagation)), replacing any provider value under that name. On `/v1/messages`, the `request-id` header — the one the Anthropic SDKs read — keeps the provider's value when a relayed stream carries it, and is otherwise SMG's ID as well.
+- **A provider refusal carries at most the provider's `content-type`** beside its status and scrubbed body (see [Provider Error Responses](#provider-error-responses)); a `retry-after` or rate-limit header on a provider's `429` does not reach the caller. A Messages refusal that itself arrives as an event stream is the exception: it is relayed like a successful stream, headers included.
+
+---
+
 ## Multiple Providers
 
 Register workers for multiple providers to route across them by model name:

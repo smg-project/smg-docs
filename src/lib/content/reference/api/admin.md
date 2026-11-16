@@ -1201,7 +1201,7 @@ A reload that cannot be applied changes nothing:
 
 | Status | When | Body |
 |--------|------|------|
-| `409` | No key was read from a file at this start — the keys in use came as flag or environment values — so there is nothing to reload | Plain text: `No key was read from a file at start; nothing to reload` |
+| `409` | No key was read from a file at this start — any keys in use came as flag or environment values — so there is nothing to reload | Plain text: `No key was read from a file at start; nothing to reload` |
 | `422` | A file cannot be used: unreadable, unparsable, or holding a key set the startup rules refuse, such as an empty file, an unknown role, or a key value used twice | `{"error": "<message>"}` naming the setting and the file path, never a key value. Every key in force stands, the other files' keys included: a reload applies wholly or not at all |
 
 After a reload, [`GET /config`](#effective-configuration) names the keys now in force by fingerprint and entry count. The reload changes the keys the gateway accepts from clients; the shared `--api-key` value it sends upstream as its workers' key keeps the start's value until a restart.

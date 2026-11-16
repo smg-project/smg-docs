@@ -309,9 +309,9 @@ Neither setting enables a modality the model does not support, and neither raise
 
 ### Per-Item Encoder Budget
 
-A multimodal engine sizes its encoder cache for the largest single item its own processor can produce and never schedules an item above that budget: a request carrying one would sit in the engine with no output until the client gives up. vLLM gRPC workers advertise the budget in the `mm_encoder_budget` label — the "budget of N tokens" of the engine's encoder-cache start-up line — counted in feature tokens, the per-item count preprocessing produces (step 5 under [Request Flow](#request-flow)).
+A multimodal engine sizes its encoder cache for the largest single item its own processor can produce and never schedules an item above that budget: a request carrying one would sit in the engine with no output until the client gives up. vLLM gRPC workers advertise the budget in the `mm_encoder_budget` label — the "budget of N tokens" of the engine's encoder-cache start-up line — counted in feature tokens, the per-item count that preprocessing produces (step 5 under [Request Flow](#request-flow)).
 
-When SMG preprocesses the media, it holds every item to the smallest budget the model's registered workers advertise, healthy or not, and refuses an item above it with 400 `multimodal_item_too_large`. The message names the item, its feature-token count — for a video, also the frames it was sampled to — and the budget, in the same units:
+When SMG preprocesses the media, it holds every item to the smallest budget the model's registered workers advertise, healthy or not, and refuses an item above it with 400 `multimodal_item_too_large`. The message names the item, its feature-token count — for a video, also the frames it was sampled to — and the budget in the same units:
 
 ```text
 video item 2 of 2 is 192001 feature tokens (900 sampled frames), above the

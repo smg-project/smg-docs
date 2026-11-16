@@ -301,10 +301,27 @@ Neither setting enables a modality the model does not support, and neither raise
 | MiniMax-M3 planned image pixels | 12,845,056 | Fixed; the output size planned from the source dimensions is checked before the image is decoded (see [Frame Sampling](#frame-sampling)) |
 | Decoded video frames | 1 GiB | `SMG_VIDEO_MAX_DECODED_BYTES` |
 | Inkling image patches per request | 32,768 | `in_patch_limit` in the preprocessor config (smg-project/smg#2102) |
+| Feature tokens per media item | The engine's encoder budget | Not an SMG setting; the smallest `mm_encoder_budget` a model's workers advertise (see [Per-Item Encoder Budget](#per-item-encoder-budget)) |
 | Media fetch | 10 seconds per image or audio URL, 30 per video URL | `--mm-fetch-timeout-ms`, `--mm-video-fetch-timeout-ms` (`SMG_MM_FETCH_TIMEOUT_MS`, `SMG_MM_VIDEO_FETCH_TIMEOUT_MS`) |
 
 !!! note "Where the gateway fetches media from"
     When SMG preprocesses media, it fetches the `http://` and `https://` URLs a request names under a host policy. A URL that names or resolves to a loopback, link-local, private or otherwise non-public address is refused before anything is connected, so a gateway fetching on a client's behalf cannot be made to reach what only it can reach; `--mm-allow-private-media-hosts` (`SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS`) admits such origins for a deployment whose media lives inside. `--mm-allowed-media-domains` restricts fetches to the named hosts, every redirect hop included; without it, any host the address policy passes is fetched, so for untrusted clients name the hosts or restrict the gateway's outbound network access. On the worker path, vLLM's `--allowed-media-domains` applies with the `inprocess` and `redis` processors; a worker running `--mm-processor smg` also fetches from any host, so restrict its outbound access the same way.
+
+### Per-Item Encoder Budget
+
+A multimodal engine sizes its encoder cache for the largest single item its own processor can produce and never schedules an item above that budget: a request carrying one would sit in the engine with no output until the client gives up. vLLM gRPC workers advertise the budget in the `mm_encoder_budget` label — the "budget of N tokens" of the engine's encoder-cache start-up line — counted in feature tokens, the per-item count preprocessing produces (step 5 under [Request Flow](#request-flow)).
+
+When SMG preprocesses the media, it holds every item to the smallest budget the model's registered workers advertise, healthy or not, and refuses an item above it with 400 `multimodal_item_too_large`. The message names the item, its feature-token count — for a video, also the frames it was sampled to — and the budget, in the same units:
+
+```text
+video item 2 of 2 is 192001 feature tokens (900 sampled frames), above the
+192000-token encoder budget the engine can place for one item; sample fewer
+frames (a lower fps) or send a shorter clip
+```
+
+An image is held to the budget twice: on the count its header's dimensions alone give, before any of the request's images is decoded or any tensor built, and again on the count its preprocessing produced. A video or audio item is checked on the produced count only. To bring an item under the budget, send a smaller image, sample fewer frames (a lower per-request `fps`, see [Frame Sampling](#frame-sampling)), or send a shorter clip; the budget itself is the engine's own, not an SMG setting.
+
+A model none of whose workers advertises a budget — a text-only engine, an engine whose budget cannot be derived, or an engine other than vLLM over gRPC — is not checked: an oversized item is left to the engine. On the worker path, a worker running `--mm-processor smg` holds forwarded items to its own engine's budget before they reach it and refuses them with a 400 naming the same numbers; with `inprocess` and `redis`, vLLM's own front end enforces its budget.
 
 ### In-Flight Media Budget
 
@@ -321,6 +338,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `multimodal_prompt_contract_mismatch` | The rendered prompt does not hold exactly one anchor per media item: a chat template that drops media, or a literal anchor token in user text |
 | 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, a clip too short for the model's video sampling (see [Frame Sampling](#frame-sampling)), or an invalid `fps` or `max_long_side_pixel` |
 | 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, a MiniMax-M3 image's planned size over the pixel budget, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
+| 400 | `multimodal_item_too_large` | One media item needs more feature tokens than the engine can place for a single item; the message names the item's count and the budget (see [Per-Item Encoder Budget](#per-item-encoder-budget)) |
 | 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes do not cover |
 | 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, or audio to a worker running the gateway's own `smg` pipeline) |
 | 400 | `multimodal_worker_processing_unsupported_model` | `--mm-processing worker`, and vLLM cannot expand the model's anchor |
@@ -427,7 +445,7 @@ See [PD Disaggregation](../routing/pd-disaggregation.md) for how the legs are pa
 | `smg_mm_shm_write_failures_total` | `runtime` | Shared-memory writes that failed and fell back to inline |
 | `smg_admission_queue_rejected_total` | `reason` | Includes `multimodal_inflight` (429) and `multimodal_too_large` (413) refusals |
 
-`GET /workers` shows the labels behind these decisions: `mm_processor`, `mm_processor_source`, `mm_media_ref_schemes`, `mm_item_limits`, `supports_vision`, and `shm_namespace_id`. See the [Metrics Reference](../../reference/metrics.md) for every metric.
+`GET /workers` shows the labels behind these decisions: `mm_processor`, `mm_processor_source`, `mm_media_ref_schemes`, `mm_item_limits`, `mm_encoder_budget`, `supports_vision`, and `shm_namespace_id`. See the [Metrics Reference](../../reference/metrics.md) for every metric.
 
 ---
 

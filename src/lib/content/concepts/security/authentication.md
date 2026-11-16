@@ -594,7 +594,7 @@ spec:
 
 The container image runs the Python launcher, which does not read `JWT_ISSUER`, `JWT_AUDIENCE`, or `CONTROL_PLANE_API_KEYS` itself, so the `args` pass them as flags; Kubernetes expands each `$(VAR)` reference from the container's environment. `--control-plane-audit-enabled` turns on audit logging, which the Python launcher leaves off by default.
 
-This passes the keys as a flag value, which is fixed until the pod restarts: a changed Secret takes effect only when new pods start. To rotate keys without a restart, mount the Secret as a file instead, point `--control-plane-api-keys-file` at it, and reload — see [Key Rotation](#key-rotation) below. The [Helm chart](../../getting-started/index.md#helm) mounts the control-plane keys as a file this way.
+This manifest passes the keys as a flag value, which is fixed until the pod restarts: a changed Secret takes effect only when new pods start. To rotate keys without a restart, mount the Secret as a file instead, point `--control-plane-api-keys-file` at it, and reload — see [Key Rotation](#key-rotation) below. The [Helm chart](../../getting-started/index.md#helm) mounts the control-plane keys as a file this way.
 
 ---
 

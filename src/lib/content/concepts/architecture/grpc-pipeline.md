@@ -114,7 +114,7 @@ Every request resolves one tool-call parser and one reasoning parser for its mod
 
 Under the default `--parser symphony`, the gateway reads Chat Completions, Messages API and Responses API responses with [Symphony tables](#symphony-parsing); the same names then pick the table per model, with Symphony's checkpoint registry between the per-model overrides and the flags, as that section describes. `--parser legacy` keeps these per-model parsers as the readers.
 
-The gateway checks the flag values when it starts, against the configured `--parser`. Under the default `--parser symphony`, an unknown name stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`, ending `neither a legacy parser nor a Symphony table` ([Table Names](#table-names) has the full rules). Under `--parser legacy`, a `--tool-call-parser` or `--reasoning-parser` value naming none of that flag's legacy parsers stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; when the rejected name is one `--parser symphony` reads with — a [table's own name](#table-names), `muse` or `hf` — the error says so, ending `which --parser symphony reads with`. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
+The gateway checks the flag values when it starts, against the configured `--parser`. Under the default `--parser symphony`, an unknown name stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`, ending `neither a legacy parser nor a Symphony table` ([Table Names](#table-names) has the full rules). Under `--parser legacy`, a `--tool-call-parser` or `--reasoning-parser` value naming none of that flag's legacy parsers stops startup with `unknown tool-call parser '<name>'` or `unknown reasoning parser '<name>'`; when the rejected name is one `--parser symphony` reads with — a [table's own name](#table-names), `muse`, `llama4_pythonic` or `hf` — the error says so, ending `which --parser symphony reads with`. The pip `smg launch` rejects a name outside the combined legacy and Symphony lists earlier, as an invalid choice. Names must match exactly (`deepseek_r1`, not `deepseek-r1`).
 
 ### Per-Model Overrides
 
@@ -391,9 +391,9 @@ The registry matches the repository name — the text after the last path separa
 
 ### Table Names
 
-The 31 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `muse_spark`, `plain`, `deepseek_v3.2` and `kimi_k2`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
+The 38 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `hy_v3`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `inkling2`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `longcat`, `muse_spark`, `plain`, `deepseek_v3`, `deepseek_v3.1`, `deepseek_v3.2`, `llama4`, `mistral` and `kimi_k2`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
 
-A table also answers to the names of the legacy parsers that read its format, so a model whose override already sets one of these names reads with the table under the default `--parser symphony`, with no change to the override. One name in the table below is no legacy parser's: `muse`, the name downstream launchers pass for Muse models.
+A table also answers to the names of the legacy parsers that read its format, so a model whose override already sets one of these names reads with the table under the default `--parser symphony`, with no change to the override. Two names in the table below are no legacy parser's: `muse`, the name downstream launchers pass for Muse models, and `llama4_pythonic`, an engine's exact name for the Llama 4 table — the generic `pythonic` keeps the legacy parsers, since other model families still carry that name.
 
 | Name | Reads with table |
 |------|------------------|
@@ -402,17 +402,23 @@ A table also answers to the names of the legacy parsers that read its format, so
 | `glm47_moe` | `glm` |
 | `glm45_moe` | `glm4` |
 | `hy_v4` | `hy4` |
+| `deepseek31`, `deepseek_v31` | `deepseek_v3.1` |
+| `deepseek` | `deepseek_v3` |
 | `deepseek32` | `deepseek_v3.2` |
 | `deepseek_v41` | `deepseek_v4.1` |
+| `llama4_pythonic` | `llama4` |
 | `minimax` | `minimax_m2` |
 | `muse` | `muse_spark` |
 | `kimik2`, `kimi_thinking`, `kimi_k25` | `kimi_k2` |
+| `llama` | `json` |
 
-Several legacy parser names — `json`, `qwen3`, `deepseek_v4`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2` and `minimax_m3` — are a table's own name and read with that table. A legacy name no table answers to, such as `llama`, `mistral` or `deepseek31`, keeps the legacy parsers for its model.
+`llama` reads with the `json` table because Llama 3.2's models write Llama 3.1's format: the call object bare or behind `<|python_tag|>`, parallel calls separated by `;`. One reading differs from the legacy `llama` parser's: that parser takes the tag anywhere in the text, while the table reads it at the output's start only, so an output with prose before the tag stays content whole.
 
-The gateway checks the names at startup and at worker registration, against the configured `--parser`. A legacy parser's name counts only for its own flag — `--reasoning-parser qwen_xml` fails under either `--parser` — while a table's own name, `muse` and `hf` pass in either flag under `symphony`. Under `symphony`, any other name fails with `unknown tool-call parser '<name>': neither a legacy parser nor a Symphony table`. Under `legacy`, when a flag's value is rejected and Symphony reads with it — a table's own name, `muse` or `hf` — the error ends `... which --parser symphony reads with`, as noted under [Parser Selection](#parser-selection).
+Several legacy parser names — `json`, `qwen3`, `deepseek_v4`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2`, `minimax_m3` and `mistral` — are a table's own name and read with that table. A legacy name no table answers to, such as `pythonic`, `step3`, `sarashina` or `cohere`, keeps the legacy parsers for its model.
 
-A name that selects a table but is none of its flag's legacy parsers — `qwen3` in `--tool-call-parser`, `muse` or `muse_spark` in either flag — binds the other name: it must name the same table (the table's own name, or `muse` for `muse_spark`) or be unset; a legacy name the table answers to is refused there, so `qwen3_tagged` pairs with `qwen3_tagged` or nothing, not with `qwen_xml`. `hf` binds the same way: the other name must be `hf` or unset.
+The gateway checks the names at startup and at worker registration, against the configured `--parser`. A legacy parser's name counts only for its own flag — `--reasoning-parser qwen_xml` fails under either `--parser` — while a table's own name, `muse`, `llama4_pythonic` and `hf` pass in either flag under `symphony`. Under `symphony`, any other name fails with `unknown tool-call parser '<name>': neither a legacy parser nor a Symphony table`. Under `legacy`, when a flag's value is rejected and Symphony reads with it — a table's own name, `muse`, `llama4_pythonic` or `hf` — the error ends `... which --parser symphony reads with`, as noted under [Parser Selection](#parser-selection).
+
+A name that selects a table but is none of its flag's legacy parsers — `qwen3` in `--tool-call-parser`, `muse` or `muse_spark` in either flag — binds the other name: it must name the same table (the table's own name, `muse` for `muse_spark`, or `llama4_pythonic` for `llama4`) or be unset; a legacy name the table answers to is refused there, so `qwen3_tagged` pairs with `qwen3_tagged` or nothing, not with `qwen_xml`. `hf` binds the same way: the other name must be `hf` or unset.
 
 ### The `hf` Name: the Response Template's Table
 

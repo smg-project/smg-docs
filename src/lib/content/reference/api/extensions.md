@@ -159,7 +159,7 @@ All three are control-plane routes, and `GET /config` is stricter: it is mounted
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/secrets/reload` | Read the key files the start read again and put the rotated keys in force, without a restart |
+| `POST` | `/secrets/reload` | Read the start's key files again and put the rotated keys in force, without a restart |
 
 Mounted only with control-plane auth configured (`404` otherwise). Answers `200` with the files read and whether each key set changed, `409` when no key came from a file at start, and `422` when a file cannot be used — every key in force then stands. See [Key Reload](admin.md#key-reload) for the report shape and [Key Rotation](../../concepts/security/authentication.md#key-rotation) for the rotation workflow and the `--secrets-auto-reload` flag.
 

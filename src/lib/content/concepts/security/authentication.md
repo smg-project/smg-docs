@@ -600,7 +600,7 @@ This passes the keys as a flag value, which is fixed until the pod restarts: a c
 
 ## Key Rotation
 
-API keys the gateway read from files — `--api-key-file`, `--tenant-api-keys-file`, and `--control-plane-api-keys-file`, or the environment variables naming those files — can be rotated without a restart: update the files (in Kubernetes, the Secret behind the mount), then run a reload. A key given as a flag or environment value is fixed for the life of the process; a reload keeps it and rebuilds the key set from that fixed part and the files' keys. The route and the flag below work the same under the Rust binary, the Python launcher (`pip install smg`), and the container image.
+API keys the gateway read from files at startup — `--api-key-file`, `--tenant-api-keys-file`, and `--control-plane-api-keys-file`, or the environment variables naming those files — can be rotated without a restart: update the files (in Kubernetes, the Secret behind the mount), then run a reload. A key given as a flag or environment value is fixed for the life of the process; a reload keeps it and rebuilds the key set from that fixed part and the files' keys. The route and the flag below work the same under the Rust binary, the Python launcher (`pip install smg`), and the container image.
 
 ### Reload on Demand
 
@@ -611,7 +611,7 @@ curl -X POST -H "Authorization: Bearer sk-admin-key-12345" \
   https://smg.example.com/secrets/reload
 ```
 
-The gateway reads every key file again by the startup rules and parsers, checks the key set that would be in force, and swaps each set once. A `200` reports the files read and whether the serving and the control-plane key sets changed. A `409` means no key came from a file at start, so there is nothing to reload. On a `422` a file could not be used — unreadable, unparsable, or breaking a startup rule such as an unknown role or a key value used twice — and every key in force stands: a reload applies wholly or not at all. The error names the setting and the file path, never a key. See the [route reference](../../reference/api/admin.md#key-reload) for the response shapes.
+The gateway reads every key file again by the same rules and parsers as at startup, checks the key set that would be in force, and swaps each set once. A `200` reports the files read and whether the serving and the control-plane key sets changed. A `409` means no key came from a file at start, so there is nothing to reload. On a `422` a file could not be used — unreadable, unparsable, or breaking a startup rule such as an unknown role or a key value used twice — and every key in force stands: a reload applies wholly or not at all. The error names the setting and the file path, never a key. See the [route reference](../../reference/api/admin.md#key-reload) for the response shapes.
 
 The route is mounted only when control-plane auth is configured (`404` without it) and, as a mutation, is kept to the `admin` role. A successful reload is recorded on the [audit log](#audit-logging)'s outcome line with `resource` `secrets`, and [`GET /config`](../../reference/api/admin.md#effective-configuration) then names the keys in force by their new fingerprints and entry counts.
 
@@ -629,7 +629,7 @@ smg launch \
 
 The watch covers each key file's directory, so it catches a file rewritten in place, swapped in by rename, or rotated by Kubernetes updating a mounted Secret (which swaps a symlink beside the files). A burst of writes settles into one reload rather than one per event, and the files are read once more as the watch starts, so a rotation in the gap between startup and the watch is not lost. A change that cannot be applied is logged as a warning and the keys in force stand, exactly as on a `422` from the route. A watched directory that is removed or moved away is logged once and watched again when it exists, with one reload then.
 
-A key directory that cannot be watched fails the start with an error naming `--secrets-auto-reload` and the directory; on Linux, the error also names the inotify limit to raise when one caused the failure (`fs.inotify.max_user_watches` for the watch limit; `fs.inotify.max_user_instances`, or the process's open-file limit, for `EMFILE`). Set with no key read from a file, the flag has nothing to watch: the gateway logs so and starts. The startup log's `CREDENTIAL SOURCES` record says which it is in its `secrets_auto_reload` field — `off`, or `on` with the settings whose files are watched.
+A key directory that cannot be watched fails the start with an error naming `--secrets-auto-reload` and the directory; on Linux, the error also names the inotify limit to raise when one caused the failure (`fs.inotify.max_user_watches` when the watch limit was hit; `fs.inotify.max_user_instances`, or the process's open-file limit, when the cause was "too many open files"). Set with no key read from a file, the flag has nothing to watch: the gateway logs a warning and starts. The startup log's `CREDENTIAL SOURCES` record says which it is in its `secrets_auto_reload` field — `off`, `on` with the settings whose files are watched, or `on (no file to watch)`.
 
 ### What a Reload Covers
 

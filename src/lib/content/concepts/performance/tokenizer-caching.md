@@ -291,6 +291,7 @@ Chat templates use Jinja2 syntax with access to:
 | `strftime_now` | Function writing the current date and time with a strftime format (see below) |
 | `dict` | Function building a map from a mapping or from key/value pairs, as Python's `dict` does (see below) |
 | `tojson` | Filter writing a value as JSON in Python's `json.dumps` spelling, with the Transformers keywords (see below) |
+| `random` | Filter drawing one random element of a sequence, afresh on every render (see below) |
 
 Keys in a request's `chat_template_kwargs` are passed to the template as extra variables.
 
@@ -303,6 +304,8 @@ To make a prompt that writes the date reproducible, set `SOURCE_DATE_EPOCH` in S
 `tojson` matches the filter HuggingFace Transformers registers for chat templates, replacing minijinja's built-in: `{{ tools | tojson }}` writes a value — typically a request's tool declarations — as Python's `json.dumps` would, compact by default. It takes the Transformers keywords, all optional: `ensure_ascii` (default `false`; `true` escapes non-ASCII characters as `\uXXXX`), `indent`, `separators` (an item/key separator pair of strings; defaults to Python's `(', ', ': ')` for compact output and `(',', ': ')` once any indent is given) and `sort_keys` (default `false`; `true` sorts map keys). An unknown keyword argument fails the render.
 
 `indent` reads as Python's `json.dumps` reads it: an integer indents that many spaces per nesting level; a bool counts as the integer it is in Python (`true` is one space); a string is the literal indent, such as `"\t"`; `none` is no indent at all, the same as leaving the keyword out. An empty indent — zero, a negative integer, or `""` — still breaks the lines while indenting nothing. An indent of any other kind, such as a float, fails the render.
+
+`random` matches Jinja2's built-in filter: `{{ value | random }}` draws one element at random — one item of a list, one character of a string (a whole character, even outside ASCII), or one number of a `range()`. Every draw is fresh on every render, as Jinja2's is, so the rendered prompt of a template that uses it — to write a nonce after each role, for example — is not reproducible from one request to the next.
 
 #### Template Examples
 

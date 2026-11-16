@@ -309,7 +309,7 @@ smg launch \
 !!! note "How the gateway finds the tokenizer"
     The gateway needs each model's tokenizer to apply chat templates, count tokens, and parse tool calls. When a worker registers, SMG loads the tokenizer from the `tokenizer_path` or `model_path` the worker reports (vLLM, SGLang, TokenSpeed and MLX report one), and falls back to `--tokenizer-path` or `--model-path`. If that path doesn't load on the gateway host, for example because it's a directory on the worker's machine, SMG fetches the tokenizer files from the worker over gRPC. TensorRT-LLM workers report no path, so pass `--model-path` or `--tokenizer-path` for them.
 
-    A tokenizer loaded this way is unloaded again when the model's last worker is removed, and the model's next worker registration loads it afresh; tokenizers loaded at startup or registered through the API stay. `--disable-tokenizer-autoload` turns all of this off; tokenizers then come only from the [tokenizer API](../reference/api/admin.md).
+    A tokenizer loaded this way is unloaded when the model's last worker is removed, and the model's next worker registration loads it afresh; tokenizers loaded at startup or registered through the tokenizer API stay. `--disable-tokenizer-autoload` turns all of this off; tokenizers then come only from the [tokenizer API](../reference/api/admin.md).
 
 !!! warning "The gateway-to-worker gRPC hop is plaintext"
     The gateway dials gRPC workers without TLS: a `grpcs://` URL fails to connect, and the Python launcher's client-certificate flags apply to HTTP workers only. To encrypt and authenticate this hop, run the gateway and the workers in a service mesh. See [Gateway to gRPC Workers](tls.md#gateway-to-grpc-workers).

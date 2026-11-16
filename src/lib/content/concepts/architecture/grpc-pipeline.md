@@ -393,7 +393,7 @@ The registry matches the repository name — the text after the last path separa
 
 The 38 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `hy_v3`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `inkling2`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `longcat`, `muse_spark`, `plain`, `deepseek_v3`, `deepseek_v3.1`, `deepseek_v3.2`, `llama4`, `mistral` and `kimi_k2`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
 
-A table also answers to the names of the legacy parsers that read its format, so a model whose override already sets one of these names reads with the table under the default `--parser symphony`, with no change to the override. Two names in the table below are no legacy parser's: `muse`, the name downstream launchers pass for Muse models, and `llama4_pythonic`, an engine's exact name for the Llama 4 table — the generic `pythonic` keeps the legacy parsers, since other model families still carry that name.
+A table also answers to the names of the legacy parsers that read its format, so a model whose override already sets one of these names reads with the table under the default `--parser symphony`, with no change to the override. Two names in the table below are no legacy parser's: `muse`, the name downstream launchers pass for Muse models, and `llama4_pythonic`, an engine's exact name for the Llama 4 table — the generic `pythonic` keeps the legacy parsers, since another model family still carries that name.
 
 | Name | Reads with table |
 |------|------------------|

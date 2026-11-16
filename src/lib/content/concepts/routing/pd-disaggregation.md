@@ -287,6 +287,9 @@ Gateway-side token counting on gRPC PD applies since v1.13.0: v1.12.0 and earlie
 | `--decode-policy` | `--policy` | Routing policy for the decode leg |
 | `--pd-pairing-mode` | `lenient` | `off`, `lenient`, or `strict`: how strictly the legs must share a KV transfer protocol. See [Pairing](#prefilldecode-pairing) |
 | `--pd-admission-wait-secs` | `30` | gRPC only: how long a dispatch waits for a free decode slot before it is shed |
+| `--prefill-max-inflight-requests-per-worker` | `-1` (off) | Cap on this gateway's in-flight prefill requests per prefill worker. A positive value turns on the [prefill admission queue](#prefill-admission-queue); incompatible with `--priority-scheduler-enabled` |
+| `--prefill-queue-size` | `100` with the gate on | Requests that may wait for prefill admission; `0` refuses at once instead of queueing. Requires the gate |
+| `--prefill-queue-timeout-secs` | `60` with the gate on | Longest a request waits for prefill admission before it is refused. Requires the gate |
 | `--dp-aware` | off | Register one worker per data-parallel rank. vLLM Mooncake needs it to mint engine ids for DP>1 prefill workers |
 | `--model-path`, `--tokenizer-path` | — | gRPC only: a tokenizer SMG loads at startup, also used for workers that report no tokenizer or model path |
 
@@ -445,6 +448,23 @@ The decode pick prefers a partner with a free room — a room in its window that
 
 The `smg_pd_admission_window` gauge publishes each decode worker's window as the gate reads it, `0` when the engine reports none and the gate is off for that worker. `smg_pd_admission_waits_total` counts dispatches admitted after a wait, and `smg_pd_admission_sheds_total` counts the sheds. See [Overload Protection](../reliability/overload-protection.md).
 
+### Prefill Admission Queue
+
+The decode window above enforces a limit the decode engine reports; the prefill side has a gateway-side counterpart. A positive `--prefill-max-inflight-requests-per-worker` caps how many prefill requests this gateway keeps in flight on each prefill worker, counting only its own dispatches, in PD mode on both transports and in EPD mode. The default (`-1`) leaves prefill load unbounded. Startup validation rejects a positive value outside PD or EPD mode and together with [`--priority-scheduler-enabled`](../../reference/priority-scheduler.md), and rejects either queue flag without a positive value.
+
+A request that finds every eligible prefill worker at the limit waits in one FIFO queue per gateway process — the queue is not per worker, and a waiting request holds no worker. Only the queue head runs the prefill policy, over the workers with a free slot at that moment, so a queued request can be admitted to a different worker than its first look would have picked, and a newer request cannot slip past the queue even when a slot is free. An admitted request holds its slot for its whole prefill phase; releasing it — or cancelling the request — wakes the queue head, as do worker registrations, removals, and health changes. On the gRPC path, the sub-requests of an [`n>1` fan-out](#parallel-sampling-n1) share one slot.
+
+The gate refuses with its own 429s, neither of which carries a `Retry-After` header:
+
+- **429 `pd_prefill_queue_full`** — the queue already holds `--prefill-queue-size` waiters (default `100`). `--prefill-queue-size 0` turns the queue off, and a request that cannot be admitted at once gets the same refusal.
+- **429 `pd_prefill_queue_timeout`** — the request waited `--prefill-queue-timeout-secs` (default `60`) without getting a slot. The timeout must be greater than `0` while the queue is on.
+
+Both refusals are this gateway's own backpressure, so the [retry](../reliability/retries.md) layer never replays them: a replay would only line the request up behind the same limit again. A worker's own 429 or 503, arriving under any other error code, is retried as usual — the error code decides, not the status. A request with no healthy prefill worker to wait for is refused with the role's own error (for example 503 `no_available_workers`), not a queue code.
+
+On the gRPC path the wait also counts against `--queue-timeout-secs` (default `60`), the bound on how long a request may be held inside the gateway ahead of worker selection, counted from its admission — whichever bound ends first answers. A wait that exhausts that budget is refused with 503 `selection_queue_timeout` and a `Retry-After` header instead of the queue's own 429. See [Rate Limiting](../reliability/rate-limiting.md) for the gateway's admission queue. HTTP PD requests are bounded by the prefill queue's own timeout alone.
+
+Monitor the gate with the `smg_pd_prefill_admission_*` series (see [Monitoring](#pd-metrics)); the flags are detailed in the [configuration reference](../../reference/configuration.md#prefill-admission).
+
 ### Context Length (gRPC)
 
 On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longer than the model's context window with 400 `context_length_exceeded` before dispatch. In PD mode the smaller window of the two legs applies. Workers that advertise no window are not checked, and the HTTP path leaves the check to the engine.
@@ -456,6 +476,9 @@ On the gRPC path, SMG counts the prompt tokens itself and rejects a prompt longe
 | 503 | `no_available_workers` | A leg has no available worker: all of its workers are unhealthy or circuit-open, or no worker is registered on it at all while the other leg has workers (the pair is incomplete). Sent with `Retry-After`. Same code as the regular HTTP and gRPC routers |
 | 503 | `no_compatible_pd_pair` | No prefill shares a KV transfer protocol with any decode |
 | 503 | `worker_overload_protection_shed` | The decode admission window stayed full, or [overload protection](../reliability/overload-protection.md) vetoed a leg. Sent with `Retry-After` |
+| 429 | `pd_prefill_queue_full` | The [prefill admission queue](#prefill-admission-queue) is full, or the gate is on with the queue off (`--prefill-queue-size 0`). No `Retry-After`; never retried by the gateway |
+| 429 | `pd_prefill_queue_timeout` | A queued request waited `--prefill-queue-timeout-secs` for prefill admission without getting a slot. No `Retry-After`; never retried by the gateway |
+| 503 | `selection_queue_timeout` | gRPC: the request was still ahead of worker selection — a prefill admission wait included — `--queue-timeout-secs` after its admission into the gateway (see [Rate Limiting](../reliability/rate-limiting.md)). Sent with `Retry-After` |
 | 400 | `context_length_exceeded` | gRPC: the prompt exceeds the smaller context window of the two legs |
 | 400 | `runtime_pd_not_supported` | gRPC: the selected runtime has no PD protocol |
 | Engine status | `prefill_worker_failed_to_start`, `decode_worker_failed_to_start` | gRPC: the engine refused that leg |
@@ -559,6 +582,10 @@ Long prompts with short outputs need relatively more prefill capacity. Short pro
 | `smg_pd_admission_waits_total` | Counter | — | gRPC dispatches admitted after waiting for a decode slot |
 | `smg_pd_admission_sheds_total` | Counter | — | gRPC dispatches shed at the decode admission window |
 | `smg_pd_admission_window` | Gauge | `worker` | Each decode worker's running window as the admission gate reads it, set when the worker registers; `0` when the engine reports none and the gate is off for that worker |
+| `smg_pd_prefill_admission_inflight` | Gauge | `worker` | Prefill requests this gateway has admitted to the worker under the [prefill admission queue](#prefill-admission-queue) and that still hold their slot |
+| `smg_pd_prefill_admission_queued` | Gauge | — | Requests waiting in the prefill admission queue |
+| `smg_pd_prefill_admission_wait_seconds` | Summary | — | Time a request waited in the prefill admission queue, recorded when it leaves the queue |
+| `smg_pd_prefill_admission_rejections_total` | Counter | `reason` | Prefill admission refusals: `queue_full` (429 `pd_prefill_queue_full`), `queue_timeout` (429 `pd_prefill_queue_timeout`), or `unavailable` (no prefill worker could take the request) |
 
 Related series:
 

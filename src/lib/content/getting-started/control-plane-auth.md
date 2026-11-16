@@ -29,6 +29,7 @@ These routes are guarded by control-plane auth middleware when configured:
 - Profiling: `/start_profile`, `/stop_profile`
 - Diagnostics of the gateway process: `/inflight`, `/heap_profile`
 - Effective configuration: `/config`, mounted only when control-plane auth is configured (`404` without it)
+- Key reload: `/secrets/reload` (`POST`), mounted only when control-plane auth is configured (`404` without it); puts rotated key files in force without a restart ([Key Rotation](../concepts/security/authentication.md#key-rotation))
 - Tenant rate-limit policy: `/rate-limits/tenants` (`GET` and `PUT`), mounted only when control-plane auth is configured (`404` without it)
 - Deprecated load alias: `/get_loads` (the public `/loads` route it aliases needs no credential)
 - RL control plane: `/v1/rl/*`, mounted only with `--enable-rl`
@@ -53,7 +54,7 @@ When no control-plane API keys and no JWT settings are configured, the routes ab
 | `--tenant-api-key` only | Every request gets `401` |
 | None | Open to anyone |
 
-`GET /config` and the `/rate-limits/tenants` routes (`GET` and `PUT`) do not fall back: a gateway without control-plane auth does not mount them, and the paths answer `404` whatever other keys are set.
+`GET /config`, `POST /secrets/reload`, and the `/rate-limits/tenants` routes (`GET` and `PUT`) do not fall back: a gateway without control-plane auth does not mount them, and the paths answer `404` whatever other keys are set.
 
 This fallback is for a gateway where control-plane auth is not configured at all. For what happens when configured JWT auth fails to initialize at startup, see [Option B: JWT / OIDC](#option-b-jwt-oidc).
 

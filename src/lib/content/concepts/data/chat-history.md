@@ -362,7 +362,7 @@ Complete response records including:
 
 Every stored response, conversation, and conversation item records the tenant identity the gateway resolved for the request that created it, when it resolved one. A response or conversation stored under a tenant is served only to callers of that tenant.
 
-That holds on every route that reads, continues, or deletes a stored record: a response's tenant gates getting it or its input items, deleting or cancelling it, and continuing it with `previous_response_id`; a conversation's tenant gates naming it as the `conversation` of a new response and every `/v1/conversations` operation. Another tenant's ID is answered exactly as an unknown ID — `404`, or `400` (`previous_response_not_found`) for a `previous_response_id` — so a response or conversation ID tells a caller nothing about another tenant's records.
+That holds on every route that reads, continues, or deletes a stored record: a response's tenant gates getting it or its input items, deleting or cancelling it, and continuing it with `previous_response_id`; a conversation's tenant gates naming it as the `conversation` of a new response and every `/v1/conversations` operation. Another tenant's ID is answered exactly as an unknown ID (`404`), so a response or conversation ID tells a caller nothing about another tenant's records.
 
 A conversation item's tenant guards it only where a request reaches the stored item directly by its ID, rather than through a conversation that holds it: an `item_reference` to another tenant's item answers `404` exactly as a missing item would, and adding an item under an `id` that another tenant's item already uses is refused with `400` (`Item id '...' cannot be used`) rather than serving or overwriting it.
 
@@ -385,7 +385,7 @@ A tenant ID can be at most 200 bytes: a longer `--tenant-api-key` tenant ID is r
 
 Records stored **without** a tenant stay readable, continuable, and deletable by every caller. That covers records created while the gateway resolved no tenant identity for the caller (known by IP address only, or anonymous), and records stored before SMG recorded tenants — an upgrade does not retroactively scope existing records.
 
-A history loaded through `previous_response_id` ends at the first record stored under another tenant, the same as it would at a missing record; when the referenced response itself belongs to another tenant, the request is rejected with `400` (`previous_response_not_found`). See the [Responses API](../../reference/api/responses.md#error-responses) for the per-route errors.
+A history loaded through `previous_response_id` ends at the first record stored under another tenant, the same as it would at a missing record; when the referenced response itself belongs to another tenant, the request is rejected with `404` (`previous_response_not_found`). See the [Responses API](../../reference/api/responses.md#error-responses) for the per-route errors.
 
 All backends persist the tenant with each record; on PostgreSQL and Oracle the `tenant` column is added by schema migration 4 (see [Schema Migrations](#schema-migrations)).
 

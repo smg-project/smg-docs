@@ -450,7 +450,9 @@ The `smg_pd_admission_window` gauge publishes each decode worker's window as the
 
 ### Prefill Admission Queue
 
-The decode window above enforces a limit the decode engine reports; the prefill side has a gateway-enforced counterpart, the prefill admission gate. A positive `--prefill-max-inflight-requests-per-worker` turns it on and caps how many prefill requests this gateway keeps in flight on each prefill worker, counting only its own dispatches, in PD mode on both transports and in EPD mode. The default (`-1`) leaves prefill load unbounded. Startup validation rejects a positive value outside PD or EPD mode, rejects the combination with [`--priority-scheduler-enabled`](../../reference/priority-scheduler.md), rejects either queue flag while the cap is off, and rejects a timeout of `0` while the queue is on.
+The decode window above enforces a limit the decode engine reports; the prefill side has a gateway-enforced counterpart, the prefill admission gate. A positive `--prefill-max-inflight-requests-per-worker` turns it on, in PD mode on both transports and in EPD mode, and caps how many prefill requests this gateway keeps in flight on each prefill worker; each gateway counts only its own dispatches. The default (`-1`) leaves prefill load unbounded.
+
+Startup validation rejects a positive cap outside PD or EPD mode, rejects it in combination with [`--priority-scheduler-enabled`](../../reference/priority-scheduler.md), rejects either queue flag while the cap is off, and rejects a timeout of `0` while the queue is on.
 
 A request that finds every eligible prefill worker at the limit waits in one FIFO queue per gateway process — the queue is not per worker, and a waiting request holds no worker. Only the queue head runs the prefill policy, over the workers with a free slot at that moment, so a queued request can be admitted to a different worker than its first look would have picked, and a newer request cannot slip past the queue even when a slot is free.
 
@@ -458,7 +460,7 @@ An admitted request holds its slot for its whole prefill phase; releasing it —
 
 The gate refuses with its own 429s, neither of which carries a `Retry-After` header:
 
-- **429 `pd_prefill_queue_full`** — the queue already holds `--prefill-queue-size` waiters (default `100`). `--prefill-queue-size 0` turns the queue off, and a request that cannot be admitted at once gets the same refusal.
+- **429 `pd_prefill_queue_full`** — the queue already holds `--prefill-queue-size` waiters (default `100`). With `--prefill-queue-size 0` nothing queues: a request that cannot be admitted at once gets this refusal.
 - **429 `pd_prefill_queue_timeout`** — the request waited `--prefill-queue-timeout-secs` (default `60`) without getting a slot.
 
 Both refusals are this gateway's own backpressure, so the [retry](../reliability/retries.md) layer never replays them: a replay would only line the request up behind the same limit again. A worker's own 429 or 503, arriving under any other error code, is retried as usual — the error code decides, not the status. A request with no healthy prefill worker to wait for is refused with the role's own error (for example 503 `no_available_workers`), not a queue code.

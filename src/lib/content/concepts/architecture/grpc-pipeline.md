@@ -393,7 +393,7 @@ The registry matches the repository name — the text after the last path separa
 
 The 38 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `hy_v3`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `inkling2`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `longcat`, `muse_spark`, `plain`, `deepseek_v3`, `deepseek_v3.1`, `deepseek_v3.2`, `llama4`, `mistral` and `kimi_k2`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
 
-A table also answers to the names of the legacy parsers that read its format, so a model whose override already sets one of these names reads with the table under the default `--parser symphony`, with no change to the override. Two names in the table below are no legacy parser's: `muse`, the name downstream launchers pass for Muse models, and `llama4_pythonic`, an engine's exact name for the Llama 4 table — the generic `pythonic` keeps the legacy parsers, since another model family still carries that name.
+A table also answers to the names of the legacy parsers that read its format, so a model whose override already sets one of these names reads with the table under the default `--parser symphony`, with no change to the override. Two names in the table below are no legacy parser's: `muse`, the name downstream launchers pass for Muse models, and `llama4_pythonic`, an engine's exact name for the Llama 4 table — the generic `pythonic` keeps the legacy parsers, since the DeepSeek R1 line still carries that name.
 
 | Name | Reads with table |
 |------|------------------|
@@ -412,7 +412,7 @@ A table also answers to the names of the legacy parsers that read its format, so
 | `kimik2`, `kimi_thinking`, `kimi_k25` | `kimi_k2` |
 | `llama` | `json` |
 
-`llama` reads with the `json` table because Llama 3.2's models write Llama 3.1's format: the call object bare or behind `<|python_tag|>`, parallel calls separated by `;`. One reading differs from the legacy `llama` parser's: that parser takes the tag anywhere in the text, while the table reads it at the output's start only, so an output with prose before the tag stays content whole.
+`llama` reads with the `json` table because Llama 3.2's models write Llama 3.1's format: the call object bare or behind `<|python_tag|>`, parallel calls as consecutive objects (`;` or a blank line between them). One reading differs from the legacy `llama` parser's: that parser takes the tag anywhere in the text, while the table reads it at the output's start only, so an output with prose before the tag stays content whole.
 
 Nine legacy parser names — `json`, `qwen3`, `deepseek_v4`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2`, `minimax_m3` and `mistral` — are a table's own name and read with that table. A legacy name no table answers to, such as `pythonic`, `step3`, `sarashina` or `cohere`, keeps the legacy parsers for its model.
 

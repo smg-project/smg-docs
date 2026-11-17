@@ -321,7 +321,7 @@ frames (a lower fps) or send a shorter clip
 
 An image is held to the budget twice: on the count its header's dimensions alone give, before any of the request's images is decoded or any tensor built, and again on the count its preprocessing produced. A video or audio item is checked on the produced count only. To bring an item under the budget, send a smaller image, sample fewer frames (a lower per-request `fps`, see [Frame Sampling](#frame-sampling)), or send a shorter clip; the budget itself is the engine's own, not an SMG setting.
 
-When none of a model's workers advertises a budget — a text-only engine, an engine whose budget cannot be derived, or an engine other than vLLM over gRPC — SMG does not check items, and an oversized one is left to the engine. On the worker path, a worker running `--mm-processor smg` holds forwarded items to its own engine's budget before they reach it and refuses them with a 400 naming the same numbers; with `inprocess` and `redis`, vLLM's own front end enforces its budget.
+When none of a model's workers advertises a budget — a text-only engine, an engine whose budget cannot be derived, or an engine other than vLLM over gRPC — SMG does not check items, and an oversized one is left to the engine. On the worker path, a worker running `--mm-processor smg` holds forwarded items to its own engine's budget before they reach the engine and refuses them with a 400 naming the same numbers; with `inprocess` and `redis`, vLLM's own front end enforces its budget.
 
 ### In-Flight Media Budget
 

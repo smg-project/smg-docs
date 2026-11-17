@@ -166,7 +166,17 @@ fn on_response(resp: Response) -> Action {
 |--------|--------|---------|
 | `Action::Continue` | Pass through unmodified | Logging, metrics |
 | `Action::Reject(401)` | Return error immediately | Auth failure |
-| `Action::Modify(changes)` | Apply transformations | Add headers, rewrite body |
+| `Action::Modify(changes)` | Apply transformations | Add headers, replace the body |
+
+### Body Replacement and Framing
+
+A request or response that the plugins process is buffered whole, and SMG reframes it before forwarding so the headers describe the body it actually carries:
+
+- **`Content-Length`** is set to the length of the body being forwarded, regardless of the length the client or upstream declared. The one exception is an empty body that no plugin replaced: it keeps the declaration it came with, so a HEAD response or a `304` still declares the length of the entity it represents, and a request that arrived without a body stays undeclared. A body that a plugin replaced with an empty one is framed with `Content-Length: 0`.
+- **`Transfer-Encoding`** is removed — chunked framing no longer applies to a body held in memory.
+- **`Content-Encoding`** stays with the body it describes. A `Modify` that replaces the body drops the encoding declared for the replaced body, so a stale `gzip` or `br` never describes a plain replacement. A plugin that returns an encoded replacement declares it by setting `Content-Encoding` in the same `Modify`; that declaration is kept. A `Modify` that leaves the body in place leaves its encoding alone.
+
+This framing applies whether or not any plugin modified the message, and also to the response returned when an **OnResponse** plugin rejects.
 
 ### Request Context
 

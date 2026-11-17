@@ -420,7 +420,7 @@ On a disaggregated TokenSpeed pair whose prefill side is a grouped ZMQ worker, t
 | No KV-event stream | `cache_aware` tracks ZMQ workers with its approximate prefix tree, and SMG logs `... the ZMQ transport has no KV-event stream ...` |
 | No embeddings | `501` with code `unsupported_backend`: `ZMQ backend does not support embeddings yet` |
 | No engine admin operations | `POST /flush_cache` skips ZMQ workers, and profiling fails with `start_profile is not supported over ZMQ`. LoRA loading, weight updates, and sleep/wake aren't available over ZMQ |
-| No tokenizer from the engine | The gateway loads it from `--model-path` or `--tokenizer-path` (or the worker's `model_path`/`tokenizer_path` labels) |
+| No tokenizer from the engine | The gateway loads it from `--model-path` or `--tokenizer-path` (or the worker's `model_path`/`tokenizer_path` labels). A tokenizer loaded by the worker's registration is unloaded when the model's last worker is removed; entries loaded at startup or added with `POST /v1/tokenizers` stay |
 | Rank pinning inside a grouped worker | Opt-in, sticky keys only: the default sends every request to the least-loaded engine, and `--grouped-dp-sticky hash` pins requests by their sticky key (see [Rank Selection](#rank-selection)) |
 | vLLM multimodal | Mixed image and video in one request: `400`, `the vLLM ZMQ backend takes one modality per request ...`. Worker-side media processing (media references) needs a gRPC vLLM worker: `400`, `multimodal_not_supported` |
 | TokenSpeed logprobs | `top_logprobs` above 1, or `token_ids_logprob`: `400`, `... not supported over the TokenSpeed ZMQ backend` |

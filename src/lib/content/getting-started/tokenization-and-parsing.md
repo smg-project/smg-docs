@@ -37,6 +37,8 @@ To get the same token IDs in Python without a running gateway — and to render 
 
 `model` is the name a tokenizer was loaded under: a worker's model ID, the `--model-path` or `--tokenizer-path` value the gateway started with, or the `name` given to `POST /v1/tokenizers`. A tokenizer ID also works, and a [model alias](../reference/configuration.md#model-aliases) resolves to the canonical model's tokenizer, as on the serving routes. An empty string or `"unknown"` picks the loaded tokenizer whose name sorts first. The endpoint doesn't add special tokens such as BOS.
 
+A tokenizer loaded by a worker's registration leaves the registry with the model's last worker: `GET /v1/tokenizers` stops listing it, and `/v1/tokenize` and `/v1/detokenize` answer 404 `model_not_found` for the name. The model's next gRPC or ZMQ worker registration loads it afresh, or `POST /v1/tokenizers` can add one under the name. Tokenizers from the startup flags or `POST /v1/tokenizers` stay loaded whether or not a worker serves their model.
+
 Single input:
 
 ```bash

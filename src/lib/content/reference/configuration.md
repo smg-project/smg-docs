@@ -851,6 +851,7 @@ Authentication for the admin routes: worker management, cache and tokenizer oper
 | `--jwt-role-claim` | - | `roles` | JWT claim that carries the role. |
 | `--jwt-role-mapping` | - | none | Maps an IDP role to a gateway role, as `idp_role=gateway_role` with gateway role `admin` or `user`. One mapping per flag. A malformed mapping — no `=`, or any other gateway role — fails startup. |
 | `--disable-audit-logging` | - | `false` | Disable audit logging of control plane operations (on by default when control plane auth is configured). |
+| `--secrets-auto-reload` | - | `false` | Watch the key files the start read (`--api-key-file`, `--tenant-api-keys-file`, `--control-plane-api-keys-file`) and put a changed file's keys in force without a restart, running the same reload as [`POST /secrets/reload`](api/admin.md#key-reload); see [Key Rotation](../concepts/security/authentication.md#key-rotation). A key directory that cannot be watched fails startup, naming the directory and, on Linux, the inotify limit to raise when one caused it. Set with no key read from a file, the flag has nothing to watch: the gateway logs a warning and starts. |
 
 `--help` also lists `--api-key` under this heading; it is the shared data plane key described in the next section.
 
@@ -875,6 +876,8 @@ Authentication for the admin routes: worker management, cache and tokenizer oper
 | `--api-key-file` | unset | File holding the shared API key alone, such as a mounted secret; surrounding whitespace is dropped. Env: `SMG_API_KEY_FILE`. |
 | `--tenant-api-keys-file` | unset | File holding the per-tenant keys, one `tenant_id:key` per line (blank lines and lines starting with `#` are skipped), such as a mounted secret. Env: `SMG_TENANT_API_KEYS_FILE`. |
 | `--tenant-api-key` | none | Per-tenant key as `tenant_id:key`, one per flag. Layers on top of `--api-key`; each key resolves to its own tenant identity (`auth:<tenant_id>`), which tenant rate limits and the priority scheduler use. Tenant keys never unlock the admin routes: with tenant keys but no `--api-key` and no control plane authentication, the admin routes return `401`. An entry without `:` fails startup, as do empty values and a key value used twice (including one equal to `--api-key`). |
+
+The key files are read at startup; editing one changes nothing by itself. [`POST /secrets/reload`](api/admin.md#key-reload) reads them again and puts the rotated keys in force, and `--secrets-auto-reload` (listed under [Control Plane Authentication](#control-plane-authentication)) watches them and reloads a change on its own; a key given as a flag or environment value keeps the start's value either way. A rotated shared key changes what the gateway accepts from clients — the value it sends upstream as its workers' key stays the start's until a restart. See [Key Rotation](../concepts/security/authentication.md#key-rotation).
 
 **Example**:
 ```bash

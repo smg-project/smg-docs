@@ -1164,7 +1164,49 @@ How `config` rewrites each secret-bearing field:
 | `oracle` | The store configuration without its `password` field |
 | `ca_certificates` | The number of configured CA certificates, not their bytes |
 
-The key fingerprints and entry counts name the keys currently in force: after a reload of the key files (`POST /secrets/reload`), the view names the reloaded keys, not the start's. TLS private keys and the MCP configuration are never serialized into the view, and a configuration field not classified as safe to show is left out rather than passed through.
+The key fingerprints and entry counts name the keys currently in force: after a reload of the key files ([`POST /secrets/reload`](#key-reload)), the view names the reloaded keys, not the start's. TLS private keys and the MCP configuration are never serialized into the view, and a configuration field not classified as safe to show is left out rather than passed through.
+
+---
+
+## Key Reload
+
+```text
+POST /secrets/reload
+```
+
+Reads the API key files this start read its keys from — the files behind `--api-key-file`, `--tenant-api-keys-file`, and `--control-plane-api-keys-file`, or the environment variables naming those files — by the same rules and parsers as at startup, and puts each rotated key set in force in one swap, without a restart. Requests already in flight finish under the keys they were admitted with; every request after the swap is checked against the new set.
+
+A key given as a flag or environment value is not re-read: a reload keeps it and rebuilds the key set from that fixed part and the files' keys. See [Key Rotation](../../concepts/security/authentication.md#key-rotation) for the rotation workflow and for `--secrets-auto-reload`, which watches the key files and runs this same reload when one changes.
+
+Like [`GET /config`](#effective-configuration), the route is mounted only when [control-plane auth](../../getting-started/control-plane-auth.md) is configured: without it the path answers `404` on every listener, with no `--api-key` fallback. As a mutation it is kept to the `admin` role — a `user` credential gets `403` — and with `--admin-port` set it answers on the admin listener like the other control-plane routes. The [audit log](../../getting-started/control-plane-auth.md#audit-logging)'s outcome line for a successful reload names `resource` `secrets`; no key value reaches the log.
+
+**Response:** `200 OK` with the files read — in the order `api-key-file`, `tenant-api-keys-file`, `control-plane-api-keys-file`, listing only the files this start read — and whether each key set changed:
+
+```json
+{
+  "files": [
+    { "setting": "api-key-file", "path": "/etc/smg/keys/api-key", "entries": 1 },
+    { "setting": "control-plane-api-keys-file", "path": "/etc/smg/keys/control-plane", "entries": 3 }
+  ],
+  "serving_changed": true,
+  "control_plane_changed": false
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `files` | One entry per key file read: the `setting` the file serves (the file flag's name), its `path`, and how many `entries` it holds (always 1 for the shared key's file) |
+| `serving_changed` | Whether the serving keys in force changed: a shared or tenant key added, removed, or moved to another tenant |
+| `control_plane_changed` | Whether the control-plane keys in force changed |
+
+A reload that cannot be applied changes nothing:
+
+| Status | When | Body |
+|--------|------|------|
+| `409` | No key was read from a file at this start — any keys in use came as flag or environment values — so there is nothing to reload | Plain text: `No key was read from a file at start; nothing to reload` |
+| `422` | A file cannot be used: unreadable, unparsable, or holding a key set the startup rules refuse, such as an empty file, an unknown role, or a key value used twice | `{"error": "<message>"}` naming the setting and the file path, never a key value. Every key in force stands, the other files' keys included: a reload applies wholly or not at all |
+
+After a reload, [`GET /config`](#effective-configuration) names the keys now in force by fingerprint and entry count. The reload changes the keys the gateway accepts from clients; the shared `--api-key` value it sends upstream as its workers' key keeps the start's value until a restart.
 
 ---
 
@@ -1304,6 +1346,7 @@ The admin endpoints do not share one error format. The body depends on the part 
 | [Worker endpoints](#worker-errors) | `400`, `404`, `409`, `500` | `{"error": "<message>", "code": "<CODE>"}` |
 | [Tokenizer endpoints](#tokenizer-management) | `404`, `409`, `503` | `{"error": "<message>", "code": "<CODE>"}` — `TOKENIZER_NOT_FOUND`, `TOKENIZER_ALREADY_EXISTS`, or `SERVICE_UNAVAILABLE` |
 | [Tenant rate-limit policy](#tenant-rate-limit-policy) | `400`, `409`, `412`, `413`, `428` | `{"error": "<message>", "code": "<CODE>"}` — see [its status table](#replace-the-policy-document) |
+| [Key reload](#key-reload) | `409`, `422` | `409` plain text (no key came from a file, nothing to reload); `422` `{"error": "<message>"}` naming the setting and path of the file it refused, never a key value |
 | `/parse/function_call`, `/parse/reasoning` | `400`, `503` | `{"error": "<message>", "success": false}` |
 | [Add WASM Module](#add-wasm-module), when a module failed | `400`, `503`, or `504` — the highest status among the modules' failures | The module list, with `"add_result": {"Error": "<message>"}` on each module that failed |
 | Every other refusal from the [WASM routes](#wasm-module-management), including any of them without `--enable-wasm` | `400`, `404`, `409`, `500`, `503`, `504` | `{"error": "<message>", "code": "<CODE>"}` |
@@ -1328,11 +1371,11 @@ Errors that the gateway generates itself, for example when no worker is availabl
 
 ## Authentication
 
-The tokenizer, worker, WASM, cache flush, [diagnostics](#diagnostics), [tenant rate-limit policy](#tenant-rate-limit-policy), and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
+The tokenizer, worker, WASM, cache flush, [diagnostics](#diagnostics), [key reload](#key-reload), [tenant rate-limit policy](#tenant-rate-limit-policy), and deprecated `/get_loads` endpoints on this page are control-plane routes. Send the credential as `Authorization: Bearer <token>`:
 
 1. **With [control-plane auth](../../getting-started/control-plane-auth.md) configured** (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`): a control-plane API key or JWT. A missing or invalid credential gets `401`. The `admin` role may use every method; the `user` role may use only `GET` and `HEAD`, and any other method answers it with `403`. The shared `--api-key` is not accepted.
 2. **Without it**: the shared `--api-key`. Per-tenant `--tenant-api-key` keys are rejected, so a gateway with tenant keys but no `--api-key` answers `401` to every call. With no keys configured at all, the routes are open.
 
-[`GET /config`](#effective-configuration) and the [tenant rate-limit policy routes](#tenant-rate-limit-policy) are the exception on both counts: `GET /config` and `GET /rate-limits/tenants` are reads kept to the `admin` role, so a `user` credential gets `403` even for `GET`, and without control-plane auth none of these routes (`PUT /rate-limits/tenants` included) is mounted at all — the paths answer `404` rather than falling back to the shared `--api-key`.
+[`GET /config`](#effective-configuration), [`POST /secrets/reload`](#key-reload), and the [tenant rate-limit policy routes](#tenant-rate-limit-policy) are the exception: without control-plane auth none of them is mounted at all — the paths answer `404` rather than falling back to the shared `--api-key`. Among them, the reads `GET /config` and `GET /rate-limits/tenants` are also kept to the `admin` role, so a `user` credential gets `403` even for `GET`.
 
 Public endpoints need no authentication: the health probes, `/loads`, `/engine_metrics`, and the [Model Information](#model-information) routes. See [Auth Model](extensions.md#auth-model) for every route's tier.

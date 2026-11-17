@@ -18,7 +18,7 @@ SMG endpoint auth is route-group based:
 | Protected routes | `Authorization: Bearer <key>` with the shared `--api-key` or a per-tenant `--tenant-api-key` key; open when neither is set (`/v1/tokenize`, `/generate`, `/v1/chat/completions`, and the other inference routes) |
 | Control-plane routes | With [control-plane auth](../../getting-started/control-plane-auth.md) configured (`--control-plane-api-keys`, or `--jwt-issuer` with `--jwt-audience`), a control-plane API key or JWT: the admin role for every method, the user role for `GET` and `HEAD` only, except the admin-only reads `GET /config` and `GET /rate-limits/tenants`. Otherwise only the shared `--api-key` is accepted: per-tenant keys are rejected, a gateway with tenant keys but no `--api-key` answers every control-plane request with `401`, and a gateway with no keys at all leaves these routes open |
 
-With control-plane auth configured, a missing or invalid credential gets `401` and a valid credential whose role does not allow the method gets `403`. The shared `--api-key` is not accepted on control-plane routes in that mode. `GET /config`, the [effective-configuration view](admin.md#effective-configuration), and the [tenant rate-limit policy routes](admin.md#tenant-rate-limit-policy) (`GET` and `PUT /rate-limits/tenants`) exist only in that mode: a gateway without control-plane auth does not mount them, so the paths answer `404` instead of falling back to the shared key.
+With control-plane auth configured, a missing or invalid credential gets `401` and a valid credential whose role does not allow the method gets `403`. The shared `--api-key` is not accepted on control-plane routes in that mode. The [effective-configuration view](admin.md#effective-configuration) (`GET /config`), the [key reload](admin.md#key-reload) (`POST /secrets/reload`), and the [tenant rate-limit policy routes](admin.md#tenant-rate-limit-policy) (`GET` and `PUT /rate-limits/tenants`) exist only in that mode: a gateway without control-plane auth does not mount them, so the paths answer `404` instead of falling back to the shared key.
 
 If JWT validation fails to initialize at startup (for example, when OIDC discovery fails), the control-plane rules stay in force: keys from `--control-plane-api-keys` keep working, and JWTs and every other token get `401` until the gateway is restarted with a working JWT setup.
 
@@ -154,6 +154,14 @@ A vLLM gRPC worker starts and stops the engine's own torch profiler on every ran
 | `GET` | `/config` | The effective configuration with every secret redacted: the build identity, the secret sources, and the configuration with its keys named by fingerprint |
 
 All three are control-plane routes, and `GET /config` is stricter: it is mounted only with control-plane auth configured (`404` otherwise) and read by the admin role alone. See [Diagnostics](admin.md#diagnostics) for the response shapes, the preconditions a heap profile needs, and the configuration view's redaction rules.
+
+### Key Reload
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/secrets/reload` | Read the start's key files again and put the rotated keys in force, without a restart |
+
+Mounted only with control-plane auth configured (`404` otherwise). Answers `200` with the files read and whether each key set changed, `409` when no key came from a file at start, and `422` when a file cannot be used — every key in force then stands. See [Key Reload](admin.md#key-reload) for the report shape and [Key Rotation](../../concepts/security/authentication.md#key-rotation) for the rotation workflow and the `--secrets-auto-reload` flag.
 
 ### Tenant Rate-Limit Policy
 

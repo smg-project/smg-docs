@@ -485,7 +485,7 @@ The outcome line does not depend on the client staying connected. A client that 
 | `role` | Role of the principal (`admin`, `user`) |
 | `method` | HTTP method (GET, POST, DELETE, etc.) |
 | `path` | Request path |
-| `resource` | What the handler acted on: a worker ID, a tokenizer ID, WASM module UUIDs (comma-joined for a batch), `secrets` for a key-file reload (`POST /secrets/reload`), or `rate-limits/tenants` for an applied tenant rate-limit policy write (a `PUT /rate-limits/tenants` dry run names none). Only on a `control_plane_mutation` line whose handler named one; left out everywhere else |
+| `resource` | What the handler acted on: a worker ID, a tokenizer ID, WASM module UUIDs (comma-joined for a batch), `secrets` for a [key-file reload](#key-rotation) (`POST /secrets/reload`), or `rate-limits/tenants` for an applied tenant rate-limit policy write (a `PUT /rate-limits/tenants` dry run names none). Only on a `control_plane_mutation` line whose handler named one; left out everywhere else |
 | `outcome` | On the admission line, `success` (admitted) or `denied` — decided before the handler runs; on the outcome line, `success` (a 2xx status) or `failed` (any other status) |
 | `status` | The HTTP status the request was answered with: the handler's answer, or the `500` recorded for a handler that failed without one. Only on the `control_plane_mutation` line; the admission line carries none |
 | `request_id` | Correlation ID for request tracing; a mutation's admission and outcome lines share it |
@@ -594,6 +594,57 @@ spec:
 
 The container image runs the Python launcher, which does not read `JWT_ISSUER`, `JWT_AUDIENCE`, or `CONTROL_PLANE_API_KEYS` itself, so the `args` pass them as flags; Kubernetes expands each `$(VAR)` reference from the container's environment. `--control-plane-audit-enabled` turns on audit logging, which the Python launcher leaves off by default.
 
+This manifest passes the keys as a flag value, which is fixed until the pod restarts: a changed Secret takes effect only when new pods start. To rotate keys without a restart, mount the Secret as a file instead, point `--control-plane-api-keys-file` at it, and reload — see [Key Rotation](#key-rotation) below. The [Helm chart](../../getting-started/index.md#helm) mounts the control-plane keys as a file this way.
+
+---
+
+## Key Rotation
+
+API keys the gateway read from files at startup — `--api-key-file`, `--tenant-api-keys-file`, and `--control-plane-api-keys-file`, or the environment variables naming those files — can be rotated without a restart: update the files (in Kubernetes, the Secret behind the mount), then run a reload. A key given as a flag or environment value is fixed for the life of the process; a reload keeps it and rebuilds the key set from that fixed part and the files' keys. The route and the flag below work the same under the Rust binary, the Python launcher (`pip install smg`), and the container image.
+
+### Reload on Demand
+
+An `admin` credential puts rotated key files in force with one call:
+
+```bash
+curl -X POST -H "Authorization: Bearer sk-admin-key-12345" \
+  https://smg.example.com/secrets/reload
+```
+
+The gateway reads every key file again by the same rules and parsers as at startup, checks the key set that would be in force, and swaps each set once. A `200` reports the files read and whether the serving and the control-plane key sets changed.
+
+A `409` means no key came from a file at start, so there is nothing to reload. On a `422` a file could not be used — unreadable, unparsable, or breaking a startup rule such as an unknown role or a key value used twice — and every key in force stands: a reload applies wholly or not at all. The error names the setting and the file path, never a key. See the [route reference](../../reference/api/admin.md#key-reload) for the response shapes.
+
+The route is mounted only when control-plane auth is configured (`404` without it) and, as a mutation, is kept to the `admin` role. A successful reload is recorded on the [audit log](#audit-logging)'s outcome line with `resource` `secrets`, and [`GET /config`](../../reference/api/admin.md#effective-configuration) then names the keys in force by their new fingerprints and entry counts.
+
+### Automatic Reload
+
+`--secrets-auto-reload` makes the gateway watch its key files and run the same reload itself when one changes:
+
+```bash
+smg launch \
+  --worker-urls http://worker:8000 \
+  --api-key-file /etc/smg/keys/api-key \
+  --control-plane-api-keys-file /etc/smg/keys/control-plane \
+  --secrets-auto-reload
+```
+
+The watch covers each key file's directory, so it catches a file rewritten in place, swapped in by rename, or rotated by Kubernetes updating a mounted Secret (which swaps a symlink beside the files). A burst of writes settles into one reload rather than one per event, and the files are read once more as the watch starts, so a rotation in the gap between startup and the watch is not lost.
+
+A change that cannot be applied is logged as a warning and the keys in force stand, exactly as on a `422` from the route. A watched directory that is removed or moved away is logged once and watched again when it exists, with one reload then.
+
+A key directory that cannot be watched fails the start with an error naming `--secrets-auto-reload` and the directory; on Linux, the error also names the inotify limit to raise when one caused the failure (`fs.inotify.max_user_watches` when the watch limit was hit; `fs.inotify.max_user_instances`, or the process's open-file limit, when the cause was "too many open files"). Set with no key read from a file, the flag has nothing to watch: the gateway logs a warning and starts. The startup log's `CREDENTIAL SOURCES` record says which it is in its `secrets_auto_reload` field — `off`, `on` with the settings whose files are watched, or `on (no file to watch)`.
+
+### What a Reload Covers
+
+Requests already in flight finish under the keys they were admitted with; every request after the swap is checked against the new set. A reload never turns authentication on or off — an empty key file is refused, so a plane keyed at start stays keyed — and it covers only the API keys the gateway accepts:
+
+- The shared key the gateway **sends upstream** is not rotated: startup and discovered workers keep the start's `--api-key` value as their worker key until a restart. A reload changes only what the gateway accepts from clients, so rotate a secret the gateway shares with its workers by restarting the gateway.
+- TLS certificates and private keys are read once at startup and never reload ([Configure TLS](../../getting-started/tls.md)).
+- The store connection URLs (`--postgres-db-url-file`, `--redis-url-file`) are read once at startup.
+
+When no control-plane auth is configured, the admin routes fall back to the shared `--api-key`, and that fallback follows the shared key's file through a reload too. The reload route itself is not mounted in that posture, so rotate with `--secrets-auto-reload` there.
+
 ---
 
 ## Troubleshooting
@@ -656,7 +707,9 @@ Always enable TLS for the gateway in production.
 
 ### :material-key-change: Rotate Keys
 
-Regularly rotate API keys and use short-lived JWT tokens.
+Regularly rotate API keys and use short-lived JWT tokens. Keys read from files rotate without a restart.
+
+[Key Rotation →](#key-rotation)
 
 </div>
 

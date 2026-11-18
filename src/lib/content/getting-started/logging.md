@@ -151,6 +151,14 @@ A client that disconnects first — an SDK timeout, a user who navigated away, a
 
 A refusal the gateway answers on its own — for example a 503 `no_available_workers` or a 404 `model_not_found` — is logged by the routing layer as one WARN line with the request ID, the model, and the state of its worker pools, rate-limited while the condition lasts. The response line for such a refusal drops to DEBUG, so a client retrying against a model whose workers are all down does not fill the log with extra error lines per attempt.
 
+### Worker Address Masking
+
+A worker's registered address may carry a credential — a password in the URL's `user:password@` part or a token in its query string. The startup banner's worker node lines, the [routing decision lines](#routing-decision-logs), the worker registration, replacement, and health lines, and the access record's optional `worker` field all name a worker by its masked address.
+
+Anything in the `user:password@` position is masked whole, a bare username included, because a token is often sent as the username: `http://user:secret@host:8000` and `http://token@host:8000` are both written `http://***@host:8000`. A query or fragment is cut, and an address with none of these parts is written unmasked.
+
+When the reachability probe at registration cannot reach a worker, or an HTTP router's dispatch or relay of a request to a worker fails, the failure text names the worker by the same masked address and carries the transport's reason without the request URL, so these error texts carry no registered credential.
+
 ### Symphony Outcome Fields
 
 When a [Symphony table](../concepts/architecture/grpc-pipeline.md#symphony-parsing) reads a response's output and the reading is not clean, the `http_request` span records the reading as `symphony.*` fields. A reading of a gRPC response that panics in the gateway is recorded the same way, as a `panicked` reading, whichever parser was reading — the tool and reasoning parsers included, not only a Symphony table:
@@ -185,7 +193,7 @@ Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, wh
 
 ## Routing Decision Logs
 
-At DEBUG, the routing policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker. The lines are off at the default `info` level. Turn them on for the policy targets only:
+At DEBUG, the routing policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker. The `worker` field is the worker's [masked address](#worker-address-masking). The lines are off at the default `info` level. Turn them on for the policy targets only:
 
 ```bash
 RUST_LOG=warn,smg=info,smg::policies=debug smg launch --worker-urls http://worker:8000 --policy cache_aware

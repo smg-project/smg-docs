@@ -1488,9 +1488,10 @@ violated rule's own code such as `invalid_conversation_id`. `param` names the of
 field when one is known. See [Error Responses](openai.md#error-responses) for the full
 vocabulary.
 
-A repeated key inside an `input` item — among the item's own keys or at any depth below
-them, in typed objects and free-form maps (such as a `local_shell_call`'s `env`) alike —
-is refused rather than resolved to the last value: `400` with code `json_parse_error`.
+A repeated key inside an `input` item is refused rather than resolved to the last
+value: `400` with code `json_parse_error`. The rule holds among the item's own keys and
+at any depth below them, in typed objects and free-form maps (such as a
+`local_shell_call`'s `env`) alike.
 `param` is the path of the object carrying the repeat (`input[0]` when one of the
 item's own keys repeats, `input[0].content[0]` when a content part's does), and the
 message names the duplicate key after that path, ending with the line and column of the

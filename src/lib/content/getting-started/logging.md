@@ -151,9 +151,11 @@ A client that disconnects first — an SDK timeout, a user who navigated away, a
 
 A refusal the gateway answers on its own — for example a 503 `no_available_workers` or a 404 `model_not_found` — is logged by the routing layer as one WARN line with the request ID, the model, and the state of its worker pools, rate-limited while the condition lasts. The response line for such a refusal drops to DEBUG, so a client retrying against a model whose workers are all down does not fill the log with extra error lines per attempt.
 
-A worker's registered address may carry a credential — a password in the URL's `user:password@` part or a token in its query string. The log lines that name a worker write a masked address instead of the registered URL: the startup banner's worker node lines, the [routing decision lines](#routing-decision-logs), the worker registration, replacement, and health lines, and the access record's optional `worker` field. Any `user:password@` part is masked whole (`http://user:secret@host:8000` is written `http://***@host:8000` — the username too, because a token is often sent as the username), a query or fragment is cut, and an address with neither is written unmasked.
+### Worker Address Masking
 
-When the gateway's call to a worker fails — a reachability probe, a dispatch, or a relayed request — the failure text names the worker the same way and carries the transport's reason without the request URL, so these error texts carry no registered credential.
+A worker's registered address may carry a credential — a password in the URL's `user:password@` part or a token in its query string. The log lines that name a worker write a masked address instead of the registered URL: the startup banner's worker node lines, the [routing decision lines](#routing-decision-logs), the worker registration, replacement, and health lines, and the access record's optional `worker` field. Any `user:password@` part is masked whole (`http://user:secret@host:8000` is written `http://***@host:8000` — the username too, because a token is often sent as the username), a query or fragment is cut, and an address with none of these is written unmasked.
+
+When the reachability probe at registration cannot reach a worker, or the HTTP routers' dispatch or relay of a request to a worker fails, the failure text names the worker the same way and carries the transport's reason without the request URL, so these error texts carry no registered credential.
 
 ### Symphony Outcome Fields
 
@@ -189,7 +191,7 @@ Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, wh
 
 ## Routing Decision Logs
 
-At DEBUG, the routing policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker. The `worker` field is the worker's [masked address](#request-and-response-logs). The lines are off at the default `info` level. Turn them on for the policy targets only:
+At DEBUG, the routing policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker. The `worker` field is the worker's [masked address](#worker-address-masking). The lines are off at the default `info` level. Turn them on for the policy targets only:
 
 ```bash
 RUST_LOG=warn,smg=info,smg::policies=debug smg launch --worker-urls http://worker:8000 --policy cache_aware

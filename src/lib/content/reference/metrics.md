@@ -1062,7 +1062,9 @@ Error types: `timeout` (status `504`) and `backend_error` (other server errors, 
 
 ### KV Event Metrics
 
-The per-worker subscriptions to gRPC workers' KV cache events, which feed the chain index that event-driven cache-aware routing reads, and the batches they carry. See [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md). `worker` is the worker URL. When a worker's subscription starts, its gap, missed-batch, resync, failure, parent-less, sub-block and degraded-rank series are published at zero, so a series that is absent means the worker has no subscription, not that nothing happened. The index the subscriptions fill reports its own size, shape and memory under [KV Index Metrics](#kv-index-metrics).
+The per-worker subscriptions to gRPC workers' KV cache events, which feed the chain index that event-driven cache-aware routing reads, and the batches they carry. See [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md). `worker` is the worker URL. When a worker's subscription starts, its gap, missed-batch, resync, failure, parent-less, sub-block and degraded-rank series are published at zero, so a series that is absent means the worker has no subscription, not that nothing happened.
+
+The index the subscriptions fill reports its own size, shape and memory under [KV Index Metrics](#kv-index-metrics).
 
 #### `smg_kv_event_subscriptions_total`
 
@@ -1179,7 +1181,7 @@ histogram_quantile(0.99, sum by (worker, le) (rate(smg_kv_event_lag_seconds_buck
 
 #### `smg_kv_event_apply_seconds`
 
-Time to apply one KV event batch to the index, by worker. The buckets run from half a microsecond to a quarter of a second (edges in [Histogram Buckets](#histogram-buckets)).
+Time to apply one live KV event batch to the index, by worker: the batches `smg_kv_event_batches_total` counts as `applied`. A relay snapshot chunk's apply is not timed. The buckets run from half a microsecond to a quarter of a second (edges in [Histogram Buckets](#histogram-buckets)).
 
 | Type | Labels |
 |------|--------|
@@ -1316,7 +1318,7 @@ Bytes the word arena holds from the process allocator: whole 8 MiB chunks, each 
 
 #### `smg_kv_index_slab_bytes`
 
-Bytes the chain index's run slab — run headers with their coverage words — holds from the process allocator.
+Bytes the chain index's run slab — run headers with their coverage words — holds from the process allocator: whole chunks, used or not.
 
 | Type | Labels |
 |------|--------|

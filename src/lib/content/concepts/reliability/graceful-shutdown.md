@@ -348,7 +348,7 @@ INFO Cleanup complete. Process exiting.
 | Slow scaling down | Decrease `--shutdown-grace-period-secs` |
 | Kubernetes force-killing pods | Increase `terminationGracePeriodSeconds` |
 | Streaming responses truncated | Match grace period to max stream duration |
-| Connections refused right after the signal | Add a `preStop` sleep so load balancers stop routing first, and add the sleep to `terminationGracePeriodSeconds` |
+| Connections refused right after the signal | Raise `--shutdown-settle-secs` (capped at half the grace period), or add a `preStop` sleep so load balancers stop routing first, and add the sleep to `terminationGracePeriodSeconds` |
 
 ---
 

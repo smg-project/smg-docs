@@ -980,7 +980,7 @@ A repeated key in the body of [Create Conversation](#create-conversation),
 at any depth below them — is refused the same way a repeated key in a Responses `input`
 item is: `400` with code `json_parse_error`, the message naming the duplicate key (see
 [Error Format](#error-format)). `param` is the path of the object carrying the repeat
-(`items[0]`, `items[0].content[0]`); it is null when one of the body's own keys repeats.
+(`items[0]`, `items[0].content[0]`); it is `null` when one of the body's own keys repeats.
 The keys inside the body's top-level `metadata` object are not held to this rule: a key
 repeated there keeps its last value.
 

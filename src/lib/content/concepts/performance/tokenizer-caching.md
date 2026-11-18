@@ -591,8 +591,9 @@ Use these signals when tuning `--tokenizer-cache-l0-max-entries`,
   saves little tokenization work.
 - Each L0 entry is charged its text bytes plus 4 bytes per token, so long
   prompts can reach the byte budget well before the entry cap. If L0 evictions
-  persist after raising `max-entries`, raise `--tokenizer-cache-l0-max-memory`
-  too, and watch `smg_allocator_allocated_bytes` as you do.
+  persist after raising `--tokenizer-cache-l0-max-entries`, raise
+  `--tokenizer-cache-l0-max-memory` too, and watch
+  `smg_allocator_allocated_bytes` as you do.
 
 ---
 

@@ -43,7 +43,7 @@ These endpoints are registered without any auth middleware:
 
 `/get_model_info` and `/get_server_info` are fleet-wide reads: the gateway forwards the GET to a healthy HTTP worker — a regular HTTP worker, or a disaggregated HTTP deployment's prefill worker — and returns that worker's answer. Whenever the fleet has such a worker, every call answers from one, even when gRPC or ZMQ workers serve the same gateway, and an HTTP deployment whose workers are all unhealthy is passed over for one that can answer. See [Get Model Info](admin.md#get-model-info) and [Get Server Info](admin.md#get-server-info) for the forwarded request and the response fields.
 
-Only a fleet with no healthy HTTP worker answers an error: a gRPC or ZMQ deployment answers `501`, an HTTP deployment whose workers are all unhealthy answers `503`, and a fleet with both kinds answers one or the other, varying from call to call.
+A fleet with no healthy HTTP worker answers an error instead: a gRPC or ZMQ deployment answers `501`, an HTTP deployment whose workers are all unhealthy answers `503`, and a fleet with both kinds answers one or the other, varying from call to call.
 
 ---
 

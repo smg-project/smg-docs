@@ -397,6 +397,10 @@ smg launch \
 
 A prefill worker can hand its KV cache only to a decode worker that speaks the same KV transfer protocol. SMG gives each prefill and decode worker a pairing descriptor and pairs a prefill only with decode workers whose descriptor is compatible. Compatibility is worked out when workers join or leave, not on every request.
 
+On gRPC, two workers whose detected runtimes differ never pair, in any pairing mode. One gateway still serves pairs on several runtimes: every available prefill worker with an available decode partner of its own detected runtime is a candidate and hands off to a decode worker of that runtime. In a fleet that mixes SGLang and TokenSpeed pairs, for example, requests reach the pairs of both runtimes.
+
+On gRPC, a pair that includes a worker whose runtime was not detected is used only while no prefill can pair on its own detected runtime. This order applies when the [per-phase policies](#per-phase-policies) place the pair; when [every worker a request could use is overloaded](../reliability/overload-protection.md#when-every-worker-is-overloaded), the least-loaded fallback chooses among the compatible pairs by load alone.
+
 ### What Is Compared
 
 | Component | Source |
@@ -414,7 +418,7 @@ gRPC workers report these facts at registration. SGLang reports its transfer bac
 
 | `--pd-pairing-mode` | A prefill and a decode do not pair when |
 |---------------------|------------------------------------------|
-| `off` | Never. Every prefill may pair with every decode, although gRPC still keeps both legs on one runtime |
+| `off` | Never. Every prefill may pair with every decode, although two legs whose detected runtimes differ still never pair on gRPC |
 | `lenient` (default) | Both legs report a runtime, transport, or KV layout fact and the values differ. Unknown components and engine versions are ignored |
 | `strict` | As `lenient`, and also when the runtime or transport is unknown on either leg, a KV layout fact is reported by only one leg, only one leg has an explicit protocol, or the legs report different engine versions |
 

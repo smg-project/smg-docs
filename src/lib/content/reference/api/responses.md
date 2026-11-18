@@ -974,6 +974,16 @@ for an item the conversation already holds (`param` is `items`) and
 under [Get Conversation Item](#get-conversation-item), `invalid_value` for a bad
 `include` value (`param` names the offending entry, such as `include[0]`).
 
+A repeated key in the body of [Create Conversation](#create-conversation),
+[Update Conversation](#update-conversation), or
+[Create Conversation Items](#create-conversation-items) — among the body's own keys or
+at any depth below them — is refused the same way a repeated key in a Responses `input`
+item is: `400` with code `json_parse_error`, the message naming the duplicate key (see
+[Error Format](#error-format)). `param` is the path of the object carrying the repeat
+(`items[0]`, `items[0].content[0]`); it is `null` when one of the body's own keys repeats.
+The keys inside the body's top-level `metadata` object are not held to this rule: a key
+repeated there keeps its last value.
+
 A conversation is scoped to the tenant that created it: on every route below, and as
 the `conversation` of a new response, another tenant's conversation ID answers `404`,
 the same as an unknown ID (see
@@ -1478,11 +1488,35 @@ violated rule's own code such as `invalid_conversation_id`. `param` names the of
 field when one is known. See [Error Responses](openai.md#error-responses) for the full
 vocabulary.
 
+A repeated key inside an `input` item is refused rather than resolved to the last
+value: `400` with code `json_parse_error`. The rule holds among the item's own keys and
+at any depth below them, in typed objects and free-form maps (such as a
+`local_shell_call`'s `env`) alike.
+`param` is the path of the object carrying the repeat (`input[0]` when one of the
+item's own keys repeats, `input[0].content[0]` when a content part's does), and the
+message names the duplicate key after that path, ending with the line and column of the
+repeat in the body:
+
+```json
+{
+  "error": {
+    "type": "invalid_request_error",
+    "code": "json_parse_error",
+    "message": "Invalid JSON data: Failed to deserialize the JSON body into the target type: input[0].content[0]: duplicate field `text` at line 1 column 86",
+    "param": "input[0].content[0]"
+  }
+}
+```
+
+The keys inside the request's top-level `metadata` object are not held to this rule: a
+key repeated there keeps its last value. The same refusal covers the conversation
+endpoints' request bodies; see [Conversation Management](#conversation-management).
+
 ### Common Errors
 
 | HTTP Status | `code` | Description |
 |-------------|--------|-------------|
-| 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), or the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...) |
+| 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...), or `json_parse_error` when the body fails to parse for a reason outside those codes, such as a key repeated inside an `input` item or a conversation body |
 | 400 | `unsupported_content_part` | gRPC: an unsupported message content part (`input_file`, or `input_image` without `image_url`), or a `function_call_output` part other than `input_text` or `output_text`; see [Input Formats](#input-formats) |
 | 400 | `convert_request_failed` | gRPC: an input item kind the chat pipeline does not carry, such as a `computer_call` |
 | 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a `function_call_output` part other than `input_text` or `output_text`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |

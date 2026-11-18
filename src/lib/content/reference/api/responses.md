@@ -1516,7 +1516,7 @@ endpoints' request bodies; see [Conversation Management](#conversation-managemen
 
 | HTTP Status | `code` | Description |
 |-------------|--------|-------------|
-| 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...), or `json_parse_error` for a key repeated inside an `input` item or a conversation body |
+| 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...), or `json_parse_error` when the body fails to parse for a reason outside those codes, such as a key repeated inside an `input` item or a conversation body |
 | 400 | `unsupported_content_part` | gRPC: an unsupported message content part (`input_file`, or `input_image` without `image_url`), or a `function_call_output` part other than `input_text` or `output_text`; see [Input Formats](#input-formats) |
 | 400 | `convert_request_failed` | gRPC: an input item kind the chat pipeline does not carry, such as a `computer_call` |
 | 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a `function_call_output` part other than `input_text` or `output_text`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |

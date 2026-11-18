@@ -1062,7 +1062,7 @@ Error types: `timeout` (status `504`) and `backend_error` (other server errors, 
 
 ### KV Event Metrics
 
-The per-worker subscriptions to gRPC workers' KV cache events, which feed the chain index that event-driven cache-aware routing reads, and the batches they carry. See [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md). `worker` is the worker URL. When a worker's subscription starts, its gap, missed-batch, resync, failure, parent-less, sub-block and degraded-rank series are published at zero, so a series that is absent means the worker has no subscription, not that nothing happened.
+The per-worker subscriptions to gRPC workers' KV cache events, which feed the chain index that event-driven cache-aware routing reads, and the batches they carry. See [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md). `worker` is the worker URL. When a worker's subscription starts, its gap, missed-batch, resync, failure, parent-less, sub-block, cap-refused and degraded-rank series are published at zero, so a series that is absent means the worker has no subscription, not that nothing happened.
 
 The index the subscriptions fill reports its own size, shape and memory under [KV Index Metrics](#kv-index-metrics).
 
@@ -1234,6 +1234,22 @@ Blocks the sub-block stores carried, by worker.
 |------|--------|
 | Counter | `worker` |
 
+#### `smg_kv_event_cap_refused_stores_total`
+
+Stores the chain index declined at an arena cap — a run's child table or hash array would outgrow a chunk (the index's fan-out and run-length caps) — by worker. [`smg_kv_index_cap_refusals`](#smg_kv_index_cap_refusals) counts the same refusals over the model's whole index.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker` |
+
+#### `smg_kv_event_cap_refused_blocks_total`
+
+Blocks the declined stores left out of the index, by worker: a declined store's blocks from the first refused one on, not the leading blocks it placed.
+
+| Type | Labels |
+|------|--------|
+| Counter | `worker` |
+
 #### `smg_kv_block_size_tokens`
 
 Tokens per KV block of a model as the gateway knows it: seeded from a worker's registration, replaced by the size of the first block its KV event stream stores, `0` once the model's last subscription ended and no size is known.
@@ -1310,7 +1326,7 @@ Bytes of the word arena sitting in free lists, waiting for reuse.
 
 #### `smg_kv_index_arena_chunk_bytes`
 
-Bytes the word arena holds from the process allocator: whole 8 MiB chunks, each kept once taken, so this is at least `smg_kv_index_arena_bytes` and does not fall while the model's index lives. This plus `smg_kv_index_slab_bytes` is the index's memory footprint.
+Bytes the word arena holds from the process allocator: whole 8 MiB chunks, each kept once taken, so this is at least `smg_kv_index_arena_bytes` and does not fall while the model's index lives. This plus `smg_kv_index_slab_bytes` is the memory the chain index holds from the process allocator.
 
 | Type | Labels |
 |------|--------|
@@ -1342,7 +1358,7 @@ Stored blocks whose engine hash differed from the one the index holds for the sa
 
 #### `smg_kv_index_cap_refusals`
 
-Stores the chain index declined because a run's child table or hash array would outgrow an arena chunk (the index's fan-out and run-length caps), cumulative. The engine keeps the blocks; the index does not route by them.
+Stores the chain index declined because a run's child table or hash array would outgrow an arena chunk (the index's fan-out and run-length caps), cumulative. The engine keeps the blocks; the index does not route by them. The per-worker counters are [`smg_kv_event_cap_refused_stores_total`](#smg_kv_event_cap_refused_stores_total) and [`smg_kv_event_cap_refused_blocks_total`](#smg_kv_event_cap_refused_blocks_total).
 
 | Type | Labels |
 |------|--------|
@@ -1363,7 +1379,7 @@ histogram_quantile(0.99, sum by (le) (rate(smg_kv_index_lookup_seconds_bucket[5m
 # Mean replication of a cached block, by model
 smg_kv_index_memberships / smg_kv_index_entries
 
-# Chain index memory footprint, by model
+# Memory the chain index holds from the allocator, by model
 smg_kv_index_arena_chunk_bytes + smg_kv_index_slab_bytes
 ```
 

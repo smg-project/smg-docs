@@ -155,7 +155,7 @@ A refusal the gateway answers on its own — for example a 503 `no_available_wor
 
 A worker's registered address may carry a credential — a password in the URL's `user:password@` part or a token in its query string. The startup banner's worker node lines, the [routing decision lines](#routing-decision-logs), the worker registration, replacement, and health lines, and the access record's optional `worker` field all name a worker by its masked address.
 
-Anything in the `user:password@` position is masked whole, a bare username included, because a token is often sent as the username: `http://user:secret@host:8000` and `http://token@host:8000` are both written `http://***@host:8000`. A query or fragment is cut, and an address with no userinfo, query, or fragment is written unmasked.
+Anything in the `user:password@` position is masked whole, a bare username included, because a token is often sent as the username: `http://user:secret@host:8000` and `http://token@host:8000` are both written `http://***@host:8000`. A query or fragment is cut, and an address with none of these parts is written unmasked.
 
 When the reachability probe at registration cannot reach a worker, or an HTTP router's dispatch or relay of a request to a worker fails, the failure text names the worker by the same masked address and carries the transport's reason without the request URL, so these error texts carry no registered credential.
 

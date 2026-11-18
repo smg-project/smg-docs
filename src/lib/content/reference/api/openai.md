@@ -490,6 +490,7 @@ curl http://localhost:30000/v1/completions \
     {
       "text": " jumps over the lazy dog.",
       "index": 0,
+      "logprobs": null,
       "finish_reason": "stop"
     }
   ],
@@ -500,6 +501,11 @@ curl http://localhost:30000/v1/completions \
   }
 }
 ```
+
+On gRPC and ZMQ workers SMG builds the response itself, and every choice — in a
+buffered response and in each chunk of a stream — carries a `logprobs` key, `null`
+unless log probabilities were requested, as the public API sends it. HTTP workers'
+responses, buffered and streamed, are relayed as the engine wrote them.
 
 ---
 

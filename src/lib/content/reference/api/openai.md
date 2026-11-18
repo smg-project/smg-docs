@@ -503,8 +503,10 @@ curl http://localhost:30000/v1/completions \
 ```
 
 On gRPC and ZMQ workers SMG builds the response itself, and every choice — in a
-buffered response and in each chunk of a stream — carries a `logprobs` key, `null`
-unless log probabilities were requested, as the public API sends it. HTTP workers'
+buffered response and in each chunk of a stream — carries a `logprobs` key, as the
+public API sends it. Its value is `null` whenever there are no log probabilities to
+report: on every choice when none were requested, and in a stream also on a chunk
+that has none to carry, such as the one bearing the `finish_reason`. HTTP workers'
 responses, buffered and streamed, are relayed as the engine wrote them.
 
 ---

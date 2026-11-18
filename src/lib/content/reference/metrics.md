@@ -1326,7 +1326,7 @@ Bytes of the word arena sitting in free lists, waiting for reuse.
 
 #### `smg_kv_index_arena_chunk_bytes`
 
-Bytes the word arena holds from the process allocator: whole 8 MiB chunks, each kept once taken, so this is at least `smg_kv_index_arena_bytes` and does not fall while the model's index lives. This plus `smg_kv_index_slab_bytes` is the memory the chain index holds from the process allocator.
+Bytes the word arena holds from the process allocator: `smg_kv_index_arena_bytes` rounded up to whole 8 MiB chunks, each kept once taken, so the value moves in steps of one chunk and does not fall while the model's index lives. A new index holds no chunk until its first store. This plus `smg_kv_index_slab_bytes` is the memory the chain index holds from the process allocator.
 
 | Type | Labels |
 |------|--------|

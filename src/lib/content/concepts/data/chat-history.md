@@ -471,7 +471,7 @@ A failure the store itself answered — a refused statement, a record that canno
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| Startup fails with `is unreachable at start-up` or `did not answer within the start-up bound` | History store down, not answering within the start-up bound (`--postgres-op-timeout-secs` / `--redis-op-timeout-secs`, or `--oracle-pool-timeout-secs` for Oracle), or wrong connection URL | Check that the store is running and verify the connection URL |
+| Startup fails with `is unreachable at start-up` or `did not answer within the start-up bound` | History store down, not answering within the start-up bound (`--postgres-op-timeout-secs` / `--redis-op-timeout-secs`, or `--oracle-pool-timeout-secs` for Oracle), or wrong connection URL or DSN | Check that the store is running and verify the connection URL (the DSN or TNS alias for Oracle) |
 | Startup fails with `ahead of the latest migration this build knows` | Gateway rolled back after a newer build migrated the database | Upgrade the gateway, or set `version:` in the schema config (see [Schema Migrations](#schema-migrations)) |
 | Requests answered `503` with code `storage_unavailable` | History store down, or store calls running past the per-call bound | Restore the store; for a healthy but slow store, raise `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (see [Store Failures While Serving](#store-failures-while-serving)) |
 | Pool exhaustion | High concurrency | Increase pool size |

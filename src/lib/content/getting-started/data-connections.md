@@ -169,7 +169,9 @@ curl http://localhost:30000/health
 
 A missing or invalid required setting (for example the DB URL or Oracle credentials) fails startup with a config validation error.
 
-Every remote backend is contacted at startup, and SMG refuses to start when its store cannot be reached. For PostgreSQL and Redis, a store that is unreachable, or that accepts connections but does not answer, stops startup with an error naming the backend and the store URL (password masked). PostgreSQL and Oracle also create tables and check migrations at startup, so pending migrations stop startup too (see [Schema migrations](#schema-migrations)).
+Every remote backend is contacted at startup, and SMG refuses to start when its store cannot be reached. A store that is unreachable, or that accepts connections but does not answer, stops startup with an error naming the backend and the store (the connection URL with its password masked for PostgreSQL and Redis, the DSN or TNS alias for Oracle). The wait for a store that does not answer is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (default 5 seconds) for PostgreSQL and Redis, and by `--oracle-pool-timeout-secs` (default 30 seconds) for Oracle.
+
+PostgreSQL and Oracle also create tables and check migrations at startup, so pending migrations stop startup too (see [Schema migrations](#schema-migrations)).
 
 Once SMG is serving, each call to a PostgreSQL or Redis store is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (default 5 seconds, covering the pool wait, the connect, and the statement or command). If the store goes down, or a call runs past its bound, the endpoints that store or read history answer `503` with code `storage_unavailable` instead of hanging (a stream already under way ends with a `response.failed` event carrying the same code); the request can be retried once the store answers again. See [Store Failures While Serving](../concepts/data/chat-history.md#store-failures-while-serving).
 

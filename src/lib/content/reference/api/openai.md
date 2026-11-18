@@ -507,7 +507,7 @@ buffered response and in each chunk of a stream — carries a `logprobs` key, as
 public API sends it. Its value is `null` whenever there are no log probabilities to
 report: on every choice when none were requested, and in a stream also on a chunk
 that has none to carry, such as the one bearing the `finish_reason`. HTTP workers'
-responses, buffered and streamed, are relayed as the engine wrote them.
+response bodies, buffered and streamed, are relayed as the engine wrote them.
 
 ---
 

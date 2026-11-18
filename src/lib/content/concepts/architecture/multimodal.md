@@ -65,7 +65,7 @@ Media URLs can be `http://`, `https://`, or base64 `data:` URLs.
 
 On the gRPC path, a media request goes through these steps:
 
-1. **Plan and validate.** SMG collects the media parts in prompt order and picks the model's processor from the model name and its `config.json` `model_type`. A modality the model does not take, or more items than the per-request limit, is rejected before anything is fetched; so is a model with no processor, unless a worker that processes media itself can take its media (see below).
+1. **Plan and validate.** SMG collects the media parts in prompt order and picks the model's processor from the model name and its `config.json` `model_type`. A modality the model does not take, or more items than the per-request limit, is rejected before anything is fetched; so is a request whose model has no processor, unless its media can go to a worker that processes media itself (see below).
 2. **Render and check anchors.** The chat template renders one placeholder anchor per item (for example `<|image_pad|>` for Qwen3-VL). After tokenizing, SMG checks that the prompt holds exactly one anchor per item.
 3. **Choose where to process.** `--mm-processing` decides between the router and a vLLM worker (see [Where Media Is Processed](#where-media-is-processed)).
 4. **Fetch and decode.** Items are fetched concurrently. Images are decoded and videos are sampled into frames.

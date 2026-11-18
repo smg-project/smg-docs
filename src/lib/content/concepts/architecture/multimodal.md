@@ -65,13 +65,17 @@ Media URLs can be `http://`, `https://`, or base64 `data:` URLs.
 
 On the gRPC path, a media request goes through these steps:
 
-1. **Plan and validate.** SMG collects the media parts in prompt order and picks the model's processor from the model name and its `config.json` `model_type`. A model with no processor, a modality the model does not take, or more items than the per-request limit is rejected before anything is fetched.
+1. **Plan and validate.** SMG collects the media parts in prompt order and picks the model's processor from the model name and its `config.json` `model_type`. A modality the model does not take, or more items than the per-request limit, is rejected before anything is fetched; so is a request whose model has no processor, unless its media can go to a worker that processes media itself (see below).
 2. **Render and check anchors.** The chat template renders one placeholder anchor per item (for example `<|image_pad|>` for Qwen3-VL). After tokenizing, SMG checks that the prompt holds exactly one anchor per item.
 3. **Choose where to process.** `--mm-processing` decides between the router and a vLLM worker (see [Where Media Is Processed](#where-media-is-processed)).
 4. **Fetch and decode.** Items are fetched concurrently. Images are decoded and videos are sampled into frames.
 5. **Preprocess and expand.** The model's processor turns each item into encoder tensors and a feature-token count. SMG replaces each anchor with the model's full placeholder run, including any per-frame markers and timestamps.
 6. **Select a worker.** The request is refused if the selected engine does not accept one of its modalities.
 7. **Assemble and send.** The tensors are serialized for that engine and sent inline, through shared memory, or over RDMA. With `--multimodal-max-inflight-bytes` set, the request first reserves room for its media.
+
+A model SMG has no processor for can still serve media when the media go to a worker that processes them itself (see [Where Media Is Processed](#where-media-is-processed)). The decision is made before any render or fetch, by the chat template the request renders through: a template that takes message content as a list of parts writes the engine's own placeholders into the prompt, so the request goes on to the worker, and SMG checks no anchors of its own — the worker's engine checks its placeholders against the media it fetches. A template that takes one string per message leaves the anchors to SMG, which knows none for this model, so the request is refused with 400 `multimodal_not_supported`, with a message naming the request's modalities and the model.
+
+A checkpoint can ship one template for requests that declare tools and another for the rest; the decision follows the template this request renders through (see [Chat Templates and Native Renderers](grpc-pipeline.md#chat-templates-and-native-renderers)). The rule is the same on Chat Completions, the Messages API (`/v1/messages/count_tokens` included) and the Responses API.
 
 The processor configuration (`config.json`, `preprocessor_config.json`, and, when present, `processor_config.json` and `video_preprocessor_config.json`) comes from the tokenizer bundle the gRPC worker serves, or from the tokenizer source (a local directory or a Hugging Face download).
 
@@ -334,13 +338,13 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | Status | Code | Cause |
 |--------|------|-------|
 | 400 | `unsupported_content_part` | A content part type the gRPC path does not know |
-| 400 | `invalid_multimodal_request` | The model has no multimodal processor, does not take the modality, or the request has too many items; the refusal names the limit and what set it (for example `the request carries 11 image items, above this model's limit of 10 (--mm-per-request-image-limit)`) |
+| 400 | `invalid_multimodal_request` | The model does not take the modality, the request has too many items, or the model has no multimodal processor under `--mm-processing router` (the other modes may send its media to a worker that processes media itself — see [Request Flow](#request-flow)); an over-limit refusal names the limit and what set it (for example `the request carries 11 image items, above this model's limit of 10 (--mm-per-request-image-limit)`) |
 | 400 | `multimodal_prompt_contract_mismatch` | The rendered prompt does not hold exactly one anchor per media item: a chat template that drops media, or a literal anchor token in user text |
 | 400 | `media_fetch_failed` | The request's own media failed: a URL that cannot be parsed or resolved, a host that refuses the connection, an origin 4xx, a malformed `data:` URL, a payload that is not the media it claims to be, a clip too short for the model's video sampling (see [Frame Sampling](#frame-sampling)), or an invalid `fps` or `max_long_side_pixel` |
 | 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, a MiniMax-M3 image's planned size over the pixel budget, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
 | 400 | `multimodal_item_too_large` | One media item needs more feature tokens than the engine can place for a single item; the message names the item's feature-token count and the budget (see [Per-Item Encoder Budget](#per-item-encoder-budget)) |
 | 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes do not cover |
-| 400 | `multimodal_not_supported` | The selected engine does not take the modality, or media references cannot reach the worker (ZMQ, EPD encode workers, or audio to a worker running the gateway's own `smg` pipeline) |
+| 400 | `multimodal_not_supported` | The selected engine does not take the modality; media references cannot reach the worker (ZMQ, EPD encode workers, or audio to a worker running the gateway's own `smg` pipeline); or the model has no processor and the chat template the request renders through takes one string per message, so nothing would anchor the media in the prompt — refused before any render or fetch (see [Request Flow](#request-flow)) |
 | 400 | `multimodal_worker_processing_unsupported_model` | `--mm-processing worker`, and vLLM cannot expand the model's anchor |
 | 400 | `multimodal_hint_unsupported_in_worker_mode` | `--mm-processing worker`, and a part carries an `fps` or `max_long_side_pixel` hint that SMG cannot apply itself (it has no processor for the model's family, or the request also carries audio); a hinted request SMG can serve is preprocessed on the router instead |
 | 400 | `media_ref_too_large` | Worker path: an inline `data:` payload is above the byte cap |

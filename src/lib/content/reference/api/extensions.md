@@ -41,9 +41,9 @@ These endpoints are registered without any auth middleware:
 | `GET` | `/get_model_info` | Model metadata, forwarded to a healthy HTTP worker whenever the fleet has one; a fleet with none answers `501` or `503` (see below) |
 | `GET` | `/get_server_info` | Server metadata, forwarded the same way as `/get_model_info` |
 
-`/get_model_info` and `/get_server_info` are fleet-wide reads, answered by a router that forwards the GET to a healthy HTTP worker — a regular HTTP worker, or a disaggregated HTTP deployment's prefill worker. Whenever the fleet has such a worker, every call answers from one, even when gRPC or ZMQ workers serve the same gateway; an HTTP deployment whose workers are all unhealthy is passed over for a deployment that can answer. See [Get Model Info](admin.md#get-model-info) and [Get Server Info](admin.md#get-server-info) for the forwarded request and the response fields.
+`/get_model_info` and `/get_server_info` are fleet-wide reads: the gateway forwards the GET to a healthy HTTP worker — a regular HTTP worker, or a disaggregated HTTP deployment's prefill worker — and returns that worker's answer. Whenever the fleet has such a worker, every call answers from one, even when gRPC or ZMQ workers serve the same gateway, and an HTTP deployment whose workers are all unhealthy is passed over for one that can answer. See [Get Model Info](admin.md#get-model-info) and [Get Server Info](admin.md#get-server-info) for the forwarded request and the response fields.
 
-Only a fleet with no healthy HTTP worker falls back to normal request routing: a gRPC or ZMQ deployment answers `501`, an HTTP deployment whose workers are all unhealthy answers `503`, and a fleet with both kinds draws one of those answers per call.
+Only a fleet with no healthy HTTP worker answers an error: a gRPC or ZMQ deployment answers `501`, an HTTP deployment whose workers are all unhealthy answers `503`, and a fleet with both kinds answers one or the other, varying from call to call.
 
 ---
 

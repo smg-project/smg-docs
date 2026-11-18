@@ -1062,7 +1062,7 @@ Error types: `timeout` (status `504`) and `backend_error` (other server errors, 
 
 ### KV Event Metrics
 
-The per-worker subscriptions to gRPC workers' KV cache events, which feed the chain index that event-driven cache-aware routing reads, and the batches they carry. See [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md). `worker` is the worker URL. When a worker's subscription starts, its gap, missed-batch, resync, failure, parent-less, sub-block and degraded-rank series are published at zero, so a series that is absent means the worker has no subscription, not that nothing happened.
+The per-worker subscriptions to gRPC workers' KV cache events, which feed the chain index that event-driven cache-aware routing reads, and the batches they carry. See [KV Events Cache-Aware Routing](../getting-started/kv-events-cache-aware.md). `worker` is the worker URL. When a worker's subscription starts, its gap, missed-batch, resync, failure, parent-less, sub-block and degraded-rank series are published at zero, so a series that is absent means the worker has no subscription, not that nothing happened. The index the subscriptions fill reports its own size, shape and memory under [KV Index Metrics](#kv-index-metrics).
 
 #### `smg_kv_event_subscriptions_total`
 
@@ -1179,7 +1179,7 @@ histogram_quantile(0.99, sum by (worker, le) (rate(smg_kv_event_lag_seconds_buck
 
 #### `smg_kv_event_apply_seconds`
 
-Time to apply one KV event batch to the index, by worker. The buckets double from half a microsecond to a quarter of a second.
+Time to apply one KV event batch to the index, by worker. The buckets run from half a microsecond to a quarter of a second (edges in [Histogram Buckets](#histogram-buckets)).
 
 | Type | Labels |
 |------|--------|
@@ -1239,6 +1239,131 @@ Tokens per KV block of a model as the gateway knows it: seeded from a worker's r
 | Type | Labels |
 |------|--------|
 | Gauge | `model` |
+
+---
+
+### KV Index Metrics
+
+The KV index the event subscriptions fill — the chain index that event-driven cache-aware routing reads — exports its size, shape and memory as gauges, and the time of its lookups as a histogram. `smg_kv_index_blocks` carries the worker URL and is set by the worker's own subscription; every other gauge carries `model`.
+
+The model-labelled series are published as soon as the model's index is created with its first events subscription (so they exist from the first worker, not from the first refresh), refreshed by a background task every 30 seconds, and set to zero when the model's last events subscription ends — otherwise a model with no workers would keep reporting its last worker's blocks. The gauges are computed by the event subscriber and the periodic task, never on the request path.
+
+The moved-hash, engine-conflict and cap-refusal counts are cumulative over the index's life but exported as gauges, because they restart from zero with the index.
+
+#### `smg_kv_index_blocks`
+
+Blocks the index holds for a worker. Set each time one of the worker's KV event batches is applied and when its index state is reset, and zeroed when its subscription ends. A removed worker's series leaves the scrape (see [Removed workers](#removed-workers)).
+
+| Type | Labels |
+|------|--------|
+| Gauge | `worker` |
+
+#### `smg_kv_index_memberships`
+
+Blocks the index holds across a model's workers; a block two workers hold counts twice.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_entries`
+
+Distinct blocks held by at least one of the model's workers. `smg_kv_index_memberships / smg_kv_index_entries` is the mean replication of a cached block across the model's workers.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_runs_live`
+
+Runs linked in the chain index: stretches of consecutive blocks the index stores as one unit. `smg_kv_index_blocks_live / smg_kv_index_runs_live` is the mean run length; a falling ratio under steady traffic is fragmentation.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_blocks_live`
+
+Content hashes held by the chain index's live runs.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_arena_bytes`
+
+Bytes the chain index's word arena has handed out, hash arrays, child tables and free lists included.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_arena_free_bytes`
+
+Bytes of the word arena sitting in free lists, waiting for reuse.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_arena_chunk_bytes`
+
+Bytes the word arena holds from the process allocator: whole 8 MiB chunks, each kept once taken, so this is at least `smg_kv_index_arena_bytes` and does not fall while the model's index lives. This plus `smg_kv_index_slab_bytes` is the index's memory footprint.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_slab_bytes`
+
+Bytes the chain index's run slab — run headers with their coverage words — holds from the process allocator.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_moved_hashes`
+
+Held engine hashes a store moved to another place in the chain index (a hash stored again at a different position, as after a parent-less store), cumulative; a store that moves several hashes counts each. The old membership is released, so a worker holds a hash at one place.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_engine_conflicts`
+
+Stored blocks whose engine hash differed from the one the index holds for the same content, cumulative: a fleet whose engines do not name content alike. Such a block is still matched by its content.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_cap_refusals`
+
+Stores the chain index declined because a run's child table or hash array would outgrow an arena chunk (the index's fan-out and run-length caps), cumulative. The engine keeps the blocks; the index does not route by them.
+
+| Type | Labels |
+|------|--------|
+| Gauge | `model` |
+
+#### `smg_kv_index_lookup_seconds`
+
+Time of one KV index lookup in cache-aware routing: the overlap scoring of a request's block hashes against the index, recorded on the routing path after the lookup returns, for event-driven decisions only. `index` is the index implementation, `chain`. The buckets run from half a microsecond to a quarter of a second (edges in [Histogram Buckets](#histogram-buckets)); the apply-side counterpart is [`smg_kv_event_apply_seconds`](#smg_kv_event_apply_seconds).
+
+| Type | Labels |
+|------|--------|
+| Histogram | `index` |
+
+```promql
+# P99 KV index lookup time
+histogram_quantile(0.99, sum by (le) (rate(smg_kv_index_lookup_seconds_bucket[5m])))
+
+# Mean replication of a cached block, by model
+smg_kv_index_memberships / smg_kv_index_entries
+
+# Chain index memory footprint, by model
+smg_kv_index_arena_chunk_bytes + smg_kv_index_slab_bytes
+```
 
 ---
 

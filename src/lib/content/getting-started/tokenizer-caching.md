@@ -86,7 +86,7 @@ Each entry keeps the full input text and its token IDs, so its size grows with p
 
 ### L0 Sizing
 
-L0 caps both the number of entries and their total bytes. Each entry is charged its text bytes plus 4 bytes per token plus a small fixed overhead, and when a new entry would pass either bound, SMG evicts approximately least recently used entries (sampling 8 at a time). An input whose entry alone would take more than a quarter of the byte budget is not cached at all.
+L0 caps both the number of entries and their total bytes. Each entry is charged its text bytes plus 4 bytes per token plus a small fixed overhead. When a new entry would pass either bound, SMG evicts approximately least recently used entries (sampling 8 at a time). An input whose entry alone would take more than a quarter of the byte budget is not cached at all.
 
 Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that repeat in your traffic, and `--tokenizer-cache-l0-max-memory` from the memory you can spare. The budget counts the cache's contents, not process memory, so watch process memory as you raise either limit.
 

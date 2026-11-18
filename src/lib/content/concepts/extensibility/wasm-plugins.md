@@ -317,6 +317,7 @@ A hook call that fails — an interrupted over-budget call included — is logge
 - A failed `before()` is skipped and the operation proceeds without any extra column values the hook would have supplied.
 - A failed `after()` changes nothing: the operation has already completed, and its result is returned unchanged.
 - Only a `before()` that deliberately returns a rejection stops the operation; the caller gets a rejection error carrying the hook's message, not a storage failure.
+- One operation answers a rejection differently: looking up a response by the ID of one of its output items. A rejected lookup is answered as if nothing was found, so the caller learns no more about a response it may not read than about one that does not exist.
 
 ---
 

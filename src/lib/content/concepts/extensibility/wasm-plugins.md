@@ -312,7 +312,7 @@ Each `before()` or `after()` call runs in a fresh instance of the component unde
 
 ### Hook Failures and the Storage Operation
 
-A hook call that fails — an interrupted over-budget call included — is logged as a warning; it cannot fail the storage operation by accident:
+A hook call that fails — including a call interrupted for running over budget — is logged as a warning; it cannot fail the storage operation by accident:
 
 - When `before()` fails, the operation proceeds anyway, without any extra column values the hook would have supplied.
 - A failed `after()` changes nothing: the operation has already completed, and its result is returned unchanged.

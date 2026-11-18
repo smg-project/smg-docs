@@ -976,9 +976,9 @@ under [Get Conversation Item](#get-conversation-item), `invalid_value` for a bad
 
 A repeated key in the body of [Create Conversation](#create-conversation),
 [Update Conversation](#update-conversation), or
-[Create Conversation Items](#create-conversation-items) is refused the same way a
-repeated key in a Responses `input` item is: `400` with code `json_parse_error`, at the
-body's own keys and at any depth below them, the message naming the duplicate key (see
+[Create Conversation Items](#create-conversation-items) — among the body's own keys or
+at any depth below them — is refused the same way a repeated key in a Responses `input`
+item is: `400` with code `json_parse_error`, the message naming the duplicate key (see
 [Error Format](#error-format)). `param` is the path of the object carrying the repeat
 (`items[0]`, `items[0].content[0]`); it is null when one of the body's own keys repeats.
 The keys inside the body's top-level `metadata` object are not held to this rule: a key
@@ -1488,9 +1488,9 @@ violated rule's own code such as `invalid_conversation_id`. `param` names the of
 field when one is known. See [Error Responses](openai.md#error-responses) for the full
 vocabulary.
 
-A repeated key inside an `input` item is refused rather than resolved to the last value:
-`400` with code `json_parse_error`, at the item's own keys and at any depth below them,
-in typed objects and free-form maps (such as a `local_shell_call`'s `env`) alike.
+A repeated key inside an `input` item — among the item's own keys or at any depth below
+them, in typed objects and free-form maps (such as a `local_shell_call`'s `env`) alike —
+is refused rather than resolved to the last value: `400` with code `json_parse_error`.
 `param` is the path of the object carrying the repeat (`input[0]` when one of the
 item's own keys repeats, `input[0].content[0]` when a content part's does), and the
 message names the duplicate key after that path, ending with the line and column of the

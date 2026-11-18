@@ -257,7 +257,7 @@ Enterprise-grade storage using Oracle Autonomous Database.
 | `--oracle-external-auth` | `ATP_EXTERNAL_AUTH` | `false` | Use external (OS) authentication instead of username/password; leave `--oracle-user` and `--oracle-password` unset |
 | `--oracle-pool-min` | `ATP_POOL_MIN` | `1` | Must be at least 1 and at most `--oracle-pool-max`. The pool opens connections on demand and doesn't hold a minimum open |
 | `--oracle-pool-max` | `ATP_POOL_MAX` | `16` | Maximum connection pool size |
-| `--oracle-pool-timeout-secs` | `ATP_POOL_TIMEOUT_SECS` | `30` | How long a request waits for a free pooled connection, in seconds. Also bounds the start-up connection: a store that accepts the connection but never answers fails startup within this bound instead of hanging it. Must be greater than 0 |
+| `--oracle-pool-timeout-secs` | `ATP_POOL_TIMEOUT_SECS` | `30` | How long a request waits for a free pooled connection, in seconds. Also bounds the start-up connection: a store that accepts the connection but never answers fails startup within this bound. Must be greater than 0 |
 
 `--oracle-dsn` takes precedence: with a DSN, SMG ignores the wallet and TNS alias.
 

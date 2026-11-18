@@ -125,6 +125,14 @@ A batched `/v1/embeddings` request on a gRPC worker also counts as one request t
 
 A single successful request resets `consecutive_failures` to zero. `--cb-window-duration-secs` is accepted and validated but is not consumed by the state machine — failures are tracked with a running consecutive-failure counter rather than a sliding window.
 
+A streamed response can record two samples. A successful head (the `2xx` status and the response headers) records one success as soon as it arrives, before the body is relayed, and is not sampled again when the stream ends. If the worker then ends the body with an error before its natural end, that cut records one failure on the same worker's breaker — on the HTTP relays, `504` when a timeout cut the body mid-stream and `502` for any other cut (the connection reset or closed, a malformed transfer). The head's earlier success does not offset the cut: it resets `consecutive_failures` when the head arrives, and the cut then counts as one fresh failure.
+
+After a failed head, the head's status is the breaker sample, and a cut of the body that follows records nothing more. A cut is sampled outside the per-request counting above: if a request's attempt fails at the head and its retry on the same worker gets a successful head whose body is then cut, that worker is charged both for the failed head and for the cut.
+
+This cut accounting applies on three paths: the regular HTTP relay; the disaggregated (PD) HTTP router's decode relay, where the cut is the decode worker's failure; and gRPC and ZMQ streams, where it charges the worker whose stream ended with the error. On gRPC and ZMQ streams an engine failure mid-stream samples the status it maps to, exactly as a failed dispatch of the same status does (see [What Counts as a Failure](#what-counts-as-a-failure)): a connection the engine's server cut maps to `502` and a deadline to `504`, both failures. Capacity pushback mid-stream still records nothing, and a mid-stream rejection of the request, mapped to `400`, is still a success for the breaker.
+
+External provider workers never charge the breaker for a body cut: on the OpenAI-compatible endpoints their breaker records the head's status when the provider answers and nothing more for the stream, and the native Messages API passthrough for Anthropic-type providers records no breaker sample for a streamed response at all.
+
 ### Open → Half-Open
 
 Once the circuit has been open for `--cb-timeout-duration-secs`, the next check of the worker's state (for example, during worker selection) moves it to half-open.
@@ -154,6 +162,7 @@ The breaker classifies outcomes by the status of the response a worker sends bac
 | `2xx`, or any status not listed below (for example `400` or `404`) | Success |
 | `408`, `500`, `502`, `503`, `504` | Failure |
 | No response (connection error or timeout), recorded as the 5xx the gateway returns for it | Failure |
+| The worker cuts a streamed body after a successful head: on the HTTP relays recorded as `504` (timeout) or `502` (any other cut), on gRPC and ZMQ streams as the status the cut maps to; see [State Transitions](#state-transitions) | Failure |
 | `429` (capacity pushback) | Nothing: neither a failure nor a success |
 
 - **Why 429 is excluded.** A busy engine answers 429 to say "not now". Counting that as a failure would open the breakers of the busiest workers during a load spike and push their traffic onto the rest. The gateway still retries a 429 when retries are enabled, but the response records no breaker sample in either direction, so it cannot close a half-open breaker either.
@@ -385,7 +394,7 @@ groups:
 ### Retries
 
 - For local workers, each retry attempt runs worker selection again, so a worker whose circuit is open is skipped.
-- A request's retries on the same worker charge its breaker once; see [State Transitions](#state-transitions) for the paths this covers and the v1.12.0 behavior.
+- A request's retries on the same worker charge its breaker once; a body cut after a successful head is one more sample on top. See [State Transitions](#state-transitions) for the paths this covers and the v1.12.0 behavior.
 - If every worker is unavailable, the attempt gets 503 `no_available_workers`.
 - A half-open worker is selected like any other; its outcomes decide whether the circuit closes or reopens.
 - A 429 from a worker is retried when retries are enabled, but leaves that worker's breaker untouched.

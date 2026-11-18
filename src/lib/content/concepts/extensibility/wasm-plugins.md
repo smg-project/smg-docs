@@ -295,7 +295,9 @@ The first run of a component on each runtime thread compiles it, and later runs 
 
 ## Storage Hooks
 
-Separate from the middleware plugins above, a WASM component can intercept the storage operations behind conversation and Responses API history. Start the gateway with [`--storage-hook-wasm-path`](../../reference/configuration.md#backend-configuration) pointing at the component; the flag works without `--enable-wasm`, and the component is loaded and compiled once at startup. Every storage backend is then wrapped so the component's `before()` export runs before each storage operation and its `after()` export runs after it. A `before()` can reject the operation or supply extra column values; request headers reach the hook through [`--storage-context-headers`](../../reference/configuration.md#storage-context-headers).
+Separate from the middleware plugins above, a WASM component can intercept the storage operations behind conversation and Responses API history. Start the gateway with [`--storage-hook-wasm-path`](../../reference/configuration.md#backend-configuration) pointing at the component; the flag works without `--enable-wasm`, and the component is loaded and compiled once at startup.
+
+Every storage backend is then wrapped so the component's `before()` export runs before each storage operation and its `after()` export runs after it. A `before()` can reject the operation or supply extra column values; request headers reach the hook through [`--storage-context-headers`](../../reference/configuration.md#storage-context-headers).
 
 The [runtime settings](#runtime-settings) above — including the 1000 ms per-invocation limit — apply only to middleware plugins, not to storage hooks.
 
@@ -310,7 +312,7 @@ Each `before()` or `after()` call runs in a fresh instance of the component unde
 
 ### Hook Failures and the Storage Operation
 
-A hook call that fails — an interrupted over-budget call included — is logged as a warning and skipped; it cannot fail the storage operation by accident:
+A hook call that fails — an interrupted over-budget call included — is logged as a warning; it cannot fail the storage operation by accident:
 
 - A failed `before()` is skipped and the operation proceeds without any extra column values the hook would have supplied.
 - A failed `after()` changes nothing: the operation has already completed, and its result is returned unchanged.

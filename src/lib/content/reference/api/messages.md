@@ -350,7 +350,9 @@ Turns live in the gateway process's own memory; threads do not use the [history 
 
 A turn is stored when its answer is a `200` message, streamed or not. A non-streaming answer is read back whole and stored under its `id`. A streamed answer is stored from its own events: SMG reads them on their way to the client, folds the content blocks and the final `message_delta` into the complete message, and writes the turn when `message_stop` arrives. The bytes the client receives are unchanged, except that a reissued answer's fresh `id` appears in the `message_start` event. Take `previous_message_id` from the `id` in `message_start`; the turn can be continued once its stream completes — a continue sent while the answer still streams is answered `404`.
 
-An error response, an `error` event in the stream, and a stream that ends, fails, or is dropped before its `message_stop` leave the turn unstored. So do an answer SMG could not read — a non-streaming body that is not a JSON message, stream events it cannot parse — and an answer too large for SMG to keep, whether read back whole or assembled from its stream. An unstored turn's answer cannot be continued: the next continue is the `404`, and the client replays (see [Thread Errors](#thread-errors)).
+An error response, an `error` event in the stream, and a stream that ends, fails, or is dropped before its `message_stop` leave the turn unstored. So do an answer SMG could not read — a non-streaming body that is not a JSON message, stream events it cannot parse, a streamed tool call whose input deltas do not add up to a JSON document — and an answer too large for SMG to keep, whether read back whole or assembled from its stream. An unstored turn's answer cannot be continued: the next continue is the `404`, and the client replays (see [Thread Errors](#thread-errors)).
+
+A content block of a kind SMG does not model does not leave the turn unstored: the turn is kept with the block exactly as the backend wrote it. A continue replays each stored answer as an assistant message, so it needs every stored block in a form a request can carry: a continue over an answer holding a block a request has no form for is refused with the same `404`.
 
 Turns are scoped to the tenant that created them, under the same rule as stored Responses (see [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)): another tenant's `previous_message_id` is answered exactly as an unknown one, and a turn stored by a caller with no tenant identity can be continued by every caller.
 
@@ -360,7 +362,7 @@ A continue that SMG cannot serve is refused before any backend runs:
 
 | Status | Code | Cause |
 |--------|------|-------|
-| `404` | `thread_not_found` | Nothing can be continued from `previous_message_id`: an unknown id, an evicted or expired turn, another tenant's thread, a turn that was never stored (an error response, a stream cut before its `message_stop`) or not stored yet (an answer still streaming), or new messages the rebuilt conversation does not accept, such as a `tool_result` that matches no stored `tool_use`. |
+| `404` | `thread_not_found` | Nothing can be continued from `previous_message_id`: an unknown id, an evicted or expired turn, another tenant's thread, a turn that was never stored (an error response, a stream cut before its `message_stop`) or not stored yet (an answer still streaming), a stored answer with a content block a request has no form for, or new messages the rebuilt conversation does not accept, such as a `tool_result` that matches no stored `tool_use`. |
 | `400` | `thread_fingerprint_mismatch` | The continue request changed a fixed field; the error message names the fields. |
 
 Both carry their code in the body's `error.details.error_code` and in the `X-SMG-Error-Code` header:

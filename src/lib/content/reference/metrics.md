@@ -1248,7 +1248,7 @@ Tokens per KV block of a model as the gateway knows it: seeded from a worker's r
 
 The KV index the event subscriptions fill — the chain index that event-driven cache-aware routing reads — exports its size, shape and memory as gauges, and the time of its lookups as a histogram. `smg_kv_index_blocks` carries the worker URL and is set by the worker's own subscription; every other gauge carries `model`.
 
-The model-labelled series are published as soon as the model's index is created with its first events subscription (so they exist from the first worker, not from the first refresh), refreshed by a background task every 30 seconds, and set to zero when the model's last events subscription ends — otherwise a model with no workers would keep reporting its last worker's blocks. The gauges are computed by the event subscriber and the periodic task, never on the request path.
+The model-labelled series are refreshed by a background task every 30 seconds, and published at once when the model's index is created with its first events subscription, so they exist from the first worker rather than from the first refresh. When the model's last events subscription ends they are set to zero — otherwise a model with no workers would keep reporting its last worker's blocks. The gauges are computed by the event subscriber and the periodic task, never on the request path.
 
 The moved-hash, engine-conflict and cap-refusal counts are cumulative over the index's life but exported as gauges, because they restart from zero with the index.
 
@@ -1350,7 +1350,7 @@ Stores the chain index declined because a run's child table or hash array would 
 
 #### `smg_kv_index_lookup_seconds`
 
-Time of one KV index lookup in cache-aware routing: the overlap scoring of a request's block hashes against the index, recorded on the routing path after the lookup returns, for event-driven decisions only. `index` is the index implementation, `chain`. The buckets run from half a microsecond to a quarter of a second (edges in [Histogram Buckets](#histogram-buckets)); the apply-side counterpart is [`smg_kv_event_apply_seconds`](#smg_kv_event_apply_seconds).
+Time of one KV index lookup in cache-aware routing: the overlap scoring of a request's block hashes against the index, recorded on the routing path for event-driven decisions only. `index` is the index implementation, `chain`. The buckets run from half a microsecond to a quarter of a second (edges in [Histogram Buckets](#histogram-buckets)); the apply-side counterpart is [`smg_kv_event_apply_seconds`](#smg_kv_event_apply_seconds).
 
 | Type | Labels |
 |------|--------|

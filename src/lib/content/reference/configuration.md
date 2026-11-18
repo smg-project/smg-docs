@@ -38,7 +38,7 @@ The `smg` command that `pip install smg` provides parses flags with its own Pyth
 
 - **Space-separated lists after one flag:** `--worker-urls`, `--selector`, `--prefill-selector`, `--decode-selector`, `--encode-selector`, `--router-selector`, `--routing-key-headers`, `--request-id-headers`, `--storage-context-headers`, `--cors-allowed-origins`, `--prometheus-duration-buckets`, `--mesh-peer-urls`.
 - **One value per flag (repeat the flag for more):** `--prefill`, `--decode`, `--encode`, `--model-alias`, `--tenant-api-key`, `--jwt-role-mapping`, `--control-plane-api-keys`. For example, `--jwt-role-mapping A=admin B=user` fails to parse; write `--jwt-role-mapping A=admin --jwt-role-mapping B=user`.
-- **Comma-separated:** `--cache-boundaries 2048,8192`.
+- **Comma-separated:** `--cache-boundaries`, `--mm-allowed-media-domains`, `--access-log-fields`, and `--mesh-peer-urls` (which also takes the space-separated form above). For example, `--cache-boundaries 2048,8192`.
 - **Parsed outside clap:** `--prefill` and `--encode` take an optional trailing bootstrap port (`--prefill URL [PORT]`), which clap cannot express, so the binary parses them itself before clap runs. They work on every entrypoint but do not appear in `smg launch --help`, and they need the space form: `--prefill=URL` is rejected.
 - **Hidden aliases:** `--model` for `--model-path` and `--runtime` for `--backend` parse but are not listed in `--help`. Visible aliases are noted next to each flag below.
 

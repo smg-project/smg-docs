@@ -333,7 +333,7 @@ curl http://localhost:30000/v1/messages \
   }'
 ```
 
-Always take `previous_message_id` from the `id` of the answer just received: when a backend's answer arrives under an `id` that already names a stored turn, SMG reissues the answer under a fresh id, in the body the client reads and in the store. An id may be continued more than once — each continue forks the thread from that answer — and a second continue of the same id is never refused: SMG does not answer the Anthropic API's `thread_already_continued` error.
+Always take `previous_message_id` from the `id` of the answer just received: when a backend's answer arrives under an `id` that already names a stored turn, SMG reissues the answer under a fresh id, in the store and in what the client reads — the body of a non-streaming answer, the `message_start` event of a streamed one. An id may be continued more than once — each continue forks the thread from that answer — and a second continue of the same id is never refused: SMG does not answer the Anthropic API's `thread_already_continued` error.
 
 ### What a Continue Request Sends
 
@@ -348,7 +348,9 @@ Always take `previous_message_id` from the `id` of the answer just received: whe
 
 Turns live in the gateway process's own memory; threads do not use the [history backend](../../concepts/data/chat-history.md) (`--history-backend`) that stores Responses. A restart loses every thread, and in a deployment with several gateway instances, a continue finds its thread only on the instance that served the earlier turns. The store keeps the newest 10,000 turns, across all threads and tenants, each for one hour after it was written; past the count, the oldest turns are evicted first. Neither bound is configurable, and a thread whose create turn is gone can no longer be continued.
 
-A turn is stored only when its answer is a complete, non-streaming `200` message. A request with `"stream": true` is accepted and answered normally — a streamed continue still rebuilds and routes the whole conversation — but its turn is never stored, so its own answer cannot be continued. An error response and an answer SMG could not read back also leave the turn unstored.
+A turn is stored when its answer is a `200` message, streamed or not. A non-streaming answer is read back whole and stored under its `id`. A streamed answer is stored from its own events: SMG reads them on their way to the client, folds the content blocks and the final `message_delta` into the complete message, and writes the turn when `message_stop` arrives. The bytes the client receives are unchanged, except that a reissued answer's fresh `id` appears in the `message_start` event. Take `previous_message_id` from the `id` in `message_start`; the turn can be continued once its stream completes — a continue sent while the answer still streams is answered `404`.
+
+An error response, an `error` event in the stream, and a stream that ends, fails, or is dropped before its `message_stop` leave the turn unstored. So do an answer SMG could not read — a non-streaming body that is not a JSON message, stream events it cannot parse — and an answer too large for SMG to keep, whether read back whole or assembled from its stream. An unstored turn's answer cannot be continued: the next continue is the `404`, and the client replays (see [Thread Errors](#thread-errors)).
 
 Turns are scoped to the tenant that created them, under the same rule as stored Responses (see [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)): another tenant's `previous_message_id` is answered exactly as an unknown one, and a turn stored by a caller with no tenant identity can be continued by every caller.
 
@@ -358,7 +360,7 @@ A continue that SMG cannot serve is refused before any backend runs:
 
 | Status | Code | Cause |
 |--------|------|-------|
-| `404` | `thread_not_found` | Nothing can be continued from `previous_message_id`: an unknown id, an evicted or expired turn, another tenant's thread, a turn that was never stored (a streamed answer, an error response), or new messages the rebuilt conversation does not accept, such as a `tool_result` that matches no stored `tool_use`. |
+| `404` | `thread_not_found` | Nothing can be continued from `previous_message_id`: an unknown id, an evicted or expired turn, another tenant's thread, a turn that was never stored (an error response, a stream cut before its `message_stop`) or not stored yet (an answer still streaming), or new messages the rebuilt conversation does not accept, such as a `tool_result` that matches no stored `tool_use`. |
 | `400` | `thread_fingerprint_mismatch` | The continue request changed a fixed field; the error message names the fields. |
 
 Both carry their code in the body's `error.details.error_code` and in the `X-SMG-Error-Code` header:

@@ -169,7 +169,7 @@ curl http://localhost:30000/health
 
 A missing or invalid required setting (for example the DB URL or Oracle credentials) fails startup with a config validation error.
 
-Every remote backend is contacted at startup, and SMG refuses to start when its store cannot be reached. A store that is unreachable, or that accepts connections but does not answer, stops startup with an error naming the backend and the store (the connection URL with its password masked for PostgreSQL and Redis, the DSN or TNS alias for Oracle). The wait for a store that does not answer is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` for PostgreSQL and Redis, and by `--oracle-pool-timeout-secs` (default 30 seconds) for Oracle.
+Every remote backend is contacted at startup, and SMG refuses to start when its store cannot be reached. A store that is unreachable, or that accepts connections but does not answer, stops startup with an error naming the backend and the store (the connection URL with its password masked for PostgreSQL and Redis, the DSN or TNS alias for Oracle). The wait for a store that does not answer is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (default 5 seconds) for PostgreSQL and Redis, and by `--oracle-pool-timeout-secs` (default 30 seconds) for Oracle.
 
 PostgreSQL and Oracle also create tables and check migrations at startup, so pending migrations stop startup too (see [Schema migrations](#schema-migrations)).
 

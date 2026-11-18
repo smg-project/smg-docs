@@ -181,6 +181,8 @@ Each affected scope (tenant-global, and the matching model rule if any) is a con
 - **The real counts** are the backend's reported usage — prompt tokens alone for embeddings and classify, which generate nothing. On the HTTP routers they are read from the buffered response body in its route's shape: OpenAI's `prompt_tokens`/`completion_tokens` (chat, completions), the Responses `input_tokens`/`output_tokens`, the Messages `usage` with its cache reads and writes added back onto `input_tokens`, `/generate`'s per-entry `meta_info` counts (each prompt counted once across its `n` samples), and on `/v1/interactions`, `total_input_tokens` plus `total_tool_use_tokens` as the input and `total_output_tokens` plus `total_thought_tokens` as the generation (thinking tokens are generated output).
 - **A reservation that never learns real usage keeps the estimate as the charge.** On the HTTP routers that is every streamed success (the stream is never parsed), every non-2xx answer, and a buffered success whose usage can't be read whole; on the gRPC router, a failed or abandoned request, or a stream that ends without the backend reporting usage.
 
+Buckets are kept **per gateway instance**: a tenant that reaches *N* independent SMG instances can consume up to roughly *N* times the configured budgets.
+
 ---
 
 ## Observability

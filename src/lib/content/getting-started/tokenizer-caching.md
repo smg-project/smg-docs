@@ -69,8 +69,9 @@ smg \
 |-----------|---------|-------------|
 | `--tokenizer-cache-enable-l0` | `false` | Enable exact match cache |
 | `--tokenizer-cache-l0-max-entries` | `10000` | Maximum number of cached entries |
+| `--tokenizer-cache-l0-max-memory` | `268435456` (256 MiB) | Byte budget for cached texts, token IDs, and per-entry overhead |
 
-Each entry keeps the full input text and its encoding, so its size grows with prompt length.
+Each entry keeps the full input text and its token IDs, so its size grows with prompt length. With L0 enabled, both limits must be greater than 0.
 
 ### L1 Cache
 
@@ -85,7 +86,9 @@ Each entry keeps the full input text and its encoding, so its size grows with pr
 
 ### L0 Sizing
 
-L0 caps the number of entries, not their bytes. An entry for a short prompt is small, but roughly 2 MB per entry was observed for large inputs (smg-project/smg#2603). Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that repeat in your traffic, and watch process memory as you raise it.
+L0 caps both the number of entries and their total bytes. Each entry is charged its text bytes plus 4 bytes per token plus a small fixed overhead, and when a new entry would pass either bound, SMG evicts approximately least recently used entries (sampling 8 at a time). An input whose entry alone would take more than a quarter of the byte budget is not cached at all.
+
+Size `--tokenizer-cache-l0-max-entries` from the number of distinct whole prompts that repeat in your traffic, and `--tokenizer-cache-l0-max-memory` from the memory you can spare. The budget counts the cache's contents, not process memory, so watch process memory as you raise either limit.
 
 ### L1 Sizing
 
@@ -132,14 +135,15 @@ Each entry is charged the prefix's length in bytes plus 4 bytes per token, so a 
 
 === "Memory-Constrained"
 
-    Moderate benefit with minimal memory:
+    Moderate benefit with minimal memory (a 64 MiB L0 byte budget):
 
     ```bash
     smg \
       --worker-urls grpc://worker:50051 \
       --model-path meta-llama/Llama-3.1-8B-Instruct \
       --tokenizer-cache-enable-l0 \
-      --tokenizer-cache-l0-max-entries 5000
+      --tokenizer-cache-l0-max-entries 5000 \
+      --tokenizer-cache-l0-max-memory 67108864
     ```
 
 ---

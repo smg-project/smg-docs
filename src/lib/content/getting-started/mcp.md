@@ -49,7 +49,7 @@ servers:
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
 ```
 
-- Use `protocol: streamable` for remote servers. The legacy `sse` transport has been removed, and a server configured with it fails to connect.
+- Use `protocol: streamable` for remote servers. The legacy `sse` transport is not supported: a server configured with it fails to connect.
 - SMG parses `mcp.yaml` as plain YAML and does not expand `${VAR}` placeholders inside server `token` values. Substitute credentials externally before the gateway loads the file: render the YAML through `envsubst` from a shell wrapper, use a templating tool (Helm, Kustomize, Jinja), or inject the final config via a secret mount. See [Keeping Credentials Out of Config Files](../concepts/extensibility/mcp.md#keeping-credentials-out-of-config-files).
 - The gateway applies only the `servers` list. It accepts the `pool`, `policy`, `inventory`, and `warmup` sections and a top-level `proxy` section, but does not apply them, so settings such as `pool.call_timeout` and approval policies in this file have no effect; see [Accepted but Not Applied](../concepts/extensibility/mcp.md#accepted-but-not-applied).
 

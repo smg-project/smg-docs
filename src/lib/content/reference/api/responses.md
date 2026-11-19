@@ -983,9 +983,9 @@ for an item `id` over 64 bytes (`param` is `items[].id`), and `invalid_value` fo
 `include` value on [Get Conversation Item](#get-conversation-item) (`param` names the
 offending entry, such as `include[0]`).
 
-A refusal without a rule of its own — a missing or invalid `items` field, a batch over
-20 items, an unsupported item type, a message without a `role` — answers `400` with
-code `invalid_request`.
+A request refused without a rule of its own — for a missing or invalid `items` field,
+a batch over 20 items, an unsupported item type, a message without a `role` — answers
+`400` with the generic code `invalid_request`.
 
 A repeated key in the body of [Create Conversation](#create-conversation),
 [Update Conversation](#update-conversation), or

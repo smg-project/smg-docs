@@ -201,7 +201,7 @@ RUST_LOG=warn,smg=info,smg::policies=debug smg launch --worker-urls http://worke
 
 | Message | Target | Fields |
 |---------|--------|--------|
-| `Cache-aware selection` | `smg::policies::cache_aware` | `index` (`tree` or `hash`), `branch`, `worker`, `model_id`; tree decisions add `matched_ratio`, `threshold`, `matched_units`, `input_units` (the matched prefix and the request length, in characters for the string tree and tokens for the token tree) and `credited_units` (`matched_units` when `branch` is `tree_match`, otherwise `0`); hash decisions add `level` |
+| `Cache-aware selection` | `smg::policies::cache_aware` | `index` (`tree` or `hash`), `branch`, `worker`, `model_id`; tree decisions add `matched_ratio`, `threshold`, `matched_units`, `input_units` (the lengths of the matched prefix and the request, in characters for the string tree and tokens for the token tree) and `credited_units` (`matched_units` when `branch` is `tree_match`, otherwise `0`); hash decisions add `level` |
 | `Sticky routing decision` | `smg::policies::registry` | `source` (`rid` or `header`), `key`, `branch`, `worker`, `model_id` |
 | `Prefix-hash selection` | `smg::policies::prefix_hash` | `branch`, `level`, `worker`, `model_id` |
 

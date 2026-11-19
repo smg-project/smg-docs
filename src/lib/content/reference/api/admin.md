@@ -313,7 +313,7 @@ The body of `POST /workers` and `PUT /workers/{worker_id}`. Only `url` is requir
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `models` | array | `[]` | Model cards the worker serves (fields below). A self-hosted worker uses the first card. With none, it takes the model the engine reports: the `served_model_name`, `model_id`, or `model_path` label, in that order. External workers ignore this field: the gateway lists the provider's models when it has a key (`api_key`, or the provider's `*_ADMIN_KEY` environment variable), and without one the worker accepts any model. |
-| `labels` | object | `{}` | String-to-string metadata, merged over the labels the gateway discovers from the engine (your values win, and a key you set keeps its value when the gateway [re-reads the engine's labels](../../concepts/reliability/health-checks.md#labels-follow-the-engine)). Some keys have built-in meaning (see below). Keys under `smg.ai/discovery-` are reserved for [service discovery](../../concepts/architecture/service-discovery.md) and refused with `400`. |
+| `labels` | object | `{}` | String-to-string metadata, merged over the labels the gateway discovers from the engine (your values win, at registration and when the gateway [re-reads the engine's labels](../../concepts/reliability/health-checks.md#labels-follow-the-engine)). Some keys have built-in meaning (see below). Keys under `smg.ai/discovery-` are reserved for [service discovery](../../concepts/architecture/service-discovery.md) and refused with `400`. |
 
 Model card fields (`models[]`):
 
@@ -863,8 +863,8 @@ Forwards the request to the first healthy regular HTTP worker (the first healthy
 !!! note "gRPC and ZMQ workers"
     The gRPC router, which also serves ZMQ workers, does not implement this
     route and answers `501 Not Implemented`. For gRPC workers, the gateway
-    calls the backend's `GetModelInfo` RPC at worker registration — and calls
-    it again each time the worker [comes into service](../../concepts/reliability/health-checks.md#labels-follow-the-engine),
+    calls the backend's `GetModelInfo` RPC at worker registration — and again
+    each time the worker [comes into service](../../concepts/reliability/health-checks.md#labels-follow-the-engine),
     so a restarted engine's answer replaces the old one — and surfaces the
     result as worker labels (`model_path`, `served_model_name`, `vocab_size`,
     `max_context_length`, ...) in [`GET /workers`](#list-workers).

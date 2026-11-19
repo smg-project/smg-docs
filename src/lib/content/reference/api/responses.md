@@ -975,14 +975,15 @@ A rejected field answers `400` under the violated rule's own `code`, with `param
 the field. The `metadata` bounds are documented under
 [Create Conversation](#create-conversation) and
 [Update Conversation](#update-conversation), and a message item's `role`, `status`, and
-`content` rules under [Create Conversation Items](#create-conversation-items). Three more
-rejections carry their own `code`: `item_already_in_conversation` for an item the
-conversation already holds (`param` is `items`), `string_above_max_length` for an item
-`id` over 64 bytes (`param` is `items[].id`), and `invalid_value` for a bad `include`
-value on [Get Conversation Item](#get-conversation-item) (`param` names the offending
-entry, such as `include[0]`). A refusal without a rule of its own — a missing or invalid
-`items` field, a batch over 20 items, an unsupported item type, a message without a
-`role` — answers `400` with code `invalid_request`.
+`content` rules under [Create Conversation Items](#create-conversation-items).
+
+Three more rejections carry their own `code`: `item_already_in_conversation` for an
+item the conversation already holds (`param` is `items`), `string_above_max_length`
+for an item `id` over 64 bytes (`param` is `items[].id`), and `invalid_value` for a bad
+`include` value on [Get Conversation Item](#get-conversation-item) (`param` names the
+offending entry, such as `include[0]`). A refusal without a rule of its own — a missing
+or invalid `items` field, a batch over 20 items, an unsupported item type, a message
+without a `role` — answers `400` with code `invalid_request`.
 
 A repeated key in the body of [Create Conversation](#create-conversation),
 [Update Conversation](#update-conversation), or
@@ -1225,7 +1226,7 @@ implement them yet: `function_call`, `function_call_output`, `file_search_call`,
 `mcp_approval_request`, `mcp_approval_response`, `custom_tool_call`, and
 `custom_tool_call_output`. Any other type is rejected with `400`.
 
-A `message` item's `role`, `status`, and `content` are validated before anything of the
+A `message` item's `role`, `status`, and `content` are validated before any item in the
 request is stored:
 
 - `role` is required. A missing or `null` role is rejected with `400` `invalid_request`

@@ -36,7 +36,7 @@ Control calls stay out of the inference path. They skip routing policies, retrie
 - **No control calls without a control path.** Control calls go to a worker's [control endpoint](#control-endpoints), whatever its data transport; a TokenSpeed ZMQ worker without one can take them on [its own engine connection](#control-calls-on-the-engine-connection) instead. A worker with neither — a gRPC or non-TokenSpeed ZMQ worker without an `rl.control_url` label, or a TokenSpeed ZMQ worker whose engine declares no control reply — fails with `no_control_endpoint`.
 - **No retries and no streaming.** A refit is not idempotent, so a failed call is reported, not retried. Each call returns one buffered response.
 - **No pause or refit tracking.** Routing is unchanged: inference requests keep reaching a paused or refitting engine according to the routing policy.
-- **Registration-time weight version.** `weight_version` in discovery is the value recorded when the worker registered. SMG does not refresh it after a refit.
+- **No weight-version refresh after a refit.** `weight_version` in discovery is the value last read from the engine: at registration, or when the worker last [came into service](../concepts/reliability/health-checks.md#labels-follow-the-engine) (an engine restart re-reads its labels). A refit causes no such transition, so SMG does not refresh the value after a refit.
 
 ---
 
@@ -187,13 +187,13 @@ Response for one SGLang worker (`labels` trimmed):
 | `dp_ranks` | Number of DP-aware ranks collapsed into this row; `1` for other workers |
 | `role` | The worker's `role` label, or `null` |
 | `health` | Registry status: `pending`, `ready`, `not_ready`, `failed`, or `draining` |
-| `weight_version` | The worker's `weight_version` label, recorded at registration |
-| `labels` | All worker labels: metadata SMG discovered at registration, overridden by any labels you set |
+| `weight_version` | The worker's `weight_version` label, read from the engine at registration and re-read when the worker comes into service; a refit does not update it |
+| `labels` | All worker labels: metadata SMG discovered from the engine (re-read when the worker comes into service), overridden by any labels you set |
 | `capabilities` | What the engine supports; see [Capabilities](#capabilities) |
 
 `GET /v1/rl/workers/{id}` returns one row, or `404` with `worker_not_found` for an unknown ID. For a DP-aware worker, any rank's ID works, and `dp_ranks` counts the ranks that share its engine address.
 
-SMG reads labels from the engine when a worker registers. For an HTTP SGLang worker it reads `tp_size`, `version`, `weight_version`, and more from `/server_info`. For an HTTP vLLM worker it reads only model and version metadata (`/v1/models` and `/version`), so `tp_size`, `dp_size`, and `pp_size` stay `null` unless you set them. Set or override labels with the `labels` field of `POST /workers` (see [Multiple Workers](multiple-workers.md)):
+SMG reads labels from the engine when a worker registers, and reads them again each time the worker [comes into service](../concepts/reliability/health-checks.md#labels-follow-the-engine) — after the engine restarts on the same address, for example — so the discovered labels describe the engine the worker is running now, while labels you set keep their values. For an HTTP SGLang worker it reads `tp_size`, `version`, `weight_version`, and more from `/server_info`. For an HTTP vLLM worker it reads only model and version metadata (`/v1/models` and `/version`), so `tp_size`, `dp_size`, and `pp_size` stay `null` unless you set them. Set or override labels with the `labels` field of `POST /workers` (see [Multiple Workers](multiple-workers.md)):
 
 ```bash
 curl -X POST http://localhost:30000/workers \
@@ -618,11 +618,11 @@ RUST_LOG=warn,smg_rl=info smg launch \
 
 ??? question "weight_version in discovery does not change after a refit"
 
-    This is expected. Discovery reports the `weight_version` label recorded when the worker registered, and the control plane does not refresh it. Read the live version from `/generate`'s `meta_info.weight_version` instead. Who reports it there depends on the worker:
+    This is expected. Discovery reports the worker's `weight_version` label, which SMG re-reads from the engine only when the worker [comes into service](../concepts/reliability/health-checks.md#labels-follow-the-engine) — an engine restart, not a refit — and the control plane does not refresh it. Read the live version from `/generate`'s `meta_info.weight_version` instead. Who reports it there depends on the worker:
 
     - **HTTP SGLang workers.** SMG forwards `/generate` to the engine, and SGLang reports its own live version.
-    - **TokenSpeed gRPC workers.** SMG builds `/generate` responses for gRPC workers itself, and it reports the version the TokenSpeed engine stamped on that very response — the engine's live `server_args.weight_version`, which a [refit](#capabilities) updates — on streaming chunks too. The worker must run the deprecated Python servicer (`python -m smg_grpc_servicer.tokenspeed --servicer-impl python`; the launcher's default is the Rust servicer, which does not carry the live version), with smg-grpc-servicer 0.13.1 or later and smg-grpc-proto 0.4.23 or later to carry the field. When the engine stamps nothing, an empty value, or its `default` placeholder, SMG falls back to the registration-time label.
-    - **Every other gRPC or ZMQ worker** gets the registration-time label (or `default`), which a refit does not change. Only `/generate` carries the engine-stamped value: Chat Completions' `system_fingerprint` is the registration-time label even for TokenSpeed.
+    - **TokenSpeed gRPC workers.** SMG builds `/generate` responses for gRPC workers itself, and it reports the version the TokenSpeed engine stamped on that very response — the engine's live `server_args.weight_version`, which a [refit](#capabilities) updates — on streaming chunks too. The worker must run the deprecated Python servicer (`python -m smg_grpc_servicer.tokenspeed --servicer-impl python`; the launcher's default is the Rust servicer, which does not carry the live version), with smg-grpc-servicer 0.13.1 or later and smg-grpc-proto 0.4.23 or later to carry the field. When the engine stamps nothing, an empty value, or its `default` placeholder, SMG falls back to the worker's recorded label.
+    - **Every other gRPC or ZMQ worker** gets the worker's recorded label (or `default`), which a refit does not change. Only `/generate` carries the engine-stamped value: Chat Completions' `system_fingerprint` is the recorded label even for TokenSpeed.
 
 ??? question "Long refits fail with upstream_timeout or a client timeout"
 

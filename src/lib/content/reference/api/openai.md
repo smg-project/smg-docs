@@ -398,9 +398,9 @@ When the gateway's own request timeout is what cuts the stream —
 worker's `timeout_secs` on an HTTP worker, `--grpc-request-timeout-secs` on a gRPC
 worker — the error event also carries `"code": "call_upstream_timeout"`, the same code
 the request's [504](#error-codes) carries when the timeout expires before the response
-starts. A stream the worker itself cut (its connection breaking, its server closing the
-stream mid-answer) carries no `code`, so clients can distinguish the request's time
-budget running out from a worker failure.
+starts. When the worker itself cuts the stream (its connection breaks, or its server
+closes the stream mid-answer), the error event carries no `code`, so clients can
+distinguish the request's time budget running out from a worker failure.
 
 A quiet open SSE response can contain `: ping` comments between events. SMG
 sends them after 15 seconds of silence by default, including while waiting for

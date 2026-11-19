@@ -97,6 +97,8 @@ A block whose `type` is not on this list, or any block SMG cannot read, is refus
 
 Blocks in a `system` prompt and in a `tool_result`'s `content` are refused the same way. The error envelope's `param` also carries the position, as a path ending in the field at fault, such as `messages[0].content[0].tool_use_id`; see [Errors](#errors).
 
+A `search_result` block — a search result the request injects — carries a `source`, a `title`, a `content` array, and optionally `cache_control` and a `citations` configuration (`{"enabled": true}`). Its `content` holds only `text` blocks, each with its `type`, its `text`, and optionally `cache_control` and `citations`. An item sent without its `type` is read as text, and SMG writes `"type": "text"` on every item when it serializes the request for an HTTP worker or the Anthropic API. An item whose `type` is anything other than `text` is refused with `400`, named by its position like any other unreadable block. The same rules apply to a `search_result` block inside a `tool_result`'s `content`.
+
 ### Example Request
 
 === "Self-hosted model"

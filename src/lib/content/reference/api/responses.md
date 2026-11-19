@@ -1079,15 +1079,6 @@ curl http://localhost:30000/v1/conversations/conv_abc123def456
 
 Update conversation metadata. Uses merge semantics — set a key to `null` to delete it.
 
-The patch's pairs are held to the key and value rules of
-[Create Conversation](#create-conversation) (keys up to 64 characters, every value a
-string of at most 512 characters) and refused under the same codes; a `null` value
-removes its key and is not held to the value rules. The rules are read on the patch's
-own pairs only, so a stored pair outside them does not block a patch that leaves it
-alone. The 16-pair bound (`object_above_max_properties`) is read on the merged object:
-a patch may replace the values of a full object but not grow it past 16 pairs. A
-refused patch changes nothing.
-
 ```
 POST /v1/conversations/{conversation_id}
 ```
@@ -1097,6 +1088,15 @@ POST /v1/conversations/{conversation_id}
 | Field | Type | Description |
 |-------|------|-------------|
 | `metadata` | object | Metadata to merge (null values delete keys) |
+
+The patch's pairs are held to the key and value rules of
+[Create Conversation](#create-conversation) (keys up to 64 characters, every value a
+string of at most 512 characters) and refused under the same codes; a pair with a
+`null` value removes its key and is held to neither rule. The rules are read on the
+patch's own pairs only, so a stored pair outside them does not block a patch that
+leaves it alone. The 16-pair bound (`object_above_max_properties`) is read on the
+merged object: a patch may replace the values of a full object but not grow it past
+16 pairs. A refused patch changes nothing.
 
 ### Example Request
 

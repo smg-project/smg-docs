@@ -73,7 +73,7 @@ smg launch \
 | `--priority-scheduler-enabled` | `false` | Master switch. When unset, the legacy concurrency-limit middleware stays wired and no scheduler is constructed. |
 | `--priority-scheduler-default-max-class` | `default` | Maximum class for tenants not listed in the YAML (`system` \| `interactive` \| `default` \| `bulk`). Case-insensitive and whitespace-tolerant like the header, but an unknown value is a **startup error** naming the four classes, not the header's silent fallback to `default`. |
 | `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class overrides + per-tenant policy). Absent → built-in defaults and an empty tenant policy map. Given without `--priority-scheduler-enabled`, the file is not read and the gateway prints a startup warning. |
-| `--priority-scheduler-tenant-metric-top-n` | `32` | Intended cap on per-tenant metric label cardinality. **Not yet enforced** — the value is stored but no top-N bucketing is applied today; per-tenant counters currently intern the raw tenant. |
+| `--priority-scheduler-tenant-metric-top-n` | `32` | Cap on the distinct tenants the scheduler's tenant-labelled counters (`smg_scheduler_clamp_total`, `smg_scheduler_unknown_priority_value_total`) keep as `tenant` series of their own. The cap is shared across both counters: the first N distinct tenant keys to record either event — not the top N by traffic — keep their own series, and every later tenant is counted under `tenant="other"`. Admitted keys are never evicted, so the set of series stops growing at the cap instead of churning. |
 
 While the scheduler is active, the legacy admission flags change meaning: `--queue-size` and `--queue-timeout-secs` are not used, `--max-concurrent-requests` only sets the fallback capacity while no healthy worker is registered, and a positive `--rate-limit-tokens-per-second` (unless `--max-concurrent-requests` is `0`) adds a request-rate check before admission that sheds with 429 `scheduler_queue_full`. See [Rate Limiting](../concepts/reliability/rate-limiting.md#with-the-priority-scheduler).
 
@@ -180,8 +180,8 @@ The scheduler exposes these Prometheus metrics (see the [Metrics Reference](metr
 | `smg_scheduler_admit_total` | Counter | `class`, `outcome` | Admission outcomes (`admitted`, `rejected_queue_full`, `rejected_queue_timeout`, `preempted`, `client_cancelled`). |
 | `smg_scheduler_queue_wait_seconds` | Summary | `class` | Time spent queued before admission, timeout, or cancel. |
 | `smg_scheduler_preemption_total` | Counter | `victim_class`, `by_class` | Successful preemptions. Authoritative preemption count. |
-| `smg_scheduler_clamp_total` | Counter | `tenant`, `requested_class`, `effective_class` | Requests clamped below the class they asked for. |
-| `smg_scheduler_unknown_priority_value_total` | Counter | `tenant` | Requests with an unrecognized `x-smg-priority` value. |
+| `smg_scheduler_clamp_total` | Counter | `tenant`, `requested_class`, `effective_class` | Requests clamped below the class they asked for. The `tenant` label is bounded by [`--priority-scheduler-tenant-metric-top-n`](#cli-flags); tenants past the cap count under `tenant="other"`. |
+| `smg_scheduler_unknown_priority_value_total` | Counter | `tenant` | Requests with an unrecognized `x-smg-priority` value. The `tenant` label shares the same bound as `smg_scheduler_clamp_total`. |
 | `smg_scheduler_starvation_promotion_total` | Counter | `class` | Waiters admitted via the starvation override. |
 | `smg_scheduler_inflight` | Gauge | `class` | Current in-flight requests per class. |
 | `smg_scheduler_queue_depth` | Gauge | `class` | Current queued waiters per class. |

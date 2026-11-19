@@ -209,7 +209,7 @@ Reasoning controls reach the template as template variables. The request fields 
 
 When a request sets none of these controls, the template's own default stands. For a Jinja template, SMG reads that default from what the template renders, not from how its source spells the condition. When a template with a thinking switch is loaded or replaced, SMG renders one bare user turn with the generation prompt three times — with the switch absent, on and off — all at one clock instant, so the renders of a template that writes the current time cannot differ by the clock alone. The default is on when the switch-absent render equals the on render alone, and off when it equals the off render alone. A template that opens a `<think>` block only when its switch is defined and true therefore defaults off: an unset switch is not true.
 
-When the renders do not settle it — the bare turn fails to render, or the switch-absent render equals both of the other renders (a switch that moves nothing on a bare turn) or neither of them — SMG reads the default from the template's text instead. The native renderers that replace the Jinja template have fixed per-renderer defaults, listed in the table above; Kimi-K2.5 keeps the Jinja template, so the render-based detection applies to it.
+When the renders do not settle the default — the bare turn fails to render, or the switch-absent render equals both of the other renders (a switch that moves nothing on a bare turn) or neither of them — SMG reads the default from the template's text instead. The native renderers that replace the Jinja template have fixed per-renderer defaults, listed in the table above; Kimi-K2.5 keeps the Jinja template, so the render-based detection applies to it.
 
 ---
 

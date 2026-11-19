@@ -971,8 +971,8 @@ A request body that is not a JSON object — on
 or [Create Conversation Items](#create-conversation-items) — is refused with `400`
 `invalid_type` before any field is read.
 
-A rejected field answers `400` under the violated rule's own `code`, with `param` naming
-the field. The `metadata` bounds are documented under
+A field that breaks a validation rule answers `400` under that rule's own `code`, with
+`param` naming the field: see the `metadata` bounds under
 [Create Conversation](#create-conversation) and
 [Update Conversation](#update-conversation), and a message item's `role`, `status`, and
 `content` rules under [Create Conversation Items](#create-conversation-items).
@@ -1094,8 +1094,8 @@ POST /v1/conversations/{conversation_id}
 
 The patch's pairs are held to the key and value rules of
 [Create Conversation](#create-conversation) (keys up to 64 characters, every value a
-string of at most 512 characters) and refused under the same codes; a pair with a
-`null` value removes its key and is held to neither rule. The rules are read on the
+string of at most 512 characters), and a pair outside them is refused under the same
+codes; a pair with a `null` value removes its key and is held to neither rule. The rules are read on the
 patch's own pairs only, so a stored pair outside them does not block a patch that
 leaves it alone. The 16-pair bound (`object_above_max_properties`) is read on the
 merged object: a patch may replace the values of a full object but not grow it past

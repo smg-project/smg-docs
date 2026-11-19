@@ -962,17 +962,27 @@ see [Input Formats](#input-formats).
 
 The conversation endpoints report errors in the gateway envelope
 (`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).
-An invalid request answers `400` with code `invalid_request`; an unknown conversation
-or item answers `404` with code `not_found`. The one exception is
-[Delete Conversation Item](#delete-conversation-item), which answers `200`, not `404`,
-for an item that is not in the conversation.
+An unknown conversation or item answers `404` with code `not_found`. The one exception
+is [Delete Conversation Item](#delete-conversation-item), which answers `200`, not
+`404`, for an item that is not in the conversation.
 
-Three `400` rejections carry their own `code` and `param`: under
-[Create Conversation Items](#create-conversation-items), `item_already_in_conversation`
-for an item the conversation already holds (`param` is `items`) and
-`string_above_max_length` for an item `id` over 64 bytes (`param` is `items[].id`);
-under [Get Conversation Item](#get-conversation-item), `invalid_value` for a bad
-`include` value (`param` names the offending entry, such as `include[0]`).
+A request body that is not a JSON object — on
+[Create Conversation](#create-conversation), [Update Conversation](#update-conversation),
+or [Create Conversation Items](#create-conversation-items) — is refused with `400`
+`invalid_type` before any field is read.
+
+A rejected field answers `400` under the violated rule's own `code`, with `param` naming
+the field. The `metadata` bounds are documented under
+[Create Conversation](#create-conversation) and
+[Update Conversation](#update-conversation), and a message item's `role`, `status`, and
+`content` rules under [Create Conversation Items](#create-conversation-items). Three more
+rejections carry their own `code`: `item_already_in_conversation` for an item the
+conversation already holds (`param` is `items`), `string_above_max_length` for an item
+`id` over 64 bytes (`param` is `items[].id`), and `invalid_value` for a bad `include`
+value on [Get Conversation Item](#get-conversation-item) (`param` names the offending
+entry, such as `include[0]`). A refusal without a rule of its own — a missing or invalid
+`items` field, a batch over 20 items, an unsupported item type, a message without a
+`role` — answers `400` with code `invalid_request`.
 
 A repeated key in the body of [Create Conversation](#create-conversation),
 [Update Conversation](#update-conversation), or
@@ -999,7 +1009,15 @@ POST /v1/conversations
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `metadata` | object | No | Custom metadata (max 16 properties) |
+| `metadata` | object | No | Custom metadata: at most 16 pairs, keys up to 64 characters, every value a string of at most 512 characters |
+
+`metadata` is held to the same bounds as a Responses request's `metadata`, and a bound
+crossed is refused in the same words, with `param` set to `metadata`: a 17th pair with
+code `object_above_max_properties`, a key or string value over its length bound with
+`string_above_max_length`, and a value that is not a string with `invalid_type`, the
+message naming the key and the type sent (`Invalid type for 'metadata.k': expected a
+string, but got an object instead.`). A `metadata` field that is itself not an object
+is refused with `invalid_type`.
 
 ### Example Request
 
@@ -1059,8 +1077,16 @@ curl http://localhost:30000/v1/conversations/conv_abc123def456
 
 ### Update Conversation
 
-Update conversation metadata. Uses merge semantics — set a key to `null` to delete it. The
-merged metadata may hold at most 16 properties.
+Update conversation metadata. Uses merge semantics — set a key to `null` to delete it.
+
+The patch's pairs are held to the key and value rules of
+[Create Conversation](#create-conversation) (keys up to 64 characters, every value a
+string of at most 512 characters) and refused under the same codes; a `null` value
+removes its key and is not held to the value rules. The rules are read on the patch's
+own pairs only, so a stored pair outside them does not block a patch that leaves it
+alone. The 16-pair bound (`object_above_max_properties`) is read on the merged object:
+a patch may replace the values of a full object but not grow it past 16 pairs. A
+refused patch changes nothing.
 
 ```
 POST /v1/conversations/{conversation_id}
@@ -1186,7 +1212,7 @@ POST /v1/conversations/{conversation_id}/items
 
 These item types are fully supported:
 
-- `message` - User or assistant messages (requires `role`); an item without `type` is a message
+- `message` - A conversation message (requires `role`; see the field rules below); an item without `type` is a message
 - `reasoning` - Model reasoning content
 - `mcp_list_tools` - MCP tool listing
 - `mcp_call` - MCP tool invocation
@@ -1198,6 +1224,30 @@ implement them yet: `function_call`, `function_call_output`, `file_search_call`,
 `code_interpreter_call`, `local_shell_call`, `local_shell_call_output`,
 `mcp_approval_request`, `mcp_approval_response`, `custom_tool_call`, and
 `custom_tool_call_output`. Any other type is rejected with `400`.
+
+A `message` item's `role`, `status`, and `content` are validated before anything of the
+request is stored:
+
+- `role` is required. A missing or `null` role is rejected with `400` `invalid_request`
+  (`Message items require 'role' field`); a role of another type (a number, an object)
+  with `invalid_type` on `items[].role`. A string outside `assistant`, `system`,
+  `developer`, and `user` — the set a Responses input message's `role` is held to — is
+  rejected with `invalid_value` on `items[].role`.
+- `status`, when present and not `null`, must be `in_progress`, `completed`, or
+  `incomplete`; any other value — or a non-string — is rejected with `invalid_value` on
+  `items[].status`. An omitted or `null` status is stored as `completed`.
+- `content`, when present, must be a string or an array of the content parts a Responses
+  input message takes (`input_text`, `output_text`, `input_image`, `input_file`,
+  `refusal`); any other type is rejected with `invalid_type` on `items[].content`. Each
+  part of an array is read as its typed part: a part with an unknown `type` is rejected
+  with `invalid_value`, one missing a required field with `missing_required_parameter`,
+  and one of the wrong shape with `invalid_type`, `param` naming the offending part or
+  field (`items[].content[0]`, `items[].content[0].type`).
+
+These checks are the `message` type's own; items of other types are not held to them.
+They apply only to items the request itself stores: an item whose explicit `id` names
+an already-stored record reuses that record as-is (see below), without its body being
+re-validated.
 
 An item whose `id` is already in the conversation is rejected with:
 

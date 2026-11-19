@@ -983,9 +983,9 @@ for an item `id` over 64 bytes (`param` is `items[].id`), and `invalid_value` fo
 `include` value on [Get Conversation Item](#get-conversation-item) (`param` names the
 offending entry, such as `include[0]`).
 
-A request refused without a rule of its own — for a missing or invalid `items` field,
-a batch over 20 items, an unsupported item type, a message without a `role` — answers
-`400` with the generic code `invalid_request`.
+A request refused without a rule of its own — such as a missing or invalid `items`
+field, a batch over 20 items, an unsupported item type, or a message without a `role` —
+answers `400` with the generic code `invalid_request`.
 
 A repeated key in the body of [Create Conversation](#create-conversation),
 [Update Conversation](#update-conversation), or
@@ -1233,7 +1233,7 @@ request is stored:
 
 - `role` is required. A missing or `null` role is rejected with `400` `invalid_request`
   (`Message items require 'role' field`); a role of another type (a number, an object)
-  with `invalid_type` on `items[].role`. A string outside `assistant`, `system`,
+  is rejected with `invalid_type` on `items[].role`. A string outside `assistant`, `system`,
   `developer`, and `user` — the set a Responses input message's `role` is held to — is
   rejected with `invalid_value` on `items[].role`.
 - `status`, when present and not `null`, must be `in_progress`, `completed`, or

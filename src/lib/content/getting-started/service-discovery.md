@@ -30,7 +30,7 @@ smg \
   --service-discovery-port 8000
 ```
 
-SMG keeps a local cache of the matching pods, registers a worker for each Ready pod, and removes workers whose pods go away. Every pod change triggers a reconcile pass, and a full pass also runs every 60 seconds, so changes missed while the watch was disconnected still converge.
+SMG keeps a local cache of the matching pods, registers a worker for each Ready pod, and removes workers whose pods go away. Every pod change triggers a reconcile pass, and a full pass also runs every `--discovery-check-interval-secs` seconds (default `30`), so changes missed while the watch was disconnected still converge.
 
 ### Parameters
 

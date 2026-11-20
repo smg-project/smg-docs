@@ -59,7 +59,7 @@ A reconcile pass turns the cache into the set of desired workers, compares it wi
 | Trigger | Behavior |
 |---------|----------|
 | Watch event | Any change to a cached pod starts a pass. Bursts, such as a rollout or a re-list, are coalesced: SMG waits 1 second, then runs one pass. |
-| Periodic resync | A pass runs every 60 seconds. It reads the local cache only and makes no API calls. |
+| Periodic resync | A pass runs every `--discovery-check-interval-secs` seconds (default `30`). It reads the local cache only and makes no API calls. |
 
 Because every pass compares complete state instead of replaying individual events, discovery converges even when events are missed:
 
@@ -640,7 +640,7 @@ Example log output:
 ```text
 INFO Starting K8s service discovery | selector: 'app=sglang-worker'
 INFO Starting K8s worker watcher | selector: 'app=sglang-worker'
-INFO K8s worker store synced, reconciling on change and every 60s
+INFO K8s worker store synced, reconciling on change and every 30s
 INFO Reconciling workers: 2 to add, 0 to remove (2 desired)
 INFO Registering worker 10.0.0.5:8000 (Regular) for pod sglang-worker-0
 INFO Registering worker 10.0.0.6:8000 (Regular) for pod sglang-worker-1

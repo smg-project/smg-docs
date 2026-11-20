@@ -207,6 +207,12 @@ Reasoning controls reach the template as template variables. The request fields 
 - **Native effort names**: the DeepSeek-V4, V4.1, Kimi-K3 and K3.1 renderers turn the values in the table above into their own effort prompt text.
 - **Parser arming**: the reasoning parser follows the same decision. When thinking is on, it starts in reasoning mode, so the prompt and the parser agree.
 
+When a request sets none of these controls, the template's own default stands. For a Jinja template, SMG reads that default from what the template renders, not from its source text. When a template with a thinking switch is loaded or replaced, SMG renders one bare user turn (generation prompt included) three times: with the switch absent, on and off. The three renders share one clock instant, so a template that writes the current time writes the same time in all three. The default is on when the switch-absent render equals the on render alone, and off when it equals the off render alone. A template that opens a `<think>` block only when its switch is defined and true therefore defaults off: an unset switch is not true.
+
+When the renders do not settle the default — one of the three fails, or the switch-absent render equals neither of the others, or equals both (a switch that moves nothing on a bare turn) — SMG reads the default from the template's text instead.
+
+The native renderers that replace the Jinja template have the fixed defaults listed in the table above. Kimi-K2.5 keeps the Jinja template, so the render-based detection applies to it.
+
 ---
 
 ## Reasoning Parsers

@@ -380,8 +380,8 @@ An error before the first chunk is an ordinary JSON error response with its own 
 when a worker rejects a streaming request, SMG keeps the worker's content type
 (`application/json`, not `text/event-stream`) so SSE clients still see the error body.
 
-If the stream fails after it has started — whether SMG builds it from a gRPC worker's
-responses or relays it from an HTTP worker — SMG ends it with
+If the stream fails after it has started — whether SMG builds the stream itself
+(gRPC and ZMQ workers) or relays it from an HTTP worker — SMG ends it with
 `data: {"error": {"message": "...", "type": "..."}}` followed by `data: [DONE]`, so the
 transfer closes cleanly and the client reads why the stream stopped. An error event an
 HTTP worker writes into its own stream is relayed as it arrives.
@@ -402,7 +402,8 @@ worker — the error event also carries `"code": "call_upstream_timeout"`, the s
 the request's [504](#error-codes) carries when the timeout expires before the response
 starts. When the worker itself cuts the stream (its connection breaks, or its server
 closes the stream mid-answer), the error event carries no `code`, so clients can
-distinguish the request's time budget running out from a worker failure.
+distinguish the request's time budget running out from a worker failure. On a ZMQ
+worker the same request timeout bounds the stream, but its cut carries no `code`.
 
 A quiet open SSE response can contain `: ping` comments between events. SMG
 sends them after 15 seconds of silence by default, including while waiting for

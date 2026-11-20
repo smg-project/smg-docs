@@ -977,11 +977,12 @@ A field that breaks a validation rule answers `400` under that rule's own `code`
 [Update Conversation](#update-conversation), and a message item's `role`, `status`, and
 `content` rules under [Create Conversation Items](#create-conversation-items).
 
-Three more `400` rejections carry their own `code`: `item_already_in_conversation` for an
-item the conversation already holds (`param` is `items`), `string_above_max_length`
-for an item `id` over 64 bytes (`param` is `items[].id`), and `invalid_value` for a bad
-`include` value on [Get Conversation Item](#get-conversation-item) (`param` names the
-offending entry, such as `include[0]`).
+Three more `400` rejections carry their own `code`: under
+[Create Conversation Items](#create-conversation-items), `item_already_in_conversation`
+for an item the conversation already holds (`param` is `items`) and
+`string_above_max_length` for an item `id` over 64 bytes (`param` is `items[].id`);
+under [Get Conversation Item](#get-conversation-item), `invalid_value` for a bad
+`include` value (`param` names the offending entry, such as `include[0]`).
 
 A request refused without a rule of its own — such as a missing or invalid `items`
 field, a batch over 20 items, an unsupported item type, or a message without a `role` —

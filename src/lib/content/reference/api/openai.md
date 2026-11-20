@@ -398,10 +398,10 @@ was in SMG's own processing.
 When the gateway's own request timeout is what cuts the stream —
 [`--request-timeout-secs`](../configuration.md#request-handling-configuration) or the
 worker's `timeout_secs` on an HTTP worker, `--grpc-request-timeout-secs` on a gRPC
-worker — the error event also carries `"code": "call_upstream_timeout"`, the same code
-the request's [504](#error-codes) carries when the timeout expires before the response
-starts. When the worker itself cuts the stream (its connection breaks, or its server
-closes the stream mid-answer), the error event carries no `code`, so clients can
+worker — the `stream_error` event also carries `"code": "call_upstream_timeout"`, the
+same code the request's [504](#error-codes) carries when the timeout expires before the
+response starts. When the worker itself cuts the stream (its connection breaks, or its
+server closes the stream mid-answer), the error event carries no `code`, so clients can
 distinguish the request's time budget running out from a worker failure. On a ZMQ
 worker, `--request-timeout-secs` (or the worker's `timeout_secs`) bounds the stream the
 same way, but the error event that ends it carries no `code`.

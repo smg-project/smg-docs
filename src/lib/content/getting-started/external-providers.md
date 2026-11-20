@@ -142,7 +142,7 @@ When a provider refuses a request — on chat completions, Responses, Messages, 
 - The message of an error whose `code` is `invalid_image_url` is replaced with `Invalid Image URL`.
 - Within the read bound below, everything else is relayed as the provider sent it: the error's `type` and `code`, the rest of the message, and any non-JSON body, which passes through unchanged.
 
-SMG reads an error body up to 1 MiB; a larger body is never buffered or relayed. Past that bound, the answer keeps the provider's status but carries the gateway's own body in place of the provider's:
+SMG reads an error body up to 1 MiB and relays none of a larger one. Past that bound, the answer keeps the provider's status but carries the gateway's own body in place of the provider's:
 
 - Chat completions, Responses, Gemini Interactions, and realtime calls answer with the gateway's JSON error envelope — its `code` (and the `X-SMG-Error-Code` header) set to `upstream_error`, its message to `Upstream error response too large`.
 - Messages answers with the text `Backend returned error: <status> (response too large)`. A refusal of a streamed Messages request that itself arrives as an event stream is relayed as a stream rather than buffered, so no bound applies to it.

@@ -67,7 +67,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
 
     An Oracle Linux 9 build of the gateway ships under the same tags with `-ol9` appended, for `linux/amd64` only. Releases publish `lightseekorg/smg:<version>-ol9` and `ghcr.io/smg-project/smg:<version>-ol9`, and `latest-ol9` points at the newest final release; releases that predate the variant have no `-ol9` tags. Nightlies publish `ghcr.io/smg-project/smg:nightly-ol9` and the dated `nightly-<YYYYMMDD>-<short-sha>-ol9`.
 
-    Apart from the base OS, the OL9 image works like the default image: the same entrypoint and non-root user (UID 65532), the same FFmpeg/OpenCV video support and TurboJPEG/WebP image decoders, and no Slurm clients.
+    Apart from the base OS, the `-ol9` image works like the default image: the same entrypoint and non-root user (UID 65532), the same FFmpeg/OpenCV video support and TurboJPEG/WebP image decoders, and no Slurm clients.
 
     **Gateway + engine** (all-in-one images that route and serve), for `linux/amd64` only:
 

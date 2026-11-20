@@ -140,9 +140,14 @@ When a provider refuses a request — on chat completions, Responses, Messages, 
 
 - Phrases naming an organization (`organization org-…`) or a project (`project proj_…`) in a JSON body's `error.message` are removed, whatever their case.
 - The message of an error whose `code` is `invalid_image_url` is replaced with `Invalid Image URL`.
-- Everything else is relayed as the provider sent it: the error's `type` and `code`, the rest of the message, and any non-JSON body, which passes through unchanged.
+- Within the read bound below, everything else is relayed as the provider sent it: the error's `type` and `code`, the rest of the message, and any non-JSON body, which passes through unchanged.
 
-The same scrubbing applies where a provider's error text reaches the caller indirectly: in the error frames of a realtime WebSocket session (see [Upstream Errors](../reference/api/openai.md#upstream-errors)) and in the failure message when a provider refuses a model call in SMG's MCP tool loop.
+SMG reads an error body up to 1 MiB; a larger body is never buffered or relayed. Past that bound, the answer keeps the provider's status but carries the gateway's own body in place of the provider's:
+
+- Chat completions, Responses, Gemini Interactions, and realtime calls answer with the gateway's JSON error envelope — its `code` (and the `X-SMG-Error-Code` header) set to `upstream_error`, its message to `Upstream error response too large`.
+- Messages answers with the text `Backend returned error: <status> (response too large)`. A refusal of a streamed Messages request that itself arrives as an event stream is relayed as a stream rather than buffered, so no bound applies to it.
+
+The same scrubbing applies where a provider's error text reaches the caller indirectly: in the error frames of a realtime WebSocket session (see [Upstream Errors](../reference/api/openai.md#upstream-errors)) and in the failure message when a provider refuses a model call in SMG's MCP tool loop. The tool loop's message carries `Upstream error response too large` in place of a refusal body past the bound.
 
 On chat completions, Messages, and realtime calls, the gateway logs a preview of the provider's original error at `warn`.
 

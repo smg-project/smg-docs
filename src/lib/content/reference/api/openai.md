@@ -383,15 +383,17 @@ when a worker rejects a streaming request, SMG keeps the worker's content type
 If the stream fails after it has started — whether SMG builds it from a gRPC worker's
 responses or relays it from an HTTP worker — SMG ends it with
 `data: {"error": {"message": "...", "type": "..."}}` followed by `data: [DONE]`, so the
-transfer closes cleanly and the client reads why the stream stopped. The
-`type` is `stream_error` when the worker fails the stream: its connection breaks, its
-server cuts the stream, it answers a server error or a timeout after the first chunk,
-or the engine itself reports that the request failed. On gRPC workers, any other status
-the engine answers mid-stream keeps the `type` it would carry in an error body (see
-[Error Format](#error-format)): for example `invalid_request_error` when the engine
-rejects the request after its first chunk, or `rate_limit_error` for capacity pushback.
-An error event an HTTP worker writes into its own stream is relayed as it arrives.
-`internal_error` means the failure was in SMG's own processing.
+transfer closes cleanly and the client reads why the stream stopped. An error event an
+HTTP worker writes into its own stream is relayed as it arrives.
+
+In the error event SMG writes, the `type` is `stream_error` when the worker fails the
+stream: its connection breaks, its server cuts the stream, it answers a server error
+or a timeout after the first chunk, or the engine itself reports that the request
+failed. On gRPC workers, any other status the engine answers mid-stream keeps the
+`type` it would carry in an error body (see [Error Format](#error-format)): for
+example `invalid_request_error` when the engine rejects the request after its first
+chunk, or `rate_limit_error` for capacity pushback. `internal_error` means the failure
+was in SMG's own processing.
 
 When the gateway's own request timeout is what cuts the stream —
 [`--request-timeout-secs`](../configuration.md#request-handling-configuration) or the

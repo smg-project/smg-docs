@@ -380,15 +380,31 @@ An error before the first chunk is an ordinary JSON error response with its own 
 when a worker rejects a streaming request, SMG keeps the worker's content type
 (`application/json`, not `text/event-stream`) so SSE clients still see the error body.
 
-If generation fails after a gRPC stream has started, SMG sends
-`data: {"error": {"message": "...", "type": "..."}}` followed by `data: [DONE]`. The
-`type` is `stream_error` when the worker fails the stream: its connection breaks, its
-server cuts the stream, it answers a server error or a timeout after the first chunk,
-or the engine itself reports that the request failed. Any other status the engine
-answers mid-stream keeps the `type` it would carry in an error body (see
-[Error Format](#error-format)): for example `invalid_request_error` when the engine
-rejects the request after its first chunk, or `rate_limit_error` for capacity pushback.
-`internal_error` means the failure was in SMG's own processing.
+If the stream fails after it has started — whether SMG builds the stream itself
+(gRPC and ZMQ workers) or relays it from an HTTP worker — SMG ends it with
+`data: {"error": {"message": "...", "type": "..."}}` followed by `data: [DONE]`, so the
+transfer closes cleanly and the client reads why the stream stopped. An error event an
+HTTP worker writes into its own stream is relayed as it arrives.
+
+In the error event SMG writes, the `type` is `stream_error` when the worker fails the
+stream: its connection breaks, its server cuts the stream, it answers a server error
+or a timeout after the first chunk, or the engine itself reports that the request
+failed. In a stream SMG builds itself, any other status the engine answers mid-stream
+keeps the `type` it would carry in an error body (see [Error Format](#error-format)):
+for example `invalid_request_error` when the engine rejects the request after its first
+chunk, or `rate_limit_error` for capacity pushback. `internal_error` means the failure
+was in SMG's own processing.
+
+When the gateway's own request timeout is what cuts the stream —
+[`--request-timeout-secs`](../configuration.md#request-handling-configuration) or the
+worker's `timeout_secs` on an HTTP worker, `--grpc-request-timeout-secs` on a gRPC
+worker — the `stream_error` event also carries `"code": "call_upstream_timeout"`, the
+same code the request's [504](#error-codes) carries when the timeout expires before the
+response starts. When the worker itself cuts the stream (its connection breaks, or its
+server closes the stream mid-answer), the error event carries no `code`, so clients can
+distinguish the request's time budget running out from a worker failure. On a ZMQ
+worker, `--request-timeout-secs` (or the worker's `timeout_secs`) bounds the stream the
+same way, but the error event that ends it carries no `code`.
 
 A quiet open SSE response can contain `: ping` comments between events. SMG
 sends them after 15 seconds of silence by default, including while waiting for
@@ -1061,6 +1077,7 @@ itself produced the error.
 | 503 | `no_available_workers` | Workers serve the model, but every one is unhealthy or has an open circuit breaker, or the routing policy selects none of them (HTTP and gRPC paths) |
 | 503 | `no_models_available` | `GET /v1/models`: no self-hosted worker serves any model (see [List Models](#list-models)) |
 | 503 | `worker_overload_protection_shed`, `admission_queue_timeout`, `scheduler_queue_timeout`, `scheduler_preempted` | Overload and admission sheds; see [Rate Limiting](#rate-limiting) |
+| 504 | `call_upstream_timeout` | The gateway's request timeout expired: `--request-timeout-secs` (or the worker's own `timeout_secs`) on an HTTP worker, `--grpc-request-timeout-secs` on a gRPC worker. That 504 is [never retried](../../concepts/reliability/retries.md#never-retried): the timeout bounds how long the request may take, so SMG does not replay it on another worker. In regular HTTP mode the same status and code also answer a connect timeout, or a worker connection the OS gives up on — the worker's failure, which SMG does retry, so the client sees that 504 only after retries run out. When the request timeout cuts a stream that has already started, the same code arrives in the [error event that ends the stream](#streaming-response) |
 
 On gRPC workers, an engine finish reason of `error` (outside the OpenAI set) becomes an
 error response or stream error; clients never receive `"finish_reason": "error"`.

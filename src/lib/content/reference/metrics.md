@@ -58,7 +58,7 @@ Labels whose values a client can influence are bounded, so unexpected input cann
 | `tenant` (priority scheduler) | The first N distinct tenant keys keep their own series, where N is `--priority-scheduler-tenant-metric-top-n` (default 32); every later one is reported as `other`. |
 | `op` (RL control plane) | A fixed list of engine control operations; any other path is `other`. |
 
-The `model`, `tool_name`, and `tenant` caps never evict a value once it is admitted, so the set of series stops growing at the cap instead of churning. Worker URLs (`worker`), status codes, and gateway error codes come from the gateway itself and are not capped. The priority scheduler's `tenant` label appears on `smg_scheduler_clamp_total` and `smg_scheduler_unknown_priority_value_total`; see the [Priority Scheduler Reference](priority-scheduler.md#metrics).
+The `model`, `tool_name`, and `tenant` caps never evict a value once it is admitted, so the set of series stops growing at the cap instead of churning. The priority scheduler's `tenant` label appears on `smg_scheduler_clamp_total` and `smg_scheduler_unknown_priority_value_total`; see the [Priority Scheduler Reference](priority-scheduler.md#metrics). Worker URLs (`worker`), status codes, and gateway error codes come from the gateway itself and are not capped.
 
 ### Removed workers
 

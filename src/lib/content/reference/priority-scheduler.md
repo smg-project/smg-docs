@@ -181,7 +181,7 @@ The scheduler exposes these Prometheus metrics (see the [Metrics Reference](metr
 | `smg_scheduler_queue_wait_seconds` | Summary | `class` | Time spent queued before admission, timeout, or cancel. |
 | `smg_scheduler_preemption_total` | Counter | `victim_class`, `by_class` | Successful preemptions. Authoritative preemption count. |
 | `smg_scheduler_clamp_total` | Counter | `tenant`, `requested_class`, `effective_class` | Requests clamped below the class they asked for. The `tenant` label is bounded by [`--priority-scheduler-tenant-metric-top-n`](#cli-flags); tenants past the cap count under `tenant="other"`. |
-| `smg_scheduler_unknown_priority_value_total` | Counter | `tenant` | Requests with an unrecognized `x-smg-priority` value. The `tenant` label is bounded by the same shared set as `smg_scheduler_clamp_total` ([`--priority-scheduler-tenant-metric-top-n`](#cli-flags)). |
+| `smg_scheduler_unknown_priority_value_total` | Counter | `tenant` | Requests with an unrecognized `x-smg-priority` value. The `tenant` label is bounded by the set it shares with `smg_scheduler_clamp_total` ([`--priority-scheduler-tenant-metric-top-n`](#cli-flags)). |
 | `smg_scheduler_starvation_promotion_total` | Counter | `class` | Waiters admitted via the starvation override. |
 | `smg_scheduler_inflight` | Gauge | `class` | Current in-flight requests per class. |
 | `smg_scheduler_queue_depth` | Gauge | `class` | Current queued waiters per class. |

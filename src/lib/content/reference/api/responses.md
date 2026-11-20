@@ -1101,8 +1101,8 @@ block a patch that leaves it alone.
 
 The 16-pair bound (`object_above_max_properties`) is read on the merged object: a
 patch may replace the values of a full object but not grow it past 16 pairs. A
-`metadata` value that is itself not an object is refused with `invalid_type`, as on
-create. A refused patch changes nothing.
+`metadata` field that is itself not an object is refused with `invalid_type`, as on
+create. A refused patch leaves the stored metadata unchanged.
 
 ### Example Request
 

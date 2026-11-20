@@ -72,7 +72,7 @@ For an eligible request, the first matching rule wins:
 |---|-----------|------|----------------|
 | 1 | `--routing-key-override` is enabled | Buffer | `routing_key_override` |
 | 2 | The default or a per-model routing policy reads the prompt (`cache_aware`, `bucket`), and the request has no valid `x-smg-routing-tokens` header | Buffer | `policy_needs_text` |
-| 3 | Workers for more than one model are registered | Buffer | `model_ambiguous` |
+| 3 | Workers for more than one model are registered, or a registered model has an [alias](../../reference/configuration.md#model-aliases) (a `--model-alias` name or a model card `aliases` entry) | Buffer | `model_ambiguous` |
 | 4 | A worker rewrites request bodies (DP-aware workers, `--dp-aware`) | Buffer | `worker_mutates_body` |
 | 5 | WASM is enabled and a module is attached at `OnRequest` | Buffer | `wasm_request_hook` |
 | 6 | The [tenant rate limiter](../reliability/tenant-rate-limiting.md) is enabled (`--tenant-rate-limit-enabled`) | Buffer | `tenant_rate_limit` |
@@ -81,7 +81,7 @@ For an eligible request, the first matching rule wins:
 | 9 | Router retries are enabled and the body is larger | Stream | `retry_forfeited` |
 | 10 | Router retries are disabled | Stream, at any size | `pure_forward` |
 
-Rules 1–7 always buffer, at any size up to `--max-payload-size`. In the first six, something must read the body: the sticky-session key comes from the body's `rid`, the policy routes on the prompt, the model name is inside the body, the request must be edited for the worker, a plugin inspects it, or the tenant reservation's input-token estimate is read from it.
+Rules 1–7 always buffer, at any size up to `--max-payload-size`. In the first six, something must read the body: the sticky-session key comes from the body's `rid`, the policy routes on the prompt, the model name is inside the body (and may be an alias, which the router must rewrite to the canonical model ID the worker knows), the request must be edited for the worker, a plugin inspects it, or the tenant reservation's input-token estimate is read from it.
 
 Rules 8–10 apply when the only reason to buffer is to keep the request retryable. Router retries count as enabled when `--retry-max-retries` is greater than `1` and `--disable-retries` is not set, or when a [per-worker override](../reliability/retries.md#per-worker-overrides) still allows retries for any model: the model name sits inside the unread body, so one retryable model keeps every eligible request buffered.
 

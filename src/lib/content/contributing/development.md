@@ -476,9 +476,9 @@ git -C .bellwether checkout "$(cat .github/versions/bellwether.ref)"
 
 # Unpack the fixture tree into the plain JSON Lines the tests read, with
 # CI's flags: --plain writes the hand-written sets, and --sample-sets 3500
-# writes one benchmark set in 3,500 besides, picked by a hash of the set's
-# own id, so the same sets come on every run of the same pin. Without the
-# flags the whole tree unpacks: hundreds of GB of benchmark sets
+# adds one benchmark set in 3,500, picked by a hash of the set's own id,
+# so the same sets come on every run of the same pin. Without the flags
+# the whole tree unpacks: hundreds of GB of benchmark sets
 uv run --locked --project .bellwether bellwether unpack \
   --fixtures .bellwether/fixtures --out .bellwether/fixtures-plain \
   --plain --sample-sets 3500

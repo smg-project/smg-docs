@@ -351,7 +351,11 @@ The branch counter and the match-ratio histogram cover string- and token-tree de
 
 ### Debug Logs
 
-With `RUST_LOG=info,smg::policies::cache_aware=debug` (which overrides `--log-level`), each tree and hash decision logs a `Cache-aware selection` line with its `index`, `branch`, `worker` and `model_id` (plus `matched_ratio` and `threshold` for trees), and KV-event decisions log `Event-driven routing: overlap match` or `Event-driven routing: no overlap, expected-wait fallback`.
+With `RUST_LOG=info,smg::policies::cache_aware=debug` (which overrides `--log-level`), each tree and hash decision logs a `Cache-aware selection` line with its `index`, `branch`, `worker` and `model_id`. Tree decisions add `matched_ratio` and `threshold`, plus `matched_units` and `input_units` — the lengths of the matched prefix and the request, in characters for the string tree and tokens for the token tree. They also add `credited_units`, how much of that prefix the chosen worker is expected to have cached: `matched_units` on `tree_match`, `0` on every other branch. Hash decisions add `level`, the matched boundary (`0` on the fallback branches).
+
+When [KV pressure](#kv-pressure) suspends affinity outside hash mode, the `Cache-aware selection` line carries only `branch` (`kv_pressure_expected_wait`), `worker` and `model_id`; in hash mode the pressure fallback is an ordinary hash decision with that branch.
+
+KV-event decisions log an `Event-driven routing` line with its `branch`, `worker`, `overlap_blocks`, `request_blocks`, `policy` (the `--selection-policy` name) and `model_id`. Warm-up picks (controlled by the [`--worker-warmup-*` flags](../../reference/configuration.md#cache-aware-policy-options), on by default) log `Cache miss routed to a warming worker` or `Cache hit diverted to a thin worker` instead.
 
 For a dispatch's full decision record in the log (candidates, gates, scores, the prediction and the chosen worker), or its reduced per-selection record in the `x-smg-cache-trace` response header (omitted when it would exceed 2048 bytes or is not plain ASCII), see [Routing Trace Variables](../../reference/configuration.md#routing-trace-variables).
 

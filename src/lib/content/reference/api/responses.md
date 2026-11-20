@@ -1238,12 +1238,13 @@ request is stored:
 
 - `role` is required. A missing or `null` role is rejected with `400` `invalid_request`
   (`Message items require 'role' field`); a role of another type (a number, an object)
-  is rejected with `invalid_type` on `items[].role`. A string outside `assistant`, `system`,
-  `developer`, and `user` — the set a Responses input message's `role` is held to — is
-  rejected with `invalid_value` on `items[].role`.
+  is rejected with `invalid_type` on `items[].role`. A string other than `assistant`,
+  `system`, `developer`, or `user` — the set a Responses input message's `role` is held
+  to — is rejected with `invalid_value` on `items[].role`.
 - `status`, when present and not `null`, must be `in_progress`, `completed`, or
-  `incomplete`; any other value — or a non-string — is rejected with `invalid_value` on
-  `items[].status`. An omitted or `null` status is stored as `completed`.
+  `incomplete`; any other value — even one that is not a string — is rejected with
+  `invalid_value` on `items[].status`. An omitted or `null` status is stored as
+  `completed`.
 - `content`, when present, must be a string or an array of the content parts a Responses
   input message takes (`input_text`, `output_text`, `input_image`, `input_file`,
   `refusal`); any other type is rejected with `invalid_type` on `items[].content`. Each
@@ -1252,9 +1253,9 @@ request is stored:
   and one of the wrong shape with `invalid_type`, `param` naming the offending part or
   field (`items[].content[0]`, `items[].content[0].type`).
 
-These checks are the `message` type's own; items of other types are not held to them.
-They apply only to items the request itself stores: an item whose explicit `id` names
-an already-stored record reuses that record as-is (see below), without its body being
+These checks apply to `message` items only; items of other types are not held to them.
+They run only on items the request itself stores: an item whose explicit `id` names an
+already-stored record reuses that record as-is (see below), without its body being
 re-validated.
 
 An item whose `id` is already in the conversation is rejected with:

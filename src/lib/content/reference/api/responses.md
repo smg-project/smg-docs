@@ -1016,10 +1016,10 @@ POST /v1/conversations
 
 `metadata` is held to the same bounds as a Responses request's `metadata`, and a bound
 crossed is refused in the same words, with `param` set to `metadata`: a 17th pair with
-code `object_above_max_properties`, a key or string value over its length bound with
-`string_above_max_length`, and a value that is not a string with `invalid_type`, the
-message naming the key and the type sent (`Invalid type for 'metadata.k': expected a
-string, but got an object instead.`). A `metadata` field that is itself not an object
+code `object_above_max_properties`, and a key or string value over its length bound with
+`string_above_max_length`. A value that is not a string is refused with `invalid_type`,
+the message naming the key and the type sent (`Invalid type for 'metadata.k': expected
+a string, but got an object instead.`). A `metadata` field that is itself not an object
 is refused with `invalid_type`.
 
 ### Example Request
@@ -1245,7 +1245,7 @@ request is stored:
 - `content`, when present, must be a string or an array of the content parts a Responses
   input message takes (`input_text`, `output_text`, `input_image`, `input_file`,
   `refusal`); any other type is rejected with `invalid_type` on `items[].content`. Each
-  part of an array is read as its typed part: a part with an unknown `type` is rejected
+  part of an array is validated individually: a part with an unknown `type` is rejected
   with `invalid_value`, one missing a required field with `missing_required_parameter`,
   and one of the wrong shape with `invalid_type`, `param` naming the offending part or
   field (`items[].content[0]`, `items[].content[0].type`).

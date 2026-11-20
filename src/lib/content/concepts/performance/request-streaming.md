@@ -81,7 +81,7 @@ For an eligible request, the first matching rule wins:
 | 9 | Router retries are enabled and the body is larger | Stream | `retry_forfeited` |
 | 10 | Router retries are disabled | Stream, at any size | `pure_forward` |
 
-Rules 1–7 always buffer, at any size up to `--max-payload-size`. In the first six, something must read the body: the sticky-session key comes from the body's `rid`, the policy routes on the prompt, the model name is inside the body (and may be an alias, which only the buffered path rewrites to the canonical model ID the worker knows), the request must be edited for the worker, a plugin inspects it, or the tenant reservation's input-token estimate is read from it.
+Rules 1–7 always buffer, at any size up to `--max-payload-size`. In the first six, something must read the body: the sticky-session key comes from the body's `rid`, the policy routes on the prompt, the model name is inside the body (and may be an alias, which the router must rewrite to the canonical model ID the worker knows), the request must be edited for the worker, a plugin inspects it, or the tenant reservation's input-token estimate is read from it.
 
 Rules 8–10 apply when the only reason to buffer is to keep the request retryable. Router retries count as enabled when `--retry-max-retries` is greater than `1` and `--disable-retries` is not set, or when a [per-worker override](../reliability/retries.md#per-worker-overrides) still allows retries for any model: the model name sits inside the unread body, so one retryable model keeps every eligible request buffered.
 

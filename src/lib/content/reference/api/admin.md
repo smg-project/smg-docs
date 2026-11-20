@@ -313,7 +313,7 @@ The body of `POST /workers` and `PUT /workers/{worker_id}`. Only `url` is requir
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `models` | array | `[]` | Model cards the worker serves (fields below). A self-hosted worker uses the first card. With none, it takes the model the engine reports: the `served_model_name`, `model_id`, or `model_path` label, in that order. External workers ignore this field: the gateway lists the provider's models when it has a key (`api_key`, or the provider's `*_ADMIN_KEY` environment variable), and without one the worker accepts any model. |
-| `labels` | object | `{}` | String-to-string metadata, merged over the labels the gateway discovers from the engine (your values win). Some keys have built-in meaning (see below). Keys under `smg.ai/discovery-` are reserved for [service discovery](../../concepts/architecture/service-discovery.md) and refused with `400`. |
+| `labels` | object | `{}` | String-to-string metadata, merged over the labels the gateway discovers from the engine (your values win, at registration and when the gateway [re-reads the engine's labels](../../concepts/reliability/health-checks.md#labels-follow-the-engine)). Some keys have built-in meaning (see below). Keys under `smg.ai/discovery-` are reserved for [service discovery](../../concepts/architecture/service-discovery.md) and refused with `400`. |
 
 Model card fields (`models[]`):
 
@@ -562,7 +562,7 @@ While `POST /workers` is still registering the worker, the response is a placeho
 
 | `job_status` field | Description |
 |--------------------|-------------|
-| `job_type` | `AddWorker` (create or replace), `UpdateWorker`, or `RemoveWorker`. |
+| `job_type` | `AddWorker` (create or replace), `UpdateWorker`, `RefreshWorkerLabels` (the gateway [re-reading the worker's engine labels](../../concepts/reliability/health-checks.md#labels-follow-the-engine) as it comes into service), or `RemoveWorker`. |
 | `worker_url` | URL of the worker the job targets. |
 | `status` | `pending` (queued), `processing`, or `failed`. |
 | `message` | Error text when `status` is `failed`; otherwise `null`. |
@@ -594,7 +594,7 @@ Changes a few fields in place. Omitted fields keep their current values. The wor
 |-------|------|-------------|
 | `priority` | integer | New priority. |
 | `cost` | number | New cost. |
-| `labels` | object | Merged into the current labels: listed keys are added or overwritten, and the rest are kept. `PATCH` cannot remove a label. Keys under `smg.ai/discovery-` are reserved for service discovery and refused with `400`. |
+| `labels` | object | Merged into the current labels: listed keys are added or overwritten, and the rest are kept. `PATCH` cannot remove a label. A key you set here stays yours: when the gateway later [re-reads the engine's labels](../../concepts/reliability/health-checks.md#labels-follow-the-engine), your value is kept even if the engine reports another. Keys under `smg.ai/discovery-` are reserved for service discovery and refused with `400`. |
 | `api_key` | string | New worker API key, for key rotation. |
 | `health` | object | Partial health overrides, merged into the worker's current settings: `timeout_secs`, `check_interval_secs`, `success_threshold`, `failure_threshold`, `disable_health_check`, `drain_settle_secs`. Setting `disable_health_check` to `true` makes the worker routable immediately. |
 
@@ -863,10 +863,11 @@ Forwards the request to the first healthy regular HTTP worker (the first healthy
 !!! note "gRPC and ZMQ workers"
     The gRPC router, which also serves ZMQ workers, does not implement this
     route and answers `501 Not Implemented`. For gRPC workers, the gateway
-    calls the backend's `GetModelInfo` RPC once at worker registration and
-    surfaces the result as worker labels (`model_path`, `served_model_name`,
-    `vocab_size`, `max_context_length`, ...) in
-    [`GET /workers`](#list-workers).
+    calls the backend's `GetModelInfo` RPC at worker registration — and again
+    each time the worker [comes into service](../../concepts/reliability/health-checks.md#labels-follow-the-engine),
+    so a restarted engine's answer replaces the old one — and surfaces the
+    result as worker labels (`model_path`, `served_model_name`, `vocab_size`,
+    `max_context_length`, ...) in [`GET /workers`](#list-workers).
 
 ---
 
@@ -880,9 +881,10 @@ Forwards the request the same way as [Get Model Info](#get-model-info) and retur
 
 !!! note "gRPC and ZMQ workers"
     The gRPC router answers `501 Not Implemented`. For gRPC workers, the
-    gateway calls the backend's `GetServerInfo` RPC once at worker
-    registration and surfaces a curated subset of `server_args` (`tp_size`,
-    `dp_size`, `max_total_tokens`, `version`, ...) as worker labels in
+    gateway calls the backend's `GetServerInfo` RPC at worker registration —
+    and again each time the worker [comes into service](../../concepts/reliability/health-checks.md#labels-follow-the-engine) —
+    and surfaces a curated subset of `server_args` (`tp_size`, `dp_size`,
+    `max_total_tokens`, `version`, ...) as worker labels in
     [`GET /workers`](#list-workers). Live scheduler state (running and
     waiting requests, KV utilization) is served by [`GET /loads`](#get-loads)
     instead.

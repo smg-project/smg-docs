@@ -122,7 +122,19 @@ The `smg_worker_health` gauge collapses these to `1` (Ready) and `0` (anything e
 
 The failure count restarts when a worker enters `NotReady`, so a `Ready` worker that stops answering reaches `Failed` after `4 × --health-failure-threshold` consecutive failed probes: 12 probes, about 12 minutes at the default 60-second interval.
 
-`Failed` is not terminal. A failed worker that is not removed keeps being probed, so an engine that restarts on the same address rejoins without being registered again.
+`Failed` is not terminal. A failed worker that is not removed keeps being probed, so an engine that restarts on the same address rejoins without being registered again — with the labels of the engine it fronts now, not the old ones (see below).
+
+### Labels Follow the Engine
+
+A worker that comes into service may front a different engine than the one registration read: a restart on the same address with other settings (tensor-parallel size, context length, vision support, ...), or an engine that was still loading when registration read it, so the read returned provisional answers — or failed and returned none. On every transition into service — a promotion to `Ready` by the probes above, or the ZMQ handshake — the gateway therefore re-reads the worker's engine-discovered labels. When they have changed, it rebuilds the worker in place: the worker stays registered under the same ID and keeps taking requests, and the labels in [`GET /workers`](../../reference/api/admin.md#list-workers) and what is derived from them (the model card's context length and vision flag, for example) describe the engine the worker is running now.
+
+The refresh covers every self-hosted HTTP, gRPC, and ZMQ worker this gateway registered itself. A worker imported from a mesh peer carries the labels its owning gateway publishes, and an external provider is never read for engine metadata, at registration or later.
+
+The re-read uses the sources registration used: an HTTP engine's metadata endpoints, or a gRPC engine's model- and server-info RPCs ([Get Model Info](../../reference/api/admin.md#get-model-info), [Get Server Info](../../reference/api/admin.md#get-server-info)). A ZMQ engine reports its metadata at its handshake, not at an endpoint, so a ZMQ worker's refresh runs on the handshake itself: it takes the context window the engine advertised there and keeps the other labels registration read from the model's files.
+
+The refresh replaces exactly what discovery read from the engine. A label you set yourself — in the worker spec, or with [`PATCH /workers/{worker_id}`](../../reference/api/admin.md#update-worker-partial) — keeps its value even when the engine reports another, and a label the engine no longer reports is dropped only when discovery read it. An engine that answers the re-read with no metadata at all changes nothing.
+
+The labels follow shortly after the worker returns to routing, not at the instant of the promotion: the refresh is a background job (`RefreshWorkerLabels` in the worker's [`job_status`](../../reference/api/admin.md#get-worker)), and while another job for the worker is in flight — its registration, an update — it runs when that job ends. A re-read that fails is retried once and then left to the worker's next transition into service, leaving the labels as they were.
 
 ### How Long a Restarted Engine Stays Out
 

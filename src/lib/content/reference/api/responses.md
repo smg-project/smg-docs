@@ -1014,13 +1014,13 @@ POST /v1/conversations
 |-------|------|----------|-------------|
 | `metadata` | object | No | Custom metadata: at most 16 pairs, keys up to 64 characters, every value a string of at most 512 characters |
 
-`metadata` is held to the same bounds as a Responses request's `metadata`, and a bound
-crossed is refused in the same words, with `param` set to `metadata`: a 17th pair with
-code `object_above_max_properties`, and a key or string value over its length bound with
-`string_above_max_length`. A value that is not a string is refused with `invalid_type`,
-the message naming the key and the type sent (`Invalid type for 'metadata.k': expected
-a string, but got an object instead.`). A `metadata` field that is itself not an object
-is refused with `invalid_type`.
+`metadata` is held to the same bounds, and refused with the same errors, as a Responses
+request's `metadata`. A bound crossed answers `400` with `param` set to `metadata`: a
+17th pair with code `object_above_max_properties`, and a key or string value over its
+length bound with `string_above_max_length`. A value that is not a string is refused
+with `invalid_type`, the message naming the key and the type sent (for a key `k`:
+`Invalid type for 'metadata.k': expected a string, but got an object instead.`). A
+`metadata` field that is itself not an object is refused with `invalid_type`.
 
 ### Example Request
 

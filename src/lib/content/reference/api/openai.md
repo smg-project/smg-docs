@@ -389,9 +389,9 @@ HTTP worker writes into its own stream is relayed as it arrives.
 In the error event SMG writes, the `type` is `stream_error` when the worker fails the
 stream: its connection breaks, its server cuts the stream, it answers a server error
 or a timeout after the first chunk, or the engine itself reports that the request
-failed. On gRPC workers, any other status the engine answers mid-stream keeps the
-`type` it would carry in an error body (see [Error Format](#error-format)): for
-example `invalid_request_error` when the engine rejects the request after its first
+failed. In a stream SMG builds itself, any other status the engine answers mid-stream
+keeps the `type` it would carry in an error body (see [Error Format](#error-format)):
+for example `invalid_request_error` when the engine rejects the request after its first
 chunk, or `rate_limit_error` for capacity pushback. `internal_error` means the failure
 was in SMG's own processing.
 
@@ -403,7 +403,8 @@ the request's [504](#error-codes) carries when the timeout expires before the re
 starts. When the worker itself cuts the stream (its connection breaks, or its server
 closes the stream mid-answer), the error event carries no `code`, so clients can
 distinguish the request's time budget running out from a worker failure. On a ZMQ
-worker the same request timeout bounds the stream, but its cut carries no `code`.
+worker, `--request-timeout-secs` (or the worker's `timeout_secs`) bounds the stream the
+same way, but the error event that ends it carries no `code`.
 
 A quiet open SSE response can contain `: ping` comments between events. SMG
 sends them after 15 seconds of silence by default, including while waiting for

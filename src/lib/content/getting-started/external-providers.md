@@ -140,7 +140,7 @@ When a provider refuses a request — on chat completions, Responses, Messages, 
 
 - Phrases naming an organization (`organization org-…`) or a project (`project proj_…`) in a JSON body's `error.message` are removed, whatever their case.
 - The message of an error whose `code` is `invalid_image_url` is replaced with `Invalid Image URL`.
-- Within the read bound below, everything else is relayed as the provider sent it: the error's `type` and `code`, the rest of the message, and any non-JSON body, which passes through unchanged.
+- Everything else — the error's `type` and `code`, the rest of the message, and any non-JSON body — is relayed as the provider sent it, within the read bound below.
 
 SMG reads an error body up to 1 MiB and relays none of a larger one. Past that bound, the answer keeps the provider's status but carries the gateway's own body in place of the provider's:
 

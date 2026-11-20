@@ -612,7 +612,7 @@ Priority-aware admission, disabled by default. The YAML format, request header, 
 | `--priority-scheduler-enabled` | `false` | Use the priority-aware admission scheduler instead of the concurrency-limit middleware. If the scheduler cannot start, the gateway logs an error and keeps the legacy path. |
 | `--priority-scheduler-default-max-class` | `default` | Maximum priority class for tenants not listed in the YAML: `system`, `interactive`, `default`, or `bulk`. Case-insensitive, surrounding spaces ignored. With the scheduler enabled, an unknown value is a configuration error at start-up (the error names the four classes); the flag is not read otherwise. |
 | `--priority-scheduler-config` | unset | Path to the optional priority-scheduler YAML (per-class tuning and per-tenant policy). Unset uses the built-in defaults. |
-| `--priority-scheduler-tenant-metric-top-n` | `32` | Intended cap on per-tenant scheduler metric label cardinality (top N plus `other`). Stored but not yet applied. |
+| `--priority-scheduler-tenant-metric-top-n` | `32` | Cap on the `tenant` label of the scheduler's clamp and unknown-priority counters: the first N distinct tenant keys to appear on either counter keep their own series; every later tenant counts under `tenant="other"`. |
 
 ---
 

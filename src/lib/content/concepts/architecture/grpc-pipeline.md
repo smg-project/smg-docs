@@ -211,7 +211,7 @@ When a request sets none of these controls, the template's own default stands. F
 
 When the renders do not settle the default — one of the three fails, or the switch-absent render equals neither of the others, or equals both (a switch that moves nothing on a bare turn) — SMG reads the default from the template's text instead.
 
-The native renderers that replace the Jinja template have fixed defaults, listed in the table above. Kimi-K2.5 keeps the Jinja template, so the render-based detection applies to it.
+The native renderers that replace the Jinja template have the fixed defaults listed in the table above. Kimi-K2.5 keeps the Jinja template, so the render-based detection applies to it.
 
 ---
 

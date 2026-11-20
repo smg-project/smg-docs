@@ -207,9 +207,9 @@ RUST_LOG=warn,smg=info,smg::policies=debug smg launch --worker-urls http://worke
 
 Branch values:
 
-- **Cache-aware, tree index**: `tree_match`, `spill`, `expected_wait_fallback`, `first_healthy_fallback`, the same values as `smg_cache_aware_policy_branch_total`.
+- **Cache-aware, tree index**: `tree_match`, `spill`, `expected_wait_fallback`, `first_healthy_fallback`, the values `smg_cache_aware_policy_branch_total` records for tree decisions.
 - **Cache-aware, hash index**: `hash_hit`, `hash_spill`, `short_request` (shorter than the smallest `--cache-boundaries` value), `expected_wait_fallback`, `kv_pressure_expected_wait`.
-- **Cache-aware under KV-cache imbalance**: `kv_pressure_expected_wait`; this line has no `index` field.
+- **Cache-aware under KV-cache imbalance, outside hash mode**: `kv_pressure_expected_wait`; this line has no `index` field. In hash mode the same branch appears as an ordinary hash-index line.
 - **Sticky sessions** (`--routing-key-override`): `occupied_hit`, `occupied_miss`, `vacant`, `cap_respill`, `no_healthy_workers`. `key` is the internal map key, which combines the model, the PD leg, and the routing key.
 - **Prefix hash**: `ring_hit`, `load_balance_walk`, `fallback_least_load`, `no_routing_key`, `no_healthy_workers`.
 

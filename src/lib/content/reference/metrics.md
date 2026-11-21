@@ -954,7 +954,7 @@ A worker that serves several models still counts once, under its primary model (
 
 - `worker_type`: `regular`, `prefill`, `decode`, `encode`
 - `connection_mode`: `http`, `grpc`, `zmq`
-- `model`: the worker's primary model
+- `model`: the worker's primary model; a worker without a model list counts under its `model_id` label, or `unknown`
 
 ---
 

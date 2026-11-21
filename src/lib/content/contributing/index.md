@@ -61,7 +61,7 @@ cd smg
 ### 2. Install the Toolchain
 
 ```bash
-# Install rustup; rust-toolchain.toml pins Rust 1.98.0 (the version CI uses),
+# Install rustup; rust-toolchain.toml pins Rust 1.100.0 (the version CI uses),
 # which rustup installs on your first cargo command in the checkout
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
@@ -82,7 +82,7 @@ You also need `protoc` and a C toolchain with OpenSSL headers; see [Prerequisite
 # Branch names must be <type>/<description> or <username>/<description>
 git checkout -b feat/my-change
 
-# The first cargo command installs the pinned Rust 1.98.0 toolchain
+# The first cargo command installs the pinned Rust 1.100.0 toolchain
 cargo build
 cargo test
 ```

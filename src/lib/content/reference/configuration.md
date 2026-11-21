@@ -56,7 +56,7 @@ Where the gateway listens and which workers it registers at startup.
 | `--worker-urls` | none | Space-separated worker URLs registered at startup. Schemes: `http://`, `https://`, `grpc://`, `grpcs://`, and `ipc://` (same-host ZMQ, see [ZMQ Workers](../getting-started/zmq-workers.md)). IPv6 hosts use brackets. |
 | `--job-queue-capacity` | `1000` | Maximum pending control-plane jobs (worker add/remove, tokenizer, MCP, WASM). Size it to the fleet so a service-discovery reconcile pass can enqueue every worker without blocking. Range `1` to `1000000`. |
 | `--job-queue-concurrency` | `200` | Maximum control-plane jobs dispatched concurrently. Range `1` to `100000`. |
-| `--zmq-engine-count` | unset | Data-parallel engines per startup ZMQ worker: each `ipc://` worker becomes one grouped worker whose handshake waits for this many engines on one socket set. Must be at least `1`. |
+| `--zmq-engine-count` | unset | Data-parallel engines per startup ZMQ worker: each `ipc://` worker becomes one grouped worker whose handshake waits for this many engines on one socket set, or, under `--dp-aware`, one routable worker per engine rank, all sharing that socket set (see [Data-Parallel Engines](../getting-started/zmq-workers.md#data-parallel-engines)). Must be at least `1`. |
 | `--upstream-http2` | `false` | Speak HTTP/2 to workers by prior knowledge (h2c on cleartext) for request dispatch and health probes alike, multiplexing every request to a worker over one connection. Negotiated per worker at registration: a worker that does not answer HTTP/2 stays on HTTP/1.1, so mixed fleets can roll out in any order. `http_pool.http2` on a worker spec pins the version instead. |
 
 **Examples**:

@@ -149,9 +149,10 @@ without the parts the serving pipeline never carried — an `input_file` always,
 `input_image` without an `image_url`, and on gpt-oss (Harmony) models every `input_image`.
 The stored turn was answered without those parts, so the continuation is served rather
 than refused over a history the client cannot edit. A conversation item the client added
-itself through [Create Conversation Items](#create-conversation-items) keeps every part:
-the next response over the conversation refuses an unsupported part there just as it
-would one in its own input.
+itself — through [Create Conversation Items](#create-conversation-items) or the `items`
+of [Create Conversation](#create-conversation) — keeps every part: the next response
+over the conversation refuses an unsupported part there just as it would one in its own
+input.
 
 **Replaying a function call and its result:**
 
@@ -980,8 +981,9 @@ A field that breaks a validation rule answers `400` under that rule's own `code`
 Three more `400` rejections carry their own `code`: under
 [Create Conversation Items](#create-conversation-items), `item_already_in_conversation`
 for an item the conversation already holds (`param` is `items`) and
-`string_above_max_length` for an item `id` over 64 bytes (`param` is `items[].id`);
-under [Get Conversation Item](#get-conversation-item), `invalid_value` for a bad
+`string_above_max_length` for an item `id` over 64 bytes (`param` is `items[].id`; the
+`items` of [Create Conversation](#create-conversation) answer it too); under
+[Get Conversation Item](#get-conversation-item), `invalid_value` for a bad
 `include` value (`param` names the offending entry, such as `include[0]`).
 
 A request refused without a rule of its own — such as a missing or invalid `items`
@@ -1013,7 +1015,28 @@ POST /v1/conversations
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `items` | array | No | Initial items to store in the new conversation (max 20), under the rules of [Create Conversation Items](#create-conversation-items) |
 | `metadata` | object | No | Custom metadata: at most 16 pairs, keys up to 64 characters, every value a string of at most 512 characters |
+
+`items`, when present, is stored into the new conversation exactly as
+[Create Conversation Items](#create-conversation-items) stores it: the same 20-item and
+64-byte-ID bounds, supported item types, `message` field rules, refusals, and `warnings`
+apply, and the stored items list exactly as they would in a conversation created empty
+and given the same items. A `null` `items` field is treated as absent. The response is the
+conversation object, not an item list; when the batch stores item types SMG does not
+implement yet, the object carries the same `warnings` array
+[Create Conversation Items](#create-conversation-items) answers. The one refusal that
+cannot occur here is `item_already_in_conversation`: the new conversation holds nothing
+yet.
+
+The whole batch is validated — including resolving every `item_reference` against the
+item store — before the conversation is created, so a refused request creates no
+conversation and stores no items. When the writes themselves fail after that point — a
+storage fault, an item `id` another tenant's write claimed since validation, or a
+referenced item the batch's own writes evicted from a full
+[in-memory backend](../../concepts/data/chat-history.md#memory-backend) — the
+just-created conversation is deleted and the error returned; items the batch had
+already written stay stored, but in no conversation.
 
 `metadata` is held to the same bounds, and refused with the same errors, as a Responses
 request's `metadata`. Each refusal answers `400` with `param` set to `metadata`: a
@@ -1030,6 +1053,13 @@ the same `param`.
 curl http://localhost:30000/v1/conversations \
   -H "Content-Type: application/json" \
   -d '{
+    "items": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "Hello"}]
+      }
+    ],
     "metadata": {
       "project": "customer-support",
       "user_id": "user_123"
@@ -1038,6 +1068,9 @@ curl http://localhost:30000/v1/conversations \
 ```
 
 ### Response
+
+The conversation object, with or without `items` in the request; the stored items are
+read back through [List Conversation Items](#list-conversation-items).
 
 ```json
 {

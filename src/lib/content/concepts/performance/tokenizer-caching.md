@@ -103,6 +103,7 @@ Identical prompts repeated across a batch hit L0. Prompts that share a template 
 - Hash-based O(1) lookup, keyed on the whole input text
 - Entry size grows with input length
 - Bounded by an entry cap and a byte budget covering texts, token IDs, and per-entry overhead
+- An input whose entry alone would take more than a quarter of the byte budget is not cached at all
 - Approximate LRU eviction when either bound is reached (samples 8 entries and evicts the least recently used)
 
 **Best for**: Identical requests, repeated batch inputs
@@ -383,7 +384,7 @@ Maximum number of entries in the L0 cache. Must be greater than 0 when L0 is ena
 
 #### `--tokenizer-cache-l0-max-memory`
 
-Byte budget of the L0 cache, covering its texts, token IDs, and a fixed per-entry overhead. Must be greater than 0 when L0 is enabled.
+Byte budget of the L0 cache, covering its texts, token IDs, and a fixed per-entry overhead. Must be greater than 0 when L0 is enabled. An input whose entry alone would take more than a quarter of this budget is not cached at all.
 
 | Option | `--tokenizer-cache-l0-max-memory` |
 |--------|-----------------------------------|

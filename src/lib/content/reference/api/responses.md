@@ -1018,13 +1018,13 @@ POST /v1/conversations
 | `items` | array | No | Initial items to store in the new conversation (max 20), under the rules of [Create Conversation Items](#create-conversation-items) |
 | `metadata` | object | No | Custom metadata: at most 16 pairs, keys up to 64 characters, every value a string of at most 512 characters |
 
-`items`, when present, is stored into the new conversation through the path of
-[Create Conversation Items](#create-conversation-items): the same 20-item and
-64-byte-ID bounds, supported item types, `message` field rules, refusals, and `warnings`
-apply, and the stored items list exactly as they would in a conversation created empty
-and given the same items. A `null` `items` field is treated as absent. The one refusal
-that cannot occur here is `item_already_in_conversation`: the new conversation holds
-nothing yet.
+`items`, when present, is stored into the new conversation the same way
+[Create Conversation Items](#create-conversation-items) stores a batch: the same 20-item
+and 64-byte-ID bounds, supported item types, `message` field rules, refusals, and
+`warnings` apply, and the stored items list exactly as they would in a conversation
+created empty and given the same items. A `null` `items` field is treated as absent.
+The one refusal that cannot occur here is `item_already_in_conversation`: the new
+conversation holds nothing yet.
 
 The whole batch is validated — including resolving every `item_reference` against the
 item store — before the conversation is created, so a refused request creates no
@@ -1066,10 +1066,11 @@ curl http://localhost:30000/v1/conversations \
 
 ### Response
 
-The conversation object — not an item list — with or without `items` in the request; the
-stored items are read back through [List Conversation Items](#list-conversation-items).
-When the batch stores item types SMG does not implement yet, the object carries the same
-`warnings` array [Create Conversation Items](#create-conversation-items) answers.
+Returns the conversation object — not an item list — whether or not the request carried
+`items`; the stored items are read back through
+[List Conversation Items](#list-conversation-items). When the batch stores item types SMG
+does not implement yet, the response adds the same `warnings` entry as
+[Create Conversation Items](#create-conversation-items).
 
 ```json
 {

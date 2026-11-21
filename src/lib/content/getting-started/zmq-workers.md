@@ -181,7 +181,7 @@ For this path it prints `22670`. SMG also logs the address when it binds:
 Binding ZMQ client for worker ipc:///tmp/smg-zmq/engine-0 (handshake=tcp://127.0.0.1:22670, engines=Declared)
 ```
 
-`engines=` shows how many engines the handshake waits for: `Exactly(N)` for a grouped worker with an explicit engine count, or `Declared` when the gateway takes the count from the first engine to dial (see [Data-Parallel Engines](#data-parallel-engines)).
+`engines=` shows how many engines the handshake waits for: `Exactly(N)` for a worker given an explicit engine count, or `Declared` when the gateway takes the count from the first engine to dial (see [Data-Parallel Engines](#data-parallel-engines)).
 
 Two paths can hash to the same port; SMG rejects the second worker at registration. Workers added through the [worker API](#register-workers-at-runtime) can set a fixed `zmq_handshake_address` instead.
 
@@ -379,7 +379,7 @@ On a disaggregated TokenSpeed pair whose prefill side is a grouped ZMQ worker, t
 
 On a gateway running with `--dp-aware`, a ZMQ worker given an engine count above 1 — `--zmq-engine-count`, or `dp_size` on the worker spec — registers as one routable worker per rank instead of as one grouped worker. Each rank worker appears in `/workers` at `<url>@<rank>` (for example `ipc:///tmp/smg-zmq/engine-0@0`, `ipc:///tmp/smg-zmq/engine-0@1`) with its `dp_rank`, `dp_size`, and `dp_base_url` fields set by the gateway, like the rank workers `--dp-aware` registers for gRPC and HTTP engines.
 
-The rank workers share the group's one socket set and one engine connection: whichever rank's probe runs first performs the handshake, every rank uses the connection it made, and a connection one rank loses is lost — and later re-established — for the whole group. Each rank worker pins the requests routed to it to its own rank and reports its own rank's scheduler load, so the gateway's routing policy spreads load across the ranks like any other workers. The in-connection [rank selection](#rank-selection) above applies only to grouped workers, and `--grouped-dp-sticky` does nothing for rank workers: an expanded group is not a grouped worker, and the routing policy's pick is the rank.
+The rank workers share the group's one socket set and one engine connection: whichever rank's probe runs first performs the handshake, every rank uses the connection it made, and a connection one rank loses is lost — and later re-established — for the whole group. Each rank worker pins the requests routed to it to its own rank and reports its own rank's scheduler load, so the gateway's routing policy spreads load across the ranks as it does across separate workers. The in-connection [rank selection](#rank-selection) above applies only to grouped workers, and `--grouped-dp-sticky` does nothing for rank workers: an expanded group is not a grouped worker, and the routing policy's pick is the rank.
 
 Two shapes don't run as rank workers:
 
@@ -492,7 +492,7 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
 
     1. Check that the engine dials the address SMG bound: compare the engine's `--data-parallel-rpc-port` and `--data-parallel-address` with the `handshake=` value in SMG's `Binding ZMQ client for worker ...` log line. With no engine, once `--zmq-startup-timeout-secs` expires, SMG logs `ZMQ backend handshake failed for ...: ... startup handshake timed out while waiting for HELLO after 3600s; will retry on the next health probe`.
     2. For a grouped worker, check that an explicit `--zmq-engine-count` (or `dp_size`) matches the engine's `--data-parallel-size`. With no explicit count, the gateway waits for the group size declared by the first engine to dial, so the worker stays pending until that many engines have dialed in.
-    3. Under `--dp-aware`, a vLLM group whose engines' ZMQ indices don't start at 0 is refused at connect: the log shows `ZMQ backend handshake failed for ...: dp-aware routing pins a request to its rank, which reaches only ... of the ... engines connected: their ZMQ indices do not run from 0`. Launch the group at data-parallel start rank 0, or register it without `--dp-aware` (see [Rank Workers](#rank-workers)).
+    3. Under `--dp-aware`, a vLLM group whose engines' ZMQ indices don't run from 0 is refused at connect: the log shows `ZMQ backend handshake failed for ...: dp-aware routing pins a request to its rank, which reaches only ... of the ... engines connected: their ZMQ indices do not run from 0`. Launch the group at data-parallel start rank 0, or register it without `--dp-aware` (see [Rank Workers](#rank-workers)).
     4. A worker added through the API to a gateway started with `--disable-health-check` and no ZMQ workers at startup is never promoted. Restart the gateway without that flag.
 
 ??? question "Socket bind errors or stale socket files"

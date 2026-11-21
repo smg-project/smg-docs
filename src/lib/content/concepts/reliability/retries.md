@@ -40,7 +40,7 @@ Add randomness to backoff timing to prevent thundering herd problems.
 
 ### :material-filter: Smart Selection
 
-Only retry status codes that are likely to succeed on another attempt, and never a response whose cause cannot clear within a backoff window. A worker's own `500` is never replayed on that worker.
+Only retry status codes that are likely to succeed on another attempt, and never a response whose cause cannot clear within a backoff window. A worker's own `500` is definitive: retries avoid the worker that answered it.
 
 </div>
 
@@ -70,7 +70,7 @@ Without retries, every transient failure becomes a client-visible error. With re
 
 Skipping the workers a request failed on applies even under deterministic affinity: when `cache_aware` has the prompt's prefix cached on the failed worker, or a `consistent_hashing` routing key maps to it, the retry moves to another worker instead of going straight back. When every available worker has already been tried, including when the pool has a single worker, the retry selects among all of them again — except a worker that answered the request with its own `500`, which is never selected for that request again (see [When a Worker Answers 500](#when-a-worker-answers-500)).
 
-There are two exceptions. A request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) is retried on the worker it targets. PD mode does not skip tried workers: each attempt selects its prefill/decode pair from all available workers, so a retry can pick the same pair again. A worker's own `500` overrides both exceptions; only HTTP PD mode retries a `500` like any other status (see [When a Worker Answers 500](#when-a-worker-answers-500)).
+There are two exceptions. A request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) is retried on the worker it targets. PD mode does not skip tried workers: each attempt selects its prefill/decode pair from all available workers, so a retry can pick the same pair again. A worker's own `500` overrides both exceptions (see [When a Worker Answers 500](#when-a-worker-answers-500)).
 
 `--retry-max-retries` counts **attempts, including the first**: the default `5` allows the initial attempt plus up to four retries, and `1` disables retries.
 
@@ -82,13 +82,15 @@ Responses served by gRPC and ZMQ workers carry the same header when the final at
 
 ### When a Worker Answers 500
 
-A `500` a worker produced itself — its own response on the HTTP wire, or a gRPC `INTERNAL` status from the engine — is the worker's definitive answer for the request: replaying the same payload on the same worker costs the same work for the same answer. Retries of the request move to other available workers and never return to a worker that answered `500`, however many attempts remain. This exclusion never relaxes: it holds when every other worker has already been tried, and for a request targeted with `X-SMG-Target-Worker`. It is also per request: the worker stays selectable for other requests, and its circuit breaker takes the request's one failure as usual.
+A `500` a worker produced itself — its own response on the HTTP wire, or a gRPC `INTERNAL` status from the engine — is the worker's definitive answer for the request: replaying the same payload on the same worker costs the same work for the same answer. Retries of the request move to other available workers and never return to a worker that answered `500`, however many attempts remain. The exclusion holds even when every other worker has already been tried, and for a request targeted with `X-SMG-Target-Worker`. It is also per request: the worker stays selectable for other requests, and its circuit breaker takes the request's one failure as usual.
 
-In PD mode on gRPC workers, the exclusion covers only the worker that answered the `500`, not the whole prefill/decode pair: the partner stays selectable, and the next attempt selects a pair again with another available worker of the failed worker's kind — prefill or decode. When no worker of that kind is left to take the request, the `500` goes back to the client as the worker's own answer, not as a `no_available_workers` refusal.
+In PD mode, on HTTP and gRPC workers alike, the exclusion covers only the worker that answered the `500`, not the whole prefill/decode pair: the partner stays selectable, and the next attempt selects a pair again with another available worker of the failed worker's kind — prefill or decode. When no worker of that kind is left to take the request, the `500` goes back to the client as the worker's own answer, not as a `no_available_workers` refusal.
 
-When no other worker can take the attempt — the pool has a single worker, or every alternative is unavailable, unable to serve the request, or has itself answered `500` — the `500` is returned to the client at once, skipping the remaining attempts and their backoff. The HTTP router relays the response as the worker sent it, body included.
+The HTTP PD router adds one refinement — the one case where a request returns to a worker that answered its own `500`. A side's answer can be caused by the handoff with its partner, so when the worker that answered is the last of its side that can still form a pair, the retry excludes its partner instead and tries the worker again with another partner. Each such pair gets one attempt; when no pair can form either way, the `500` goes back.
 
-Only the worker's own `500` is definitive. The `502` the gateway returns when the worker's connection fails, a `500` the gateway synthesizes for a fault of its own, and a worker-sent `502`, `503`, or `504` all stay replayable on the same worker under the normal rules. The rule covers HTTP workers in regular mode and gRPC and ZMQ workers; for HTTP workers in PD mode and for external providers, a `500` is retried like any other [retryable status](#retryable-status-codes).
+When no other worker can take the attempt — the pool has a single worker, or every alternative is unavailable, unable to serve the request, or has itself answered `500` — the `500` is returned to the client at once, skipping the remaining attempts and their backoff. In regular mode the HTTP router relays the response as the worker sent it, body included; in PD mode the worker's status and `Retry-After` are kept, but the body is the gateway's error envelope naming the failed side, with the message from the worker's error body.
+
+Only the worker's own `500` is definitive. The `502` the gateway returns when the worker's connection fails, a `500` the gateway synthesizes for a fault of its own, and a worker-sent `502`, `503`, or `504` all stay replayable on the same worker under the normal rules. The rule covers HTTP workers in regular and PD mode, and gRPC and ZMQ workers; for external providers, a `500` is retried like any other [retryable status](#retryable-status-codes).
 
 ### Where Retries Apply
 
@@ -139,7 +141,7 @@ SMG retries responses with these status codes. The list is global: per-worker `r
 |------|---------|---------------|
 | `408` | Request Timeout | Temporary network issue |
 | `429` | Too Many Requests | Worker temporarily overloaded |
-| `500` | Internal Server Error | Transient server issue; never replayed on a worker that answered it |
+| `500` | Internal Server Error | Transient server issue; retries avoid a worker that answered it |
 | `502` | Bad Gateway | Upstream temporarily unavailable |
 | `503` | Service Unavailable | Service temporarily down |
 | `504` | Gateway Timeout | Upstream timeout |

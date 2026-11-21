@@ -12,7 +12,7 @@ This guide covers setting up a development environment, building and testing SMG
 
 | Tool | Version | Used for |
 |------|---------|----------|
-| Rust | 1.98.0 | Building the workspace. Pinned by the checked-in `rust-toolchain.toml`; the CI runners install the same version through `scripts/ci_install_rust.sh` |
+| Rust | 1.100.0 | Building the workspace. Pinned by the checked-in `rust-toolchain.toml`; the CI runners install the same version through `scripts/ci_install_rust.sh` |
 | Rust nightly with `rustfmt` | nightly | Formatting only: `rustfmt.toml` uses unstable options |
 | `protoc` | — | Compiling the gRPC (`crates/grpc_client`) and mesh (`crates/mesh`) protobuf definitions at build time |
 | C toolchain, `pkg-config`, OpenSSL headers | — | Native dependencies |
@@ -47,9 +47,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup toolchain install nightly --profile minimal --component rustfmt
 ```
 
-The checked-in `rust-toolchain.toml` pins Rust 1.98.0 with the `clippy` and `rustfmt` components: rustup installs and selects that toolchain on your first `cargo` command in the checkout, so there is no stable toolchain to install by hand.
+The checked-in `rust-toolchain.toml` pins Rust 1.100.0 with the `clippy` and `rustfmt` components: rustup installs and selects that toolchain on your first `cargo` command in the checkout, so there is no stable toolchain to install by hand.
 
-A directory override (`rustup override set`) takes precedence over the pin, and newer stable toolchains can report clippy lints that 1.98.0 does not. If your clippy results differ from CI's, remove the override with `rustup override unset`.
+A directory override (`rustup override set`) takes precedence over the pin, and newer stable toolchains can report clippy lints that 1.100.0 does not. If your clippy results differ from CI's, remove the override with `rustup override unset`.
 
 ### 3. Install System Packages
 
@@ -786,7 +786,7 @@ The integration tests bind fixed local ports. Make sure no other test run (from 
 
 ### Clippy Passes Locally but Fails in CI
 
-- CI uses Rust 1.98.0, the version `rust-toolchain.toml` pins for the checkout. A `rustup override` or a `+<toolchain>` argument bypasses the pin and can report different lints.
+- CI uses Rust 1.100.0, the version `rust-toolchain.toml` pins for the checkout. A `rustup override` or a `+<toolchain>` argument bypasses the pin and can report different lints.
 - CI lints with `--all-features` and also lints the self-hosted-only and Anthropic-only builds.
 - `-D warnings` turns every `warn`-level workspace lint into an error.
 

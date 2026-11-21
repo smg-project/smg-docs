@@ -392,10 +392,10 @@ Either field keeps overload protection on for this worker, even under `--disable
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `dp_size` | integer | none | On an `ipc://` worker, the number of data-parallel engines that dial into its one socket set. A value above 1 makes a grouped worker, and the gateway spreads requests across the group's engines. On other workers the gateway sets this field itself during data-parallel discovery. |
+| `dp_size` | integer | none | On an `ipc://` worker, the number of data-parallel engines that dial into its one socket set. A value above 1 makes a grouped worker, and the gateway spreads requests across the group's engines; on a gateway running with `--dp-aware` it instead registers one routable worker per rank, at `<url>@<rank>`, all sharing the socket set (see [Rank Workers](../../getting-started/zmq-workers.md#rank-workers)). On other workers the gateway sets this field itself during data-parallel discovery. |
 | `zmq_handshake_address` | string | derived | `tcp://` address the gateway binds for the engine handshake. The default is `tcp://127.0.0.1:<port>`, with the port (20000 to 29999) derived from the `ipc://` path. Set it for an engine that dials a fixed address, such as `tcp://127.0.0.1:30500`, TokenSpeed's default. |
 
-Registration of a ZMQ worker fails when the runtime is not `vllm`, `tokenspeed`, or `sglang`, when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, when `dp_size` is above 1 on a gateway running with `--dp-aware`, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
+Registration of a ZMQ worker fails when the runtime is not `vllm`, `tokenspeed`, or `sglang`, when `worker_type` is not `regular` (disaggregated workers need gRPC), when no model ID is available, or when the handshake address is not `tcp://` or is already bound by another ZMQ worker. Setting `zmq_handshake_address` on a non-ZMQ worker also fails registration. Health checks stay on for ZMQ workers, because the probe is what reconnects a restarted engine.
 
 **PD disaggregation and KV transfer**: see [PD Disaggregation](../../concepts/routing/pd-disaggregation.md).
 
@@ -422,7 +422,7 @@ Registration of a ZMQ worker fails when the runtime is not `vllm`, `tokenspeed`,
 
     - `connection_mode`: the URL scheme decides the transport, and responses report the result (`http`, `grpc`, or `zmq`).
     - `max_connection_attempts`: not read; registration keeps probing until `--worker-startup-timeout-secs`. A worker from the command line or service discovery is registered with ten times `--health-success-threshold` (`20` by default), which responses show; a worker registered through this API echoes the value it was given.
-    - `dp_base_url`, `dp_rank`, and `dp_size` (except on ZMQ workers): the gateway sets them on data-parallel workers under `--dp-aware`.
+    - `dp_base_url`, `dp_rank`, and `dp_size` (except `dp_size` on ZMQ workers, which sets the engine count described above): the gateway sets them on data-parallel workers under `--dp-aware`.
 
 ---
 

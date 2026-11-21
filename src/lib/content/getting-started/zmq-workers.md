@@ -52,7 +52,7 @@ The engine never sees text, so SMG also does the work that the engine's API serv
 | EOS (vLLM) | Attaches the model's EOS token IDs to every request: from `config.json` and `generation_config.json` when `--model-path` is a local directory, otherwise from the tokenizer. TokenSpeed and SGLang stop at EOS on their own |
 | Default `max_tokens` (vLLM) | Uses the context length the engine reported at handshake minus the prompt length |
 | `n > 1` | Sends `n` single-sample requests and merges the results; an explicit `seed` becomes `seed + i` for sample `i`, so samples differ but stay reproducible (vLLM and TokenSpeed; the SGLang wire carries no `seed`) |
-| Data-parallel ranks | Picks the least-loaded engine inside a grouped worker, or the sticky key's engine under `--grouped-dp-sticky hash` (see [Data-Parallel Engines](#data-parallel-engines)) |
+| Data-parallel ranks | Picks the least-loaded engine inside a grouped worker, or the sticky key's engine under `--grouped-dp-sticky hash`; under `--dp-aware` each rank registers as its own worker and pins its requests to its rank (see [Data-Parallel Engines](#data-parallel-engines)) |
 
 ---
 
@@ -264,7 +264,7 @@ ZMQ-related worker fields:
 | `url` | `ipc://<path>` (the path is required) |
 | `runtime_type` | `vllm`, `tokenspeed`, or `sglang` (`runtime` is accepted as an alias). Unset means vLLM |
 | `zmq_handshake_address` | A `tcp://` address to bind for the handshake instead of the derived one. Rejected on non-ZMQ workers |
-| `dp_size` | Number of engines in a [grouped worker](#data-parallel-engines); if omitted, the worker waits for the group size declared by the first engine to dial (one for an engine that declares none). Leave `dp_rank` unset |
+| `dp_size` | Number of data-parallel engines that dial the worker's socket set, making a [grouped worker](#data-parallel-engines) or, under `--dp-aware`, one [rank worker](#rank-workers) per engine; if omitted, the worker waits for the group size declared by the first engine to dial (one for an engine that declares none). Leave `dp_rank` unset |
 | `labels.model_path` | Model ID and tokenizer source, for gateways started without `--model-path` |
 
 `zmq_handshake_address` pairs a worker with an engine that dials a fixed address. A TokenSpeed engine started without `--data-parallel-rpc-port` dials `tcp://127.0.0.1:30500`, so this worker pairs with it:
@@ -285,12 +285,13 @@ Registration runs in the background (the API answers `202 Accepted`), so a rejec
 
 ## Data-Parallel Engines
 
-There are two ways to run data parallelism over ZMQ:
+There are three ways to run data parallelism over ZMQ:
 
 - **Replicas:** several single-engine workers, each with its own socket path. The gateway's routing policy spreads requests across them. `smg serve --data-parallel-size N` sets this up.
 - **Grouped worker:** one worker URL and one socket set, with `N` data-parallel engines behind it. The gateway sees one worker and picks the engine (rank) for each request itself.
+- **Rank workers:** the same engine group on a gateway running with `--dp-aware`: one routable worker per rank, all sharing the group's socket set, so the routing policy picks the rank by picking the worker (see [Rank Workers](#rank-workers)).
 
-Replicas work with every ZMQ engine. Grouped workers are a vLLM and TokenSpeed setup: data parallelism over the SGLang ZMQ wire isn't supported yet, and `smg serve` refuses to start an SGLang engine with a data-parallel size above 1 in ZMQ mode (use gRPC for SGLang data parallelism).
+Replicas work with every ZMQ engine. Grouped workers — and the rank workers a group expands into — are a vLLM and TokenSpeed setup: data parallelism over the SGLang ZMQ wire isn't supported yet, and `smg serve` refuses to start an SGLang engine with a data-parallel size above 1 in ZMQ mode (use gRPC for SGLang data parallelism).
 
 ### Configure a Grouped Worker
 
@@ -341,7 +342,7 @@ Start the engine group with its data-parallel size. A TokenSpeed attention-DP gr
 - The count the gateway waits for must match the number of engines that dial in. An extra engine can fail the handshake with `duplicate HELLO ... after INIT phase`; a missing one leaves the handshake waiting until it times out.
 - An engine may declare a group size that differs from the count the handshake awaits, whether that count was set explicitly or settled by the first engine. The engine still connects; the gateway logs `engine declares a group of a different size than this handshake awaits` and keeps the count it was waiting for.
 - The engine process needs `N` times its tensor-parallel size in GPUs.
-- Grouped workers can't be combined with `--dp-aware`, which tries to expand the group into one worker per rank and fails with `cannot be dp-aware expanded`. Single-engine ZMQ workers register normally under `--dp-aware`.
+- On a gateway running with `--dp-aware`, a worker given an explicit count above 1 does not register as one grouped worker: it expands into one worker per rank instead (see [Rank Workers](#rank-workers)). A worker with no explicit count stays one grouped worker even under `--dp-aware`, with a logged warning that no routing policy chooses among its ranks.
 
 ### Rank Selection
 
@@ -372,7 +373,18 @@ Even under `hash`, these requests keep the least-loaded pick:
 On a disaggregated TokenSpeed pair whose prefill side is a grouped ZMQ worker, the pin rides in the request's [bootstrap room](../concepts/routing/pd-disaggregation.md) instead of a rank field: the gateway moves the room so that the room modulo the prefill group's engine count equals the key's rank, and the prefill engine runs the request on the rank its room names. The decode side gets the same room, so a decode group of the same size follows the prefill rank. The samples of an `n > 1` request get rooms of their own with the same remainder, so they all follow the key's rank. A batched or EPD request, or a disaggregated request on another runtime, keeps its randomly minted room, unpinned (logged once per gateway process).
 
 !!! note "TokenSpeed attention-DP rank affinity over gRPC"
-    Rank affinity for TokenSpeed attention data parallelism keeps multi-turn requests on the rank that holds their prefix cache. Over gRPC it works with `--dp-aware`: the TokenSpeed gRPC servicer advertises a `dp_size` label only when the engine and its protocol stubs support rank pinning (the capability handshake) and the width is above 1, and the gateway then registers one worker per rank and pins `data_parallel_rank` on each request. Single-rank engines register as ordinary, unpinned workers. None of this applies over ZMQ, where workers can't be dp-aware expanded; the ZMQ counterpart is `--grouped-dp-sticky hash` on a grouped worker, described above.
+    Rank affinity for TokenSpeed attention data parallelism keeps multi-turn requests on the rank that holds their prefix cache. Over gRPC it works with `--dp-aware`: the TokenSpeed gRPC servicer advertises a `dp_size` label only when the engine and its protocol stubs support rank pinning (the capability handshake) and the width is above 1, and the gateway then registers one worker per rank and pins `data_parallel_rank` on each request. Single-rank engines register as ordinary, unpinned workers. Over ZMQ, `--dp-aware` expands a worker the same way, by its own engine count (see [Rank Workers](#rank-workers)); on a gateway not running with `--dp-aware`, the alternative is `--grouped-dp-sticky hash` on a grouped worker, described above.
+
+### Rank Workers
+
+On a gateway running with `--dp-aware`, a ZMQ worker given an engine count above 1 — `--zmq-engine-count`, or `dp_size` on the worker spec — registers as one routable worker per rank instead of as one grouped worker. Each rank worker appears in `/workers` at `<url>@<rank>` (for example `ipc:///tmp/smg-zmq/engine-0@0`, `ipc:///tmp/smg-zmq/engine-0@1`) with its `dp_rank`, `dp_size`, and `dp_base_url` fields set by the gateway, like the rank workers `--dp-aware` registers for gRPC and HTTP engines.
+
+The rank workers share the group's one socket set and one engine connection: whichever rank's probe runs first performs the handshake, every rank uses the connection it made, and a connection one rank loses is lost — and later re-established — for the whole group. Each rank worker pins the requests routed to it to its own rank and reports its own rank's scheduler load, so the gateway's routing policy spreads load across the ranks like any other workers. The in-connection [rank selection](#rank-selection) above applies only to grouped workers, and `--grouped-dp-sticky` does nothing for rank workers: an expanded group is not a grouped worker, and the routing policy's pick is the rank.
+
+Two shapes don't run as rank workers:
+
+- A worker with no explicit engine count stays one grouped worker, because the group size its engines declare at the handshake isn't known at registration. The gateway logs `No DP size for ZMQ worker ...: its ranks register as one grouped worker, and no routing policy chooses among them; give the engine count ...`.
+- A vLLM group whose engines' ZMQ indices don't run from 0 — one launched at a non-zero data-parallel start rank — is refused when its rank workers connect, because a vLLM pin names an engine's index and a rank at or past the gap would have no engine. The handshake fails with `dp-aware routing pins a request to its rank, which reaches only ... of the ... engines connected: their ZMQ indices do not run from 0. Launch the group at data-parallel start rank 0, or register it without --dp-aware`, and the workers stay pending. A TokenSpeed pin goes to the connection's rank-th engine, so a TokenSpeed group connects whatever its indices.
 
 ---
 
@@ -421,7 +433,7 @@ On a disaggregated TokenSpeed pair whose prefill side is a grouped ZMQ worker, t
 | No embeddings | `501` with code `unsupported_backend`: `ZMQ backend does not support embeddings yet` |
 | No engine admin operations | `POST /flush_cache` skips ZMQ workers, and profiling fails with `start_profile is not supported over ZMQ`. LoRA loading, weight updates, and sleep/wake aren't available over ZMQ |
 | No tokenizer from the engine | The gateway loads it from `--model-path` or `--tokenizer-path` (or the worker's `model_path`/`tokenizer_path` labels). A tokenizer loaded by the worker's registration is unloaded when the model's last worker is removed; entries loaded at startup or added with `POST /v1/tokenizers` stay |
-| Rank pinning inside a grouped worker | Opt-in, sticky keys only: the default sends every request to the least-loaded engine, and `--grouped-dp-sticky hash` pins requests by their sticky key (see [Rank Selection](#rank-selection)) |
+| Rank pinning inside a grouped worker | Opt-in, sticky keys only: the default sends every request to the least-loaded engine, and `--grouped-dp-sticky hash` pins requests by their sticky key (see [Rank Selection](#rank-selection)). For the routing policy to place requests per rank, register the group under `--dp-aware` as [rank workers](#rank-workers) instead |
 | vLLM multimodal | Mixed image and video in one request: `400`, `the vLLM ZMQ backend takes one modality per request ...`. Worker-side media processing (media references) needs a gRPC vLLM worker: `400`, `multimodal_not_supported` |
 | TokenSpeed logprobs | `top_logprobs` above 1, or `token_ids_logprob`: `400`, `... not supported over the TokenSpeed ZMQ backend` |
 | TokenSpeed MRoPE models | Outside the Qwen3.5 lineage and Qwen3-Omni: `400`, `... MRoPE position tensors of this model are not derivable over the TokenSpeed ZMQ wire (the Qwen3.5 lineage's and Qwen3-Omni's are); use the gRPC transport for this model`. A multimodal request to a Qwen3.5-lineage engine whose handshake omits any of the layout facts: `400`, `... need its MRoPE position table, which the launcher's model facts (spatial_merge_size, image_token_id, video_token_id) did not provide ...`. The handshake has no field for the clock Qwen3-Omni's rule needs, so every multimodal request to a Qwen3-Omni engine gets that refusal, naming `thinker_config.vision_config.spatial_merge_size`, `thinker_config.position_id_per_seconds`, and `thinker_config.seconds_per_chunk`; serve Qwen3-Omni media on a [gRPC worker](grpc-workers.md#rust-tokenspeed-servicer) |
@@ -480,7 +492,8 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
 
     1. Check that the engine dials the address SMG bound: compare the engine's `--data-parallel-rpc-port` and `--data-parallel-address` with the `handshake=` value in SMG's `Binding ZMQ client for worker ...` log line. With no engine, once `--zmq-startup-timeout-secs` expires, SMG logs `ZMQ backend handshake failed for ...: ... startup handshake timed out while waiting for HELLO after 3600s; will retry on the next health probe`.
     2. For a grouped worker, check that an explicit `--zmq-engine-count` (or `dp_size`) matches the engine's `--data-parallel-size`. With no explicit count, the gateway waits for the group size declared by the first engine to dial, so the worker stays pending until that many engines have dialed in.
-    3. A worker added through the API to a gateway started with `--disable-health-check` and no ZMQ workers at startup is never promoted. Restart the gateway without that flag.
+    3. Under `--dp-aware`, a vLLM group whose engines' ZMQ indices don't start at 0 is refused at connect: the log shows `ZMQ backend handshake failed for ...: dp-aware routing pins a request to its rank, which reaches only ... of the ... engines connected: their ZMQ indices do not run from 0`. Launch the group at data-parallel start rank 0, or register it without `--dp-aware` (see [Rank Workers](#rank-workers)).
+    4. A worker added through the API to a gateway started with `--disable-health-check` and no ZMQ workers at startup is never promoted. Restart the gateway without that flag.
 
 ??? question "Socket bind errors or stale socket files"
 
@@ -506,7 +519,6 @@ curl -s http://localhost:29000/metrics | grep 'connection_mode="zmq"'
     3. `would bind handshake address ..., already claimed by worker ...`: two socket paths hash to the same port. Rename one, or set `zmq_handshake_address`.
     4. `zmq_handshake_address must be a tcp:// address` or `ZMQ worker URL must be ipc://<path>`: fix the address or URL.
     5. `cannot serve worker type`: ZMQ workers must be `regular`.
-    6. `cannot be dp-aware expanded`: drop `--dp-aware`, or use single-engine workers.
 
 ??? question "TokenSpeed or SGLang requests fail or hang"
 

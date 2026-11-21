@@ -118,7 +118,7 @@ SMG_VLLM_MM_PROCESSOR=inprocess \
 
 The servicer reads each setting below from its `--mm-*` flag, and otherwise from the matching `SMG_VLLM_MM_*` variable. The `smg-grpc-servicer` package adds the flags to both gRPC launchers' parsers (`vllm serve --grpc` and `python -m vllm.entrypoints.grpc_server`) as a `vllm.general_plugins` plugin, so either form works on the worker's command line.
 
-On a launcher that offers the flag, a value read from the matching variable logs a deprecation warning, and env support there ends in the next minor release. Where the flags are absent — a `VLLM_PLUGINS` setting that leaves the `smg-servicer` plugin out, or a servicer built directly rather than by a launcher — the variables are the supported settings and no warning is logged. `SMG_VLLM_MM_TURBOJPEG`, `SMG_VLLM_MM_FETCH_TIMEOUT_MS`, `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS`, and `SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS` are the exceptions: they stay supported settings beside their flags and never log the warning.
+On a launcher that offers the flag, a value read from the matching variable logs a deprecation warning, and env support there ends in the next minor release. `SMG_VLLM_MM_TURBOJPEG`, `SMG_VLLM_MM_FETCH_TIMEOUT_MS`, `SMG_VLLM_MM_VIDEO_FETCH_TIMEOUT_MS`, and `SMG_MM_ALLOW_PRIVATE_MEDIA_HOSTS` are the exceptions: they stay supported settings beside their flags and never log the warning. Where the flags are absent — a `VLLM_PLUGINS` setting that leaves the `smg-servicer` plugin out, or a servicer built directly rather than by a launcher — the variables are the supported settings and no warning is logged.
 
 | Servicer flag | Env fallback | Default | Description |
 |---------------|--------------|---------|-------------|

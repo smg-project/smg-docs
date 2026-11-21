@@ -946,7 +946,7 @@ Metrics for worker pool management and resilience.
 
 Workers registered, by worker type, connection mode, and primary model.
 
-A worker counts once, under its primary model (the first of its model cards), even when it serves several models, so the groups add up to the total number of registered workers. A refresh of a worker's model list does not move it to another group: the worker stays counted where it registered. A group whose last worker leaves keeps a `0` sample.
+A worker that serves several models still counts once, under its primary model (the first of its model cards), so the groups add up to the total number of registered workers. A refresh of a worker's model list does not move it to another group: the worker stays counted where it registered. A group whose last worker leaves keeps a `0` sample.
 
 | Type | Labels |
 |------|--------|

@@ -66,7 +66,9 @@ The vLLM, SGLang, TokenSpeed and MLX gRPC servers come from the `smg-grpc-servic
 
     `--grpc-mode` serves the worker through `smg-grpc-servicer`, which needs SGLang 0.5.21 or later.
 
-    This starts the Rust servicer, the default. Adding `--servicer-impl python` — or setting `SMG_SGLANG_SERVICER_IMPL=python` in the worker's environment — serves the same contract from the deprecated Python servicer instead; see [Rust SGLang Servicer](#rust-sglang-servicer). On the Python servicer, SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`). The Rust servicer does not start the sidecar — its profiling and admin endpoints stay off — but under `--enable-metrics` it still serves SGLang's scheduler metrics at the sidecar's address.
+    This starts the Rust servicer, the default. Adding `--servicer-impl python` — or setting `SMG_SGLANG_SERVICER_IMPL=python` in the worker's environment — serves the same contract from the deprecated Python servicer instead; see [Rust SGLang Servicer](#rust-sglang-servicer).
+
+    On the Python servicer, SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`). The Rust servicer does not start the sidecar — its profiling and admin endpoints stay off — but under `--enable-metrics` it still serves SGLang's scheduler metrics at the sidecar's address.
 
     After the engine loads, the worker holds its gRPC health at `NOT_SERVING` while a planned warm-up runs over the engine — about a minute by default; `SMG_SGLANG_SERVICER_WARMUP` tunes or disables it (see [Planned Warm-Up Before Serving](#planned-warm-up-before-serving)).
 

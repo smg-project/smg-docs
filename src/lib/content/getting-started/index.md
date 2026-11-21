@@ -322,7 +322,9 @@ Use these when workers are not started via `smg serve`. Each command starts one 
       --port 8000
     ```
 
-    The gRPC worker runs the Rust servicer (which needs the `smg` wheel) by default. Setting `SMG_SGLANG_SERVICER_IMPL=python` in its environment serves the same contract from the deprecated Python servicer instead; on that path SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`). The Rust servicer does not start the sidecar — its profiling and admin endpoints stay off — but under `--enable-metrics` it still serves SGLang's scheduler metrics at the sidecar's address. See [Rust SGLang Servicer](grpc-workers.md#rust-sglang-servicer).
+    The gRPC worker runs the Rust servicer (which needs the `smg` wheel) by default. Setting `SMG_SGLANG_SERVICER_IMPL=python` in its environment serves the same contract from the deprecated Python servicer instead; see [Rust SGLang Servicer](grpc-workers.md#rust-sglang-servicer).
+
+    On the Python servicer, SGLang also serves an HTTP sidecar (profiling, plus `/metrics` with `--enable-metrics`). The Rust servicer does not start the sidecar — its profiling and admin endpoints stay off — but under `--enable-metrics` it still serves SGLang's scheduler metrics at the sidecar's address.
 
 === "TensorRT-LLM"
 

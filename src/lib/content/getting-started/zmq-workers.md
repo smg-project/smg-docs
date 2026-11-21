@@ -52,7 +52,7 @@ The engine never sees text, so SMG also does the work that the engine's API serv
 | EOS (vLLM) | Attaches the model's EOS token IDs to every request: from `config.json` and `generation_config.json` when `--model-path` is a local directory, otherwise from the tokenizer. TokenSpeed and SGLang stop at EOS on their own |
 | Default `max_tokens` (vLLM) | Uses the context length the engine reported at handshake minus the prompt length |
 | `n > 1` | Sends `n` single-sample requests and merges the results; an explicit `seed` becomes `seed + i` for sample `i`, so samples differ but stay reproducible (vLLM and TokenSpeed; the SGLang wire carries no `seed`) |
-| Data-parallel ranks | Picks the least-loaded engine inside a grouped worker, or the sticky key's engine under `--grouped-dp-sticky hash`; under `--dp-aware` each rank registers as its own worker and pins its requests to its rank (see [Data-Parallel Engines](#data-parallel-engines)) |
+| Data-parallel ranks | Picks the least-loaded engine inside a grouped worker, or the sticky key's engine under `--grouped-dp-sticky hash`; under `--dp-aware`, a group given an engine count registers as one worker per rank, each pinning its requests to its rank (see [Data-Parallel Engines](#data-parallel-engines)) |
 
 ---
 
@@ -289,7 +289,7 @@ There are three ways to run data parallelism over ZMQ:
 
 - **Replicas:** several single-engine workers, each with its own socket path. The gateway's routing policy spreads requests across them. `smg serve --data-parallel-size N` sets this up.
 - **Grouped worker:** one worker URL and one socket set, with `N` data-parallel engines behind it. The gateway sees one worker and picks the engine (rank) for each request itself.
-- **Rank workers:** the same engine group on a gateway running with `--dp-aware`: one routable worker per rank, all sharing the group's socket set, so the routing policy picks the rank by picking the worker (see [Rank Workers](#rank-workers)).
+- **Rank workers:** the same engine group on a gateway running with `--dp-aware` — one routable worker per rank, all sharing the group's socket set, so the routing policy picks the rank by picking the worker (see [Rank Workers](#rank-workers)).
 
 Replicas work with every ZMQ engine. Grouped workers — and the rank workers a group expands into — are a vLLM and TokenSpeed setup: data parallelism over the SGLang ZMQ wire isn't supported yet, and `smg serve` refuses to start an SGLang engine with a data-parallel size above 1 in ZMQ mode (use gRPC for SGLang data parallelism).
 

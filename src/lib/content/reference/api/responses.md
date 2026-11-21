@@ -982,7 +982,7 @@ Three more `400` rejections carry their own `code`: under
 [Create Conversation Items](#create-conversation-items), `item_already_in_conversation`
 for an item the conversation already holds (`param` is `items`) and
 `string_above_max_length` for an item `id` over 64 bytes (`param` is `items[].id`; the
-`items` of [Create Conversation](#create-conversation) answer it too); under
+`items` of [Create Conversation](#create-conversation) are refused the same way); under
 [Get Conversation Item](#get-conversation-item), `invalid_value` for a bad
 `include` value (`param` names the offending entry, such as `include[0]`).
 
@@ -1021,10 +1021,10 @@ POST /v1/conversations
 `items`, when present, is stored into the new conversation the same way
 [Create Conversation Items](#create-conversation-items) stores a batch: the same 20-item
 and 64-byte-ID bounds, supported item types, `message` field rules, refusals, and
-`warnings` apply, and the stored items list exactly as they would in a conversation
-created empty and given the same items. A `null` `items` field is treated as absent.
-The one refusal that cannot occur here is `item_already_in_conversation`: the new
-conversation holds nothing yet.
+`warnings` apply, and the stored items read back exactly as they would from a
+conversation created empty and given the same items. A `null` `items` field is treated
+as absent. The one refusal that cannot occur here is `item_already_in_conversation`:
+the new conversation holds nothing yet.
 
 The whole batch is validated — including resolving every `item_reference` against the
 item store — before the conversation is created, so a refused request creates no

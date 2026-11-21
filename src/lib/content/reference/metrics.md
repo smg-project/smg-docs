@@ -944,7 +944,9 @@ Metrics for worker pool management and resilience.
 
 ### `smg_worker_pool_size`
 
-Workers registered, per type, connection mode, and model.
+Workers registered, by worker type, connection mode, and primary model.
+
+A worker counts once, under its primary model (the first of its model cards), even when it serves several models, so the groups add up to the total number of registered workers. A refresh of a worker's model list does not move it to another group: the worker stays counted where it registered. A group whose last worker leaves keeps a `0` sample.
 
 | Type | Labels |
 |------|--------|
@@ -952,6 +954,7 @@ Workers registered, per type, connection mode, and model.
 
 - `worker_type`: `regular`, `prefill`, `decode`, `encode`
 - `connection_mode`: `http`, `grpc`, `zmq`
+- `model`: the worker's primary model
 
 ---
 

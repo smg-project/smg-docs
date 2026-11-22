@@ -752,7 +752,7 @@ Images a generation request carried, by model and the source class of its media,
 |------|--------|
 | Histogram | `model`, `source_class` |
 
-Source classes, read over every modality of the request rather than its images alone: `none` (no media), `inline` (every item is a `data:` URL or bytes in the request), `remote` (every item is a fetched URL), `hybrid` (a mix: inline images beside a fetched audio clip are `hybrid`).
+Source classes, read over every modality of the request rather than its images alone: `none` (no media), `inline` (every item is a `data:` URL or bytes in the request), `remote` (every item is a fetched URL), `hybrid` (a mix: inline images beside a fetched audio clip).
 
 ```promql
 # Share of generation requests whose media includes a fetched URL

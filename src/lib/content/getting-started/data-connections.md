@@ -141,6 +141,7 @@ You can provide Oracle credentials via environment variables (both the Rust bina
 - `ATP_POOL_MIN`
 - `ATP_POOL_MAX`
 - `ATP_POOL_TIMEOUT_SECS`
+- `ATP_OP_TIMEOUT_SECS`
 
 `POSTGRES_POOL_MAX`, `POSTGRES_OP_TIMEOUT_SECS`, `REDIS_POOL_MAX`, `REDIS_RETENTION_DAYS`, and `REDIS_OP_TIMEOUT_SECS` are read only by the Python launcher, as defaults for its pool, timeout, and retention flags; the Rust binary takes those settings from flags alone.
 
@@ -173,7 +174,7 @@ Every remote backend is contacted at startup, and SMG refuses to start when its 
 
 PostgreSQL and Oracle also create tables and check migrations at startup, so pending migrations stop startup too (see [Schema migrations](#schema-migrations)).
 
-Once SMG is serving, each call to a PostgreSQL or Redis store is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (default 5 seconds, covering the pool wait, the connect, and the statement or command). If the store goes down, or a call runs past its bound, the endpoints that store or read history answer `503` with code `storage_unavailable` instead of hanging (a stream already under way ends with a `response.failed` event carrying the same code); the request can be retried once the store answers again. See [Store Failures While Serving](../concepts/data/chat-history.md#store-failures-while-serving).
+Once SMG is serving, each call to a PostgreSQL, Redis, or Oracle store is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` / `--oracle-op-timeout-secs` (default 5 seconds, covering the pool wait, the connect, and the statement or command). If the store goes down, or a call runs past its bound, the endpoints that store or read history answer `503` with code `storage_unavailable` instead of hanging (a stream already under way ends with a `response.failed` event carrying the same code); the request can be retried once the store answers again. See [Store Failures While Serving](../concepts/data/chat-history.md#store-failures-while-serving).
 
 ---
 

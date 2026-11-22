@@ -193,7 +193,7 @@ Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, wh
 
 ## Routing Decision Logs
 
-At DEBUG, the routing policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker. The `worker` field is the worker's [masked address](#worker-address-masking). The lines are off at the default `info` level. Turn them on for the policy targets only:
+At DEBUG, cache-aware, sticky-session, and prefix-hash selections each log one structured line, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker. The `worker` field is the worker's [masked address](#worker-address-masking). `least_load` and `power_of_two` log a [plain selection line](#plain-selection-line) instead, and `random`, `round_robin`, and `consistent_hashing` log no selection line at all. The lines are off at the default `info` level. Turn them on for the policy targets only:
 
 ```bash
 RUST_LOG=warn,smg=info,smg::policies=debug smg launch --worker-urls http://worker:8000 --policy cache_aware
@@ -204,6 +204,7 @@ RUST_LOG=warn,smg=info,smg::policies=debug smg launch --worker-urls http://worke
 | `Cache-aware selection` | `smg::policies::cache_aware` | `index` (`tree` or `hash`), `branch`, `worker`, `model_id`; tree decisions add `matched_ratio`, `threshold`, `matched_units`, `input_units` (the lengths of the matched prefix and the request, in characters for the string tree and tokens for the token tree) and `credited_units` (`matched_units` when `branch` is `tree_match`, otherwise `0`); hash decisions add `level` |
 | `Sticky routing decision` | `smg::policies::registry` | `source` (`rid` or `header`), `key`, `branch`, `worker`, `model_id` |
 | `Prefix-hash selection` | `smg::policies::prefix_hash` | `branch`, `level`, `worker`, `model_id` |
+| `<policy> selected <worker> (score <score>, in_flight <count>)` | `smg::policies::least_load` | None — `least_load` and `power_of_two` put their values in the message text; see [Plain Selection Line](#plain-selection-line) |
 
 Branch values:
 
@@ -216,6 +217,16 @@ Branch values:
 When cache-aware routing uses KV events, it logs `Event-driven routing: overlap match` (`branch` is `event_hit` or `event_spill`) or `Event-driven routing: no overlap, expected-wait fallback`, each with `worker` and `model_id`.
 
 See the [Metrics Reference](../reference/metrics.md#routing-policy-metrics) for the matching decision counters.
+
+### Plain Selection Line
+
+`least_load` and `power_of_two` log one plain DEBUG line per selection, with the values in the message text rather than in structured fields:
+
+```
+least_load selected http://***@worker:8000 (score 12.3400, in_flight 3)
+```
+
+The message names the policy that selected, the chosen worker's [masked address](#worker-address-masking), the worker's score, and its in-flight request count. The score is the [expected-wait score](../concepts/routing/load-balancing.md#expected-wait-score), except under `power_of_two`'s [`resident_tokens` metric](../concepts/routing/load-balancing.md#comparison-metric), where it is that metric's resident-token score. Both policies write the line under the `smg::policies::least_load` target, so a `RUST_LOG` directive naming `smg::policies::power_of_two` enables neither policy's line; the `smg::policies` directive above covers both. When only one worker is eligible, either policy takes it directly and logs no line.
 
 ---
 

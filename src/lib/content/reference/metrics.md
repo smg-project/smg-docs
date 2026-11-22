@@ -746,7 +746,7 @@ Modalities: `image`, `image_embeds`, `audio`, `video`.
 
 #### `smg_mm_request_images`
 
-Images a generation request carried, by model and the source class of its media, observed once per request that reaches media resolution, before any refusal or limit (a refused request counts; a token count does not). A request without media is observed at 0 under `none`, so the `_count` series counts the requests and the `le="0"` bucket the ones without an image. Buckets from 0 to 200 images.
+Images a generation request carried, by model and the source class of its media, observed once per request that reaches media resolution, before any refusal or limit (a refused request counts; a token count does not). A request without media is observed at 0 under `none`, so the `_count` series counts the requests and the `le="0"` bucket counts the ones without an image. Buckets from 0 to 200 images.
 
 | Type | Labels |
 |------|--------|

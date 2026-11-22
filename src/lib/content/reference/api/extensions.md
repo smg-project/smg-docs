@@ -33,7 +33,7 @@ These endpoints are registered without any auth middleware:
 | `GET` | `/health` | Same as `/liveness` |
 | `GET` | `/liveness` | Process liveness probe |
 | `GET` | `/readiness` | Traffic readiness probe; see [Gateway Probe Endpoints](../../concepts/reliability/health-checks.md#gateway-probe-endpoints) |
-| `GET` | `/health_generate` | Generation health check, forwarded to HTTP workers (see below); gRPC and ZMQ deployments answer `501` |
+| `GET` | `/health_generate` | Generation health check, forwarded to one HTTP worker or prefill/decode pair (see below); gRPC and ZMQ deployments answer `501` |
 | `GET` | `/engine_metrics` | The engines' own Prometheus metrics in one exposition; see [Engine Metrics Passthrough](../metrics.md#engine-metrics-passthrough) |
 | `GET` | `/loads` | Fleet engine load from the gateway's cached load snapshot (optional `?model=` filter); see [Get Loads](admin.md#get-loads) |
 | `GET` | `/v1/models` | List models; see [List Models](openai.md#list-models) |

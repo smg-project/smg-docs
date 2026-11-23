@@ -31,7 +31,7 @@ SMG connects to workers over HTTP, gRPC, or ZMQ, and supports both local inferen
 | Google (Gemini) | HTTP | `https://generativelanguage.googleapis.com` |
 | Any OpenAI-compatible API | HTTP | `https://your-provider.com` |
 
-ZMQ workers (`ipc://`) run on the same host as SMG, which connects directly to the engine core with no engine API server in between. SMG supports vLLM, TokenSpeed, and SGLang engines over ZMQ. See [ZMQ Direct Workers](zmq-workers.md).
+ZMQ workers (`ipc://`) run on the same host as SMG, which connects directly to the engine core with no engine API server in between. Only vLLM, TokenSpeed, and SGLang engines are supported over ZMQ. See [ZMQ Direct Workers](zmq-workers.md).
 
 ## Static Workers via CLI
 

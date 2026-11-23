@@ -230,7 +230,9 @@ least_load selected http://***@worker:8000 (score 12.3400, in_flight 3)
 
 The message names the selecting policy, the chosen worker's [masked address](#worker-address-masking), the worker's score, and its in-flight request count. The score is the [expected-wait score](../concepts/routing/load-balancing.md#expected-wait-score), except under `power_of_two`'s [`resident_tokens` metric](../concepts/routing/load-balancing.md#comparison-metric), where it is that metric's resident-token score.
 
-Both policies write the line under the `smg::policies::least_load` target, so a `RUST_LOG` directive naming `smg::policies::power_of_two` enables neither policy's line; the `smg::policies` directive above covers both. When only one worker is eligible, either policy takes it directly and logs no line.
+When only one worker is eligible, either policy takes it directly and logs no line.
+
+Both policies write the line under the `smg::policies::least_load` target, so a `RUST_LOG` directive naming `smg::policies::power_of_two` enables neither policy's line; the `smg::policies` directive above covers both.
 
 Cache-aware logs the line too: it picks its final worker through the same scorer once its routing branch has fixed the candidate set, so every cache-aware selection also logs a `cache_aware selected …` line. The plain line appears beside the decision's `Cache-aware selection` line, or beside the event-driven or warm-up line of a KV-event decision (see the cache-aware policy's [Debug Logs](../concepts/routing/cache-aware.md#debug-logs)). Cache-aware's copy also goes to the `smg::policies::least_load` target, so a directive enabling `smg::policies::cache_aware` alone shows the structured lines but not this one.
 

@@ -237,7 +237,7 @@ curl -X POST http://localhost:30000/workers \
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--max-payload-size` | `536870912` (512 MiB) | Largest accepted request body; also caps every worker response body the HTTP routers buffer whole, in regular and PD mode |
+| `--max-payload-size` | `536870912` (512 MiB) | Largest accepted request body; also caps every worker response body the HTTP routers buffer whole |
 | `--max-buffered-request-bytes` | `1048576` (1 MiB) | Largest eligible body buffered only to keep it retryable; `0` never buffers for retries |
 | `--stream-body-stall-timeout-secs` | `300` | Abort a streamed body after a single client wait this long (`408`); `0` disables |
 | `--request-timeout-secs` | `1800` | Total time for one upstream request, including a streamed response |

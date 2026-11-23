@@ -6,7 +6,7 @@ title: Load Balancing
 
 SMG ships ten load balancing policies that decide which worker serves each request. Set one with `--policy` (default `cache_aware`); the right choice depends on your workload characteristics.
 
-The policies place requests directly. With [`--policy-controller on`](#policy-controller), a policy engine places every request instead, under a policy document that by default keeps these routing flags' meaning.
+The policies place requests directly. With [`--policy-controller on`](#policy-controller), a policy engine places every request instead, under a policy document built by default from these same routing flags.
 
 Whatever the policy, only available workers are candidates: healthy, not blocked by an open [circuit breaker](../reliability/circuit-breakers.md), and not excluded by [overload protection](../reliability/overload-protection.md).
 
@@ -696,7 +696,9 @@ Nothing to balance, so skip the selection and cache bookkeeping entirely.
 
 `--policy` applies to every model unless a worker names another policy. A worker registered with a `policy` label, for example `"labels": {"policy": "least_load"}` in its [worker spec](../../getting-started/multiple-workers.md), sets the policy for its model. The first worker registered for a model decides, and the model keeps that policy until its last worker is removed.
 
-A label that names the same policy as `--policy` gets a per-model instance built from your flags. A label naming any other policy gets that policy's built-in defaults, which can differ from the CLI defaults; its flags are not applied. In PD and EPD mode, the legs always use the leg policies below, whatever the labels say. Under the [policy controller](#policy-controller), `policy` labels are inert: the engine's document places every model's requests.
+A label that names the same policy as `--policy` gets a per-model instance built from your flags. A label naming any other policy gets that policy's built-in defaults, which can differ from the CLI defaults; its flags are not applied. In PD and EPD mode, the legs always use the leg policies below, whatever the labels say.
+
+Under the [policy controller](#policy-controller), `policy` labels are inert: the engine's document places every model's requests.
 
 ### PD and EPD Legs
 
@@ -718,7 +720,9 @@ The document in force is validated at startup, before the gateway opens its stor
 
 ### Printing the Document
 
-`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so no secret or key is needed; the routing flags, the discovery flags and the tenant header's name are checked as startup checks them, and a malformed flag value is refused first. A setting that no document can express is named in one sentence on stderr, and the command exits with a failure. The printed document is the natural starting point for one you edit and supply with `--policy-spec`:
+`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so it needs no secret or key. The routing flags, the discovery flags and the tenant header's name are checked as startup checks them: a malformed flag value is refused first, and a setting that no document can express is named in one sentence on stderr, with the command exiting in failure.
+
+The printed document is the natural starting point for one you edit and supply with `--policy-spec`:
 
 ```bash
 smg --policy least_load --print-policy-spec > routing.yaml
@@ -732,7 +736,9 @@ smg --policy least_load --print-policy-spec > routing.yaml
 
 The document **replaces** the routing flags. Typing any of the 45 flags it replaces beside `--policy-spec` is refused at startup with an error naming both flags — even when the typed value is the flag's default. The replaced flags are the policy names (`--policy`, `--prefill-policy`, `--decode-policy`, `--encode-policy`), every policy's own tuning flags, the overload-protection thresholds, the cache-aware warm-up flags, `--routing-key-override`, `--grouped-dp-sticky`, `--dp-minimum-tokens-scheduler` and `--pd-pairing-mode`. The routing flags still read beside a document are `--policy-controller`, `--dp-aware`, `--routing-key-headers` and `--enable-igw`.
 
-A supplied document is validated at startup: one that names a stage this build does not run is refused by the stage's name, and one that reads the gateway's tenant header is refused by the header's name — the gateway keeps that header to itself. In PD mode, the [pairing strictness](pd-disaggregation.md) is read from the document's `plans.pd-pair.pairing` instead of `--pd-pairing-mode`.
+A supplied document is validated at startup: one that names a stage this build does not run is refused by the stage's name, and one that reads the gateway's tenant header is refused by the header's name — the gateway keeps that header to itself.
+
+In PD mode, the [pairing strictness](pd-disaggregation.md) is read from the document's `plans.pd-pair.pairing` instead of `--pd-pairing-mode`.
 
 ### Settings Refused Under the Controller
 

@@ -142,7 +142,7 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 
 **Exact numbers.** Floating-point fields such as `temperature` and `top_p` are forwarded in their shortest form: `0.95` reaches the worker as `0.95`, not `0.949999988079071`. This holds on the buffered HTTP and PD paths and on the external-provider paths; streamed bodies are forwarded unchanged anyway.
 
-**Worker responses.** In regular HTTP mode, a non-streaming worker response to an inference request is read into memory up to `--max-payload-size`. A larger response fails with **502** `upstream_response_too_large`, which counts as a worker fault for circuit breakers and retries. Streaming responses are never buffered whole.
+**Worker responses.** A worker response body the HTTP routers read whole is buffered up to `--max-payload-size`; a larger body fails with **502** `upstream_response_too_large`. The cap applies in regular and PD mode alike: to non-streaming inference responses (in PD mode, each leg's buffered body, including a prefill body read for logprob merging), to `/v1/messages/count_tokens`, to the proxied `GET` endpoints such as `/get_server_info` and `/get_model_info`, and to the `/v1/responses/{id}/cancel` relay. On an inference request the 502 counts as a worker fault for circuit breakers and retries — in PD mode against the side whose body crossed the limit, not its partner. A worker's error body is read under the same cap; a PD side refusal whose error body crosses it reports the side's status and the exceeded limit in the error detail. Streaming responses are never buffered whole.
 
 **Error-code labels.** Metric `error_code` labels only take codes SMG itself generates. An `X-SMG-Error-Code` header sent by a worker is dropped from the forwarded response and never becomes a label, so a misbehaving backend cannot inflate label cardinality.
 
@@ -237,7 +237,7 @@ curl -X POST http://localhost:30000/workers \
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--max-payload-size` | `536870912` (512 MiB) | Largest accepted request body; in regular HTTP mode, also caps buffered worker responses |
+| `--max-payload-size` | `536870912` (512 MiB) | Largest accepted request body; also caps every worker response body the HTTP routers buffer whole, in regular and PD mode |
 | `--max-buffered-request-bytes` | `1048576` (1 MiB) | Largest eligible body buffered only to keep it retryable; `0` never buffers for retries |
 | `--stream-body-stall-timeout-secs` | `300` | Abort a streamed body after a single client wait this long (`408`); `0` disables |
 | `--request-timeout-secs` | `1800` | Total time for one upstream request, including a streamed response |

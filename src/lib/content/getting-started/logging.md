@@ -193,7 +193,7 @@ Requests to `/health`, `/readiness`, and `/liveness` log both lines at DEBUG, wh
 
 ## Routing Decision Logs
 
-At DEBUG, the cache-aware, sticky-session, and prefix-hash policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker; the `worker` field is the worker's [masked address](#worker-address-masking). `least_load` and `power_of_two` log a [plain selection line](#plain-selection-line) instead, and `random`, `round_robin`, and `consistent_hashing` log no selection line at all.
+At DEBUG, the cache-aware, sticky-session, and prefix-hash policies log one structured line per selection decision, naming the branch taken and the worker chosen, so you can see why a request landed on a given worker. The `worker` field is the worker's [masked address](#worker-address-masking). `least_load` and `power_of_two` log a [plain selection line](#plain-selection-line) instead, and `random`, `round_robin`, and `consistent_hashing` log no selection line at all.
 
 The lines are off at the default `info` level. Turn them on for the policy targets only:
 

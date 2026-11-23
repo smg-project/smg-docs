@@ -649,11 +649,11 @@ Alert when `count(router_mesh_peer_connections{peer!=""} == 1)` drops below N×(
 ### Debug Logging
 
 ```bash
-RUST_LOG=warn,smg=info,smg_mesh=debug,smg::mesh=debug,smg::mesh_discovery=debug \
+RUST_LOG=warn,smg=info,smg_mesh=debug,smg::mesh=debug \
     smg launch --enable-mesh ...
 ```
 
-Gossip, sync streams, and CRDT merges log under `smg_mesh`; the worker and cache-tree sync adapters under `smg::mesh`; router discovery under `smg::mesh_discovery`. `RUST_LOG` replaces the filter built from `--log-level`, so keep a base level in it.
+Gossip, sync streams, and CRDT merges log under `smg_mesh`; the gateway's mesh module logs under `smg::mesh` — the worker and cache-tree sync adapters under `smg::mesh::adapters`, router discovery under `smg::mesh::discovery`. `RUST_LOG` replaces the filter built from `--log-level`, so keep a base level in it.
 
 ### Verify Cluster Health
 

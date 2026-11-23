@@ -333,7 +333,7 @@ The stream metrics of the subscriptions (`smg_kv_event_*`, `smg_kv_events_unavai
 ## Reference
 
 - Policy implementation: `model_gateway/src/policies/cache_aware.rs`
-- Event subscription manager: `model_gateway/src/worker/kv_event_monitor.rs` (gap settling and resyncs: `model_gateway/src/worker/kv_event_recovery.rs`)
+- Event subscription manager: `model_gateway/src/policies/kv_index/event_monitor.rs` (per-rank cursors, gap settling, and resyncs: `admission.rs` and `recovery.rs` in `model_gateway/src/policies/kv_index/event_monitor/`); the per-worker subscription tasks and the index-apply rules: `crates/worker/src/kv_events/` in the `smg-worker` crate
 - KV event proto: `crates/grpc_client/proto/common.proto` (messages `SubscribeKvEventsRequest`, `KvEventBatch`, `KvSnapshotChunk`, `KvCacheEvent`, `KvBlocksStored`, `KvBlocksRemoved`, `KvCacheCleared`)
 - Engine-neutral relay (per-rank subscriptions, gap replay, normalization): `grpc_servicer/smg_grpc_servicer/kv_relay.py`; the Rust servicer's relay with history and state snapshots: `crates/engine_servicer/src/kv_events.rs`
 - SGLang servicer: `grpc_servicer/smg_grpc_servicer/sglang/servicer.py` (`SubscribeKvEvents`) + per-rank sources `grpc_servicer/smg_grpc_servicer/sglang/kv_events.py`

@@ -193,25 +193,26 @@ smg/
 │   │   ├── main.rs             # CLI parsing and startup
 │   │   ├── cli/                # Flag value parsers, secrets resolution, and flag-to-config assembly
 │   │   ├── lib.rs              # Library root
-│   │   ├── server.rs           # HTTP server and route table
+│   │   ├── server.rs           # Startup and its phases, the route table, listeners, graceful shutdown
+│   │   ├── server/             # Listener limits and TLS; health.rs: liveness and readiness
 │   │   ├── app_context.rs      # Shared application state
+│   │   ├── admin/              # Control-plane documents and the management endpoints' extractors
 │   │   ├── config/             # RouterConfig types, builder, and validation
 │   │   ├── routers/            # HTTP, gRPC and ZMQ, PD, and external-provider routing
-│   │   ├── policies/           # Load-balancing policies
-│   │   ├── worker/             # Worker registry, health, circuit breakers, load monitoring
-│   │   ├── service_discovery/  # Kubernetes worker discovery
-│   │   ├── mesh/               # HA mesh adapters (crates/mesh does the gossip)
-│   │   ├── mesh_discovery/     # Router-peer discovery for the mesh
-│   │   ├── middleware/         # Auth, request IDs, concurrency limits, admission scheduler
+│   │   ├── policies/           # Load-balancing policies and the KV index the cache-aware policy reads
+│   │   ├── discovery_host.rs   # The gateway as the host of worker discovery (crates/service_discovery)
+│   │   ├── mesh/               # HA mesh adapters and router-peer discovery (crates/mesh does the gossip)
+│   │   ├── middleware/         # Auth, request IDs, concurrency limits, admission scheduler, tenant resolution
 │   │   ├── rate_limit/         # Per-tenant token and request rate limiting
 │   │   ├── endpoints/          # Non-inference endpoints: models, tokenize, parse, conversations, responses
 │   │   ├── workflow/           # Registration workflows for workers, tokenizers, MCP servers, WASM modules
 │   │   ├── observability/      # Logging, metrics, and tracing
 │   │   ├── wasm/               # WASM plugin support
-│   │   ├── health.rs           # Liveness and readiness endpoints
-│   │   ├── tenant.rs           # Tenant identity
+│   │   ├── tenant/             # Tenant identity, keys, and per-request metadata
+│   │   ├── secrets.rs          # Reload of the serving, tenant, and control-plane key files at runtime
 │   │   ├── rl_adapter.rs       # Glue to the RL control plane (crates/rl)
 │   │   └── version.rs          # Version information
+│   ├── test_harness/           # smg-test-harness: mock workers, app builders, and launch helpers for the integration tests
 │   ├── tests/                  # Integration tests
 │   └── benches/                # Criterion benchmarks
 ├── crates/                     # Library crates (directory: package name)
@@ -229,15 +230,18 @@ smg/
 │   ├── mm_rdma/                # smg-mm-rdma: multimodal pixel RDMA (NIXL) transport
 │   ├── mock_worker/            # mock-worker: mock HTTP, gRPC, and ZMQ workers for local and scale testing
 │   ├── multimodal/             # llm-multimodal: image, video, and audio preprocessing
+│   ├── policy_controller/      # smg-policy-controller: the routing policy engine — filter, score, and pick stages under one versioned spec
 │   ├── protocols/              # openai-protocol: OpenAI-compatible API types
 │   ├── radix_tree/             # smg-radix-tree: prefix-membership radix tree
 │   ├── reasoning_parser/       # reasoning-parser: reasoning output extraction
 │   ├── response_template/      # smg-response-template: Rust port of the transformers response-template parser
 │   ├── rl/                     # smg-rl: RL control plane
+│   ├── service_discovery/      # smg-service-discovery: worker discovery providers (Kubernetes, file, Slurm, Consul) and their reconciler
 │   ├── symphony/               # smg-symphony: parses model output into content, reasoning, and tool-call events
 │   ├── tokenizer/              # llm-tokenizer: tokenizers, caching, and chat templates
 │   ├── tool_parser/            # tool-parser: tool-call parsing
 │   ├── wasm/                   # smg-wasm: WebAssembly runtime for plugins
+│   ├── worker/                 # smg-worker: the worker domain — identity, registry, health, load monitoring, job queue, KV event subscriptions
 │   └── workflow/               # wfaas: workflow engine for multi-step operations
 ├── bindings/
 │   ├── python/                 # PyPI package `smg`: `smg launch` / `smg serve` and the Rust extension
@@ -251,7 +255,7 @@ smg/
 ├── e2e_test/                   # End-to-end tests (pytest) against real engines or the mock worker
 ├── deploy/helm/smg/            # Helm chart
 ├── docker/                     # Dockerfiles for the gateway and engine images
-├── examples/                   # RL and WASM plugin examples
+├── examples/                   # RL, policy-controller, and WASM plugin examples
 ├── scripts/                    # Dev and CI scripts (e2e-test.sh, install_opencv.sh, ci_*.sh, ...)
 ├── Cargo.toml                  # Workspace manifest and shared lints
 ├── Cargo.lock                  # Committed lockfile
@@ -370,7 +374,7 @@ git push --force-with-lease
 
 ### Rust Unit and Integration Tests
 
-Unit tests sit next to the code in `#[cfg(test)] mod tests` blocks. Integration tests live in `model_gateway/tests/`: each top-level `.rs` file there is a separate test binary, and `api_tests.rs`, `reliability_tests.rs`, `routing_tests.rs`, and `security_tests.rs` each pull in the matching subdirectory plus the shared helpers in `tests/common/`.
+Unit tests sit next to the code in `#[cfg(test)] mod tests` blocks. Integration tests live in `model_gateway/tests/`: each top-level `.rs` file there is a separate test binary, and `api_tests.rs`, `reliability_tests.rs`, `routing_tests.rs`, and `security_tests.rs` each pull in the matching subdirectory. The helpers the test binaries share — mock workers, app builders, launch helpers — are the `smg-test-harness` crate in `model_gateway/test_harness/`, which test binaries import as `common`.
 
 ```bash
 # Everything (what `make test` and CI run)
@@ -392,12 +396,12 @@ A unit test, from `model_gateway/src/policies/round_robin.rs` (abridged):
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worker::{BasicWorkerBuilder, WorkerType};
+    use crate::policies::test_support::make_workers;
 
     #[test]
     fn test_round_robin_selection() {
         let policy = RoundRobinPolicy::new();
-        let workers: Vec<Arc<dyn Worker>> = vec![/* three BasicWorkerBuilder workers */];
+        let workers = make_workers(&["http://w1:8000", "http://w2:8000", "http://w3:8000"]);
 
         // Should select workers in order: 0, 1, 2, 0, 1, 2, ...
         let info = SelectWorkerInfo::default();
@@ -613,8 +617,9 @@ The trait requires `select_worker`, `name`, and `as_any`. The other methods (`on
 // model_gateway/src/policies/my_policy.rs (illustrative)
 use std::sync::Arc;
 
+use smg_worker::identity::basic::Worker;
+
 use super::{get_healthy_worker_indices, LoadBalancingPolicy, SelectWorkerInfo};
-use crate::worker::Worker;
 
 #[derive(Debug, Default)]
 pub struct MyPolicy;
@@ -623,10 +628,10 @@ impl LoadBalancingPolicy for MyPolicy {
     fn select_worker(
         &self,
         workers: &[Arc<dyn Worker>],
-        _info: &SelectWorkerInfo,
+        info: &SelectWorkerInfo,
     ) -> Option<usize> {
         // Return an index into `workers`, or None when no worker is available.
-        get_healthy_worker_indices(workers).first().copied()
+        get_healthy_worker_indices(workers, info).first().copied()
     }
 
     fn name(&self) -> &'static str {

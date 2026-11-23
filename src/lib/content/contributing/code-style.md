@@ -31,7 +31,7 @@ Don't group imports by hand; rustfmt does it. The result, from `model_gateway/sr
 
 ```rust
 use std::{
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::Hasher,
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
@@ -39,9 +39,10 @@ use std::{
 };
 
 use dashmap::DashMap;
+use rustc_hash::FxHasher;
+use smg_worker::identity::basic::Worker;
 
 use super::{get_healthy_worker_indices, LoadBalancingPolicy, SelectWorkerInfo};
-use crate::worker::Worker;
 ```
 
 ### Linting
@@ -160,9 +161,9 @@ Order a module's items the same way throughout: imports, constants, types, inher
 
 // 1. Imports, grouped by rustfmt (see Formatting)
 use dashmap::DashMap;
+use smg_worker::identity::basic::Worker;
 
 use super::{get_healthy_worker_indices, LoadBalancingPolicy, SelectWorkerInfo};
-use crate::worker::Worker;
 
 // 2. Constants
 const MAX_TRACKED_SETS: usize = 4096;
@@ -280,7 +281,7 @@ Tests may unwrap, expect, and panic freely: `clippy.toml` sets `allow-unwrap-in-
 
 ### Module Documentation
 
-Start each public module with a `//!` comment that says what it does and, when it is not obvious, why it exists. From `model_gateway/src/health.rs` (abridged):
+Start each public module with a `//!` comment that says what it does and, when it is not obvious, why it exists. From `model_gateway/src/server/health.rs` (abridged):
 
 ```rust
 //! Liveness, readiness, and health endpoints: O(1) event-maintained readiness

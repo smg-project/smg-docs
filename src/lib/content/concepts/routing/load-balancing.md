@@ -720,7 +720,7 @@ The document in force is validated at startup, before the gateway opens its stor
 
 ### Printing the Document
 
-`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so it needs no secret or key. The routing flags, the discovery flags and the tenant header's name are checked as startup checks them: a malformed flag value is refused first, and a setting that no document can express is named in one sentence on stderr, with the command exiting in failure.
+`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so the command runs without the secrets or keys a start would need. The routing flags, the discovery flags and the tenant header's name are checked as startup checks them: a malformed flag value is refused first; a setting that no document can express is named in one sentence on stderr, and the command exits with a failure.
 
 The printed document is the natural starting point for one you edit and supply with `--policy-spec`:
 
@@ -736,7 +736,7 @@ smg --policy least_load --print-policy-spec > routing.yaml
 
 The document **replaces** the routing flags. Typing any of the 43 flags it replaces beside `--policy-spec` is refused at startup with an error naming both flags — even when the typed value is the flag's default. The replaced flags are the policy names (`--policy`, `--prefill-policy`, `--decode-policy`, `--encode-policy`), every policy's own tuning flags, the overload-protection switch and shed flags, the cache-aware warm-up flags, `--routing-key-override`, `--grouped-dp-sticky`, `--dp-minimum-tokens-scheduler` and `--pd-pairing-mode`.
 
-The routing flags still read beside a document are `--policy-controller`, `--dp-aware`, `--routing-key-headers`, `--enable-igw` and the two overload thresholds, `--worker-overload-waiting-requests` and `--worker-overload-token-usage`: no document carries a threshold (one that names a number is refused), and the gateway builds its workers with them.
+The routing flags the gateway still reads beside a document are `--policy-controller`, `--dp-aware`, `--routing-key-headers`, `--enable-igw` and the two overload thresholds, `--worker-overload-waiting-requests` and `--worker-overload-token-usage`: no document carries a threshold (one that names a number is refused), and the gateway builds its workers with them.
 
 A supplied document is validated at startup: one that names a stage this build does not run is refused by the stage's name, and one that reads the gateway's tenant header is refused by the header's name — the gateway keeps that header to itself.
 

@@ -130,7 +130,7 @@ A `--schema-config` file can set `auto_migrate` instead. See [Chat History](../c
 
 ## Environment Variables
 
-You can provide Oracle credentials via environment variables (both the Rust binary and the Python launcher read them):
+You can provide Oracle settings via environment variables (both the Rust binary and the Python launcher read them):
 
 - `ATP_WALLET_PATH`
 - `ATP_TNS_ALIAS`

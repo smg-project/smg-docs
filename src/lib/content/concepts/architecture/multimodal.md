@@ -143,7 +143,7 @@ Each processor answers a fetch that fails on the wire — a name that does not r
 
 How `inprocess` answers depends on the servicer that runs it. On the Python servicer, every fetch that fails on the wire is a retryable 503. The [Rust servicer](../../getting-started/grpc-workers.md#rust-vllm-servicer) reports whose fault it is, as `smg` does: a name the resolver says does not exist, a refused connection, or a TLS handshake the origin fails is a 400, and a timeout or an origin 5xx is a 502, both under `media_fetch_failed`. A failure that names the worker itself rather than the reference's host — its proxy, its own resolver, its routes or egress rules — stays a retryable 503 even on the Rust servicer, since another worker may fetch what this one cannot.
 
-On the Rust servicer, `inprocess` also answers the caller's other media mistakes under the router path's codes, each a 400: `invalid_multimodal_request` for a reference refused before the download or bytes that do not decode, `media_fetch_failed` for a download the origin refused (a 4xx) or redirected to a refused host, and `media_too_large` for media over a size cap.
+On the Rust servicer, `inprocess` also answers the caller's other media mistakes under the router path's codes, each a 400: `invalid_multimodal_request` for a reference refused before the download or bytes that do not decode, `media_fetch_failed` for a download the origin refused (a 4xx) or redirected to a disallowed host, and `media_too_large` for media over a size cap.
 
 ### Redis Media-Processing Sidecar
 

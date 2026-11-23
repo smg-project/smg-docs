@@ -4,7 +4,9 @@ title: Load Balancing
 
 # Load Balancing
 
-SMG ships ten load balancing policies that decide which worker serves each request. Set one with `--policy` (default `cache_aware`); the right choice depends on your workload characteristics. These policies place requests directly unless the gateway runs with [`--policy-controller on`](#policy-controller), under which a policy engine places every request by a policy document — by default, one that keeps these routing flags' meaning.
+SMG ships ten load balancing policies that decide which worker serves each request. Set one with `--policy` (default `cache_aware`); the right choice depends on your workload characteristics.
+
+The policies place requests directly. With [`--policy-controller on`](#policy-controller), a policy engine places every request instead, under a policy document that by default keeps these routing flags' meaning.
 
 Whatever the policy, only available workers are candidates: healthy, not blocked by an open [circuit breaker](../reliability/circuit-breakers.md), and not excluded by [overload protection](../reliability/overload-protection.md).
 
@@ -716,7 +718,7 @@ The document in force is validated at startup, before the gateway opens its stor
 
 ### Printing the Document
 
-`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so no secret or key is needed; the routing flags, the discovery flags and the tenant header's name are checked as startup checks them, and a malformed flag value is refused first. A setting that no document can express is named in one sentence on stderr, and the exit fails. The printed document is the natural starting point for one you edit and supply with `--policy-spec`:
+`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so no secret or key is needed; the routing flags, the discovery flags and the tenant header's name are checked as startup checks them, and a malformed flag value is refused first. A setting that no document can express is named in one sentence on stderr, and the command exits with a failure. The printed document is the natural starting point for one you edit and supply with `--policy-spec`:
 
 ```bash
 smg --policy least_load --print-policy-spec > routing.yaml
@@ -730,14 +732,14 @@ smg --policy least_load --print-policy-spec > routing.yaml
 
 The document **replaces** the routing flags. Typing any of the 45 flags it replaces beside `--policy-spec` is refused at startup with an error naming both flags — even when the typed value is the flag's default. The replaced flags are the policy names (`--policy`, `--prefill-policy`, `--decode-policy`, `--encode-policy`), every policy's own tuning flags, the overload-protection thresholds, the cache-aware warm-up flags, `--routing-key-override`, `--grouped-dp-sticky`, `--dp-minimum-tokens-scheduler` and `--pd-pairing-mode`. The routing flags still read beside a document are `--policy-controller`, `--dp-aware`, `--routing-key-headers` and `--enable-igw`.
 
-A supplied document is validated at startup against the stages this build runs — a document naming a stage the build does not hold is refused by the stage's name — and the gateway's tenant header is denied to the document's view. In PD mode, the [pairing strictness](pd-disaggregation.md) is read from the document's `plans.pd-pair.pairing` instead of `--pd-pairing-mode`.
+A supplied document is validated at startup: one that names a stage this build does not run is refused by the stage's name, and one that reads the gateway's tenant header is refused by the header's name — the gateway keeps that header to itself. In PD mode, the [pairing strictness](pd-disaggregation.md) is read from the document's `plans.pd-pair.pairing` instead of `--pd-pairing-mode`.
 
 ### Settings Refused Under the Controller
 
 A setting that decides a placement but has no place in a document is refused at startup by its name, never silently dropped:
 
 - `--dp-minimum-tokens-scheduler` is refused whenever the controller is on: the document has no rank policy — under the controller, a data-parallel rank is a candidate of the profile.
-- `--routing-key-override` ([sticky sessions](sticky-sessions.md)) is refused with `cache_aware` (the default policy), `prefix_hash` or `round_robin`. With `random`, `power_of_two`, `least_load`, `passthrough` or `bucket` it lands in the document as a session rule — except in IGW mode, where it is refused: the rule places single requests only, and an IGW gateway serves pairs beside them. `manual` and `consistent_hashing` place keyed requests by the key themselves.
+- `--routing-key-override` ([sticky sessions](sticky-sessions.md)) is refused with `prefix_hash` or `round_robin`. With `random`, `power_of_two`, `least_load`, `passthrough`, `bucket` or `cache_aware` (the default policy) it lands in the document as a session rule. The rule places single requests only, so it is also refused in PD and EPD mode, where the plan places a pair, and in IGW mode, where the gateway serves pairs beside single requests. `manual` and `consistent_hashing` place keyed requests by the key themselves.
 - `--grouped-dp-sticky` is refused beside a supplied document: the pin reads the gateway's own routing key, and a supplied document names its own key sources. Under the document the flags mean, the pin still works: it runs after the engine's decision, on the worker the decision names.
 - A gateway serving an [external provider](../../getting-started/external-providers.md) (an OpenAI-compatible, Anthropic or Gemini router) outside IGW mode cannot run the controller: a provider mode places its requests by no routing policy.
 

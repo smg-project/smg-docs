@@ -142,7 +142,7 @@ Stripping only computes the key; the request keeps its full `rid`. On gRPC worke
 
 ### Routing-Key Headers
 
-`--routing-key-headers` takes an ordered list of header names; the default is `x-smg-routing-key`. Each name must be a valid HTTP header name, or SMG refuses to start, and names match case-insensitively. A credential header name — `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, `api-key`, or `x-goog-api-key`, in any letter case — is refused the same way: a routing key is never a credential.
+`--routing-key-headers` takes an ordered list of header names; the default is `x-smg-routing-key`. Names match case-insensitively. SMG refuses to start when a name is not a valid HTTP header name, or when it is a credential header name — `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, `api-key`, or `x-goog-api-key`, in any letter case: a routing key is never a credential.
 
 For each request, SMG walks the list and takes the first header whose value is:
 

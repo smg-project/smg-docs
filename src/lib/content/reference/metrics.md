@@ -681,7 +681,7 @@ rate(smg_pd_admission_sheds_total[5m])
 
 ### Multimodal Metrics
 
-Recorded by the gRPC pipeline for requests that carry images, audio, or video (`smg_mm_request_images` also observes requests without media). See [Multimodal](../concepts/architecture/multimodal.md).
+Recorded by the gRPC pipeline for requests that carry images, audio, or video; `smg_mm_request_images` also observes requests without media. See [Multimodal](../concepts/architecture/multimodal.md).
 
 #### `smg_mm_tensors_total`
 

@@ -56,7 +56,7 @@ The scheduler surfaces admission and preemption outcomes as HTTP status codes. E
 
 ## Enabling the scheduler
 
-The scheduler is controlled by CLI flags. Only the Rust `smg` binary accepts them; the Python launcher (the `smg` command from `pip install smg`, also the container image's entrypoint) does not. Per-class tuning and per-tenant policy live in a separate optional YAML file.
+The scheduler is controlled by CLI flags, accepted by both the Rust `smg` binary and the Python launcher (the `smg` command from `pip install smg`, also the container image's entrypoint). Per-class tuning and per-tenant policy live in a separate optional YAML file.
 
 ```bash
 smg launch \

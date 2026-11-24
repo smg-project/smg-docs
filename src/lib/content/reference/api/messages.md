@@ -310,7 +310,7 @@ Every thread turn, create and continue alike, must name the message-threads beta
 anthropic-beta: message-threads-2026-08-12
 ```
 
-The header tells SMG to read the body before routing: the HTTP router buffers a request that names the beta, at any body size and under any retry setting, so the thread layer can rebuild the turn from the body and store its answer. A request whose parsed body carries a `thread` field without the header is refused with `400` (`thread_beta_required`) before any backend runs; see [Thread Errors](#thread-errors).
+The header tells SMG to read the body before routing: the HTTP router buffers a request that names the beta, at any body size and under any retry setting, so SMG can rebuild the turn from the body and store its answer. A request whose parsed body carries a `thread` field without the header is refused with `400` (`thread_beta_required`) before any backend runs; see [Thread Errors](#thread-errors).
 
 A request with `thread: {"type": "create"}` opens a thread. It is a complete request — the whole conversation so far, with its `system`, `tools`, and every other field — and SMG stores it with its answer under the answer's `id`:
 

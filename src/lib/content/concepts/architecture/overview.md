@@ -165,7 +165,7 @@ Work that the engine's frontend or gRPC servicer does on the gRPC path moves int
 
 - vLLM (headless EngineCore)
 - TokenSpeed (headless scheduler)
-- SGLang (headless scheduler, dialing in through SMG's SGLang plugin; since v1.12.0)
+- SGLang (headless scheduler, dialing in through SMG's SGLang plugin)
 
 ZMQ workers can't serve as prefill or decode workers and have no KV-event stream. See [ZMQ Direct Workers](../../getting-started/zmq-workers.md) for setup and limits.
 

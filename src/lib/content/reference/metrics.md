@@ -681,7 +681,7 @@ rate(smg_pd_admission_sheds_total[5m])
 
 ### Multimodal Metrics
 
-Recorded by the gRPC pipeline for requests that carry images, audio, or video. See [Multimodal](../concepts/architecture/multimodal.md).
+Recorded by the gRPC pipeline for requests that carry images, audio, or video; `smg_mm_request_images` also observes requests without media. See [Multimodal](../concepts/architecture/multimodal.md).
 
 #### `smg_mm_tensors_total`
 
@@ -743,6 +743,21 @@ Media items a generation request carried, by model and modality, counted once pe
 | Histogram | `model`, `modality` |
 
 Modalities: `image`, `image_embeds`, `audio`, `video`.
+
+#### `smg_mm_request_images`
+
+Images a generation request carried, by model and the source class of its media, observed once per request that reaches media resolution, before any refusal or limit (a refused request counts; a token count does not). A request without media is observed at 0 under `none`, so the `_count` series counts requests with and without media, and the `le="0"` bucket counts the ones without an image. Buckets from 0 to 200 images.
+
+| Type | Labels |
+|------|--------|
+| Histogram | `model`, `source_class` |
+
+Source classes, read over every modality of the request rather than its images alone: `none` (no media), `inline` (every item is a `data:` URL or bytes in the request), `remote` (every item is a fetched URL), `hybrid` (a mix, such as inline images beside a fetched audio clip).
+
+```promql
+# Share of generation requests whose media includes a fetched URL
+sum(rate(smg_mm_request_images_count{source_class=~"remote|hybrid"}[5m])) / sum(rate(smg_mm_request_images_count[5m]))
+```
 
 #### `smg_mm_media_items_total`
 
@@ -2024,5 +2039,6 @@ Histograms with buckets of their own, fixed in the code:
 | `smg_symphony_malformed_bytes` | 1, 4, 16, 64, 256, 1024, 4096, 16384, 65536 bytes |
 | `smg_mm_processing_seconds`, `smg_mm_media_fetch_seconds` | 0.5 ms, 1 ms, 2.5 ms, 5 ms, 10 ms, 25 ms, 50 ms, 100 ms, 250 ms, 500 ms, 1 s, 2.5 s, 5 s, 10 s, 30 s |
 | `smg_mm_media_per_request` | 1, 2, 3, 4, 5, 6, 8, 10, 16, 32, 64 items |
+| `smg_mm_request_images` | 0, 1, 2, 3, 5, 8, 12, 20, 30, 50, 100, 200 images |
 
 A histogram that matches none of these rules is exported as a Prometheus summary instead (`quantile` series over a rolling one-minute window, plus `_sum` and `_count`): `smg_scheduler_queue_wait_seconds` and `smg_pd_prefill_admission_wait_seconds`.

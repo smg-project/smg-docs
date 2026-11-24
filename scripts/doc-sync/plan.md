@@ -197,7 +197,9 @@ Use doc_inventory to find existing canonical pages. Read related pages and recor
 them in placement.examined_pages. Include EVERY existing page that needs this
 concern corrected in both canonical_pages and doc_paths. A new page requires a
 specific distinct user task and new_page_reason explaining why existing sections
-cannot host it. Keep new_page_reason empty otherwise. Search all related pages
+cannot host it. New paths go only in doc_paths, never examined_pages or
+canonical_pages, which name existing inventory pages. Keep new_page_reason
+empty otherwise. Search all related pages
 for conflicting defaults, examples and claims before finalizing the allowlist.
 If a required page is held by an open PR, defer the entire concern; do not omit
 that page and knowingly propose an incomplete correction. A deferred pending

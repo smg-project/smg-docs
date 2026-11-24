@@ -35,6 +35,46 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(resolved['inspected_commits'], ['b' * 40])
         self.assertNotIn('source_commit', resolved['concerns'][0])
 
+    def test_placement_schema_only_allows_existing_canonical_and_examined_pages(self):
+        schema = discovery.scan_schema({**self.context, 'required_commit_ids': [1]})
+        existing = schema['definitions']['existing_page']['enum']
+        self.assertEqual(existing, proposal()['doc_paths'])
+        item = schema['properties']['concerns']['items']['properties']
+        for name in ('canonical_pages', 'examined_pages'):
+            self.assertEqual(item['placement']['properties'][name]['items'],
+                             {'$ref': '#/definitions/existing_page'})
+        self.assertNotIn('enum', item['doc_paths']['items'])  # Justified new pages remain allowed.
+
+    def test_bad_audit_reference_defers_gap_without_discarding_valid_scan(self):
+        path = proposal()['doc_paths'][0]
+        candidate = {'id': 'audit1', 'shard': 'api-protocols', 'doc_path': path}
+        other = proposal(concern='other-gap', doc_paths=['src/lib/content/other.md'])
+        context = {**self.context, 'release_audit_candidates': [candidate],
+                   'doc_inventory': self.context['doc_inventory'] + [{'path': other['doc_paths'][0]}]}
+        scan = {**self.scans[0], 'concerns': [proposal(), other], 'inspected_commits': ['a' * 40],
+                'release_audit_checks': [{'candidate_id': 'audit1', 'status': 'proposed',
+                    'concerns': ['wait-timeout', 'other-gap', 'missing'], 'evidence': 'Verified gap remains.'}]}
+        raw, diagnostic = discovery.defer_invalid_audit_references(json.dumps(scan), context, 'api-protocols')
+        result = discovery.validate_scan(raw, context, 'api-protocols', self.history)
+        self.assertEqual(result['concerns'], scan['concerns'])
+        self.assertEqual(result['release_audit_checks'][0]['status'], 'deferred')
+        self.assertEqual(result['release_audit_checks'][0]['concerns'], ['wait-timeout'])
+        self.assertIn('missing', diagnostic[0]['reason'])
+        self.assertIn('Verified gap remains.', result['release_audit_checks'][0]['evidence'])
+
+    def test_audit_proposal_losing_owning_page_reference_is_withheld(self):
+        context = {**self.context, 'release_audit_candidates': [
+            {'id': 'audit1', 'shard': 'api-protocols', 'doc_path': 'src/lib/content/missing.md'}]}
+        item = proposal(concern='release-audit-audit1-gap', source_sha=context['source_sha'])
+        scan = {**self.scans[0], 'concerns': [item], 'inspected_commits': [context['source_sha']],
+                'release_audit_checks': [{'candidate_id': 'audit1', 'status': 'proposed',
+                    'concerns': [item['concern']], 'evidence': 'Different page needs correction.'}]}
+        raw, _ = discovery.defer_invalid_audit_references(json.dumps(scan), context, 'api-protocols')
+        raw, withheld = discovery.defer_unsupported_proposals(raw, context)
+        self.assertEqual(json.loads(raw)['concerns'], [])
+        self.assertEqual(len(withheld), 1)
+        self.assertEqual(json.loads(raw)['release_audit_checks'][0]['status'], 'deferred')
+
     def test_invalid_commit_ids_and_model_supplied_hashes_fail_closed(self):
         for number in [0, -1, 3, '1', True, 1.0]:
             with self.subTest(number=number), self.assertRaises(ValueError):

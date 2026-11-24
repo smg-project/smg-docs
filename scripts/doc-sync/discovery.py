@@ -199,6 +199,34 @@ def defer_invalid_daily_checks(raw, context, slug, backlog=0):
     return json.dumps({**result, 'daily_commit_checks': fixed}), deferred
 
 
+def defer_invalid_audit_references(raw, context, slug):
+    """Keep audit gaps pending when a reference has no unique matching page.
+
+    Never invent a proposal or widen its allowlist to make a reference fit.
+    The strict validator still checks disposition shape, source and ownership.
+    """
+    result = json.loads(raw)
+    pages = {c['id']: c['doc_path'] for c in release_handoff.assigned(context, slug)}
+    changed, diagnostics = [], []
+    for check in result.get('release_audit_checks', []):
+        refs, page = check.get('concerns'), pages.get(check.get('candidate_id'))
+        if not page or not isinstance(refs, list) or any(not isinstance(c, str) for c in refs):
+            changed.append(check)
+            continue
+        bad = []
+        for ref in refs:
+            matches = [p for p in result['concerns'] if p['concern'] == ref]
+            if len(matches) != 1 or page not in matches[0]['doc_paths']:
+                bad.append(ref)
+        if bad:
+            reason = 'Missing, ambiguous or unrelated proposal reference(s): ' + ', '.join(bad)
+            diagnostics.append({'candidate_id': check['candidate_id'], 'reason': reason})
+            check = {**check, 'status': 'deferred', 'concerns': [c for c in refs if c not in bad],
+                     'evidence': str(check.get('evidence') or '') + ' Deferred: ' + reason + '.'}
+        changed.append(check)
+    return json.dumps({**result, 'release_audit_checks': changed}), diagnostics
+
+
 def defer_unsupported_proposals(raw, context):
     """Leave out proposals whose source identity the scan did not establish.
 
@@ -618,6 +646,15 @@ def scan_schema(scoped):
     and evidence guards still decide whether the assessment is complete.
     """
     schema = json.loads(Path(__file__).with_name('scan-schema.json').read_text())
+    # These fields describe existing pages only. New paths belong in doc_paths
+    # with a justification, not in canonical_pages (run 45149765675).
+    pages = [p['path'] for p in scoped.get('doc_inventory', [])]
+    schema['definitions']['existing_page'] = {'type': 'string', 'enum': pages} if pages else {'not': {}}
+    placement = schema['properties']['concerns']['items']['properties']['placement']['properties']
+    for name in ('examined_pages', 'canonical_pages'):
+        placement[name]['items'] = {'$ref': '#/definitions/existing_page'}
+    if not pages:
+        placement['examined_pages']['minItems'] = 0
     schema['properties']['concerns']['maxItems'] = scoped.get('proposal_limit', docs.MAX_PRS)
     ids = [str(number) for number in scoped['required_commit_ids']]
     schema['properties']['daily_commit_checks'].update(
@@ -680,6 +717,7 @@ def main():
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
             output.write("matrix=" + json.dumps({"include": [{"shard": slug} for slug in names] + [
                 {"shard": b['shard'], "backlog": b['backlog']} for b in context['backlog_batches']]}) + "\n")
+            output.write("daily_matrix=" + json.dumps({"include": [{"shard": slug} for slug in names]}) + "\n")
     elif command == "context":
         slug, backlog = os.environ["SHARD"], int(os.environ.get("BACKLOG_BATCH") or 0)
         assignments = json.loads((root / "assignments.json").read_text())
@@ -700,6 +738,8 @@ def main():
             os.environ['SCAN_EXECUTION_FILE'], os.environ.get('SCAN_ACTION_OUTCOME', 'success'),
             int(os.environ.get('DISCOVERY_MAX_ROUNDS', '200')), execution), context["code_history"])
         raw, settled = settle_release_audit_checks(raw, context, slug, backlog)
+        raw, bad_refs = defer_invalid_audit_references(raw, context, slug)
+        settled.extend(bad_refs)
         for entry in settled:
             print(f"::warning::Deferred release audit candidate {entry['candidate_id']}: "
                   f"{entry['reason']}.")
@@ -734,6 +774,9 @@ def main():
                           f"Upstream turn-counter recovery: {execution['recovered']}.\n")
     elif command == "combine":
         scans = [json.loads(path.read_text()) for path in Path(os.environ["SCAN_DIR"]).glob("*.json")]
+        if os.environ.get('COMPLETED_SCAN_DIR'):
+            import discovery_followup
+            scans = discovery_followup.overlay(context, scans, os.environ['COMPLETED_SCAN_DIR'])
         report = build_report(scans, context)
         selected, deferred = report['selected'], report['deferred']
         Path(os.environ["REPORT_OUTPUT"]).write_text(json.dumps(report, indent=2))

@@ -43,6 +43,17 @@ Adapted from [OME's nightly documentation workflow](https://github.com/ome-proje
    checks before older backlog and audit work. Up to eight extra **backlog
    scans** (25 commits each by default) assess older commits that never received
    a disposition, largest subsystem backlog first.
+   Missing, ambiguous or unrelated audit concern references defer only that
+   candidate, preserving its evidence and valid references. An audit proposal
+   without valid owning-candidate evidence is still withheld. Placement output
+   restricts examined/canonical pages to the pinned inventory; justified new
+   pages belong only in the proposed file list.
+   A bounded completion pass runs after all scans finish, only for unresolved
+   daily checks. It sees peer assessments for those commits and the complete
+   assignment map, so it can reconcile ownership and dependencies with source
+   evidence. It cannot change peers, settled checks, original proposals or audit
+   dispositions. Completion artifacts bind to the original scan and source pin;
+   failed completion preserves the first pass and leaves coverage unfinished.
 3. **Plan:** round-robin available validated scans, validate source IDs, remove
    duplicates, defer overlapping pages, and allocate the remaining daily PR slots.
    Contested pages go first to concerns for required recent commits, then to

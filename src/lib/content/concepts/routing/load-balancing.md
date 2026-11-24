@@ -6,6 +6,8 @@ title: Load Balancing
 
 SMG ships ten load balancing policies that decide which worker serves each request. Set one with `--policy` (default `cache_aware`); the right choice depends on your workload characteristics.
 
+The policies place requests directly. With [`--policy-controller on`](#policy-controller), a policy engine places every request instead, under a policy document built by default from these same routing flags.
+
 Whatever the policy, only available workers are candidates: healthy, not blocked by an open [circuit breaker](../reliability/circuit-breakers.md), and not excluded by [overload protection](../reliability/overload-protection.md).
 
 ---
@@ -696,9 +698,75 @@ Nothing to balance, so skip the selection and cache bookkeeping entirely.
 
 A label that names the same policy as `--policy` gets a per-model instance built from your flags. A label naming any other policy gets that policy's built-in defaults, which can differ from the CLI defaults; its flags are not applied. In PD and EPD mode, the legs always use the leg policies below, whatever the labels say.
 
+Under the [policy controller](#policy-controller), `policy` labels are inert: the engine's document places every model's requests.
+
 ### PD and EPD Legs
 
 In PD mode, `--prefill-policy` and `--decode-policy` set each leg's policy and default to `--policy`. Both accept `least_load`. `--decode-policy bucket` is rejected at startup, and the Rust binary also rejects `passthrough` on either leg. Outside IGW mode, and without service discovery or `--dp-aware` (under which each URL registers one worker per DP rank), a leg given `power_of_two` through `--prefill-policy` or `--decode-policy` needs at least two workers on that leg, or startup fails. In EPD mode, `--encode-policy` accepts `random`, `round_robin` or `consistent_hashing` and defaults to `consistent_hashing`. See [PD Disaggregation](pd-disaggregation.md).
+
+---
+
+## Policy Controller
+
+`--policy-controller on|off` (default `off`) chooses who places requests. With `off`, the classic policies above place them. With `on`, the gateway starts a **policy engine** that places every request under a **policy document**: a description of placement built from profiles of filter, score and pick stages, bindings that tie profiles to models, and plans for PD pairs and EPD requests.
+
+You do not have to write a document. With `on` alone, the engine runs the document your routing flags mean: each of the ten policies is a document preset of the same name, your policy's tuning flags land in the preset's stages, and the [overload protection](../reliability/overload-protection.md) on/off switch and shed choice land on every binding. Placement follows your flags as before, now decided by the engine.
+
+```bash
+smg --policy-controller on --policy cache_aware --worker-urls http://w1:8000 http://w2:8000
+```
+
+In PD mode the prefill and decode presets are planned as a pair, with an admission filter in front of each side (capacity for prefill, room for decode); in EPD mode the encode preset joins them under the `epd` plan, with those two filters still in front of the pair's sides.
+
+Over HTTP a PD gateway also places one request outside its pairs — the token-count request that takes one prefill worker — and its document binds that request behind the pair under the main policy's preset. A single-router PD gateway over gRPC or ZMQ counts tokens without a worker, and its document plans the pair alone.
+
+The document in force is validated at startup, before the gateway opens its store or starts listening; if the document is refused, startup fails with the refusal's message. The engine itself starts last and follows worker registrations and removals, the newest load reports and the KV-cache events.
+
+### Printing the Document
+
+`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so the command runs without the secrets or keys a start would need. The routing flags, the discovery flags and the tenant header's name are checked as startup checks them; a Consul address and the Consul environment are resolved only at a real start.
+
+A malformed flag value is refused first, and a setting that no document can express is named in one sentence on stderr, with a failing exit and nothing printed. The document is also checked as the gateway checks the document it runs: one the check refuses — for naming a stage this build's controller does not run, or for reading the gateway's tenant header — still prints in full, with the refusal in one sentence on stderr and the same failing exit.
+
+The printed document is the natural starting point for one you edit and supply with `--policy-spec`:
+
+```bash
+smg --policy least_load --print-policy-spec > routing.yaml
+```
+
+`--print-policy-spec` cannot be combined with `--policy-spec`: it prints what the flags mean, never a supplied file.
+
+### Supplying a Document
+
+`--policy-spec FILE` runs a supplied document in place of the one the routing flags mean. A file named `.json` is read as JSON, any other name as YAML. The flag requires `--policy-controller on`: with the controller off, startup fails with `a policy document is run by the policy controller: set --policy-controller on`.
+
+The document **replaces** the routing flags. Typing any of the 43 flags it replaces beside `--policy-spec` is refused at startup with an error naming both flags — even when the typed value is the flag's default. The replaced flags are the policy names (`--policy`, `--prefill-policy`, `--decode-policy`, `--encode-policy`), every policy's own tuning flags, the overload-protection switch and shed flags, the cache-aware warm-up flags, `--routing-key-override`, `--grouped-dp-sticky`, `--dp-minimum-tokens-scheduler` and `--pd-pairing-mode`.
+
+The routing flags the gateway still reads beside a document are `--policy-controller`, `--dp-aware`, `--routing-key-headers`, `--enable-igw` and the two overload thresholds, `--worker-overload-waiting-requests` and `--worker-overload-token-usage`: no document carries a threshold (one that names a number is refused), and the gateway builds its workers with them when the document's overload blocks are on.
+
+The supplied document decides, in its bindings' `overload` blocks, whether those thresholds veto at all and whether a request is shed when every worker it could use is vetoed. The gateway builds its workers with one default set of thresholds and its routes read one shed setting, so a document whose bindings disagree on either setting is refused; one that switches the block off leaves the two thresholds unused (per-worker `overload` blocks on a worker spec still apply).
+
+A supplied document is validated at startup: one that names a stage this build does not run is refused by the stage's name, and one that reads the gateway's tenant header is refused by the header's name — the gateway keeps that header to itself.
+
+In PD mode, the [pairing strictness](pd-disaggregation.md) is read from the document's `plans.pd-pair.pairing` instead of `--pd-pairing-mode`.
+
+### Settings Refused Under the Controller
+
+A setting that decides a placement but has no place in a document is refused at startup by its name, never silently dropped:
+
+- `--dp-minimum-tokens-scheduler` is refused whenever the controller is on: the document has no rank policy — under the controller, a data-parallel rank is a candidate of the profile.
+- `--routing-key-override` ([sticky sessions](sticky-sessions.md)) lands in the document as a session rule under every policy except `manual` and `consistent_hashing`, which place keyed requests by the key themselves. The rule places single requests only, so under those eight policies the flag is refused in IGW mode, where the gateway serves pairs beside single requests, and in PD or EPD mode wherever such a policy serves a pair's side (the legs default to `--policy`).
+- `--grouped-dp-sticky` is refused beside a supplied document: the pin reads the gateway's own routing key, and a supplied document names its own key sources. Under the document the flags mean, the pin still works: it runs after the engine's decision, on the worker the decision names.
+- On a gateway serving an [external provider](../../getting-started/external-providers.md) (an OpenAI-compatible, Anthropic or Gemini router) outside IGW mode, a supplied `--policy-spec` is refused: a provider mode places its requests by no routing policy. `--policy-controller on` alone is not refused there — no engine starts, the gateway serves as before, and startup says so in one log line.
+
+### Under the Engine
+
+- Per-model `policy` worker labels are inert: no model gets a policy of its own, and the engine's document places every model's requests.
+- An EPD request that carries media for the model's encode workers is refused with `501` (`encode_under_policy_engine`): whatever the document plans, the gateway asks the engine for prefill/decode pairs and for no encoder. The `501` is terminal for [retries](../reliability/retries.md); send the request without media, or to a gateway with the controller off. EPD requests without media are still served as pairs.
+- A PD pair's two sides are picked in one decision under the document's `plans.pd-pair.decode: with-prefill` — the default, and what the document the flags mean uses. A supplied document can set `after-prefill`: the pair's first decision then books the prefill alone, and the decode is decided again once the prefill has answered, so a decode that became a poor choice while the prefill ran can move. A route that sends both sides at once keeps the first decision's decode.
+- `smg_worker_selection_total` counts each selection under the document profile that picked it. Under the document the flags mean, a single request's selections keep your policy's name; a pair's sides are counted as `prefill` and `decode`.
+
+Everything else stays the gateway's own, exactly as under the classic policies: the worker pools and their registration, [service discovery](../architecture/service-discovery.md), health probes, load polling, [retries](../reliability/retries.md), [circuit breakers](../reliability/circuit-breakers.md), and the PD prefill admission queue. [Overload protection](../reliability/overload-protection.md) is still enforced — its two thresholds stay the gateway's own, set on each worker as it registers, while the document carries its on/off switch and shed choice (see [Supplying a Document](#supplying-a-document)).
 
 ---
 

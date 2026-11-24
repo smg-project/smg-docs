@@ -228,7 +228,7 @@ provider, or a `grpc://` worker URL at startup — SMG starts and loads the
 tokenizer from the first registering worker's own tokenizer files, so a model
 path that exists only on the worker hosts is a supported layout.
 
-With `--disable-tokenizer-autoload` the paths are never read and are not
+With `--disable-tokenizer-autoload`, the paths are never read and are not
 checked.
 
 When pointing to a local directory, SMG loads the first tokenizer file it

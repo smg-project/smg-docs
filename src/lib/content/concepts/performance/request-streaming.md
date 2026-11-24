@@ -142,7 +142,9 @@ Buffering more keeps more requests retryable, at the cost of router memory for e
 
 **Exact numbers.** Floating-point fields such as `temperature` and `top_p` are forwarded in their shortest form: `0.95` reaches the worker as `0.95`, not `0.949999988079071`. This holds on the buffered HTTP and PD paths and on the external-provider paths; streamed bodies are forwarded unchanged anyway.
 
-**Worker responses.** Every worker response body the HTTP routers buffer whole is capped at `--max-payload-size`; a larger body fails with **502** `upstream_response_too_large`. That covers non-streaming inference responses in regular and PD mode alike; on the PD path the cap applies to each side's buffered body, including a prefill body read for logprob merging. It also covers `/v1/messages/count_tokens`, the proxied `GET` endpoints such as `/get_server_info` and `/get_model_info`, and the `/v1/responses/{id}/cancel` relay. Worker error bodies are read under the same cap; a PD side refusal whose error body crosses it reports the side's status and the exceeded limit in the error detail. On an inference request the 502 counts as a worker fault for circuit breakers and retries; in PD mode it is charged to the side whose body crossed the limit, not its partner. Streaming responses are never buffered whole.
+**Worker responses.** On every route but the realtime ones, a worker response body the HTTP routers buffer whole is capped at `--max-payload-size`; a larger body fails with **502** `upstream_response_too_large`. That covers non-streaming inference responses in regular and PD mode alike; on the PD path the cap applies to each side's buffered body, including a prefill body read for logprob merging. It also covers `/v1/messages/count_tokens`, the proxied `GET` endpoints such as `/get_server_info` and `/get_model_info`, and the `/v1/responses/{id}/cancel` relay. Worker error bodies are read under the same cap; a PD side refusal whose error body crosses it reports the side's status and the exceeded limit in the error detail. On an inference request the 502 counts as a worker fault for circuit breakers and retries; in PD mode it is charged to the side whose body crossed the limit, not its partner. Streaming responses are never buffered whole.
+
+**Realtime routes.** The [realtime endpoints](../../reference/api/openai.md#realtime-api) bound worker bodies on their own terms instead: a worker's successful answer to a realtime REST call or to the `POST /v1/realtime/calls` SDP exchange is read whole with no size cap, and a refusal's body is read up to 1 MiB, past which the caller gets the worker's status with the gateway's error envelope in place of the body.
 
 **Error-code labels.** Metric `error_code` labels only take codes SMG itself generates. An `X-SMG-Error-Code` header sent by a worker is dropped from the forwarded response and never becomes a label, so a misbehaving backend cannot inflate label cardinality.
 
@@ -237,7 +239,7 @@ curl -X POST http://localhost:30000/workers \
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--max-payload-size` | `536870912` (512 MiB) | Largest accepted request body; also caps every worker response body the HTTP routers buffer whole |
+| `--max-payload-size` | `536870912` (512 MiB) | Largest accepted request body; also caps every worker response body the HTTP routers buffer whole, except on the realtime routes |
 | `--max-buffered-request-bytes` | `1048576` (1 MiB) | Largest eligible body buffered only to keep it retryable; `0` never buffers for retries |
 | `--stream-body-stall-timeout-secs` | `300` | Abort a streamed body after a single client wait this long (`408`); `0` disables |
 | `--request-timeout-secs` | `1800` | Total time for one upstream request, including a streamed response |

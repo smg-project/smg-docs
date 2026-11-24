@@ -258,6 +258,7 @@ Enterprise-grade storage using Oracle Autonomous Database.
 | `--oracle-pool-min` | `ATP_POOL_MIN` | `1` | Must be at least 1 and at most `--oracle-pool-max`. The pool opens connections on demand and doesn't hold a minimum open |
 | `--oracle-pool-max` | `ATP_POOL_MAX` | `16` | Maximum connection pool size |
 | `--oracle-pool-timeout-secs` | `ATP_POOL_TIMEOUT_SECS` | `30` | How long a request waits for a free pooled connection, in seconds. Also bounds the start-up connection: a store that accepts the connection but never answers fails startup within this bound. Must be greater than 0 |
+| `--oracle-op-timeout-secs` | `ATP_OP_TIMEOUT_SECS` | `5` | Bound in seconds on each call to the store (the pool wait, the connect, and the statement); must be greater than 0. A call past it is answered `503 storage_unavailable` (see [Store Failures While Serving](#store-failures-while-serving)) |
 
 `--oracle-dsn` takes precedence: with a DSN, SMG ignores the wallet and TNS alias.
 
@@ -459,9 +460,11 @@ smg --history-backend redis \
 
 ## Store Failures While Serving
 
-Every call to a PostgreSQL or Redis store is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (default 5 seconds). The bound covers one store call as a whole — the wait for a pooled connection, the connect, and the statement or command itself — so a request cannot hang on a store that accepts connections but does not answer.
+Every call to a PostgreSQL, Redis, or Oracle store is bounded by `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` / `--oracle-op-timeout-secs` (default 5 seconds). The bound covers one store call as a whole — the wait for a pooled connection, the connect, and the statement or command itself — so a request cannot hang on a store that accepts connections but does not answer.
 
 A store that is down, or slower than the per-call bound, fails the request with `503` and the code `storage_unavailable` on every endpoint that stores or reads history: creating a response that is stored or continues history (`store` unset or `true`, `previous_response_id`, or `conversation`), getting, deleting, or cancelling a stored response, listing its input items, and every `/v1/conversations` operation. On a streaming create the response record is written before the terminal event, so a record that could not be written ends the stream with a `response.failed` event carrying the same `storage_unavailable` code rather than a `503` answer. The request can be retried once the store answers again.
+
+On Oracle, the bound ends the request's wait but not the statement, which runs on and takes effect if it completes: a write answered `storage_unavailable` may still have been applied.
 
 A failure the store itself answered — a refused statement, a record that cannot be decoded — keeps the endpoint's own `500` answer (for example `storage_error`), which a retry would not fix. See the [Responses API errors](../../reference/api/responses.md#common-errors) for the per-route codes.
 
@@ -473,7 +476,7 @@ A failure the store itself answered — a refused statement, a record that canno
 |---------|-------|----------|
 | Startup fails with `is unreachable at start-up` or `did not answer within the start-up bound` | History store down, not answering within the start-up bound (`--postgres-op-timeout-secs` / `--redis-op-timeout-secs`, or `--oracle-pool-timeout-secs` for Oracle), or wrong connection URL or DSN | Check that the store is running and verify the connection URL (the DSN or TNS alias for Oracle) |
 | Startup fails with `ahead of the latest migration this build knows` | Gateway rolled back after a newer build migrated the database | Upgrade the gateway, or set `version:` in the schema config (see [Schema Migrations](#schema-migrations)) |
-| Requests answered `503` with code `storage_unavailable` | History store down, or store calls running past the per-call bound | Restore the store; for a healthy but slow store, raise `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` (see [Store Failures While Serving](#store-failures-while-serving)) |
+| Requests answered `503` with code `storage_unavailable` | History store down, or store calls running past the per-call bound | Restore the store; for a healthy but slow store, raise `--postgres-op-timeout-secs` / `--redis-op-timeout-secs` / `--oracle-op-timeout-secs` (see [Store Failures While Serving](#store-failures-while-serving)) |
 | Pool exhaustion | High concurrency | Increase pool size |
 | Data not persisting | Wrong backend | Verify `--history-backend` setting |
 | Redis data expiring | TTL too short | Increase `--redis-retention-days` |

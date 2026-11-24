@@ -393,7 +393,9 @@ Three sources decide, in order: the model's `tool_parser` / `reasoning_parser` [
 | Any other legacy tool-call parser's name, `passthrough` included | The legacy parsers — the per-model escape hatch when a table misreads |
 | No names | Nothing: the next source decides |
 
-A name selects the legacy parsers only when it is a legacy tool-call name no table answers to, or `passthrough` as the reasoning name alone. A reasoning name alone that no table answers to, such as `deepseek_r1`, selects nothing, since every table reads the thought channel; a known checkpoint still reads with the registry's table. `cohere_cmd` alone as the reasoning name also selects nothing, although the `command` table answers to it: the registry's table reads a checkpoint it knows, and what the next source's names select reads the others. Only where nothing else selects a reader does its table read the model, in place of the legacy parsers — both channels, so a call written in another family's syntax stays content.
+A name selects the legacy parsers only when it is a legacy tool-call name no table answers to, or `passthrough` as the reasoning name alone. A reasoning name alone that no table answers to, such as `deepseek_r1`, selects nothing, since every table reads the thought channel; a known checkpoint still reads with the registry's table.
+
+`cohere_cmd` alone as the reasoning name also selects nothing, although the `command` table answers to it: the registry's table reads a checkpoint it knows, and what the next source's names select reads the others. Only where nothing else selects a reader does the `command` table read the model, in place of the legacy parsers — both channels, so a call written in another family's syntax stays content.
 
 When the registry's table reads a model whose overrides select no reader while the flags select a different reader, registration logs a warning saying so, once per model.
 

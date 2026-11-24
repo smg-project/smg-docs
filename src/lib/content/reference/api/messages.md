@@ -82,7 +82,7 @@ POST /v1/messages
 | `service_tier` | string | No | `auto` or `standard_only`. |
 | `container` | object | No | Container for code execution (beta). |
 | `mcp_servers` | array | No | MCP servers for the request (beta). Required when `tools` has an `mcp_toolset` entry; see [MCP Tools](#mcp-tools). |
-| `thread` | object | No | Open or continue a message thread (beta): `{"type": "create"}` stores the request and its answer under the answer's `id`, and `{"type": "continue", "previous_message_id": "msg_..."}` sends only the messages since that answer. See [Message Threads](#message-threads). |
+| `thread` | object | No | Open or continue a message thread (beta): `{"type": "create"}` stores the request and its answer under the answer's `id`, and `{"type": "continue", "previous_message_id": "msg_..."}` sends only the messages since that answer. Needs the `anthropic-beta: message-threads-2026-08-12` header; without it, a parsed body carrying `thread` is refused with `400` (`thread_beta_required`). See [Message Threads](#message-threads). |
 | `rid` | string | No | Extension: request ID passed to the backend for log correlation. On a [message thread](#message-threads) turn, SMG replaces it with an ID it mints; see [Request IDs on Thread Turns](#request-ids-on-thread-turns). |
 
 SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management`, are kept and forwarded to HTTP workers and the Anthropic API.
@@ -304,12 +304,21 @@ data: {"type":"message_stop"}
 
 Message threads (beta) let a client send only each turn's new messages: SMG keeps the conversation's earlier turns in its own memory and rebuilds the whole conversation on every continue. SMG resolves the thread before it selects a backend, so threads behave the same on every backend, and a backend — the Anthropic API included — always receives a plain request carrying the whole conversation, without the `thread` field.
 
+Every thread turn, create and continue alike, must name the message-threads beta in its `anthropic-beta` header, alone or in a comma-separated list with other betas:
+
+```text
+anthropic-beta: message-threads-2026-08-12
+```
+
+The header tells SMG to read the body before routing: the HTTP router buffers a request that names the beta, at any body size and under any retry setting, so SMG can rebuild the turn from the body and store its answer. A request whose parsed body carries a `thread` field without the header is refused with `400` (`thread_beta_required`) before any backend runs; see [Thread Errors](#thread-errors).
+
 A request with `thread: {"type": "create"}` opens a thread. It is a complete request — the whole conversation so far, with its `system`, `tools`, and every other field — and SMG stores it with its answer under the answer's `id`:
 
 ```bash
 curl http://localhost:30000/v1/messages \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
+  -H "anthropic-beta: message-threads-2026-08-12" \
   -d '{
     "model": "meta-llama/Llama-3.1-8B-Instruct",
     "max_tokens": 1024,
@@ -327,6 +336,7 @@ A request with `thread: {"type": "continue", "previous_message_id": "msg_..."}` 
 curl http://localhost:30000/v1/messages \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
+  -H "anthropic-beta: message-threads-2026-08-12" \
   -d '{
     "model": "meta-llama/Llama-3.1-8B-Instruct",
     "max_tokens": 1024,
@@ -362,14 +372,15 @@ Turns are scoped to the tenant that created them, under the same rule as stored 
 
 ### Thread Errors
 
-A continue that SMG cannot serve is refused before any backend runs:
+A thread turn that SMG cannot serve is refused before any backend runs:
 
 | Status | Code | Cause |
 |--------|------|-------|
+| `400` | `thread_beta_required` | The body has a `thread` field but the request does not name the message-threads beta in its `anthropic-beta` header; create and continue turns alike. See [the header requirement](#message-threads). |
 | `404` | `thread_not_found` | Nothing can be continued from `previous_message_id`: an unknown id, an evicted or expired turn, another tenant's thread, a turn that was never stored (an error response, a stream cut before its `message_stop`) or not stored yet (an answer still streaming), a stored answer with a content block a request has no form for, or new messages the rebuilt conversation does not accept, such as a `tool_result` that matches no stored `tool_use`. |
 | `400` | `thread_fingerprint_mismatch` | The continue request changed a fixed field; the error message names the fields. |
 
-Both carry their code in the body's `error.details.error_code` and in the `X-SMG-Error-Code` header:
+All three carry their code in the `X-SMG-Error-Code` header; `thread_not_found` and `thread_fingerprint_mismatch` carry it in the body's `error.details.error_code` too:
 
 ```json
 {
@@ -390,7 +401,7 @@ Threads are best effort, and `thread_not_found` is the normal way one ends. Retr
 On a thread turn, the `rid` in the body never becomes the message's `id`: SMG replaces it with a fresh `msg_` id before routing, so a repeated client `rid` cannot make two turns share an id. The client's `rid` still comes back as the answer's `request-id` header — the header the Anthropic SDKs read the request id from — when it is 1 to 128 visible-ASCII characters and the response does not already carry that header.
 
 !!! note "Streamed-through bodies"
-    Like the other [request-body rules](#request-body), threads need a parsed body. A `/v1/messages` body the HTTP router [streams through unparsed](../../concepts/performance/request-streaming.md) is forwarded to the worker with its `thread` field intact, and SMG neither stores nor rebuilds anything for it.
+    Like the other [request-body rules](#request-body), threads need a parsed body, and the beta header guarantees one: the HTTP router buffers every `/v1/messages` request that names the message-threads beta, with or without a `thread` field, so a request carrying the header is never [streamed through unparsed](../../concepts/performance/request-streaming.md). Without the header there is no thread turn: a parsed body with a `thread` field is refused with `400` (`thread_beta_required`), and a body the HTTP router streams through unparsed is forwarded to the worker with its `thread` field intact, with nothing stored or rebuilt.
 
 ---
 
@@ -469,10 +480,10 @@ Headers specific to the Messages API:
 |--------|--------|
 | `X-SMG-MCP` | `enabled` makes SMG run the MCP tool loop itself for a request whose `tools` include an `mcp_toolset` entry, on the Anthropic API backend. See [MCP Tools](#mcp-tools) and [MCP](../../concepts/extensibility/mcp.md). Other backends ignore it, and SMG does not forward it. |
 | `anthropic-version` | Checked on `/v1/messages` and `/v1/messages/count_tokens` before routing: the value must be a real calendar date of 2023 or later, written `YYYY-MM-DD`. Anything else, including an impossible date such as `2023-02-30`, is refused with `400` (`invalid_anthropic_version`). A request without the header is served, and a valid value does not change how SMG handles the request. Forwarded to HTTP and PD workers and to the Anthropic API. |
-| `anthropic-beta` | Read on `/v1/messages` for one rule: an entry starting with `interleaved-thinking` lets `thinking.budget_tokens` be at or above `max_tokens`; without it, such a budget is refused with `400` (`thinking_budget_exceeds_max_tokens`). Forwarded to HTTP and PD workers and to the Anthropic API. |
+| `anthropic-beta` | Read on `/v1/messages` for two rules. An entry starting with `interleaved-thinking` lets `thinking.budget_tokens` be at or above `max_tokens`; without it, such a budget is refused with `400` (`thinking_budget_exceeds_max_tokens`). A body with a `thread` field needs the entry `message-threads-2026-08-12`; without it, a parsed body carrying `thread` is refused with `400` (`thread_beta_required`). Naming the message-threads beta also makes the HTTP router buffer the body; see [Message Threads](#message-threads). Forwarded to HTTP and PD workers and to the Anthropic API. |
 | `x-api-key` | Not used to authenticate to SMG. Forwarded only to the Anthropic API; a gateway key sent there is removed at authentication. See [Authentication](#authentication). |
 
-Like the [request-body rules](#request-body), the `anthropic-version` and `anthropic-beta` checks are skipped for a `/v1/messages` request whose body the HTTP router streams through unparsed (see [HTTP and PD Workers](#http-and-pd-workers)). A `/v1/messages/count_tokens` body is always buffered, so its `anthropic-version` check always runs.
+Like the [request-body rules](#request-body), the `anthropic-version` and `anthropic-beta` checks are skipped for a `/v1/messages` request whose body the HTTP router streams through unparsed (see [HTTP and PD Workers](#http-and-pd-workers)). A request that names the message-threads beta never takes that path: the header itself makes the router buffer the body, so a thread turn is always checked. A `/v1/messages/count_tokens` body is always buffered, so its `anthropic-version` check always runs.
 
 ### Forwarded Headers
 

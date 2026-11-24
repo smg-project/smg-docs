@@ -234,7 +234,7 @@ When only one worker is eligible, either policy takes it directly and logs no li
 
 Both policies write the line under the `smg::policies::least_load` target, so a `RUST_LOG` directive naming `smg::policies::power_of_two` enables neither policy's line; the `smg::policies` directive above covers both.
 
-Cache-aware logs the line too: once its routing branch has fixed the candidate set, it picks the final worker by the same expected-wait score, so every cache-aware selection also logs a `cache_aware selected …` line. The plain line appears beside the decision's `Cache-aware selection` line, or beside the event-driven or warm-up line of a KV-event decision (see the cache-aware policy's [Debug Logs](../concepts/routing/cache-aware.md#debug-logs)). This copy also goes to the `smg::policies::least_load` target, so a directive enabling `smg::policies::cache_aware` alone shows the structured lines but not this one.
+Cache-aware logs the line too: once its routing branch has fixed the candidate set, it picks the final worker by the same expected-wait score, so every cache-aware selection also logs a `cache_aware selected …` line. The plain line appears beside the decision's `Cache-aware selection` line, or beside the event-driven or warm-up line of a KV-event decision (see the cache-aware policy's [Debug Logs](../concepts/routing/cache-aware.md#debug-logs)). The cache-aware copy also goes to the `smg::policies::least_load` target, so a directive enabling `smg::policies::cache_aware` alone shows the structured lines but not this one.
 
 ---
 

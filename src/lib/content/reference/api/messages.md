@@ -82,7 +82,7 @@ POST /v1/messages
 | `service_tier` | string | No | `auto` or `standard_only`. |
 | `container` | object | No | Container for code execution (beta). |
 | `mcp_servers` | array | No | MCP servers for the request (beta). Required when `tools` has an `mcp_toolset` entry; see [MCP Tools](#mcp-tools). |
-| `thread` | object | No | Open or continue a message thread (beta): `{"type": "create"}` stores the request and its answer under the answer's `id`, and `{"type": "continue", "previous_message_id": "msg_..."}` sends only the messages since that answer. Needs the `anthropic-beta: message-threads-2026-08-12` header; a parsed body with `thread` and no such header is refused with `400` (`thread_beta_required`). See [Message Threads](#message-threads). |
+| `thread` | object | No | Open or continue a message thread (beta): `{"type": "create"}` stores the request and its answer under the answer's `id`, and `{"type": "continue", "previous_message_id": "msg_..."}` sends only the messages since that answer. Needs the `anthropic-beta: message-threads-2026-08-12` header; without it, a parsed `thread` body is refused with `400` (`thread_beta_required`). See [Message Threads](#message-threads). |
 | `rid` | string | No | Extension: request ID passed to the backend for log correlation. On a [message thread](#message-threads) turn, SMG replaces it with an ID it mints; see [Request IDs on Thread Turns](#request-ids-on-thread-turns). |
 
 SMG validates the body before routing and answers `400` when a required field is missing or a rule above is broken. The one exception is a body that the HTTP router streams through unparsed; see [HTTP and PD Workers](#http-and-pd-workers). Fields SMG does not model, such as `context_management`, are kept and forwarded to HTTP workers and the Anthropic API.
@@ -310,7 +310,7 @@ Every thread turn, create and continue alike, must name the message-threads beta
 anthropic-beta: message-threads-2026-08-12
 ```
 
-The header tells SMG to read the body before routing: the HTTP router buffers a request that names the beta — whatever the body's size and the retry settings — so the thread layer can rebuild the turn from the body and store its answer. A request whose parsed body carries a `thread` field without the header is refused with `400` (`thread_beta_required`) before any backend runs; see [Thread Errors](#thread-errors).
+The header tells SMG to read the body before routing: the HTTP router buffers a request that names the beta, at any body size and under any retry setting, so the thread layer can rebuild the turn from the body and store its answer. A request whose parsed body carries a `thread` field without the header is refused with `400` (`thread_beta_required`) before any backend runs; see [Thread Errors](#thread-errors).
 
 A request with `thread: {"type": "create"}` opens a thread. It is a complete request — the whole conversation so far, with its `system`, `tools`, and every other field — and SMG stores it with its answer under the answer's `id`:
 

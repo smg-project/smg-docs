@@ -464,7 +464,7 @@ Every call to a PostgreSQL, Redis, or Oracle store is bounded by `--postgres-op-
 
 A store that is down, or slower than the per-call bound, fails the request with `503` and the code `storage_unavailable` on every endpoint that stores or reads history: creating a response that is stored or continues history (`store` unset or `true`, `previous_response_id`, or `conversation`), getting, deleting, or cancelling a stored response, listing its input items, and every `/v1/conversations` operation. On a streaming create the response record is written before the terminal event, so a record that could not be written ends the stream with a `response.failed` event carrying the same `storage_unavailable` code rather than a `503` answer. The request can be retried once the store answers again.
 
-On Oracle, the bound ends the request's wait but not the statement, which runs on and is applied if it completes: a write answered `storage_unavailable` may still have been stored.
+On Oracle, the bound ends the request's wait but not the statement, which runs on and takes effect if it completes: a write answered `storage_unavailable` may still have been applied.
 
 A failure the store itself answered — a refused statement, a record that cannot be decoded — keeps the endpoint's own `500` answer (for example `storage_error`), which a retry would not fix. See the [Responses API errors](../../reference/api/responses.md#common-errors) for the per-route codes.
 

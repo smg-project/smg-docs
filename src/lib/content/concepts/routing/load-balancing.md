@@ -708,7 +708,7 @@ In PD mode, `--prefill-policy` and `--decode-policy` set each leg's policy and d
 
 ## Policy Controller
 
-`--policy-controller on|off` (default `off`) chooses who places requests. With `off`, the classic policies above place them. With `on`, the gateway starts a **policy engine** that places every request under a **policy document**: a YAML description of placement, built from profiles of filter, score and pick stages, bindings that tie profiles to models, and plans for PD pairs and EPD requests.
+`--policy-controller on|off` (default `off`) chooses who places requests. With `off`, the classic policies above place them. With `on`, the gateway starts a **policy engine** that places every request under a **policy document**: a description of placement built from profiles of filter, score and pick stages, bindings that tie profiles to models, and plans for PD pairs and EPD requests.
 
 You do not have to write a document. With `on` alone, the engine runs the document your routing flags mean: each of the ten policies is a document preset of the same name, your policy's tuning flags land in the preset's stages, and the [overload protection](../reliability/overload-protection.md) on/off switch and shed choice land on every binding. In PD mode the prefill and decode presets are planned as a pair, with an admission filter in front of each side (capacity for prefill, room for decode); in EPD mode the encode preset joins them under the `epd` plan, with those two filters still in front of the pair's sides. Placement follows your flags as before, now decided by the engine.
 
@@ -720,7 +720,9 @@ The document in force is validated at startup, before the gateway opens its stor
 
 ### Printing the Document
 
-`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so the command runs without the secrets or keys a start would need. The routing flags, the discovery flags and the tenant header's name are checked as startup checks them; a Consul address and the Consul environment are resolved only at a real start. A malformed flag value is refused first, and a setting that no document can express is named in one sentence on stderr, with a failing exit.
+`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so the command runs without the secrets or keys a start would need. The routing flags, the discovery flags and the tenant header's name are checked as startup checks them; a Consul address and the Consul environment are resolved only at a real start.
+
+A malformed flag value is refused first, and a setting that no document can express is named in one sentence on stderr, with a failing exit and nothing printed. The document is also checked as the gateway checks the document it runs: one that check refuses — for a part this build's controller does not run, or for reading the gateway's tenant header — still prints in full, with the refusal in one sentence on stderr and the same failing exit.
 
 The printed document is the natural starting point for one you edit and supply with `--policy-spec`:
 
@@ -732,7 +734,7 @@ smg --policy least_load --print-policy-spec > routing.yaml
 
 ### Supplying a Document
 
-`--policy-spec FILE` runs a supplied YAML document in place of the one the routing flags mean, and requires `--policy-controller on`: with the controller off, startup fails with `a policy document is run by the policy controller: set --policy-controller on`.
+`--policy-spec FILE` runs a supplied document in place of the one the routing flags mean. A file named `.json` is read as JSON, any other name as YAML. The flag requires `--policy-controller on`: with the controller off, startup fails with `a policy document is run by the policy controller: set --policy-controller on`.
 
 The document **replaces** the routing flags. Typing any of the 43 flags it replaces beside `--policy-spec` is refused at startup with an error naming both flags — even when the typed value is the flag's default. The replaced flags are the policy names (`--policy`, `--prefill-policy`, `--decode-policy`, `--encode-policy`), every policy's own tuning flags, the overload-protection switch and shed flags, the cache-aware warm-up flags, `--routing-key-override`, `--grouped-dp-sticky`, `--dp-minimum-tokens-scheduler` and `--pd-pairing-mode`.
 

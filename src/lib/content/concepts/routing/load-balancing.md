@@ -720,7 +720,7 @@ The document in force is validated at startup, before the gateway opens its stor
 
 ### Printing the Document
 
-`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so the command runs without the secrets or keys a start would need. The routing flags, the discovery flags and the tenant header's name are checked as startup checks them (a Consul address and the Consul environment are resolved only at a real start): a malformed flag value is refused first; a setting that no document can express is named in one sentence on stderr, and the command exits with a failure.
+`--print-policy-spec` prints the policy document your routing flags mean, as YAML on stdout, and exits. Nothing is started and no file is read, so the command runs without the secrets or keys a start would need. The routing flags, the discovery flags and the tenant header's name are checked as startup checks them; a Consul address and the Consul environment are resolved only at a real start. A malformed flag value is refused first, and a setting that no document can express is named in one sentence on stderr, with a failing exit.
 
 The printed document is the natural starting point for one you edit and supply with `--policy-spec`:
 
@@ -758,7 +758,7 @@ A setting that decides a placement but has no place in a document is refused at 
 - Per-model `policy` worker labels are inert: no model gets a policy of its own, and the engine's document places every model's requests.
 - An EPD request that carries media for the model's encode workers is refused with `501` (`encode_under_policy_engine`): whatever the document plans, the gateway asks the engine for prefill/decode pairs and for no encoder. The `501` is terminal for [retries](../reliability/retries.md); send the request without media, or to a gateway with the controller off. EPD requests without media are still served as pairs.
 - A PD pair's two sides are picked in one decision under the document's `plans.pd-pair.decode: with-prefill` — the default, and what the document the flags mean uses. A supplied document can set `after-prefill`: the pair's first decision then books the prefill alone, and the decode is decided again once the prefill has answered, so a decode that became a poor choice while the prefill ran can move. A route that sends both sides at once keeps the first decision's decode.
-- `smg_worker_selection_total` counts each selection under the document profile that picked it (the preset of your policy keeps the policy's name).
+- `smg_worker_selection_total` counts each selection under the document profile that picked it. Under the document the flags mean, a single request's selections keep your policy's name; a pair's sides are counted as `prefill` and `decode`.
 
 Everything else stays the gateway's own, exactly as under the classic policies: the worker pools and their registration, [service discovery](../architecture/service-discovery.md), health probes, load polling, [retries](../reliability/retries.md), [circuit breakers](../reliability/circuit-breakers.md), and the PD prefill admission queue. [Overload protection](../reliability/overload-protection.md) is still enforced, and its two thresholds stay the gateway's own, set on each worker as it registers. Its on/off switch and shed choice are the document's word: carried from your flags onto every binding under the document the flags mean, and read from the bindings' `overload` blocks under a [supplied document](#supplying-a-document).
 

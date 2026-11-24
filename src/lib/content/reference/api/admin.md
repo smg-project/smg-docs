@@ -792,7 +792,7 @@ The response is built from the monitor's cached snapshot, the same numbers the r
 | `timestamp` | When the gateway built this response (RFC 3339) |
 | `version` | `smg-` followed by the gateway version |
 | `dp_rank_count` | Number of entries in `loads`, across the whole fleet |
-| `loads[].worker`, `loads[].worker_type` | Worker URL and type (`regular`, `prefill`, `decode`, or `encode`) |
+| `loads[].worker`, `loads[].worker_type` | The worker's masked URL (see below) and its type (`regular`, `prefill`, `decode`, or `encode`) |
 | `loads[].dp_rank` | DP rank within that worker |
 | `loads[].num_running_reqs`, `num_waiting_reqs`, `num_total_reqs` | Requests running, queued, and both |
 | `loads[].num_waiting_uncached_tokens` | Queued tokens not served from the prefix cache (`0` when the engine does not report it) |
@@ -802,6 +802,8 @@ The response is built from the monitor's cached snapshot, the same numbers the r
 | `loads[].memory`, `loads[].queues` | Optional sections, present when the engine reports them: `memory` (`weight_gb`, `kv_cache_gb`, `graph_gb`, `token_capacity`) and `queues` (`waiting`, `grammar`, `paused`, `retracted`) |
 | `loads[].kv_transfer_latency_ms`, `kv_transfer_speed_gb_s`, `prefill_queue_reqs`, `decode_queue_reqs`, `disagg_mode` | Optional prefill/decode disaggregation fields, present when the engine reports them |
 | `aggregate` | Fleet roll-up across all entries: `total_running_reqs`, `total_waiting_reqs`, and `total_reqs` are sums; `avg_token_usage`, `avg_throughput`, and `avg_utilization` are means |
+
+`/loads` is public and a worker's registered URL may carry a credential, so `worker` is the URL in masked form: anything in the URL's `user:password@` part is masked whole, and a query or fragment is cut. A worker registered as `http://user:secret@gpu1:8000` appears as `http://***@gpu1:8000`; a URL with none of these parts appears exactly as registered, like the two in the example above. The same rule masks worker addresses in log lines; see [Worker Address Masking](../../getting-started/logging.md#worker-address-masking).
 
 The same per-worker report appears as `engine_load` on `GET /workers` and `GET /workers/{worker_id}`. It is unrelated to their `load` field, which counts requests the gateway has in flight to the worker. [Overload Protection](../../concepts/reliability/overload-protection.md) explains where each backend's report comes from.
 

@@ -33,13 +33,17 @@ These endpoints are registered without any auth middleware:
 | `GET` | `/health` | Same as `/liveness` |
 | `GET` | `/liveness` | Process liveness probe |
 | `GET` | `/readiness` | Traffic readiness probe; see [Gateway Probe Endpoints](../../concepts/reliability/health-checks.md#gateway-probe-endpoints) |
-| `GET` | `/health_generate` | Generation health check, forwarded to HTTP workers; gRPC and ZMQ deployments answer `501` |
+| `GET` | `/health_generate` | Generation health check, forwarded to one HTTP worker or prefill/decode pair (see below); gRPC and ZMQ deployments answer `501` |
 | `GET` | `/engine_metrics` | The engines' own Prometheus metrics in one exposition; see [Engine Metrics Passthrough](../metrics.md#engine-metrics-passthrough) |
 | `GET` | `/loads` | Fleet engine load from the gateway's cached load snapshot (optional `?model=` filter); see [Get Loads](admin.md#get-loads) |
 | `GET` | `/v1/models` | List models; see [List Models](openai.md#list-models) |
 | `GET` | `/v1/models/{model}` | One model's card; `{model}` takes the rest of the path, so IDs with slashes work raw or percent-encoded; see [Retrieve Model](openai.md#retrieve-model) |
 | `GET` | `/get_model_info` | Model metadata, forwarded to a healthy HTTP worker whenever the fleet has one; a fleet with none answers `501` or `503` (see below) |
 | `GET` | `/get_server_info` | Server metadata, forwarded the same way as `/get_model_info` |
+
+`/health_generate` makes the model generate tokens, so a [PD-disaggregated](../../concepts/routing/pd-disaggregation.md) HTTP deployment probes one prefill/decode pair selected by the routing policy rather than every worker. When both sides pass, the answer is `200` with a plain-text body naming the pair; each side that fails is listed in a `503` with code `health_generate_failed`, alongside the HTTP status it answered or, for a side that could not be reached, the transport's reason. A regular HTTP deployment forwards the probe to one healthy worker and returns that worker's own answer.
+
+The route is public and a registered worker URL may carry a credential, so an answer that names a worker gives its masked address: anything in the URL's `user:password@` part is masked whole (`http://user:secret@gpu1:8000` becomes `http://***@gpu1:8000`), a query or fragment is cut, and an address with none of these parts appears exactly as registered. The transport's reason omits the request URL, so the answer carries no registered credential. The same rule masks worker addresses in log lines; see [Worker Address Masking](../../getting-started/logging.md#worker-address-masking).
 
 `/get_model_info` and `/get_server_info` are fleet-wide reads: the gateway forwards the GET to a healthy HTTP worker — a regular HTTP worker, or a disaggregated HTTP deployment's prefill worker — and returns that worker's answer. Whenever the fleet has such a worker, every call answers from one, even when gRPC or ZMQ workers serve the same gateway, and an HTTP deployment whose workers are all unhealthy is passed over for one that can answer. See [Get Model Info](admin.md#get-model-info) and [Get Server Info](admin.md#get-server-info) for the forwarded request and the response fields.
 

@@ -125,14 +125,14 @@ SMG also accepts these SGLang-style extensions on Chat Completions:
 | `repetition_penalty` | number | Repetition penalty (0-2) |
 | `regex`, `ebnf` | string | Constrain the output. Only one of the two may be set, and neither combines with a JSON or `structural_tag` `response_format` |
 | `stop_token_ids` | array | Token IDs that stop generation |
-| `ignore_eos`, `no_stop_trim` | boolean | Keep generating past EOS; keep the stop sequence in the output |
-| `skip_special_tokens` | boolean | Drop special tokens when detokenizing (default `true`) |
+| `ignore_eos`, `no_stop_trim` | boolean | Keep generating past EOS; keep the stop sequence in the output (both default `false`; a `null` reads as the default) |
+| `skip_special_tokens` | boolean | Drop special tokens when detokenizing (default `true`; a `null` reads as the default) |
 | `continue_final_message` | boolean | Continue the trailing assistant message instead of starting a new one |
 | `separate_reasoning`, `stream_reasoning` | boolean | Return reasoning in `reasoning_content` and stream it (both default `true`) |
 | `chat_template_kwargs` | object | Extra chat-template variables. On gRPC workers an explicit entry wins over the `tool_choice` and `response_format` values SMG passes to the template, but not over the effort: a `reasoning_effort` entry applies only when the request sets no effort of its own (see [Thinking and Reasoning Effort](#thinking-and-reasoning-effort)) |
 | `lora_path` | string | LoRA adapter to apply |
 | `sampling_seed` | integer | Seed for deterministic sampling |
-| `return_hidden_states` | boolean | Return the model's hidden states |
+| `return_hidden_states` | boolean | Return the model's hidden states (default `false`; a `null` reads as the default) |
 | `rid` | string | Request ID forwarded to the backend |
 
 Fields SMG does not model are kept and forwarded unchanged to HTTP workers, and so are
@@ -455,7 +455,7 @@ POST /v1/completions
 | `stream` | boolean | No | Enable streaming |
 | `stream_options` | object | No | `include_usage`; only allowed with `stream: true` |
 | `stop` | string/array | No | Up to 4 non-empty stop sequences |
-| `echo` | boolean | No | Echo prompt in response |
+| `echo` | boolean | No | Echo prompt in response (default `false`; a `null` reads as the default) |
 | `suffix` | string | No | Text that comes after the completion |
 | `presence_penalty`, `frequency_penalty` | number | No | Penalties (-2 to 2) |
 | `seed` | integer | No | Seed for best-effort deterministic sampling |

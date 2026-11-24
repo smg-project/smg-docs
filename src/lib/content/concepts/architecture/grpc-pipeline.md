@@ -395,13 +395,15 @@ Three sources decide, in order: the model's `tool_parser` / `reasoning_parser` [
 
 A name selects the legacy parsers only when it is a legacy tool-call name no table answers to, or `passthrough` as the reasoning name alone. A reasoning name alone that no table answers to, such as `deepseek_r1`, selects nothing, since every table reads the thought channel; a known checkpoint still reads with the registry's table.
 
+`cohere_cmd` alone as the reasoning name also selects nothing, although the [`command` table](#table-names) answers to it: the registry's table reads a checkpoint it knows, and what the next source's names select reads the others. Only where nothing else selects a reader does the `command` table read the model, in place of the legacy parsers — both channels, so a call written in another family's syntax stays content.
+
 When the registry's table reads a model whose overrides select no reader while the flags select a different reader, registration logs a warning saying so, once per model.
 
 The registry matches the repository name — the text after the last path separator — exactly and without regard to case, under any organization or path: `Qwen/Qwen3-8B`, `qwen3-8b` and a local path ending in `Qwen3-8B` all read with the same table. Unlike legacy auto-detection, which finds a pattern anywhere in the name, a renamed or quantized checkpoint the registry does not know, such as `Qwen3-8B-FP8`, matches nothing: the flags read it, or the legacy parsers when the flags name no table. The [`x-smg-parser` response header](#per-request-switch-and-response-header) tells you which parser read a given response.
 
 ### Table Names
 
-The 38 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `hy_v3`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `kimi_k3`, `inkling`, `inkling2`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `longcat`, `muse_spark`, `plain`, `deepseek_v3`, `deepseek_v3.1`, `deepseek_v3.2`, `llama4`, `mistral` and `kimi_k2`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
+The 39 tables are named `qwen3`, `qwen3_tagged`, `qwen3_tagged_direct`, `qwen2.5`, `deepseek_v4`, `deepseek_v4.1`, `seed_oss`, `hy4`, `hy_v3`, `ling`, `iquest`, `olmo3`, `lfm2.5`, `xlam`, `json`, `minimax_m2`, `minimax_m3`, `mistral_v13`, `llama_nemotron`, `command`, `kimi_k3`, `inkling`, `inkling2`, `minicpm5`, `dots3`, `gemma4`, `function_gemma`, `glm`, `glm4`, `k2_horizon`, `longcat`, `muse_spark`, `plain`, `deepseek_v3`, `deepseek_v3.1`, `deepseek_v3.2`, `llama4`, `mistral` and `kimi_k2`. A table's name is valid wherever a parser name is: the flags, worker labels and model cards.
 
 A table also answers to the names of the legacy parsers that read its format, so a model whose override already sets one of these names reads with the table under the default `--parser symphony`, with no change to the override. Two names in the table below are no legacy parser's: `muse`, the name downstream launchers pass for Muse models, and `llama4_pythonic`, an engine's exact name for the Llama 4 table — the generic `pythonic` keeps the legacy parsers, since the DeepSeek R1 line still carries that name.
 
@@ -419,12 +421,19 @@ A table also answers to the names of the legacy parsers that read its format, so
 | `llama4_pythonic` | `llama4` |
 | `minimax` | `minimax_m2` |
 | `muse` | `muse_spark` |
+| `cohere`, `cohere_cmd` | `command` |
 | `kimik2`, `kimi_thinking`, `kimi_k25` | `kimi_k2` |
 | `llama` | `json` |
 
 `llama` reads with the `json` table because Llama 3.2's models write Llama 3.1's format: the call object bare or behind `<|python_tag|>`, parallel calls as consecutive objects (`;` or a blank line between them). One reading differs from the legacy `llama` parser's: that parser takes the tag anywhere in the text, while the table reads it at the output's start only, so an output with prose before the tag stays content whole.
 
-Nine legacy parser names — `json`, `qwen3`, `deepseek_v4`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2`, `minimax_m3` and `mistral` — are a table's own name and read with that table. A legacy name no table answers to, such as `pythonic`, `step3`, `sarashina` or `cohere`, keeps the legacy parsers for its model.
+`cohere` and `cohere_cmd` — the legacy Command tool-call and reasoning parsers' names — read with the `command` table: the thought between `<|START_THINKING|>` and `<|END_THINKING|>`, the calls as one JSON list between `<|START_ACTION|>` and `<|END_ACTION|>` (a bare object there is one call, which the legacy `cohere` parser also reads), and the answer with its `<|START_RESPONSE|>` / `<|END_RESPONSE|>` markers dropped.
+
+As with every name a table answers to, either name selects the table for both channels, so a reasoning parser named beside `cohere` does not read the thought: a `<think>` block the model writes stays in `content`. `cohere_cmd` alone as the reasoning name is an exception, described under [Which Table Reads a Model](#which-table-reads-a-model): it lets the registry and the next source decide first, and its table reads only where nothing else does.
+
+Two of the `command` table's readings differ from the legacy parsers'. The legacy `cohere_cmd` parser leaves the text behind the thought as written, the answer's markers included; the table drops those markers and the whitespace alone before them, so an answer the model writes as `<|START_RESPONSE|>The answer is 42.<|END_RESPONSE|>` comes back as `The answer is 42.`. When streaming, the legacy `cohere` parser reads a call only from a bare object between the action markers, and the JSON list the template itself renders comes back as `content`; the table reads the list's calls.
+
+Nine legacy parser names — `json`, `qwen3`, `deepseek_v4`, `gemma4`, `kimi_k3`, `inkling`, `minimax_m2`, `minimax_m3` and `mistral` — are a table's own name and read with that table. A legacy name no table answers to, such as `pythonic`, `step3` or `sarashina`, keeps the legacy parsers for its model.
 
 The gateway checks the names at startup and at worker registration, against the configured `--parser`. A legacy parser's name counts only for its own flag — `--reasoning-parser qwen_xml` fails under either `--parser` — while a table's own name, `muse`, `llama4_pythonic` and `hf` pass in either flag under `symphony`. Under `symphony`, any other name fails with `unknown tool-call parser '<name>': neither a legacy parser nor a Symphony table`. Under `legacy`, when a flag's value is rejected and Symphony reads with it — a table's own name, `muse`, `llama4_pythonic` or `hf` — the error ends `... which --parser symphony reads with`, as noted under [Parser Selection](#parser-selection).
 

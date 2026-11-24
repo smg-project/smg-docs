@@ -62,6 +62,60 @@ class FollowupTests(unittest.TestCase):
         self.assertEqual(result['daily_commit_checks'][1], original['daily_commit_checks'][1])
         self.assertTrue(daily_coverage.report(self.context, [result], ['api-protocols'])['complete'])
 
+    def test_peer_findings_preserve_assignments_and_reopen_unresolved_dependencies(self):
+        original = self.original()
+        original['daily_commit_checks'][0] = self.check(status='blocked', depends_on=['operations'])
+        peer = {**self.scans[-1], 'inspected_commits': [self.latest],
+                'daily_commit_checks': [self.check(status='not_applicable',
+                    evidence='Routing owns the complete metrics correction; no separate operations change.')]}
+        peers = [original, peer]
+        # A peer's not_applicable assessment never automatically clears the gap.
+        self.assertEqual(followup.required(self.context, original, peers), [self.latest])
+        scoped = followup.prepare(self.context, original, self.assignments, peers)
+        self.assertEqual(scoped['daily_assignments'], self.context['daily_assignments'])
+        self.assertEqual(scoped['peer_assessments'][0]['daily_commit_checks'], peer['daily_commit_checks'])
+        self.assertEqual(scoped['required_commit_ids'], [1])
+        raw = self.result(daily_commit_checks={'1': {k: v for k, v in self.check(
+            status='deferred', depends_on=['operations'], evidence='Peer missed a verified gap.').items()
+            if k != 'source_sha'}})
+        result = followup.merge(self.context, original, raw, peers)
+        self.assertFalse(daily_coverage.report(self.context, [result, peer], ['api-protocols'])['complete'])
+        # Fresh covered evidence can settle the existing dependency without another model call.
+        peer['daily_commit_checks'][0]['status'] = 'covered'
+        self.assertEqual(followup.required(self.context, original, peers), [])
+
+    def test_completion_artifacts_are_bound_to_original_and_source(self):
+        original = self.original()
+        completed = followup.merge(self.context, original, self.result())
+        completed['daily_followup'] = {'original_digest': followup.digest(original),
+                                       'source_sha': self.context['source_sha']}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, 'completed.json')
+            path.write_text(json.dumps(completed))
+            self.assertEqual(followup.overlay(self.context, [original], directory), [completed])
+            for field in ('original_digest', 'source_sha'):
+                invalid = copy.deepcopy(completed)
+                invalid['daily_followup'][field] = 'f' * 64
+                path.write_text(json.dumps(invalid))
+                with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'does not match'):
+                    followup.overlay(self.context, [original], directory)
+            path.write_text(json.dumps(completed))
+            with self.assertRaisesRegex(ValueError, 'duplicate'):
+                followup.overlay(self.context, [original, original], directory)
+            Path(directory, 'duplicate.json').write_text(json.dumps(completed))
+            with self.assertRaisesRegex(ValueError, 'does not match'):
+                followup.overlay(self.context, [original], directory)
+
+    def test_peer_artifacts_are_validated_before_being_shown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, 'peer.json')
+            path.write_text(json.dumps(self.original()))
+            self.assertEqual(followup.read_scans(self.context, directory), [self.original()])
+            invalid = {**self.original(), 'base_sha': 'f' * 40}
+            path.write_text(json.dumps(invalid))
+            with self.assertRaisesRegex(ValueError, 'baseline'):
+                followup.read_scans(self.context, directory)
+
     def test_new_verified_gap_is_added_and_unfinished_work_still_fails_coverage(self):
         item = proposal(source_commit=1, concern='worker-launch-rules', question='Worker launch rules?')
         del item['source_sha']
@@ -125,12 +179,18 @@ class FollowupTests(unittest.TestCase):
             context_root.mkdir()
             (context_root / 'context.json').write_text(json.dumps(self.context))
             (context_root / 'assignments.json').write_text(json.dumps(self.assignments))
-            scan = root / 'scan.json'
+            scans = root / 'scans'
+            scans.mkdir()
+            scan = scans / 'scan.json'
+            completed = root / 'completed'
+            completed.mkdir()
+            result = completed / 'scan.json'
             original = self.original()
             scan.write_text(json.dumps(original))
             trace = root / 'claude-execution-output.json'
             trace.write_text('stale successful first-pass trace')
             env = {'RUNNER_TEMP': directory, 'SOURCE_ROOT': directory, 'SCAN_OUTPUT': str(scan),
+                   'SCAN_DIR': str(scans), 'COMPLETED_SCAN_OUTPUT': str(result),
                    'NIGHTLY_CONTEXT': str(root / 'followup.json'), 'GITHUB_OUTPUT': str(root / 'output'),
                    'GITHUB_STEP_SUMMARY': str(root / 'summary'), 'SCAN_EXECUTION_FILE': str(trace),
                    'SCAN_ACTION_OUTCOME': 'success'}
@@ -147,7 +207,9 @@ class FollowupTests(unittest.TestCase):
                     {'type': 'result', 'subtype': 'success', 'is_error': False,
                      'num_turns': 1, 'structured_output': json.loads(self.result())}]))
                 followup.main()
-            merged = json.loads(scan.read_text())
+            self.assertEqual(json.loads(scan.read_text()), original)
+            merged = json.loads(result.read_text())
+            self.assertEqual(followup.overlay(self.context, [original], completed), [merged])
             self.assertEqual(merged['daily_followup']['required_commits'], [self.latest])
             self.assertEqual(merged['daily_followup']['execution']['assistant_rounds'], 1)
             self.assertEqual(followup.required(self.context, merged), [])

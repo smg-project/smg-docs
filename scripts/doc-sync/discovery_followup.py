@@ -1,5 +1,6 @@
 """Finish unresolved daily assessments without repeating broad discovery."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,34 +10,85 @@ import daily_coverage
 import discovery
 
 
-def required(context, scan):
+def required(context, scan, peers=None):
     if scan.get('backlog'):
         return []
-    checked = {c['source_sha']: c for c in scan.get('daily_commit_checks', [])}
+    checked = {c['source_sha']: (daily_coverage.dependency(c, scan, peers, context, handoff=True)
+                               if peers is not None else c)
+               for c in scan.get('daily_commit_checks', [])}
     return [sha for sha in context.get('daily_assignments', {}).get(scan['shard'], [])
             if checked.get(sha, {}).get('status') not in daily_coverage.COMPLETE]
 
 
-def prepare(context, scan, assignments):
-    commits = required(context, scan)
+def prepare(context, scan, assignments, peers=None):
+    commits = required(context, scan, peers)
     scoped = discovery.scan_context(context, scan['shard'], assignments)
     ids = [i for i, line in enumerate(context['code_history'], 1) if line.split()[0] in commits]
     return {**scoped, 'proposal_limit': discovery.docs.MAX_PRS - len(scan['concerns']),
             'scan_mode': 'daily-followup', 'required_commit_ids': ids,
-            'focus_commit_ids': ids, 'daily_assignments': {scan['shard']: commits},
+            'focus_commit_ids': ids,
             'release_audit_candidates': [],
             'pending_concerns': [p for p in scoped['pending_concerns']
                                  if p['source_sha'] in commits
                                  and not p['concern'].startswith('release-audit-')],
             'pending_commit_checks': [c for c in scoped['pending_commit_checks']
                                       if c['source_sha'] in commits],
-            'previous_scan': scan}
+            'previous_scan': scan,
+            'peer_assessments': peer_evidence(peers or [], scan['shard'], commits)}
 
 
-def merge(context, scan, raw):
+def peer_evidence(scans, slug, commits):
+    """Expose validated findings for the focused commits, without widening ownership."""
+    evidence = []
+    for scan in scans:
+        if scan['shard'] == slug:
+            continue
+        checks = [c for c in scan.get('daily_commit_checks', []) if c['source_sha'] in commits]
+        refs = {c for check in checks for c in check['concerns']}
+        concerns = [p for p in scan['concerns'] if p['source_sha'] in commits or p['concern'] in refs]
+        if checks or concerns:
+            evidence.append({'shard': scan['shard'], 'backlog': scan.get('backlog', 0),
+                             'inspected_commits': [s for s in scan['inspected_commits'] if s in commits],
+                             'daily_commit_checks': checks, 'concerns': concerns})
+    return evidence
+
+
+def digest(scan):
+    return hashlib.sha256(json.dumps(scan, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def read_scans(context, directory):
+    scans = [json.loads(path.read_text()) for path in Path(directory).glob('*.json')]
+    # Reject unknown, repeated, wrong-baseline or otherwise invalid artifacts
+    # before providing any peer evidence to a model.
+    discovery.combine(scans, context, allow_partial=True)
+    return scans
+
+
+def overlay(context, scans, directory):
+    """Replace only originals bound to a validated completion result."""
+    discovery.combine(scans, context, allow_partial=True)
+    by_id = {daily_coverage.scan_key(scan): scan for scan in scans}
+    seen = set()
+    for path in Path(directory).glob('*.json'):
+        completed = json.loads(path.read_text())
+        key = daily_coverage.scan_key(completed)
+        original = by_id.get(key)
+        metadata = completed.get('daily_followup', {})
+        if (key in seen or key[1] or original is None
+                or metadata.get('original_digest') != digest(original)
+                or metadata.get('source_sha') != context['source_sha']):
+            raise ValueError('Completion artifact does not match its original scan and source')
+        discovery.validate_scan(json.dumps(completed), context, key[0], context['code_history'])
+        seen.add(key)
+        by_id[key] = completed
+    return list(by_id.values())
+
+
+def merge(context, scan, raw, peers=None):
     if scan['base_sha'] != context['base_sha']:
         raise ValueError('Follow-up documentation baseline changed')
-    commits = required(context, scan)
+    commits = required(context, scan, peers)
     result = json.loads(discovery.resolve_scan(raw, context['code_history']))
     checks = result['daily_commit_checks']
     shas = [c['source_sha'] for c in checks]
@@ -78,16 +130,23 @@ def main():
     context = json.loads((root / 'context.json').read_text())
     context.update(source_root=os.environ['SOURCE_ROOT'], source_diffs=str(root / 'nightly-docs-sources'),
                    release_audit_evidence=str(root / 'release-audits'))
+    peers = (read_scans(context, os.environ['SCAN_DIR']) if os.environ.get('SCAN_DIR') else None)
     path = Path(os.environ['SCAN_OUTPUT'])
+    # A failed first scan stays missing. This pass cannot manufacture one or
+    # hide the original failed job; successful siblings remain usable.
+    if sys.argv[1] == 'prepare' and not path.exists():
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write('needed=false\n')
+        return
     scan = json.loads(path.read_text())
     if sys.argv[1] == 'prepare':
-        commits = required(context, scan)
+        commits = required(context, scan, peers)
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
             output.write(f'needed={str(bool(commits)).lower()}\n')
             if not commits:
                 return
             assignments = json.loads((root / 'assignments.json').read_text())
-            scoped = prepare(context, scan, assignments)
+            scoped = prepare(context, scan, assignments, peers)
             schema = discovery.scan_schema(scoped)
             schema['properties']['retired_concerns']['maxItems'] = 0
             encoded = json.dumps(schema, separators=(',', ':'))
@@ -101,13 +160,16 @@ def main():
         execution = {}
         raw = discovery.read_scan_output(os.environ['SCAN_EXECUTION_FILE'],
                                          os.environ['SCAN_ACTION_OUTCOME'], 100, execution)
-        combined = merge(context, scan, raw)
-        combined['daily_followup'] = {'required_commits': required(context, scan), 'execution': execution,
+        combined = merge(context, scan, raw, peers)
+        combined['daily_followup'] = {'required_commits': required(context, scan, peers), 'execution': execution,
+                                     'original_digest': digest(scan), 'source_sha': context['source_sha'],
                                      'remaining_work': json.loads(raw)['remaining_work']}
-        path.write_text(json.dumps(combined))
+        Path(os.environ.get('COMPLETED_SCAN_OUTPUT', str(path))).write_text(json.dumps(combined))
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-            summary.write(f"Daily follow-up: {len(required(context, scan))} unfinished checks; "
-                          f"{len(required(context, combined))} still unfinished after "
+            updated = ([combined if s['shard'] == scan['shard'] and not s.get('backlog') else s
+                        for s in peers] if peers is not None else None)
+            summary.write(f"Daily follow-up: {len(required(context, scan, peers))} unfinished checks; "
+                          f"{len(required(context, combined, updated))} still unfinished after "
                           f"{execution['assistant_rounds']} assistant rounds.\n")
     else:
         raise ValueError('Unknown follow-up command')

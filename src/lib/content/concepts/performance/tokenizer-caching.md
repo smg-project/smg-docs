@@ -212,6 +212,25 @@ smg --model-path /models/llama-3.1-8b-instruct ...
 smg --model-path /models/llama-3.1-8b-instruct/tokenizer.json ...
 ```
 
+Only a name of one or two `/`-separated segments, such as
+`meta-llama/Llama-3.1-8B-Instruct`, can be a HuggingFace model ID. A source
+that can only be a path — an absolute path, one starting with `.` or `~`, or
+one with more than two segments — is never looked up on the Hub. A name
+that exists on the gateway host always loads locally, even when it could be
+a HuggingFace model ID.
+
+When the source is a path that is missing on the gateway host, what happens
+depends on whether a gRPC worker can register. Where none can, SMG refuses
+the configuration at startup, before binding any port, with an error naming
+the field (`model_path` or `tokenizer_path`) and the path. Where one can —
+gRPC connection mode, IGW mode (`--enable-igw`), a service discovery
+provider, or a `grpc://` worker URL at startup — SMG starts and loads the
+tokenizer from the first registering worker's own tokenizer files, so a model
+path that exists only on the worker hosts is a supported layout.
+
+With `--disable-tokenizer-autoload`, the paths are never read and are not
+checked.
+
 When pointing to a local directory, SMG loads the first tokenizer file it
 finds, in this order:
 

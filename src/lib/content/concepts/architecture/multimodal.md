@@ -139,7 +139,11 @@ The worker advertises its processor in the `mm_processor`, `mm_processor_source`
 
 Failures keep their cause. The caller's own mistakes (a bad URL, a disallowed host, an oversized payload) come back as 400, and a saturated worker or a sidecar that is down or overloaded as a retryable 503. A sidecar timeout is not retried, because the worker already spent the whole budget on that input.
 
-Each processor answers a failed fetch — a timeout, a refused connection, an origin 5xx — in its own way: `inprocess` returns a retryable 503; the `redis` sidecar answers with a 400 whose message includes `fetch_failed`; `smg` reports whose fault the fetch is, so the request gets the same 400-or-502 split as on the router path (see [Errors](#errors)).
+Each processor answers a fetch that fails on the wire — a name that does not resolve, a refused connection, a timeout, an origin 5xx — in its own way. The `redis` sidecar answers with a 400 whose message includes `fetch_failed`. `smg` reports whose fault the fetch is, so the request gets the same 400-or-502 split as on the router path (see [Errors](#errors)).
+
+How `inprocess` answers depends on the servicer that runs it. On the deprecated Python servicer, every fetch that fails on the wire is a retryable 503. The [Rust servicer](../../getting-started/grpc-workers.md#rust-vllm-servicer), the default, reports whose fault the fetch is, as `smg` does: a name the resolver says does not exist, a refused connection, or a TLS handshake the origin fails is a 400, and a timeout or an origin 5xx is a 502, both under `media_fetch_failed`. A failure that names the worker itself rather than the reference's host — its proxy, its own resolver, its routes or egress rules — stays a retryable 503 even on the Rust servicer, since another worker may fetch what this one cannot.
+
+On the Rust servicer, `inprocess` also answers the caller's other media mistakes under the router path's codes, each a 400: `invalid_multimodal_request` for a reference refused before the download or bytes that do not decode, `media_fetch_failed` for a download the origin refused (a 4xx) or redirected to a disallowed host, and `media_too_large` for media over a size cap.
 
 ### Redis Media-Processing Sidecar
 
@@ -357,7 +361,9 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 
 While `no_media_ref_capable_worker` holds for a model with a worker that reports a vision encoder, the ready body of [`/readiness`](../reliability/health-checks.md#gateway-probe-endpoints) names the model under `models_without_media_processing`; the status stays ready, and the model leaves the list once a worker of it that processes media references registers.
 
-The status under `media_fetch_failed` tells whose fault the failure is: a 400 is the request's own mistake to fix; a 502 is the media host's trouble for now, so the client can retry later. SMG itself never retries the request — another attempt would fetch from the same host — and a worker that reports a media failure stays healthy and in rotation. The split applies wherever SMG's own pipeline fetches, on the router or on a worker running `--mm-processor smg`; the `inprocess` and `redis` processors answer as described under [Worker-Side Processing on vLLM](#worker-side-processing-on-vllm).
+The status under `media_fetch_failed` tells whose fault the failure is: a 400 is the request's own mistake to fix; a 502 is the media host's trouble for now, so the client can retry later. SMG itself never retries the request — another attempt would fetch from the same host — and a worker that reports a media failure stays healthy and in rotation: the failure never counts against its circuit breaker. The split applies wherever SMG's own pipeline fetches — on the router or on a worker running `--mm-processor smg` — and, on the Rust servicer, to a `--mm-processor inprocess` fetch that fails for the reference's own reason. The Python servicer's `inprocess` and the `redis` sidecar answer as described under [Worker-Side Processing on vLLM](#worker-side-processing-on-vllm).
+
+When a worker reports a failed fetch under this split, the message the client reads is the gateway's own sentence for whose fault it is: the 400 says to check the reference and what it leads to; the 502 says the host did not answer in time or failed, and a retry may succeed. The worker's own words stay on the gateway's log line. Every other media failure a worker reports, such as `invalid_multimodal_request` or `media_too_large`, keeps the worker's words, which describe the request's payload.
 
 Prefill-decode deployments add three codes, listed under [Prefill-Decode Disaggregation](#prefill-decode-disaggregation).
 

@@ -48,8 +48,9 @@ responses and conversations live in SMG's history backend (`--history-backend`, 
 `memory`); see [Chat History](../../concepts/data/chat-history.md).
 
 Stored responses, conversations, and conversation items are scoped to the tenant that
-created them — another tenant's ID is answered exactly as an unknown one; see
-[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope).
+created them — another tenant's response or conversation ID is answered exactly as an
+unknown one, and a conversation item is served only to a caller its own tenant allows;
+see [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope).
 
 ---
 
@@ -964,11 +965,10 @@ see [Input Formats](#input-formats).
 Each stored item replays under its own
 [tenant scope](../../concepts/data/chat-history.md#tenant-scope): an item of another
 tenant is not replayed. It still counts toward the 100-item window — an older item does
-not take its place. A tool call and its output replay together or
-not at all: when the caller may not see one of the two, the other is left out with it.
-A call with several stored outputs is left out only when the caller may see none of
-them, and a call that no stored output answers stays, since the request's own `input`
-may bring its output.
+not take its place. A tool call and its output replay together or not at all: when the
+caller may not see one of the two, the other is left out with it. A call with several
+stored outputs is left out only when the caller may see none of them, and a call that
+no stored output answers stays, since the request's own `input` may bring its output.
 
 The conversation endpoints report errors in the gateway envelope
 (`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).

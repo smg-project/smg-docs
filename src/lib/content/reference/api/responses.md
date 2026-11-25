@@ -961,6 +961,15 @@ Within the window, a message a response wrote is replayed without the content pa
 serving pipeline never carried, while an item the client added itself keeps every part;
 see [Input Formats](#input-formats).
 
+Each stored item replays under its own
+[tenant scope](../../concepts/data/chat-history.md#tenant-scope): an item of another
+tenant is left out of the replayed window. It still counts toward the 100-item window —
+an older item does not take its place. A tool call and its output replay together or
+not at all: when the caller may not see one of the two, the other is left out with it.
+A call with several stored outputs is left out only when the caller may see none of
+them, and a call that no stored output answers stays, since the request's own `input`
+may bring its output.
+
 The conversation endpoints report errors in the gateway envelope
 (`{"error": {"message", "type", "param", "code"}}`, see [Error Format](#error-format)).
 An unknown conversation or item answers `404` with code `not_found`. The one exception
@@ -1004,6 +1013,13 @@ A conversation is scoped to the tenant that created it: on every route below, an
 the `conversation` of a new response, another tenant's conversation ID answers `404`,
 the same as an unknown ID (see
 [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
+
+Each of the conversation's items is also scoped to its own tenant:
+[List Conversation Items](#list-conversation-items) and
+[Get Conversation Item](#get-conversation-item) serve an item only to a caller its
+tenant allows, and the replay above leaves other tenants' items out of the prompt.
+[Delete Conversation Item](#delete-conversation-item) alone is governed by the
+conversation: it removes a linked item whatever tenant the item records.
 
 ### Create Conversation
 
@@ -1233,6 +1249,12 @@ curl "http://localhost:30000/v1/conversations/conv_abc123/items?limit=20&order=a
 
 `has_more` is `true` when the page is full (it holds `limit` items).
 
+The list serves only the items the caller may see (see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)): a linked item of
+another tenant is read past as if it were not linked, and the page is filled from the
+items that remain, so `first_id`, `last_id`, and `has_more` describe the returned
+`data`.
+
 ---
 
 ### Create Conversation Items
@@ -1386,7 +1408,9 @@ curl http://localhost:30000/v1/conversations/conv_abc123/items/msg_abc123
 ### Response
 
 Returns the item object. An item that exists but is not in this conversation returns
-`404`.
+`404`, and a linked item of another tenant returns the same `404`, so an item ID tells
+a caller nothing about another tenant's items (see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
 ---
 
@@ -1409,6 +1433,10 @@ curl -X DELETE http://localhost:30000/v1/conversations/conv_abc123/items/msg_abc
 Returns the conversation object. An item that is not in the conversation, including an
 unknown item ID, is ignored: the request answers `200`, not `404`. An unknown
 conversation still answers `404`.
+
+Removal is governed by the conversation alone: it removes a linked item whatever tenant
+the item records, including one the caller could not list or get (see
+[Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
 ---
 

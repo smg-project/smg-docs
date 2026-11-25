@@ -361,13 +361,15 @@ Complete response records including:
 
 ## Tenant Scope
 
-Every stored response, conversation, and conversation item records the tenant identity the gateway resolved for the request that created it, when it resolved one. A response or conversation stored under a tenant is served only to callers of that tenant.
+Every stored response, conversation, and conversation item records the tenant identity the gateway resolved for the request that created it, when it resolved one. A record stored under a tenant is served only to callers of that tenant.
 
 That holds on every route that reads, continues, or deletes a stored record: a response's tenant gates getting it or its input items, deleting or cancelling it, and continuing it with `previous_response_id`; a conversation's tenant gates naming it as the `conversation` of a new response and every `/v1/conversations` operation. Another tenant's ID is answered exactly as an unknown ID (`404`), so a response or conversation ID tells a caller nothing about another tenant's records.
 
-A conversation item's tenant guards it only where a request reaches the stored item directly by its ID, rather than through a conversation that holds it: an `item_reference` to another tenant's item answers `404` exactly as a missing item would, and adding an item under an `id` that another tenant's item already uses is refused with `400` (`Item id '...' cannot be used`) rather than serving or overwriting it.
+A conversation item's tenant guards every read of the stored item, through a conversation that holds it as well as directly by its ID. Listing a conversation's items serves only the items the caller may see, filling each page from them; getting a linked item of another tenant answers `404` exactly as an ID the conversation does not hold; and when a conversation is replayed as model context (as the `conversation` of a new response), another tenant's items are left out of the replayed window (see the [Responses API](../../reference/api/responses.md#conversation-management) for how the replay pairs tool calls with their outputs).
 
-Access to a conversation's items is governed by the conversation alone: every caller the conversation is visible to can list, get, and delete each of its items — and receives them as model context — whatever tenant an individual item records. Items a tenanted caller adds to a conversation stored without a tenant are therefore readable and deletable by every caller of that conversation.
+Reaching the item directly follows the same rule: an `item_reference` to another tenant's item answers `404` exactly as a missing item would, and adding an item under an `id` that another tenant's item already uses is refused with `400` (`Item id '...' cannot be used`) rather than serving or overwriting it.
+
+Deleting an item from a conversation is governed by the conversation alone: every caller the conversation is visible to can remove any of its items, whatever tenant the item records — removal returns the conversation object, not the item. An item a tenanted caller adds to a conversation stored without a tenant therefore stays readable only by that tenant's callers, while every caller of the conversation can remove it.
 
 A tenant is stored only for an identity the gateway can vouch for, as its canonical tenant key — the same key [tenant rate limiting](../../reference/tenant-rate-limiting.md) uses:
 

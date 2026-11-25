@@ -223,6 +223,7 @@ smg/
 │   ├── engine_zmq_client/      # engine-zmq-client: ZMQ transport for same-host engine connections
 │   ├── external_router/        # smg-external-router: third-party provider routers
 │   ├── gateway_perf/           # gateway-perf: the gateway's cost per request, base against head, on a CPU mock bed (the perf-* make targets)
+│   ├── grand_central/          # smg-grand-central: Grand Central, the routing policy engine (filter, score, and pick stages under one versioned spec) and its standalone controller binary
 │   ├── grpc_client/            # smg-grpc-client: engine gRPC clients, .proto files, Python and Go packages
 │   ├── kv_index/               # kv-index: radix trees for cache-aware routing
 │   ├── mcp/                    # smg-mcp: Model Context Protocol client
@@ -230,7 +231,6 @@ smg/
 │   ├── mm_rdma/                # smg-mm-rdma: multimodal pixel RDMA (NIXL) transport
 │   ├── mock_worker/            # mock-worker: mock HTTP, gRPC, and ZMQ workers for local and scale testing
 │   ├── multimodal/             # llm-multimodal: image, video, and audio preprocessing
-│   ├── policy_controller/      # smg-policy-controller: the routing policy engine — filter, score, and pick stages under one versioned spec
 │   ├── protocols/              # openai-protocol: OpenAI-compatible API types
 │   ├── radix_tree/             # smg-radix-tree: prefix-membership radix tree
 │   ├── reasoning_parser/       # reasoning-parser: reasoning output extraction
@@ -255,7 +255,7 @@ smg/
 ├── e2e_test/                   # End-to-end tests (pytest) against real engines or the mock worker
 ├── deploy/helm/smg/            # Helm chart
 ├── docker/                     # Dockerfiles for the gateway and engine images
-├── examples/                   # RL, policy-controller, and WASM plugin examples
+├── examples/                   # RL, Grand Central, and WASM plugin examples
 ├── scripts/                    # Dev and CI scripts (e2e-test.sh, install_opencv.sh, ci_*.sh, ...)
 ├── Cargo.toml                  # Workspace manifest and shared lints
 ├── Cargo.lock                  # Committed lockfile

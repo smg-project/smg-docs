@@ -104,7 +104,7 @@ Multiple users with same instructions. Amortized prefill cost across sessions.
 |-------|----------|---------|----------|
 | **KV-event index** | Requests with token IDs, once the model's KV-event index has data | Full blocks of token IDs | Blocks each engine reports it has stored or evicted |
 | **Token tree** | Requests with token IDs when the model has no KV-event data | Token IDs, in whole pages of `--block-size` tokens | Where the gateway sent earlier requests |
-| **String tree** | Requests that carry only text | Request text | Where the gateway sent earlier requests |
+| **String tree** | Requests without token IDs | Request text; a Chat Completions request carries a marker in place of each non-text part | Where the gateway sent earlier requests |
 | **Hash index** | Requests with token IDs, when `--cache-index hash` replaces the other three | Token-ID heads cut at `--cache-boundaries` | Where the gateway sent each head within `--cache-ttl-secs` |
 
 A request carries token IDs when:
@@ -113,10 +113,14 @@ A request carries token IDs when:
 - it is an HTTP `/generate` request with non-empty `input_ids`. The IDs win when `text` is also present, and a batch routes on its first sequence;
 - it is an HTTP request in regular (non-PD) mode with a valid `x-smg-routing-tokens` header: the prompt's leading token IDs as comma-separated decimals, at most 512 IDs and 4,096 bytes. The hint replaces body-derived tokens and text for worker selection; a malformed or oversized value is ignored.
 
-Every other HTTP request routes on its text (for chat requests, the text of the messages in order). Text and token requests for the same model build separate trees and never match each other.
+Every other HTTP request routes on its text. Text and token requests for the same model build separate trees and never match each other.
+
+For a Chat Completions request, the text is the messages' text in order, with a 256-character marker in place of each part that is not text: an image, an audio or video part, or a part of an unknown kind such as a file. Each marker is a digest of the part's reference as the request carries it — the URL, the inline data or an unknown part's fields, reading at most 1,024 bytes — never of the media behind it. Requests that differ only in one such part therefore stop sharing the key at that part's place, while requests carrying identical parts keep sharing it; the same image under two different URLs is keyed as two different images.
+
+A request carries at most 32 markers; further non-text parts are left out of the key, so a conversation's key stays a prefix of its next turn's. The markers are ordinary characters of the key: they count toward `--max-tree-size` and the match ratio like the text around them.
 
 !!! note "Request bodies"
-    Because `cache_aware` needs the request text, the gateway buffers and parses HTTP request bodies before routing them. A request with a valid `x-smg-routing-tokens` hint may instead be forwarded without body parsing (see [Request Streaming](../performance/request-streaming.md)); it then routes on the hint alone and without a [cache partition](#cache-partitions).
+    Because `cache_aware` needs the request's text and media-part references, the gateway buffers and parses HTTP request bodies before routing them. A request with a valid `x-smg-routing-tokens` hint may instead be forwarded without body parsing (see [Request Streaming](../performance/request-streaming.md)); it then routes on the hint alone and without a [cache partition](#cache-partitions).
 
 ### Approximate Trees
 

@@ -1251,7 +1251,7 @@ curl "http://localhost:30000/v1/conversations/conv_abc123/items?limit=20&order=a
 
 The list serves only the items the caller may see (see
 [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)): a linked item of
-another tenant is read past as if it were not linked, and the page is filled from the
+another tenant is skipped as if it were not linked, and the page is filled from the
 items that remain, so `first_id`, `last_id`, and `has_more` describe the returned
 `data`.
 

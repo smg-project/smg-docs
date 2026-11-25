@@ -1748,7 +1748,7 @@ Tool-loop iterations in the Responses API and Anthropic Messages MCP loops.
 
 ## Routing Policy Metrics
 
-Decision counters and state gauges of the routing policies. See [Load Balancing](../concepts/routing/load-balancing.md) for the policies themselves.
+Decision counters and state gauges of the routing policies and the policy engine. See [Load Balancing](../concepts/routing/load-balancing.md) for the policies themselves.
 
 ### `smg_policy_inflight_reconciled_total`
 
@@ -1757,6 +1757,54 @@ Bookings a policy released at the per-poll reconciliation of its in-flight accou
 | Type | Labels |
 |------|--------|
 | Counter | `policy` |
+
+### `smg_policy_shadow_decisions_total`
+
+Shadow decisions of the policy engine beside live ones. A shadow is due beside each live decision of a binding that names a shadow profile: the engine decides the shadow alongside and counts how the two compare. Only the live decision serves the request.
+
+Under the [policy controller](../concepts/routing/load-balancing.md#policy-controller), a binding names its shadow in the policy document under `bindings[].shadow`: a profile name for a `single` binding, or a map of `prefill`/`decode` to profile names for a binding that plans a pair (`pd-pair` or `epd`). A side the map leaves out is not shadowed, and the encode side takes no shadow.
+
+The family is published only by a gateway that runs a policy engine: a gateway on the classic routing policies publishes no such series, and neither does one whose document names no shadow.
+
+| Type | Labels |
+|------|--------|
+| Counter | `binding`, `side`, `kind` |
+
+`binding` is the binding's position in the policy document, from `0`. `15` stands for every binding from the sixteenth on: those bindings share one count.
+
+`side` is which live decision the shadow was due beside:
+
+| `side` | Meaning |
+|--------|---------|
+| `single` | Beside a single request's decision |
+| `prefill` | Beside the prefill side of a PD pair, at the pair's first decision |
+| `decode` | Beside the decode side of a PD pair, at the pair's first decision |
+| `decode-again` | Beside a decode decided again after its prefill |
+
+A binding that names a decode-side shadow has series under both `decode` and `decode-again`: the shadow beside a decode decided again counts under `decode-again`, never under `decode`.
+
+`kind` is how the shadow's decision stood beside the live one:
+
+| `kind` | Meaning |
+|--------|---------|
+| `agreed` | The same first target, or the same outcome without a pick |
+| `other-target` | Both picked, and the first targets differ |
+| `other-outcome` | One picked, shed or queued where the other did something else |
+| `skipped` | The shadow was due and not asked |
+
+A shadow is skipped, for example, when less than 1 ms of the request's stated time budget remains, when the shadow profile would need cached-block data of its own (`cache_aware` is not shadowed behind `least_load` or `random`), or when a pair's side was placed by the binding's sessions rule or its picker's session assignment.
+
+The counts are read from the engine at each scrape, not on any request's path. Every binding that names a shadow has all of its series — the four kinds, for each side its shadow is due beside — at zero from the first scrape, before any request.
+
+Each scrape adds a count's growth since the scrape before, so a series only rises. When a new policy document is put in force, the engine's counts restart at zero but the published series carry on from where they stood: the first counts read under the new document are added whole. What the previous document counted after its last scrape is not published.
+
+A shadow that panics is not counted here: the live decision serves the request as decided, and the panic counts in `smg_policy_faults_total` under `kind="decision"`.
+
+```promql
+# Shadow disagreement rate by binding and side
+sum by (binding, side) (rate(smg_policy_shadow_decisions_total{kind=~"other-target|other-outcome"}[5m]))
+  / sum by (binding, side) (rate(smg_policy_shadow_decisions_total{kind!="skipped"}[5m]))
+```
 
 ### Cache-Aware Policy Metrics
 

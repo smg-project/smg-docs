@@ -1748,7 +1748,7 @@ Tool-loop iterations in the Responses API and Anthropic Messages MCP loops.
 
 ## Routing Policy Metrics
 
-Decision counters and state gauges of the routing policies. See [Load Balancing](../concepts/routing/load-balancing.md) for the policies themselves.
+Decision counters and state gauges of the routing policies and the policy engine. See [Load Balancing](../concepts/routing/load-balancing.md) for the policies themselves.
 
 ### `smg_policy_inflight_reconciled_total`
 

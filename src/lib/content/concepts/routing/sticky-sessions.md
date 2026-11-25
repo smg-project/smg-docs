@@ -260,7 +260,9 @@ Under the override, when a key already has **2** requests in flight on its pinne
 
 Every `--eviction-interval` seconds (default `120`), SMG removes pins that have not been used for `--max-idle-secs` (default `14400`, four hours). Each request that reuses a pin refreshes it. A key whose pin was evicted is placed like a new key on its next request.
 
-The map has no size limit: it holds one entry per key used within the idle window (per model and PD leg under the override), and each entry remembers at most two workers. Setting `--max-idle-secs` to `0` disables eviction, and the map then grows without bound. `--eviction-interval 0` also disables it, but SMG refuses to start with that value when the policy is `cache_aware`, the default.
+The map holds one entry per key used within the idle window (per model and PD leg under the override), and each entry remembers at most two workers. Setting `--max-idle-secs` to `0` disables eviction, and so does `--eviction-interval 0`, though SMG refuses to start with that value when the policy is `cache_aware`, the default.
+
+The map stops recording new keys once it holds 4,194,304 entries (concurrent inserts can push it slightly past). While it is full, keys already in the map keep their pins, and a request whose key is not in the map is still served: it is placed as any new key would be, by the assignment mode or, in the override's default `delegate` mode, by the configured policy. Because the key is not recorded, each of its requests is placed anew (counted as `vacant`) until eviction frees room. When `smg_manual_policy_cache_entries` sits at the cap, lower `--max-idle-secs` so idle keys make room sooner. With eviction disabled, a map that reaches the cap never pins a new key again.
 
 ---
 
@@ -308,7 +310,7 @@ curl -s -D - -o /dev/null http://localhost:30000/v1/chat/completions \
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `smg_manual_policy_branch_total` | Counter | `branch` | Sticky decisions by outcome: `occupied_hit` (pin reused), `occupied_miss` (remembered workers unavailable, key placed again), `vacant` (new key), `cap_respill` (in-flight threshold reached, request placed again), `no_routing_id` (`manual` request without a key), `no_healthy_workers` |
-| `smg_manual_policy_cache_entries` | Gauge | — | Entries in the sticky map, updated on each sticky decision |
+| `smg_manual_policy_cache_entries` | Gauge | — | Entries in the sticky map, updated as they are added and evicted; a plateau can be eviction balancing new keys, or the map's 4,194,304-entry cap ([Idle Eviction](#idle-eviction)) |
 | `smg_routing_key_source_total` | Counter | `source` | Where the key came from for each keyed request the override routes: `rid` or `header` |
 | `smg_worker_routing_keys_active` | Gauge | `worker` | Distinct routing keys with requests in flight on each worker; the value `min_group` balances |
 | `smg_consistent_hashing_policy_branch_total` | Counter | `branch` | `consistent_hashing` outcomes: `target_worker_hit`, `target_worker_miss`, `routing_key_hit`, `random_fallback`, `no_healthy_workers` |
@@ -334,6 +336,7 @@ At `--log-level debug`, every decision the override makes logs one `Sticky routi
     - **The pinned worker became unavailable.** Look for `occupied_miss`, then check worker health, circuit breakers, and overload vetoes (overload vetoes do not move `consistent_hashing` keys).
     - **A key has more than two requests in flight.** The extra requests are placed again; look for `cap_respill`.
     - **The pin expired.** A key idle for longer than `--max-idle-secs` starts over.
+    - **The map is full.** At the 4,194,304-entry cap, a new key's requests are served but not pinned, so every turn is placed anew until eviction frees room: `smg_manual_policy_cache_entries` sits at the cap and `vacant` stays high. Lower `--max-idle-secs`.
     - **Several gateway replicas.** Each replica pins keys independently.
 
 ??? question "Load is uneven across workers"
@@ -343,7 +346,7 @@ At `--log-level debug`, every decision the override makes logs one `Sticky routi
     With the override enabled, SMG buffers every body to read the `rid`; check `smg_router_request_body_path_total{reason="routing_key_override"}`. To stream large bodies, disable the override and route with `x-smg-routing-tokens` instead.
 
 ??? question "The sticky map keeps growing"
-    Each distinct key (per model and PD leg under the override) keeps an entry until it has been idle for `--max-idle-secs`. Watch `smg_manual_policy_cache_entries`, make sure neither `--eviction-interval` nor `--max-idle-secs` is `0`, and lower `--max-idle-secs` if conversations are short-lived.
+    Each distinct key (per model and PD leg under the override) keeps an entry until it has been idle for `--max-idle-secs`. Watch `smg_manual_policy_cache_entries`, make sure neither `--eviction-interval` nor `--max-idle-secs` is `0`, and lower `--max-idle-secs` if conversations are short-lived. Growth stops on its own at the 4,194,304-entry cap, but not harmlessly: a full map serves new keys without pinning them until eviction makes room ([Idle Eviction](#idle-eviction)).
 
 ---
 

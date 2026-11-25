@@ -149,7 +149,7 @@ On the OpenAI-compatible provider and in the Messages API, SMG runs every tool c
 
 The error text for a failed call names the server the way the request named it, never by its URL: a static server by its configured `name`, a dynamic server by the request's `server_label` or, in the Messages API, by the `mcp_servers` entry's `name`. A Messages `name` is free text, so a dynamic server whose name is empty, contains `://`, or contains a control character appears in the error text as `unnamed` instead.
 
-The same naming applies when a request's pooled connection is no longer in the pool — for example, [evicted](#dynamic-servers) by a newer connection: its calls fail with `Server not found: <name>`, and its `mcp_list_tools` item carries that text as its `error`.
+The same naming applies when a request's pooled connection is no longer in the pool, for example [evicted](#dynamic-servers) by a newer connection. The request's calls to that server fail with `Server not found: <name>`, and the server's `mcp_list_tools` item carries that text as its `error`.
 
 ### Per-Call Timeout
 

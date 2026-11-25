@@ -223,7 +223,7 @@ smg/
 │   ├── engine_zmq_client/      # engine-zmq-client: ZMQ transport for same-host engine connections
 │   ├── external_router/        # smg-external-router: third-party provider routers
 │   ├── gateway_perf/           # gateway-perf: the gateway's cost per request, base against head, on a CPU mock bed (the perf-* make targets)
-│   ├── grand_central/          # smg-grand-central: Grand Central, the routing policy engine — filter, score, and pick stages under one versioned spec — and its standalone controller binary
+│   ├── grand_central/          # smg-grand-central: Grand Central, the routing policy engine (filter, score, and pick stages under one versioned spec) and its standalone controller binary
 │   ├── grpc_client/            # smg-grpc-client: engine gRPC clients, .proto files, Python and Go packages
 │   ├── kv_index/               # kv-index: radix trees for cache-aware routing
 │   ├── mcp/                    # smg-mcp: Model Context Protocol client

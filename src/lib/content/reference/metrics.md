@@ -1762,7 +1762,7 @@ Bookings a policy released at the per-poll reconciliation of its in-flight accou
 
 Shadow decisions of the policy engine beside live ones. Under the [policy controller](../concepts/routing/load-balancing.md#policy-controller), a binding in the policy document can name a shadow profile under `bindings[].shadow` — a profile name for a `single` binding, or a map of `prefill`/`decode` to profile names for a binding that plans a pair (`pd-pair` or `epd`; the encode side takes no shadow). The engine decides the shadow beside each live decision of that binding and counts how the two compare; only the live decision serves the request.
 
-The family is published only by a gateway that runs a policy engine: a gateway on the classic routing policies publishes no such series, and neither does an engine whose document names no shadow.
+The family is published only by a gateway that runs a policy engine: a gateway on the classic routing policies publishes no such series, and neither does one whose document names no shadow.
 
 | Type | Labels |
 |------|--------|
@@ -1770,7 +1770,7 @@ The family is published only by a gateway that runs a policy engine: a gateway o
 
 `binding` is the binding's position in the policy document, from `0`. `15` stands for every binding from the sixteenth on: those bindings share one count.
 
-`side` is where the shadow was asked:
+`side` is the live decision the shadow was due beside:
 
 | `side` | Meaning |
 |--------|---------|
@@ -1781,7 +1781,7 @@ The family is published only by a gateway that runs a policy engine: a gateway o
 
 A binding that names a decode-side shadow has series under both `decode` and `decode-again`: a decode decided again counts apart, never with the pair's first decision.
 
-`kind` is how the shadow's decision stood beside the live one:
+`kind` is what the shadow said beside the live decision:
 
 | `kind` | Meaning |
 |--------|---------|

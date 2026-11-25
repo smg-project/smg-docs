@@ -104,7 +104,7 @@ Multiple users with same instructions. Amortized prefill cost across sessions.
 |-------|----------|---------|----------|
 | **KV-event index** | Requests with token IDs, once the model's KV-event index has data | Full blocks of token IDs | Blocks each engine reports it has stored or evicted |
 | **Token tree** | Requests with token IDs when the model has no KV-event data | Token IDs, in whole pages of `--block-size` tokens | Where the gateway sent earlier requests |
-| **String tree** | Requests without token IDs | Request text; a chat request adds a marker for each image, audio, video or unknown part | Where the gateway sent earlier requests |
+| **String tree** | Requests without token IDs | Request text; a chat request carries a marker in place of each image, audio, video or unknown part | Where the gateway sent earlier requests |
 | **Hash index** | Requests with token IDs, when `--cache-index hash` replaces the other three | Token-ID heads cut at `--cache-boundaries` | Where the gateway sent each head within `--cache-ttl-secs` |
 
 A request carries token IDs when:

@@ -1770,7 +1770,7 @@ The family is published only by a gateway that runs a policy engine: a gateway o
 
 `binding` is the binding's position in the policy document, from `0`. `15` stands for every binding from the sixteenth on: those bindings share one count.
 
-`side` is the live decision the shadow was due beside:
+`side` is which live decision the shadow was due beside:
 
 | `side` | Meaning |
 |--------|---------|

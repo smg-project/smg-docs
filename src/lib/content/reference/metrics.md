@@ -1760,9 +1760,9 @@ Bookings a policy released at the per-poll reconciliation of its in-flight accou
 
 ### `smg_policy_shadow_decisions_total`
 
-Shadow decisions of the policy engine beside live ones. With `--grand-central on`, a binding in the policy document can name a shadow profile under `bindings[].shadow` — a profile name for a `single` binding, or a map of `prefill`/`decode` to profile names for a PD pair. The engine decides the shadow beside each live decision of that binding and counts how the two compare; only the live decision serves the request.
+Shadow decisions of the policy engine beside live ones. Under the [policy controller](../concepts/routing/load-balancing.md#policy-controller), a binding in the policy document can name a shadow profile under `bindings[].shadow` — a profile name for a `single` binding, or a map of `prefill`/`decode` to profile names for a binding that plans a pair (`pd-pair` or `epd`; the encode side takes no shadow). The engine decides the shadow beside each live decision of that binding and counts how the two compare; only the live decision serves the request.
 
-The family is published only by a gateway that runs its policy document in-process: a gateway on the classic routing policies publishes no such series, and neither does an engine whose document names no shadow.
+The family is published only by a gateway that runs a policy engine: a gateway on the classic routing policies publishes no such series, and neither does an engine whose document names no shadow.
 
 | Type | Labels |
 |------|--------|
@@ -1792,7 +1792,7 @@ A binding that names a decode-side shadow has series under both `decode` and `de
 
 A shadow is skipped, for example, when less than 1 ms of the request's stated time budget remains, when the shadow profile would need cached-block data of its own (`cache_aware` is not shadowed behind `least_load` or `random`), or when a pair's side was placed by the binding's sessions rule or its picker's session assignment.
 
-The counts are read from the engine at each scrape, not on any request's path. Every binding that names a shadow has all of its series — the four kinds, for each side it names a shadow beside — at zero from the first scrape, before any request.
+The counts are read from the engine at each scrape, not on any request's path. Every binding that names a shadow has all of its series — the four kinds, for each of its sides — at zero from the first scrape, before any request.
 
 Each scrape adds a count's growth since the scrape before, so a series only rises. When a new policy document is put in force, the engine's counts restart at zero but the published series carry on from where they stood: the first counts read under the new document are added whole. What the previous document counted after its last scrape is not published.
 

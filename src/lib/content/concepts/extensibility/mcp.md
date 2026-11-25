@@ -147,6 +147,10 @@ On the OpenAI-compatible provider and in the Messages API, SMG runs every tool c
 
 ## Call Timeouts and Failures
 
+The error text for a failed call names the server the way the request named it, never by its URL: a static server by its configured `name`, a dynamic server by the request's `server_label` or, in the Messages API, by the `mcp_servers` entry's `name`. A Messages `name` is free text, so a dynamic server whose name is empty, contains `://`, or contains a control character appears in error text as `unnamed` instead.
+
+The same naming applies when a request's pooled connection is no longer in the pool — for example, [evicted](#dynamic-servers) by a newer connection: its calls fail with `Server not found: <name>`, and its `mcp_list_tools` item carries that text as its `error`.
+
 ### Per-Call Timeout
 
 Every MCP tool call has a 120-second deadline. A call that runs longer fails with an unknown outcome and is never retried, because the server may already have acted on it:
@@ -171,10 +175,10 @@ SMG still [reconnects a dropped static server](#static-servers) while handling s
 
 ### Ambiguous Pooled Connections
 
-Dynamic connections are pooled by URL and credentials. When the same `server_url` is pooled under two different credentials (different `authorization` or `headers` values), SMG cannot tell which connection belongs to the current caller. It refuses to run the call rather than risk using another caller's authenticated session:
+Dynamic connections are pooled by URL and credentials. When the same `server_url` is pooled under two different credentials (different `authorization` or `headers` values), SMG cannot tell which connection belongs to the current caller. It refuses to run the call rather than risk using another caller's authenticated session. The refusal names the server [the way the request named it](#call-timeouts-and-failures), not by the shared URL:
 
 ```text
-Server access denied: ambiguous MCP connection for 'https://mcp.example.com/mcp': multiple credentials or tenants are pooled for this URL
+Server access denied: ambiguous MCP connection for 'docs': multiple credentials or tenants are pooled for this URL
 ```
 
 Calls to that URL keep failing while more than one of those connections stays in the pool. Send a single credential to each `server_url`.
@@ -433,7 +437,7 @@ How streams are filtered depends on the backend. On an OpenAI-compatible provide
 | `502` with code `mcp_connection_failed` | No server in a Messages request's `mcp_servers` could be connected | Check each `url` and `authorization_token`. |
 | `mcp_call` fails with `Tool call timed out after 120s` | The server took longer than the per-call timeout | Make the tool faster or split the work. The timeout can't currently be changed. |
 | `mcp_call` fails with `Tool call outcome unknown` | The connection dropped during a call to a tool not marked read-only or idempotent, so SMG did not re-issue it (see [Interrupted Calls](#interrupted-calls)) | Check the server. Retry only if the tool is safe to run twice; for SMG to re-issue such calls, have the server list the tool with `readOnlyHint` or `idempotentHint` set to `true`. |
-| `mcp_call` fails with `Server access denied: ambiguous MCP connection` | The same `server_url` was used with different credentials | Send a single credential to each URL. |
+| `mcp_call` fails with `Server access denied: ambiguous MCP connection for '<name>'` | The same `server_url` was used with different credentials; the quoted name is the request's server, not the shared URL (see [Ambiguous Pooled Connections](#ambiguous-pooled-connections)) | Send a single credential to each URL. |
 | Calls to a static server keep failing after a disconnect | The server has not come back (for stdio, the relaunched `command` keeps failing): SMG retries the connection as calls arrive, 5 attempts per round, and the calls fail until an attempt succeeds | Fix what keeps the server from coming up. The server stays registered and the next call reconnects on its own; no SMG restart is needed. |
 | Request fails with `Unsupported input item type` | On gRPC workers, the request `input` contains an `mcp_approval_response` item (see [How It Works](#how-it-works)) | Remove `mcp_approval_response` items from `input`. Stored `mcp_call`, `mcp_list_tools`, and `mcp_approval_request` items can stay. |
 | A `pool`, `policy`, or top-level `proxy` setting has no effect | Only `servers` is applied | See [Accepted but Not Applied](#accepted-but-not-applied). |

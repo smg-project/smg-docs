@@ -1408,8 +1408,8 @@ curl http://localhost:30000/v1/conversations/conv_abc123/items/msg_abc123
 ### Response
 
 Returns the item object. An item that exists but is not in this conversation returns
-`404`, and a linked item of another tenant returns the same `404`, so an item ID tells
-a caller nothing about another tenant's items (see
+`404`, and a linked item of another tenant returns the same `404`, so a get tells a
+caller nothing about another tenant's items (see
 [Tenant Scope](../../concepts/data/chat-history.md#tenant-scope)).
 
 ---

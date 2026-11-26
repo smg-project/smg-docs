@@ -86,7 +86,7 @@ POST /v1/responses
 | `store` | boolean | No | Store response for later retrieval, default: true |
 | `background` | boolean | No | Return a `queued` response object at once and run the request in the background; see [Background Mode](#background-mode) |
 | `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, `tool_search`, `programmatic_tool_calling`, and built-in tool types; see [Tool Configuration](#tool-configuration) |
-| `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` or `auto` requires a non-empty `tools` array; with `auto` and no tools the model answers in text, as if `tool_choice` were omitted |
+| `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` or `auto` requires declared tools — the `tools` array, or tools discovered in a `tool_search_output` input item (see [Input Formats](#input-formats)); with `auto` and no declared tools the model answers in text, as if `tool_choice` were omitted |
 | `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
 | `previous_response_id` | string | No | Continue from a stored response |
 | `conversation` | string or object | No | Conversation ID (`conv_...`) or `{"id": "conv_..."}`; mutually exclusive with `previous_response_id`. The conversation's stored items replay ahead of the request's input, bounded at the newest 100 items (see [Conversation Management](#conversation-management)) |
@@ -214,17 +214,19 @@ The input also takes the items that hosted tool search and Programmatic Tool Cal
 produce: `tool_search_call`, `tool_search_output` (the tool definitions the search
 returned, under `tools`), `web_search_call`, `program` (the code of a Programmatic Tool
 Calling turn), and `program_output`. The tools of a `tool_search_output` count as
-declared tools: a `tool_choice` may name a function discovered there, and a discovered
-function is held to the schema rules of a declared one.
+declared tools: a `tool_choice` may name a function discovered there.
 
 External providers receive all five item kinds unchanged, and SMG's stored history
 replays them: items of these types in a stored response or conversation reach the
-provider again on later turns. gRPC and HTTP workers are served a lowered form
-instead. The tools of a `tool_search_output` are validated and lifted into the request's
-top-level `tools`, and the `tool_search_call` and `web_search_call` records are dropped:
-from the prompt on gRPC workers, from the forwarded body on HTTP workers. A discovered
-entry that does not parse as a tool is refused with `400` `invalid_tool`, and one that
-breaks a tool rule with that rule's own code; either message names `input[i].tools[j]`.
+provider again on later turns.
+
+gRPC and HTTP workers are served a lowered form instead. The tools of a
+`tool_search_output` are validated under the rules of declared tools and lifted into
+the request's top-level `tools`, and the `tool_search_call` and `web_search_call`
+records are dropped: from the prompt on gRPC workers, from the forwarded body on HTTP
+workers. A discovered entry that does not parse as a tool is refused with `400`
+`invalid_tool`, and one that breaks a tool rule with that rule's own code; either
+message names `input[i].tools[j]`.
 
 A `program` or `program_output` item is forwarded to HTTP workers unchanged; on gRPC
 workers one in the request's own input is refused with `400` (`convert_request_failed`,

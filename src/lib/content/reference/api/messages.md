@@ -97,6 +97,10 @@ A block whose `type` is not on this list, or any block SMG cannot read, is refus
 
 Blocks in a `system` prompt and in a `tool_result`'s `content` are refused the same way. The error envelope's `param` also carries the position, as a path ending in the field at fault, such as `messages[0].content[0].tool_use_id`; see [Errors](#errors).
 
+An `image` block's `source` is one of three types: `base64` (base64 data with its `media_type`), `url` (a URL or `data:` URL), or `file`, which names a file uploaded through Anthropic's Files API by its `file_id`. A `document` block's `source` is one of five: `base64`, `text`, `url`, `content` (a string or an array of content blocks), or `file`. A source of any other `type` is refused with `400` like any other unreadable block, with the accepted types listed.
+
+Every source on these lists passes validation, whatever the backend. HTTP workers and the Anthropic API receive a `file` source exactly as sent, like the rest of the request; resolving the `file_id` is theirs — the Anthropic API reads the file from its Files API. gRPC and ZMQ workers render the prompt on the gateway, which has no Files API to read from: a `file`-source image or document is refused with `400` naming the block; see [gRPC and ZMQ Workers](#grpc-and-zmq-workers).
+
 A `search_result` block — a search result the request injects — carries a `source`, a `title`, a `content` array, and optionally `cache_control` and a `citations` configuration such as `{"enabled": true}`. Its `content` holds only `text` blocks, each with its `type`, its `text`, and optionally `cache_control` and a `citations` list.
 
 An item of a search result's `content` sent without its `type` is read as a `text` block, and SMG writes `"type": "text"` on every item when it serializes the request for an HTTP worker or the Anthropic API. An item whose `type` is anything other than `text` is refused with `400`, named by its position like any other unreadable block. The same shape and rules apply to a `search_result` block inside a `tool_result`'s `content`.
@@ -508,7 +512,7 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 
 | Request field | Handling |
 |---------------|----------|
-| `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `system`-role message inside `messages` keeps its position. A replayed `mcp_tool_use` or `mcp_tool_result` block is refused with `400`; see [Replaying MCP Blocks](#replaying-mcp-blocks). Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
+| `system`, `messages` | Rendered with the chat template. Text and `image` blocks in user turns, `tool_use` and `thinking` blocks in assistant turns, and `tool_result` blocks are converted. A `system`-role message inside `messages` keeps its position. A replayed `mcp_tool_use` or `mcp_tool_result` block is refused with `400`; see [Replaying MCP Blocks](#replaying-mcp-blocks). An `image` or `document` whose `source` is a `file` is refused with `400`, naming the block; see below. Images go through SMG's [multimodal pipeline](../../concepts/architecture/multimodal.md). |
 | `max_tokens`, `temperature`, `top_p`, `top_k` | Sent to the engine as sampling parameters. A `max_tokens` of `0` never reaches the engine; see [`max_tokens` of 0](#max_tokens-of-0). |
 | `stop_sequences` | Sent as stop strings to vLLM, TensorRT-LLM, and TokenSpeed gRPC workers. For SGLang gRPC workers and ZMQ workers, SMG matches them itself and sends only single-token stops to the engine, as stop token IDs. |
 | `tools` | Custom tools (those with an `input_schema`) are passed to the chat template and the tool parser; with a `tool_choice` of `tool`, only that tool is passed to the chat template. Other tool types, such as `mcp_toolset`, bash, text editor, web search, and tool search, are dropped. |
@@ -517,6 +521,15 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 | `output_config.format`, `output_format` | The answer's JSON schema is sent to the engine as a constraint and enforced with [constrained decoding](../../concepts/architecture/grpc-pipeline.md#constrained-decoding-xgrammar), unless `tool_choice` forces a tool call; see [Structured Output](#structured-output). |
 | `output_config.effort` | Rendered into the prompt as the chat template's `reasoning_effort`; not itself sent to the engine. |
 | `metadata`, `service_tier`, `container`, `mcp_servers`, `output_config`'s other keys, extra fields such as `context_management` | Not sent to the engine. |
+
+A `file` source names a file uploaded through Anthropic's Files API, which this pipeline cannot read. An image with a `file` source is refused wherever the image stands — in a user message's content or inside a `tool_result` — and so is a `file`-source document in a message's content, each with `400` (`process_messages_failed`) before any worker takes part. The error names the block and the sources to send instead:
+
+```text
+messages.0.content.1: image source type 'file' is not supported; send the image as a base64 or url source
+messages.0.content.0: document source type 'file' is not supported; send the document as a text or content source
+```
+
+A document inside a `tool_result` is not refused: a tool result contributes its text and its images to the rendered prompt, never its documents, so a `file` source there is never read.
 
 MLX workers answer `400` to a request with images, with `stop_sequences`, with a structured output format (`output_config.format` or `output_format`), or with a `tool_choice` of `any` or `tool`.
 

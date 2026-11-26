@@ -108,7 +108,7 @@ scrape_configs:
     metrics_path: /metrics
 ```
 
-To also collect the HTTP workers' engine metrics through the gateway, add a job for `/engine_metrics` on the main port. Every sample carries a `worker_addr` label; gRPC and ZMQ workers are not scraped, only named in comment lines (see [Engine Metrics Passthrough](../reference/metrics.md#engine-metrics-passthrough)):
+To also collect the HTTP workers' engine metrics through the gateway, add a job for `/engine_metrics` on the main port. Every sample carries a `worker_addr` label:
 
 ```yaml title="prometheus.yml"
   - job_name: 'smg-engines'
@@ -116,6 +116,8 @@ To also collect the HTTP workers' engine metrics through the gateway, add a job 
       - targets: ['localhost:30000']
     metrics_path: /engine_metrics
 ```
+
+gRPC and ZMQ workers are not scraped, only named in comment lines of the answer; collect those engines' metrics by scraping their own metrics listeners directly. See [Engine Metrics Passthrough](../reference/metrics.md#engine-metrics-passthrough).
 
 ### Kubernetes ServiceMonitor
 

@@ -12,7 +12,7 @@ The controller is for gateways you host: register workers with `RegisterWorker` 
 
 ## Deploying the Controller
 
-**With the Helm chart.** `grandCentral.enabled` deploys the controller beside the router as a Deployment and Service of its own, with the policy document from `grandCentral.spec` (rendered as a ConfigMap and read with `--spec-file`) or a spec store on a claim named by `grandCentral.specStoreClaim` (`--spec-store`), and the admin listener as the chart's scrape target; `grandCentral.election.enabled` adds leader election among the replicas over a Kubernetes `Lease`. [Deploy to Kubernetes](../getting-started/index.md#helm) covers the chart's resources and the `grandCentral.*` values. Each release from 1.16.0 publishes a controller image beside the gateway's, under the gateway's tag with `-grand-central` appended.
+**With the Helm chart.** `grandCentral.enabled` deploys the controller beside the router as a Deployment and Service of its own, with the admin listener as the chart's scrape target. The policy document comes from `grandCentral.spec`, rendered as a ConfigMap and read with `--spec-file`, or from a spec store on a claim named by `grandCentral.specStoreClaim` (`--spec-store`); `grandCentral.election.enabled` adds leader election among the replicas over a Kubernetes `Lease`. [Deploy to Kubernetes](../getting-started/index.md#helm) covers the chart's resources and the `grandCentral.*` values. Each release from 1.16.0 publishes a controller image beside the gateway's, under the gateway's tag with `-grand-central` appended.
 
 **From a checkout.** The binary builds under the `controller` cargo feature, with `protoc` installed. Save a policy document as `policy.yaml`, then run from the checkout root:
 
@@ -30,7 +30,7 @@ The published image also builds the `kubernetes` feature, which adds the Kuberne
 
 ## Listeners
 
-The controller serves four listeners, each bound on all addresses by default. Their ports sit in one block, apart from the gateway's data port (30000) and metrics port (29000).
+The controller serves four listeners, each bound on all addresses by default. Their ports sit in one block, clear of the gateway's data port (30000) and metrics port (29000).
 
 | Listener | Default address | Protocol | Serves |
 |----------|-----------------|----------|--------|
@@ -129,4 +129,4 @@ The admin listener speaks plain HTTP. The probes keep the gateway's paths and bo
 
 `/metrics` serves the controller's own series: the `smg_grand_central_*` families — its state and start time, replication, load polling and scraping, the decision stream's counters, membership classification, overload flips and contained lifecycle panics — the two spec families its spec source adds, `smg_policy_spec_generation` and `smg_policy_spec_apply_total`, and the engine's fault counter `smg_policy_faults_total`.
 
-The `smg_grand_central_*` series and the two spec families render only here: no gateway publishes them. `smg_policy_faults_total` is not the controller's alone — a gateway running the embedded Grand Central engine publishes the identical family on its own `/metrics` from the first scrape. The gateway's families are in the [Metrics Reference](metrics.md).
+The `smg_grand_central_*` series and the two spec families are the controller's alone: no gateway publishes them. `smg_policy_faults_total` is not the controller's alone — a gateway running the embedded Grand Central engine publishes the identical family on its own `/metrics` from the first scrape. The gateway's families are in the [Metrics Reference](metrics.md).

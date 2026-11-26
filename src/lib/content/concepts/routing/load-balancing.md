@@ -750,6 +750,41 @@ A supplied document is validated at startup: one that names a stage this build d
 
 In PD mode, the [pairing strictness](pd-disaggregation.md) is read from the document's `plans.pd-pair.pairing` instead of `--pd-pairing-mode`.
 
+### Shadow Profiles
+
+A supplied document can name a **shadow** on a binding: a second profile that decides the binding's requests beside the live profile, for comparison. Only the live profile's decision serves the request. The shadow reads the same worker rows, load counts and session pins the live decision read; it issues no lease, claims no session pin and writes nothing to the warm-up records. A shadowed request waits for one more decision on its path.
+
+`bindings[].shadow` takes two forms. A `single` binding names one profile. A binding that plans a pair (`pd-pair`, or the pair in `epd`) names a profile per side — `prefill`, `decode` or both; a side the map leaves out is not shadowed, and the encode side takes no shadow. Each name must be a profile the document's `profiles` map defines:
+
+```yaml
+bindings:
+  - match: { model: "chat-*" }
+    profile: live
+    shadow: candidate
+  - match: { model: "*" }
+    plan: pd-pair
+    profiles: { prefill: prefill, decode: decode }
+    shadow: { prefill: trial-prefill, decode: trial-decode }
+```
+
+A form that does not match the binding's plan is refused, as is an empty map, a side other than `prefill` and `decode`, or a side written twice.
+
+A single binding's shadow decides beside each of the binding's decisions. A pair's shadows decide by side beside the pair's first decision, and when the document sets `plans.pd-pair.decode: after-prefill` (see [Under Grand Central](#under-grand-central)), the decode side's shadow also decides beside the decode decided again.
+
+A shadow that is due is sometimes not asked, and is then counted as `skipped`:
+
+- A request with less than 1 ms of its stated time budget left skips its shadow and keeps the budget for its answer. A request that states no budget is never skipped for budget.
+- A shadow profile that would need cached-block data of its own is skipped: `cache_aware` is not shadowed behind `least_load` or `random`.
+- A pair's side placed by the binding's sessions rule or by its picker's session assignment is counted as skipped.
+
+A shadow that panics costs its request nothing: the live answer serves as decided, and the panic counts in `smg_policy_faults_total` under `kind="decision"`.
+
+The shadow must be a profile no binding uses live — not a binding's `profile`, nor a side under its `profiles` — because stages may change their state when they decide; naming one is refused with `a profile unused by live decisions`. Build the shadow from the built-in stages: a shadow profile that holds a plugin stage is refused as not in this build, by the stage's name. A `single` binding whose `match.phase` list is non-empty and leaves out `single` would load a shadow that never runs, so its shadow is refused too.
+
+Typically the shadow is a twin of the live profile — it agrees wherever its stages keep no state of their own — or the candidate profile you are evaluating before making it live.
+
+The gateway publishes what each shadow said as [`smg_policy_shadow_decisions_total`](../../reference/metrics.md#routing-policy-metrics), by the binding's position, the side the shadow decided beside and how its decision stood against the live one (`agreed`, `other-target`, `other-outcome` or `skipped`). The counts are read from the engine at each scrape, never on a request's path, and every series a binding's shadow can count under is published at zero from the first scrape.
+
 ### Settings Refused Under Grand Central
 
 A setting that decides a placement but has no place in a document is refused at startup by its name, never silently dropped:

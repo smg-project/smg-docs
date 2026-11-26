@@ -398,7 +398,7 @@ groups:
 ### Retries
 
 - For local workers, each retry attempt runs worker selection again, so a worker whose circuit is open is skipped.
-- A request's retries on the same worker charge its breaker once; a body cut after a successful head is one more sample on top. See [State Transitions](#state-transitions) for the paths this covers and the v1.12.0 behavior.
+- A request's retries on the same worker charge its breaker once; a cut of a streamed body (on the HTTP relays, after a successful head) is one more sample on top. See [State Transitions](#state-transitions) for the paths this covers and the v1.12.0 behavior.
 - If every worker is unavailable, the attempt gets 503 `no_available_workers`.
 - A half-open worker is selected like any other; its outcomes decide whether the circuit closes or reopens.
 - A 429 from a worker is retried when retries are enabled, but leaves that worker's breaker untouched.

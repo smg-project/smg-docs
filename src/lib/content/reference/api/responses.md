@@ -85,7 +85,7 @@ POST /v1/responses
 | `stream_options` | object | No | Streaming options, such as `include_obfuscation` |
 | `store` | boolean | No | Store response for later retrieval, default: true |
 | `background` | boolean | No | Return a `queued` response object at once and run the request in the background; see [Background Mode](#background-mode) |
-| `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, and built-in tool types |
+| `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, built-in tool types, and the `tool_search` and `programmatic_tool_calling` tools; see [Tool Configuration](#tool-configuration) |
 | `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` or `auto` requires a non-empty `tools` array; with `auto` and no tools the model answers in text, as if `tool_choice` were omitted |
 | `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
 | `previous_response_id` | string | No | Continue from a stored response |
@@ -208,6 +208,28 @@ match a `function_call` earlier in the resolved input — the history loaded fro
 an unmatched result is rejected with `400` `harmony_build_failed`
 (`No function call found for call_id: ...`).
 
+**Tool-search and programmatic tool calling items:**
+
+The input also takes the items that hosted tool search and Programmatic Tool Calling
+produce: `tool_search_call`, `tool_search_output` (the tool definitions the search
+returned, under `tools`), `web_search_call`, `program` (the code of a Programmatic Tool
+Calling turn), and `program_output`. The tools of a `tool_search_output` count as declared tools: a
+`tool_choice` may name a function discovered there, and a discovered function is held to
+the schema rules of a declared one.
+
+External providers receive all five item kinds unchanged, and SMG's stored history
+replays them: items of these types in a stored response or conversation reach the
+provider again on later turns. gRPC and HTTP workers are served a lowered form
+instead. The tools of a `tool_search_output` are validated and lifted into the request's
+top-level `tools`, and the `tool_search_call` and `web_search_call` records are dropped:
+from the prompt on gRPC workers, from the forwarded body on HTTP workers. A discovered
+entry that does not parse as a tool is refused with `400` `invalid_tool`, and one that
+breaks a tool rule with that rule's own code; either message names `input[i].tools[j]`. A
+`program` or `program_output` item is forwarded to HTTP workers unchanged; on gRPC
+workers one in the request's own input is refused with `400` (`convert_request_failed`,
+or `harmony_build_failed` on gpt-oss models), and one replayed from stored history is
+left out of the prompt rather than refused.
+
 ### Tool Configuration
 
 **Function tools:**
@@ -306,6 +328,32 @@ reached, the request fails with `424` `connect_mcp_server_failed`.
 with all of its fields, including `external_web_access` (an explicit `false` is kept), and
 forwarded to HTTP workers and external providers. The `local_shell` tool is not supported:
 a request that declares it is rejected with `400` (`tool_not_supported`).
+
+**Tool search and programmatic tool calling:** The `tool_search` tool (deferred tool
+loading) and the `programmatic_tool_calling` tool are accepted — a `tool_choice` can name
+`programmatic_tool_calling` like any built-in type — and forwarded to HTTP workers and
+external providers; running the search and the programs is theirs. gRPC workers accept
+both declarations but execute neither: SMG performs no tool search and runs no programs,
+and does not offer the two declarations to the model. The items these features produce
+are taken as input and replayed from stored history; see [Input Formats](#input-formats).
+
+**Allowed callers:** `function`, `custom`, `mcp`, `code_interpreter`, `shell`, and
+`apply_patch` tools take an optional `allowed_callers` array naming who may invoke the
+tool: `"direct"` — the model calls the tool itself — and `"programmatic"` — the tool is
+called from the code of a Programmatic Tool Calling program. A tool without
+`allowed_callers` allows direct calls; a function or custom tool inside a namespace
+carries its own list.
+
+A tool SMG executes itself is called directly on the model's behalf, so it must allow the
+`direct` caller: if an `mcp` tool, or a `code_interpreter` tool that a configured MCP
+server backs, omits `"direct"` from its `allowed_callers`, the request is refused with
+`400` `tool_not_supported` (`gateway-managed tools must allow the 'direct' caller`). The
+other MCP-backed built-ins take no `allowed_callers`. On gRPC workers the rule covers every tool, namespace members
+and tools lifted from the input's `tool_search_output` items included: that backend runs
+no programmatic tool calls and offers a tool to the model only for direct calls, so any
+tool whose `allowed_callers` omit `"direct"` is refused with `400` `tool_not_supported`.
+Tools SMG does not execute itself reach HTTP workers and external providers with their
+`allowed_callers` unchanged, and those backends apply their own rules.
 
 ### Reasoning Configuration
 

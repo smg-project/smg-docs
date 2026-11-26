@@ -85,7 +85,7 @@ POST /v1/responses
 | `stream_options` | object | No | Streaming options, such as `include_obfuscation` |
 | `store` | boolean | No | Store response for later retrieval, default: true |
 | `background` | boolean | No | Return a `queued` response object at once and run the request in the background; see [Background Mode](#background-mode) |
-| `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, built-in tool types, and the `tool_search` and `programmatic_tool_calling` tools; see [Tool Configuration](#tool-configuration) |
+| `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, `tool_search`, `programmatic_tool_calling`, and built-in tool types; see [Tool Configuration](#tool-configuration) |
 | `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` or `auto` requires a non-empty `tools` array; with `auto` and no tools the model answers in text, as if `tool_choice` were omitted |
 | `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
 | `previous_response_id` | string | No | Continue from a stored response |
@@ -333,10 +333,10 @@ a request that declares it is rejected with `400` (`tool_not_supported`).
 **Tool search and programmatic tool calling:** The `tool_search` tool (deferred tool
 loading) and the `programmatic_tool_calling` tool are accepted and forwarded to HTTP
 workers and external providers; running the search and the programs is theirs. A
-`tool_choice` can name `programmatic_tool_calling` like any built-in type. gRPC workers
-accept both declarations but execute neither: SMG performs no tool search and runs no
-programs, and does not offer the two declarations to the model. The items these features
-produce are taken as input and replayed from stored history; see
+`tool_choice` can name `programmatic_tool_calling` like any built-in type. On gRPC
+workers both declarations are accepted but neither runs: SMG performs no tool search,
+runs no programs, and does not offer either declaration to the model. The items these
+features produce are taken as input and replayed from stored history; see
 [Input Formats](#input-formats).
 
 **Allowed callers:** `function`, `custom`, `mcp`, `code_interpreter`, `shell`, and

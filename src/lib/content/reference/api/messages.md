@@ -464,7 +464,7 @@ curl http://localhost:30000/v1/messages/count_tokens \
 | Anthropic API backend | `501 Not Implemented` |
 | IGW mode | A model with an external worker goes to that provider's backend (`501`). Otherwise any of the model's self-hosted pools answers — gRPC, ZMQ, HTTP, and PD alike, a disaggregated pool qualifying by its prefill workers alone. A model no pool serves, including an unknown model, gets `404` (`model_not_found`). |
 
-On gRPC and ZMQ backends, SMG renders the request through the model's chat template exactly as `/v1/messages` renders it — the same tool filtering by `tool_choice` and the same media placeholders — and returns the rendered prompt's token count. Media is not fetched: an image counts as the placeholder the template writes for it, and a document counts as its text (a document source with no text is refused, as `/v1/messages` refuses it).
+On gRPC and ZMQ backends, SMG renders the request through the model's chat template exactly as `/v1/messages` renders it — the same tool filtering by `tool_choice` and the same media placeholders — and returns the rendered prompt's token count. Media is not fetched: an image counts as the placeholder the template writes for it, and a document counts as its text; a `file`-source image or a document source with no text is refused, as `/v1/messages` refuses it.
 
 That path refuses a request the way `/v1/messages` would. An unknown model gets `404` (`model_not_found`), even when a removed worker's tokenizer is still registered.
 

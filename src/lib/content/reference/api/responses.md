@@ -220,7 +220,7 @@ External providers receive all five item kinds unchanged, and SMG's stored histo
 replays them: items of these types in a stored response or conversation reach the
 provider again on later turns.
 
-gRPC and HTTP workers are served a lowered form instead. The tools of a
+gRPC and HTTP workers receive a rewritten request instead. The tools of a
 `tool_search_output` are validated under the rules of declared tools and lifted into
 the request's top-level `tools`, and the `tool_search_call` and `web_search_call`
 records are dropped: from the prompt on gRPC workers, from the forwarded body on HTTP

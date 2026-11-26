@@ -331,17 +331,18 @@ forwarded to HTTP workers and external providers. The `local_shell` tool is not 
 a request that declares it is rejected with `400` (`tool_not_supported`).
 
 **Tool search and programmatic tool calling:** The `tool_search` tool (deferred tool
-loading) and the `programmatic_tool_calling` tool are accepted — a `tool_choice` can name
-`programmatic_tool_calling` like any built-in type — and forwarded to HTTP workers and
-external providers; running the search and the programs is theirs. gRPC workers accept
-both declarations but execute neither: SMG performs no tool search and runs no programs,
-and does not offer the two declarations to the model. The items these features produce
-are taken as input and replayed from stored history; see [Input Formats](#input-formats).
+loading) and the `programmatic_tool_calling` tool are accepted and forwarded to HTTP
+workers and external providers; running the search and the programs is theirs. A
+`tool_choice` can name `programmatic_tool_calling` like any built-in type. gRPC workers
+accept both declarations but execute neither: SMG performs no tool search and runs no
+programs, and does not offer the two declarations to the model. The items these features
+produce are taken as input and replayed from stored history; see
+[Input Formats](#input-formats).
 
 **Allowed callers:** `function`, `custom`, `mcp`, `code_interpreter`, `shell`, and
 `apply_patch` tools take an optional `allowed_callers` array naming who may invoke the
-tool: `"direct"` — the model calls the tool itself — and `"programmatic"` — the tool is
-called from the code of a Programmatic Tool Calling program. A tool without
+tool: `"direct"` (the model calls the tool itself) and `"programmatic"` (the tool is
+called from the code of a Programmatic Tool Calling program). A tool without
 `allowed_callers` allows direct calls; a function or custom tool inside a namespace
 carries its own list.
 

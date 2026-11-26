@@ -52,7 +52,7 @@ smg_http_requests_total{method="POST",path="/v1/chat/completions"} 1234
 ...
 ```
 
-The engines' own metrics are available separately at `/engine_metrics` on the main port; see [Engine Metrics Passthrough](../reference/metrics.md#engine-metrics-passthrough).
+Engine metrics are available separately at `/engine_metrics` on the main port, aggregated from the HTTP workers' own `/metrics`; see [Engine Metrics Passthrough](../reference/metrics.md#engine-metrics-passthrough).
 
 ---
 
@@ -108,7 +108,7 @@ scrape_configs:
     metrics_path: /metrics
 ```
 
-To also collect the engines' metrics through the gateway, add a job for `/engine_metrics` on the main port. Every sample carries a `worker_addr` label:
+To also collect the HTTP workers' engine metrics through the gateway, add a job for `/engine_metrics` on the main port. Every sample carries a `worker_addr` label; gRPC and ZMQ workers are not scraped, only named in comment lines (see [Engine Metrics Passthrough](../reference/metrics.md#engine-metrics-passthrough)):
 
 ```yaml title="prometheus.yml"
   - job_name: 'smg-engines'

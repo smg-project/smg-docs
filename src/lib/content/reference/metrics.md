@@ -33,15 +33,17 @@ smg launch --prometheus-port 29000 --prometheus-host 0.0.0.0
 
 ### Engine Metrics Passthrough
 
-`GET /engine_metrics` returns the engines' own Prometheus metrics in a single exposition. It is served on the main API listener (`--host`:`--port`, default port `30000`), not on the metrics port, and like `/health` it requires no API key.
+`GET /engine_metrics` returns the HTTP workers' own Prometheus metrics in a single exposition. It is served on the main API listener (`--host`:`--port`, default port `30000`), not on the metrics port, and like `/health` it requires no API key.
 
 ```bash
 curl http://localhost:30000/engine_metrics
 ```
 
-- SMG fetches `<worker URL>/metrics` from every registered worker, once per base URL (data-parallel ranks that share a URL are scraped once), and adds a `worker_addr` label holding the worker's base URL to every sample.
+- SMG fetches `<worker URL>/metrics` from every registered HTTP worker, once per base URL (data-parallel ranks that share a URL are scraped once), and adds a `worker_addr` label to every sample. The label holds the worker's base URL with any credential masked: `http://user:secret@gpu1:8000` appears as `http://***@gpu1:8000`.
 - Metric names, HELP text, and label values are passed through unchanged, colons included (`vllm:num_requests_running`, `sglang:...`), so queries written against an engine's own `/metrics` work against the gateway. Before v1.11.0 the colons were rewritten to underscores (smg-project/smg#2636).
-- Workers whose scrape fails or returns a non-success status are left out. If no worker is registered, or every scrape fails, the endpoint returns `500` with a plain-text reason (`No available workers` or `All backend requests failed`).
+- gRPC and ZMQ workers are not scraped: their base URL points at a gRPC listener or a ZMQ socket, not an HTTP server. Each such address is named in a comment line of the answer instead, for example `# not scraped: grpc://engine-a:50051 (grpc worker): /engine_metrics aggregates the HTTP workers' /metrics`; collect those engines' metrics by scraping their own metrics listeners directly. A fleet whose registered workers are all gRPC or ZMQ answers `200` with the comment lines alone, starting `# no HTTP worker registered`.
+- An HTTP worker whose scrape fails or returns a non-success status is left out: the failure is logged as a warning and a comment line (`# not scraped: <address>: GET /metrics failed`) names its masked address. The endpoint returns `500` with a plain-text reason only when no worker at all is registered (`No available workers`) or when HTTP workers are registered and every scrape fails (`All backend requests failed`).
+- Registrations of the same host and port under different credentials share one `worker_addr` and are scraped as one address: SMG tries them in the order of their URLs and moves to the next only on a `401` or `403`, so a registration with stale credentials never hides one that works. Any other failure closes the address, since it says nothing about the credentials. A comment line in the answer reports which registration answered, or that none did.
 
 ---
 

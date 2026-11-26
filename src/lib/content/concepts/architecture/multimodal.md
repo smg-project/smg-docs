@@ -439,7 +439,7 @@ See [PD Disaggregation](../routing/pd-disaggregation.md) for how the legs are pa
 
 ### EPD (Encode-Prefill-Decode)
 
-`--epd-disaggregation` (gRPC vLLM or TokenSpeed workers) adds encode workers, listed with `--encode <url> [bootstrap_port]` and picked by `--encode-policy` (default `consistent_hashing`), that run the media encoding ahead of prefill.
+`--epd-disaggregation` (gRPC vLLM or TokenSpeed workers) adds encode workers that run the media encoding ahead of prefill, listed with `--encode <url> [bootstrap_port]` and picked by `--encode-policy` (default `consistent_hashing`).
 
 On TokenSpeed, SMG still fetches and preprocesses the media, then sends each item's pixels to an encode worker. The encode worker runs the vision tower and ships the embeddings to the prefill worker over Mooncake, so the prefill request carries no pixels. Pixels reach encode workers inline, through shared memory, or over the RDMA lane.
 

@@ -562,7 +562,7 @@ A vLLM EPD attempt that has encoded is never replayed on another pair: a push ha
 | 503 | `ec_incompatible_pair` | No compatible EC producer/consumer pair; check the encode and prefill workers' connector and role configuration. Never retried |
 | 502 | `ec_retry_unsupported` | A replica-bound EC handoff cannot be replayed from the pre-encode request. Never retried |
 
-Worker launch commands are in [Getting Started: PD Disaggregation](../../getting-started/pd-disaggregation.md#tokenspeed-pd-and-epd-grpc), with the vLLM EPD setup in [vLLM EPD (gRPC)](../../getting-started/pd-disaggregation.md#vllm-epd-grpc).
+Worker launch commands are in Getting Started: [TokenSpeed PD and EPD](../../getting-started/pd-disaggregation.md#tokenspeed-pd-and-epd-grpc) and [vLLM EPD](../../getting-started/pd-disaggregation.md#vllm-epd-grpc).
 
 ---
 

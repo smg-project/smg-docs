@@ -775,10 +775,10 @@ A shadow that is due is sometimes not asked, and is then counted as `skipped`:
 
 - A request with less than 1 ms of its stated time budget left skips its shadow and keeps the budget for its answer. A request that states no budget is never skipped for budget.
 - A shadow profile that would need cached-block data of its own is skipped: `cache_aware` is not shadowed behind `least_load` or `random`.
-- A pair's side placed by the binding's sessions rule or by its picker's session assignment is counted as skipped.
-- A pair's shadow due beside a live decision that picked nothing — a pair that was shed, or a decode decided again that picked no decode — is counted as skipped.
+- The shadow of a pair's side placed by the binding's sessions rule or by its picker's session assignment is skipped.
+- A pair's shadow due beside a live decision that picked nothing — a pair that was shed, or a decode decided again that picked no decode — is skipped.
 
-A shadow that panics costs its request nothing: the live answer serves as decided, and the panic counts in `smg_policy_faults_total` under `kind="decision"`.
+A shadow that panics costs its request nothing: the live decision serves the request as decided, and the panic counts in `smg_policy_faults_total` under `kind="decision"`.
 
 The shadow must be a profile no binding uses live — not one named as a binding's `profile`, nor under any side of its `profiles` — because stages may change their state when they decide; naming one is refused with `a profile unused by live decisions`. Build the shadow from the built-in stages: a shadow profile that holds a plugin stage is refused as not in this build, by the stage's name. A `single` binding whose `match.phase` list is non-empty and leaves out `single` would load a shadow that never runs, so its shadow is refused too.
 

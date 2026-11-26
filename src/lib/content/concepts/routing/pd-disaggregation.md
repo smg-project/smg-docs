@@ -78,7 +78,7 @@ Running both phases on the same worker creates inefficiencies:
 - **The worker URL scheme selects the path.** `http://` workers go through the HTTP PD router, which forwards the client's JSON body to both legs and adds the handoff fields. `grpc://` workers go through the [gRPC pipeline](../architecture/grpc-pipeline.md), where SMG tokenizes the prompt and parses the output itself.
 - **Other runtimes have no PD protocol.** TensorRT-LLM and MLX cannot serve as PD legs. A gRPC PD request that lands on another runtime fails with 400 `runtime_pd_not_supported`.
 - **Direct ZMQ workers are rejected.** An `ipc://` worker registered as prefill, decode, or encode fails registration, because the ZMQ wire carries no KV-transfer metadata. See [ZMQ Workers](../../getting-started/zmq-workers.md).
-- **EPD adds an encode leg.** For multimodal models on TokenSpeed, [EPD](#epd-encode-prefill-decode) moves the vision tower onto separate encode workers.
+- **EPD adds an encode leg.** For multimodal models on vLLM or TokenSpeed, [EPD](#epd-encode-prefill-decode) moves the media encoding onto separate encode workers.
 
 ---
 
@@ -510,14 +510,14 @@ A model whose only workers are the legs of an incomplete pair is answered by the
 
 ## EPD (Encode-Prefill-Decode)
 
-EPD adds a third worker role for multimodal models. Encode workers run the vision tower, and prefill and decode workers run the language model. SMG assigns each media item to an encode worker, the encode worker ships the resulting embeddings to the prefill worker over Mooncake, and prefill and decode then proceed as in PD. EPD requires gRPC workers running TokenSpeed; SMG refuses to start an EPD router for HTTP workers.
+EPD adds a third worker role for multimodal models. Encode workers run the media encoding, and prefill and decode workers run the language model. EPD requires gRPC workers running vLLM or TokenSpeed; SMG refuses to start an EPD router for HTTP workers.
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--epd-disaggregation` | off | Enable EPD mode (instead of `--pd-disaggregation`) |
-| `--encode <url> [bootstrap_port]` | — | Encode worker. Repeat per worker. The port is the encode worker's Mooncake bootstrap port, where prefill reads the embeddings (8998 when omitted) |
+| `--encode <url> [bootstrap_port]` | — | Encode worker. Repeat per worker. The port is a TokenSpeed encode worker's Mooncake bootstrap port, where prefill reads the embeddings (8998 when omitted); a vLLM encode worker does not use one |
 | `--prefill <url> [bootstrap_port]`, `--decode <url>` | — | Prefill and decode workers, as in PD mode |
-| `--encode-policy` | `consistent_hashing` | `random`, `round_robin`, or `consistent_hashing`. The default keys each media item by its content hash, so a repeated image goes to the same encode worker |
+| `--encode-policy` | `consistent_hashing` | `random`, `round_robin`, or `consistent_hashing`. The default keys each media item by its content hash (by its reference, when media references are forwarded), so a repeated image goes to the same encode worker |
 | `--encode-selector` | — | Kubernetes label selector for encode pods. EPD discovery needs all three role selectors |
 
 ```bash
@@ -529,13 +529,40 @@ smg launch \
   --model-path "$MODEL"
 ```
 
-- Each media item gets its own encode worker and rendezvous, so the items of one request can be encoded on different workers.
 - Text-only requests skip the encode leg.
-- SMG preprocesses the media for the encode workers. Encode workers never take raw media references, so with `--mm-processing worker` an EPD request that carries media fails with 400 `multimodal_not_supported`.
 - EPD mode does not serve `/v1/responses` (501).
-- EPD keeps all three legs on one runtime but does not apply `--pd-pairing-mode`.
+- EPD keeps all three legs on one runtime and pairs prefill with decode under [`--pd-pairing-mode`](#pairing-modes), as in PD.
 
-Worker launch commands are in [Getting Started: PD Disaggregation](../../getting-started/pd-disaggregation.md#tokenspeed-pd-and-epd-grpc).
+How the encoded media reach the prefill worker depends on the runtime.
+
+### Embeddings over Mooncake (TokenSpeed)
+
+SMG fetches and preprocesses the media itself and assigns each item to an encode worker by `--encode-policy`, each with its own rendezvous, so the items of one request can be encoded on different workers. The encode worker runs the vision tower and ships the resulting embeddings to the prefill worker over Mooncake, and prefill and decode then proceed as in PD. TokenSpeed encode workers never take raw media references, so with `--mm-processing worker` an EPD request that carries media fails with 400 `multimodal_not_supported`.
+
+### Encoder-Cache Handoff (vLLM)
+
+vLLM encode workers process the media themselves and hand the encoder cache to the prefill worker through the engines' encoder-cache (EC) connector. The encode worker answers first, with the expanded prompt's identity (token ids, content hashes, placeholder ranges, grid tensors) and the transfer handles; the prefill worker consumes a pixel-less prompt that names them, and SMG then relays prefill's KV handoff to decode as in [vLLM PD](#sequential-dispatch-vllm).
+
+The legs qualify by what their engines advertise through gRPC server info, visible as worker labels in `GET /workers`:
+
+- The encode worker runs the EC connector as producer: `supports_ec_transfer`, an `ec_role` of `ec_producer` (or `ec_both`), and a named `ec_connector`. To take forwarded media references it also advertises a media processor (`mm_processor`; see [Where Media Is Processed](../architecture/multimodal.md#where-media-is-processed)).
+- The prefill worker runs the **same** `ec_connector` as consumer: `supports_ec_transfer` and an `ec_role` of `ec_consumer` (or `ec_both`).
+- On the push connector (`ECMooncakeConnector`), the consumer advertises one ZMQ destination per data-parallel rank in `ec_zmq_addrs`; SMG hands the encoder the selected replica's address, mints one transfer id per media item, and releases reservations the prefill side never takes. A pull connector (`ECCPUConnector`, for example) returns its handles from the encode worker instead.
+
+Where the media is processed follows `--mm-processing`: under `auto`, references are forwarded to the encode workers when every encode worker of the model qualifies as above and advertises a media processor — the prefill and decode workers consume the expanded identity and need no processor; under `router`, SMG preprocesses the media and the encode worker takes the pixels.
+
+An image-only request that forwards references can fan its images out across encode workers when the model expands each image behind a single anchor token: `--encode-policy` assigns each image its encode worker, the images that share one are encoded together, and the groups' expanded prompts and transfer handles merge back in prompt order before prefill runs. Mixed-modality requests, router-preprocessed media, and models whose prompt updates extend beyond the image anchors keep the whole prompt on one encode worker.
+
+A vLLM EPD attempt that has encoded is never replayed on another pair: a push handoff reserves buffers on — and is bound to — the prefill replica it was encoded for, so a failed dispatch is answered to the client instead of retried, and a retry that would have to re-encode is answered with 502 `ec_retry_unsupported`.
+
+| Status | Code | Meaning |
+|--------|------|---------|
+| 400 | `ec_multiple_samples` | A multimodal vLLM EPD request must use `n=1` |
+| 503 | `ec_consumer_unsupported` | The selected prefill worker does not support EC transfer |
+| 503 | `ec_incompatible_pair` | No compatible EC producer/consumer pair; check the encode and prefill workers' connector and role configuration. Never retried |
+| 502 | `ec_retry_unsupported` | A replica-bound EC handoff cannot be replayed from the pre-encode request. Never retried |
+
+Worker launch commands are in [Getting Started: PD Disaggregation](../../getting-started/pd-disaggregation.md#tokenspeed-pd-and-epd-grpc), with the vLLM EPD setup in [vLLM EPD (gRPC)](../../getting-started/pd-disaggregation.md#vllm-epd-grpc).
 
 ---
 

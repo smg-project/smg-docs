@@ -213,9 +213,9 @@ an unmatched result is rejected with `400` `harmony_build_failed`
 The input also takes the items that hosted tool search and Programmatic Tool Calling
 produce: `tool_search_call`, `tool_search_output` (the tool definitions the search
 returned, under `tools`), `web_search_call`, `program` (the code of a Programmatic Tool
-Calling turn), and `program_output`. The tools of a `tool_search_output` count as declared tools: a
-`tool_choice` may name a function discovered there, and a discovered function is held to
-the schema rules of a declared one.
+Calling turn), and `program_output`. The tools of a `tool_search_output` count as
+declared tools: a `tool_choice` may name a function discovered there, and a discovered
+function is held to the schema rules of a declared one.
 
 External providers receive all five item kinds unchanged, and SMG's stored history
 replays them: items of these types in a stored response or conversation reach the
@@ -224,8 +224,9 @@ instead. The tools of a `tool_search_output` are validated and lifted into the r
 top-level `tools`, and the `tool_search_call` and `web_search_call` records are dropped:
 from the prompt on gRPC workers, from the forwarded body on HTTP workers. A discovered
 entry that does not parse as a tool is refused with `400` `invalid_tool`, and one that
-breaks a tool rule with that rule's own code; either message names `input[i].tools[j]`. A
-`program` or `program_output` item is forwarded to HTTP workers unchanged; on gRPC
+breaks a tool rule with that rule's own code; either message names `input[i].tools[j]`.
+
+A `program` or `program_output` item is forwarded to HTTP workers unchanged; on gRPC
 workers one in the request's own input is refused with `400` (`convert_request_failed`,
 or `harmony_build_failed` on gpt-oss models), and one replayed from stored history is
 left out of the prompt rather than refused.
@@ -348,12 +349,14 @@ A tool SMG executes itself is called directly on the model's behalf, so it must 
 `direct` caller: if an `mcp` tool, or a `code_interpreter` tool that a configured MCP
 server backs, omits `"direct"` from its `allowed_callers`, the request is refused with
 `400` `tool_not_supported` (`gateway-managed tools must allow the 'direct' caller`). The
-other MCP-backed built-ins take no `allowed_callers`. On gRPC workers the rule covers every tool, namespace members
-and tools lifted from the input's `tool_search_output` items included: that backend runs
-no programmatic tool calls and offers a tool to the model only for direct calls, so any
-tool whose `allowed_callers` omit `"direct"` is refused with `400` `tool_not_supported`.
-Tools SMG does not execute itself reach HTTP workers and external providers with their
-`allowed_callers` unchanged, and those backends apply their own rules.
+other MCP-backed built-ins take no `allowed_callers`.
+
+On gRPC workers the rule covers every tool, including namespace members and tools lifted
+from the input's `tool_search_output` items: that backend runs no programmatic tool calls
+and offers a tool to the model only for direct calls, so any tool whose `allowed_callers`
+omit `"direct"` is refused with `400` `tool_not_supported`. Tools SMG does not execute
+itself reach HTTP workers and external providers with their `allowed_callers` unchanged,
+and those backends apply their own rules.
 
 ### Reasoning Configuration
 

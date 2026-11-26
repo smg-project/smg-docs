@@ -142,7 +142,7 @@ A Python servicer answers that RPC healthy throughout (vLLM answers from engine 
 
 | Value | Effect |
 |-------|--------|
-| `full` | The default: the whole pass above, every 128-token length class included — about a minute at a 16,384-token step. On a multi-process TokenSpeed engine, also the chunk remainders (overridable with the remainders knob below) — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
+| `full` | The default: the whole pass above, every 128-token length class included — about a minute at a 16,384-token step. On a multi-process TokenSpeed engine, also the chunk remainders — about 12 minutes for the whole pass, measured at a 4,096-token chunk size on a four-GPU node |
 | `fast` | Skips the 128-token length classes and keeps the rest of the pass (the staircase, the bucket grid with its one-above lengths and second pass, the capture sizes), finishing in seconds. On a multi-process TokenSpeed engine it also skips the chunk remainders and leaves their first-use hazard open, which the start log warns about |
 | `off` | No planned warm-up: the worker reports `SERVING` once the engine is up and answering |
 | A number (`120`) | The pass's time budget in seconds, at the `full` level |

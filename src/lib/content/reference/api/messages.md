@@ -99,7 +99,7 @@ Blocks in a `system` prompt and in a `tool_result`'s `content` are refused the s
 
 An `image` block's `source` is one of three types: `base64` (base64 data with its `media_type`), `url` (a URL or `data:` URL), or `file`, which names a file uploaded through Anthropic's Files API by its `file_id`. A `document` block's `source` is one of five: `base64`, `text`, `url`, `content` (a string or an array of content blocks), or `file`. A source of any other `type` is refused with `400` like any other unreadable block, with the accepted types listed.
 
-Every source on these lists passes validation, whatever the backend. HTTP workers and the Anthropic API receive a `file` source exactly as sent, like the rest of the request; resolving the `file_id` is theirs — the Anthropic API reads the file from its Files API. gRPC and ZMQ workers render the prompt on the gateway, which has no Files API to read from: a `file`-source image or document is refused with `400` naming the block; see [gRPC and ZMQ Workers](#grpc-and-zmq-workers).
+Every source on these lists passes validation, whatever the backend. HTTP workers and the Anthropic API receive a `file` source exactly as sent, like the rest of the request; resolving the `file_id` is theirs — the Anthropic API reads the file from its Files API. gRPC and ZMQ workers render the prompt on the gateway, which has no Files API to read from: a `file`-source image, or a `file`-source document outside a `tool_result`, is refused with `400` naming the block; see [gRPC and ZMQ Workers](#grpc-and-zmq-workers).
 
 A `search_result` block — a search result the request injects — carries a `source`, a `title`, a `content` array, and optionally `cache_control` and a `citations` configuration such as `{"enabled": true}`. Its `content` holds only `text` blocks, each with its `type`, its `text`, and optionally `cache_control` and a `citations` list.
 
@@ -522,7 +522,7 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 | `output_config.effort` | Rendered into the prompt as the chat template's `reasoning_effort`; not itself sent to the engine. |
 | `metadata`, `service_tier`, `container`, `mcp_servers`, `output_config`'s other keys, extra fields such as `context_management` | Not sent to the engine. |
 
-A `file` source names a file uploaded through Anthropic's Files API, which this pipeline cannot read. An image with a `file` source is refused wherever the image stands — in a user message's content or inside a `tool_result` — and so is a `file`-source document in a message's content, each with `400` (`process_messages_failed`) before any worker takes part. The error names the block and the sources to send instead:
+A `file` source names a file uploaded through Anthropic's Files API, which this pipeline cannot read. An image with a `file` source is refused wherever the image stands — in a user message's content or inside a `tool_result` — and so is a `file`-source document in a user message's content, each with `400` (`process_messages_failed`) before any worker takes part. The error names the block and the sources to send instead:
 
 ```text
 messages.0.content.1: image source type 'file' is not supported; send the image as a base64 or url source

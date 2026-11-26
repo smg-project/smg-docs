@@ -767,9 +767,9 @@ bindings:
     shadow: { prefill: trial-prefill, decode: trial-decode }
 ```
 
-A form that does not match the binding's plan is refused, as is an empty map, a side other than `prefill` or `decode`, or a side written twice.
+A form that does not match the binding's plan is refused; so are an empty map, a side other than `prefill` or `decode`, and a side written twice.
 
-A single binding's shadow decides beside each of the binding's decisions. A pair's shadows decide by side beside the pair's first decision, and when the document sets `plans.pd-pair.decode: after-prefill` (see [Under Grand Central](#under-grand-central)), the decode side's shadow also decides beside the decode decided again.
+A `single` binding's shadow decides beside each of the binding's decisions. A pair's shadows decide by side beside the pair's first decision, and when the document sets `plans.pd-pair.decode: after-prefill` (see [Under Grand Central](#under-grand-central)), the decode side's shadow also decides beside the decode decided again.
 
 A shadow that is due is sometimes not asked, and is then counted as `skipped`:
 

@@ -779,7 +779,7 @@ A shadow that is due is sometimes not asked, and is then counted as `skipped`:
 
 A shadow that panics costs its request nothing: the live answer serves as decided, and the panic counts in `smg_policy_faults_total` under `kind="decision"`.
 
-The shadow must be a profile no binding uses live — not a binding's `profile`, nor a side under its `profiles` — because stages may change their state when they decide; naming one is refused with `a profile unused by live decisions`. Build the shadow from the built-in stages: a shadow profile that holds a plugin stage is refused as not in this build, by the stage's name. A `single` binding whose `match.phase` list is non-empty and leaves out `single` would load a shadow that never runs, so its shadow is refused too.
+The shadow must be a profile no binding uses live — not one named as a binding's `profile`, nor under any side of its `profiles` — because stages may change their state when they decide; naming one is refused with `a profile unused by live decisions`. Build the shadow from the built-in stages: a shadow profile that holds a plugin stage is refused as not in this build, by the stage's name. A `single` binding whose `match.phase` list is non-empty and leaves out `single` would load a shadow that never runs, so its shadow is refused too.
 
 Typically the shadow is a twin of the live profile — it agrees wherever its stages keep no state of their own — or the candidate profile you are evaluating before making it live.
 

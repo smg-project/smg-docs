@@ -752,7 +752,7 @@ In PD mode, the [pairing strictness](pd-disaggregation.md) is read from the docu
 
 ### Shadow Profiles
 
-A supplied document can name a **shadow** on a binding: a second profile that decides the binding's requests beside the live profile, for comparison. Only the live profile's decision serves the request. The shadow reads the same worker rows, load counts and session pins the live decision read; it issues no lease, claims no session pin and writes nothing to the warm-up records. A shadowed request waits for each shadow's decision on its path.
+A supplied document can name a **shadow** on a binding: a second profile that decides the binding's requests beside the live profile, for comparison. Only the live profile's decision serves the request. The shadow reads the same worker rows, load counts and session pins the live decision read; it issues no lease, claims no session pin and writes no record of where the prompt went. A shadowed request waits for each shadow's decision on its path.
 
 `bindings[].shadow` takes two forms. A `single` binding names one profile. A binding that plans a pair (`pd-pair`, or the pair in `epd`) names a profile per side — `prefill`, `decode` or both; a side the map leaves out is not shadowed, and the encode side takes no shadow. Each name must be a profile the document's `profiles` map defines:
 
@@ -776,6 +776,7 @@ A shadow that is due is sometimes not asked, and is then counted as `skipped`:
 - A request with less than 1 ms of its stated time budget left skips its shadow and keeps the budget for its answer. A request that states no budget is never skipped for budget.
 - A shadow profile that would need cached-block data of its own is skipped: `cache_aware` is not shadowed behind `least_load` or `random`.
 - A pair's side placed by the binding's sessions rule or by its picker's session assignment is counted as skipped.
+- A pair's shadow due beside a live decision that picked nothing — a pair that was shed, or a decode decided again that picked no decode — is counted as skipped.
 
 A shadow that panics costs its request nothing: the live answer serves as decided, and the panic counts in `smg_policy_faults_total` under `kind="decision"`.
 

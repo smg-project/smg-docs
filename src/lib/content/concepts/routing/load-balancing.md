@@ -752,7 +752,7 @@ In PD mode, the [pairing strictness](pd-disaggregation.md) is read from the docu
 
 ### Shadow Profiles
 
-A supplied document can name a **shadow** on a binding: a second profile that decides the binding's requests beside the live profile, for comparison. Only the live profile's decision serves the request. The shadow reads the same worker rows, load counts and session pins the live decision read; it issues no lease, claims no session pin and writes nothing to the warm-up records. A shadowed request waits for one more decision on its path.
+A supplied document can name a **shadow** on a binding: a second profile that decides the binding's requests beside the live profile, for comparison. Only the live profile's decision serves the request. The shadow reads the same worker rows, load counts and session pins the live decision read; it issues no lease, claims no session pin and writes nothing to the warm-up records. A shadowed request waits for each shadow's decision on its path.
 
 `bindings[].shadow` takes two forms. A `single` binding names one profile. A binding that plans a pair (`pd-pair`, or the pair in `epd`) names a profile per side — `prefill`, `decode` or both; a side the map leaves out is not shadowed, and the encode side takes no shadow. Each name must be a profile the document's `profiles` map defines:
 
@@ -767,7 +767,7 @@ bindings:
     shadow: { prefill: trial-prefill, decode: trial-decode }
 ```
 
-A form that does not match the binding's plan is refused, as is an empty map, a side other than `prefill` and `decode`, or a side written twice.
+A form that does not match the binding's plan is refused, as is an empty map, a side other than `prefill` or `decode`, or a side written twice.
 
 A single binding's shadow decides beside each of the binding's decisions. A pair's shadows decide by side beside the pair's first decision, and when the document sets `plans.pd-pair.decode: after-prefill` (see [Under Grand Central](#under-grand-central)), the decode side's shadow also decides beside the decode decided again.
 

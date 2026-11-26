@@ -208,7 +208,7 @@ match a `function_call` earlier in the resolved input — the history loaded fro
 an unmatched result is rejected with `400` `harmony_build_failed`
 (`No function call found for call_id: ...`).
 
-**Tool-search and programmatic tool calling items:**
+**Tool search and programmatic tool calling items:**
 
 The input also takes the items that hosted tool search and Programmatic Tool Calling
 produce: `tool_search_call`, `tool_search_output` (the tool definitions the search

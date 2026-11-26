@@ -12,7 +12,7 @@ The controller is for gateways you host: register workers with `RegisterWorker` 
 
 ## Deploying the Controller
 
-**With the Helm chart.** `grandCentral.enabled` deploys the controller beside the router as a Deployment and Service of its own, with the policy document from `grandCentral.spec` (rendered as a ConfigMap and read with `--spec-file`) or a spec store on a claim named by `grandCentral.specStoreClaim` (`--spec-store`), leader election over a Kubernetes `Lease`, and the admin listener as the chart's scrape target. [Deploy to Kubernetes](../getting-started/index.md#helm) covers the chart's resources and the `grandCentral.*` values. Each release from 1.16.0 publishes a controller image beside the gateway's, under the gateway's tag with `-grand-central` appended.
+**With the Helm chart.** `grandCentral.enabled` deploys the controller beside the router as a Deployment and Service of its own, with the policy document from `grandCentral.spec` (rendered as a ConfigMap and read with `--spec-file`) or a spec store on a claim named by `grandCentral.specStoreClaim` (`--spec-store`), and the admin listener as the chart's scrape target; `grandCentral.election.enabled` adds leader election among the replicas over a Kubernetes `Lease`. [Deploy to Kubernetes](../getting-started/index.md#helm) covers the chart's resources and the `grandCentral.*` values. Each release from 1.16.0 publishes a controller image beside the gateway's, under the gateway's tag with `-grand-central` appended.
 
 **From a checkout.** The binary builds under the `controller` cargo feature, with `protoc` installed. Save a policy document as `policy.yaml`, then run from the checkout root:
 

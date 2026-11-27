@@ -287,28 +287,29 @@ An `agent_message` with empty `content` is refused with `400` `message_content_e
 and a content part other than `input_text` or `encrypted_content` is refused with `400`,
 the message naming the part (`content[0].type`).
 
-External providers receive both item kinds unchanged — `encrypted_content` parts and the
-`internal_chat_message_metadata_passthrough` field included — and SMG's stored history
-replays them: items of these types in a stored response or conversation reach the
-provider again on later turns.
+External providers receive both item kinds unchanged — an `agent_message`'s
+`encrypted_content` parts and its `internal_chat_message_metadata_passthrough` metadata
+included — and SMG's stored history replays them: items of these types in a stored
+response or conversation reach the provider again on later turns.
 
 gRPC and HTTP workers receive a rewritten request instead:
 
 - Each `additional_tools` item is dropped from the input and its tools are lifted into
-  the request's top-level `tools`; when the same tool name is declared more than once,
-  the latest declaration wins. The `functions` namespace — Codex's default wrapper for
-  plain function and custom tools — is unwrapped: its members become top-level tools,
-  and a `tool_choice` or replayed call item targeting the `functions` namespace is
-  rewritten to the bare name. When the request's own `tools` already declare a
+  the request's top-level `tools`. When the same function or custom tool name is declared
+  more than once, the latest declaration wins; same-named namespaces merge, their
+  same-named members replaced the same way. The `functions` namespace — Codex's default
+  wrapper for plain function and custom tools — is unwrapped: its members become
+  top-level tools, and a `tool_choice` or replayed call item targeting the `functions`
+  namespace is rewritten to the bare name. When the request's own `tools` already declare a
   `functions` namespace, inline `functions` members are merged into it instead, and a
   bare `tool_choice` name that matches a member gains the namespace. Any other namespace
   (`collaboration`, `clock`, ...) is kept as a namespace tool.
 - A plaintext `agent_message` becomes a `user` message in its place, keeping its `id`
   when it has one: a single `input_text` part opening with `Sender:` and `Recipient:`
   lines, then the text of the item's parts. The payload is not raised to a system or
-  developer instruction. An `agent_message` carrying an `encrypted_content` part is
-  refused with `400` `unsupported_content_part` rather than forwarded without the part,
-  and `internal_chat_message_metadata_passthrough` is dropped.
+  developer instruction, and the item's `internal_chat_message_metadata_passthrough` is
+  not carried over. An `agent_message` carrying an `encrypted_content` part is refused
+  with `400` `unsupported_content_part` rather than forwarded without the part.
 
 On these workers a request whose input holds only `additional_tools` items is refused
 with `400` `input_items_empty`: once the declarations are lifted, nothing is left to

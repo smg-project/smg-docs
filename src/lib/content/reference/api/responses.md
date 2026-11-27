@@ -281,10 +281,11 @@ count as declared tools: a `tool_choice` may name a function declared there, inc
 member of an inline `functions` namespace by its bare name. The declarations are held to
 the rules of [Tool Configuration](#tool-configuration), a violation refused with that
 rule's own code, the message naming `input[i].tools[j]`. The item's optional `role` is
-held to the same rule as a message's. An `agent_message` with empty `content` is refused
-with `400` `message_content_empty`, and a content part other than `input_text` or
-`encrypted_content` fails the request with `400`, the message naming the part
-(`content[0].type`).
+held to the same rule as a message's.
+
+An `agent_message` with empty `content` is refused with `400` `message_content_empty`,
+and a content part other than `input_text` or `encrypted_content` is refused with `400`,
+the message naming the part (`content[0].type`).
 
 External providers receive both item kinds unchanged — `encrypted_content` parts and the
 `internal_chat_message_metadata_passthrough` field included — and SMG's stored history

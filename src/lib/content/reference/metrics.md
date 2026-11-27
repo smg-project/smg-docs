@@ -1816,8 +1816,8 @@ Panics the policy engine held and counted, by kind. [Grand Central](../concepts/
 |------|--------|
 | Counter | `kind` |
 
-| `kind` | What panicked |
-|--------|---------------|
+| `kind` | Meaning |
+|--------|---------|
 | `decision` | A decision — a live one, or a [shadow](#smg_policy_shadow_decisions_total) decided beside a live one |
 | `event` | A stage hearing a lease event (the lease's issue, the request's dispatch, its completion, the lease's release) or a change of worker membership |
 | `upkeep` | A step of the engine's own upkeep: its periodic sweep, a step of following the worker registry, the handling of a worker's load report, or the filling of a worker list |

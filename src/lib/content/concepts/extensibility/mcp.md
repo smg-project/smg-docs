@@ -106,9 +106,9 @@ Static servers are declared under `servers` in the [configuration file](#configu
 A dynamic server comes from the request: `server_url` on a Responses `mcp` tool, or `url` in a Messages API `mcp_servers` entry.
 
 - **Transport.** Only Streamable HTTP. Stdio is not available for dynamic servers.
-- **Pooling.** SMG keeps connections in a pool keyed by the URL plus a hash of the credentials (`authorization` and `headers`). A later request with the same URL and credentials reuses the connection and the tool list fetched when it was opened.
+- **Pooling.** SMG keeps connections in a pool keyed by the URL plus a hash of the credentials (`authorization` and `headers`). A later request with the same URL and credentials reuses the connection and the tool list fetched when it was opened, as long as the connection is still open. If its transport has closed — for example, the server closed it — the next such request removes the dead connection from the pool and connects anew.
 - **Capacity.** The pool holds up to 100 connections. When it is full, opening a new connection evicts the least recently used one; reusing a pooled connection refreshes its place in the pool. Idle connections are not closed.
-- **Eviction and tools.** Evicting a connection also removes its server's tools, unless another pooled connection to the same URL remains — for example, one opened under different credentials — in which case the tools stay listed. The new connection that caused the eviction does not count as one that remains, even when it is to the same URL: if no older connection to that URL is left, the old tools are removed and the new connection's own listing takes their place.
+- **Eviction and tools.** Evicting a connection also removes its server's tools, unless another pooled connection to the same URL remains — for example, one opened under different credentials — in which case the tools stay listed. The new connection that caused the eviction does not count as one that remains, even when it is to the same URL: if no older connection to that URL is left, the old tools are removed and the new connection's own listing takes their place. Removing a closed connection (see **Pooling** above) clears its server's tools under the same rule.
 - **Credential isolation.** Two different credentials for the same URL create two pooled connections, and calls to that URL then fail closed. See [Ambiguous Pooled Connections](#ambiguous-pooled-connections).
 - **Failures.** SMG skips a server it cannot connect to and logs a warning. On every Responses [path that runs MCP](#where-mcp-runs) — gRPC and ZMQ workers, and the OpenAI-compatible provider — a request that names an `mcp` tool and binds no server at all fails with `424` and code `connect_mcp_server_failed` before anything is sent to the model, whether the request streams or not. Built-in tools without MCP routing are not refused; they pass through to the model. A Messages request fails with `502` and code `mcp_connection_failed` when none of its `mcp_servers` could be connected.
 
@@ -171,7 +171,7 @@ A call to any other tool fails with:
 Tool call outcome unknown: server 'orders' disconnected while executing 'place_order'; the call was not retried because the tool is not marked idempotent or read-only
 ```
 
-SMG still [reconnects a dropped static server](#static-servers) while handling such a call, restarting a stdio server's process, so later calls run on the new connection. A dynamic (pooled) server's dropped connection is not rebuilt, and its interrupted calls are never re-issued, whatever the tool's annotations.
+SMG still [reconnects a dropped static server](#static-servers) while handling such a call, restarting a stdio server's process, so later calls run on the new connection. A dynamic (pooled) server's dropped connection is not rebuilt, and its interrupted calls are never re-issued, whatever the tool's annotations. A later request with the same `server_url` and credentials connects anew, dropping the closed connection from the pool (see [Dynamic Servers](#dynamic-servers)).
 
 ### Ambiguous Pooled Connections
 

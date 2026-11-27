@@ -71,7 +71,7 @@ For an eligible request, the first matching rule wins:
 | # | Condition | Path | `reason` label |
 |---|-----------|------|----------------|
 | 1 | `--routing-key-override` is enabled | Buffer | `routing_key_override` |
-| 2 | The default or a per-model routing policy reads the prompt (`cache_aware`, `bucket`), and the request has no valid `x-smg-routing-tokens` header | Buffer | `policy_needs_text` |
+| 2 | The default or a per-model routing policy reads the prompt (`cache_aware`, `bucket`) — or, under [`--grand-central on`](../routing/load-balancing.md#grand-central), the policy document reads the prompt or takes a routing key from the body's `rid` — and the request has no valid `x-smg-routing-tokens` header | Buffer | `policy_needs_text` |
 | 3 | Workers for more than one model are registered, or a registered model has an [alias](../../reference/configuration.md#model-aliases) (a `--model-alias` name or a model card `aliases` entry) | Buffer | `model_ambiguous` |
 | 4 | A worker rewrites request bodies (DP-aware workers, `--dp-aware`) | Buffer | `worker_mutates_body` |
 | 5 | WASM is enabled and a module is attached at `OnRequest` | Buffer | `wasm_request_hook` |
@@ -81,7 +81,13 @@ For an eligible request, the first matching rule wins:
 | 9 | Router retries are enabled and the body is larger | Stream | `retry_forfeited` |
 | 10 | Router retries are disabled | Stream, at any size | `pure_forward` |
 
-Rules 1–7 always buffer, at any size up to `--max-payload-size`. In the first six, something must read the body: the sticky-session key comes from the body's `rid`, the policy routes on the prompt, the model name is inside the body (and may be an alias, which the router must rewrite to the canonical model ID the worker knows), the request must be edited for the worker, a plugin inspects it, or the tenant reservation's input-token estimate is read from it.
+Rules 1–7 always buffer, at any size up to `--max-payload-size`. In the first six, something must read the body: the sticky-session key comes from the body's `rid`, the policy or the policy document routes on the prompt (a document binding can also key by the body's `rid`), the model name is inside the body (and may be an alias, which the router must rewrite to the canonical model ID the worker knows), the request must be edited for the worker, a plugin inspects it, or the tenant reservation's input-token estimate is read from it.
+
+With [`--grand-central on`](../routing/load-balancing.md#grand-central), the policy document decides rule 2 in place of the routing policies. The body buffers when the document's stages read the prompt, as the `cache_aware` and `bucket` presets do. It also buffers when any binding of the document takes its routing key from the request's own id (a `rid: true` source): the id sits in the body, and which binding a request matches is known only once the model is read from that body, so a single `rid`-keyed binding keeps every eligible request buffered.
+
+No stock preset takes a routing key from the request id, and the document built from your routing flags gains a `rid` source only under `--routing-key-override`, where rule 1 already buffers every request. In practice, only a [supplied `--policy-spec` document](../routing/load-balancing.md#supplying-a-document) buffers this way.
+
+A valid `x-smg-routing-tokens` hint lifts both needs — the prompt's and the id's — and the body can stream. The `rid` of a streamed body is never read, so the routing key can come only from the binding's header sources; under a binding whose only key source is the id, a streamed request is placed as one without a key.
 
 Rules 8–10 apply when the only reason to buffer is to keep the request retryable. Router retries count as enabled when `--retry-max-retries` is greater than `1` and `--disable-retries` is not set, or when a [per-worker override](../reliability/retries.md#per-worker-overrides) still allows retries for any model: the model name sits inside the unread body, so one retryable model keeps every eligible request buffered.
 
@@ -125,7 +131,7 @@ These aborts are caused by the client, so none of them is recorded against the w
 |------|---------|
 | Keep router retries for bodies up to N bytes | `--max-buffered-request-bytes N` (default `1048576`, 1 MiB) |
 | Stream every eligible request, never buffering just for retries | `--max-buffered-request-bytes 0`, or `--disable-retries` |
-| Stream large requests under `cache_aware` | Send a valid `x-smg-routing-tokens` hint |
+| Stream large requests under `cache_aware` or a `rid`-keyed policy document | Send a valid `x-smg-routing-tokens` hint |
 | Buffer every eligible request | Keep retries enabled and set `--max-buffered-request-bytes` to the `--max-payload-size` value |
 
 Buffering more keeps more requests retryable, at the cost of router memory for each in-flight buffered body.

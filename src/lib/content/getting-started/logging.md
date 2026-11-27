@@ -131,7 +131,7 @@ The event's own fields (`message` and any structured fields) sit at the top leve
 
 ## Request and Response Logs
 
-Every request that matches a route on the main listener is logged inside an `http_request` span that carries `method`, `path`, `version`, `request_id` and, when tracing is on, `trace_id`, plus `status_code` and `latency` (microseconds) once the response is ready. That is the whole access record: no headers, no bodies, no prompts, and the path without its query string (a credential a client puts in a query parameter does not reach the log). `--access-log-fields` adds named optional fields to the record (`client_addr`, `forwarded_for`, `user_agent`, `tenant`, `key_id`, `request_bytes`, `response_bytes`, `worker`); see the [Configuration Reference](../reference/configuration.md#logging-configuration). When a Symphony table reads the response's output and the reading is not clean, the span also records [`symphony.*` fields](#symphony-outcome-fields).
+Every request that matches a route on the main listener is logged inside an `http_request` span that carries `method`, `path`, `version`, `request_id` and, when tracing is on, `trace_id`, plus `status_code` and `latency` (microseconds) once the response is ready. That is the whole access record: no headers, no bodies, no prompts, and the path without its query string (a credential a client puts in a query parameter does not reach the log). `--access-log-fields` adds named optional fields to the record; see [Optional Access-Log Fields](#optional-access-log-fields) for what each one records, and the [Configuration Reference](../reference/configuration.md#logging-configuration) for the flag. When a Symphony table reads the response's output and the reading is not clean, the span also records [`symphony.*` fields](#symphony-outcome-fields).
 
 | Target | Level | Message | When |
 |--------|-------|---------|------|
@@ -150,6 +150,25 @@ The logging layer writes one ERROR line per 5xx response. A request to an unknow
 A client that disconnects first — an SDK timeout, a user who navigated away, a proxy cutting an idle stream — is a normal outcome, not a gateway failure, so its one line is INFO. A disconnect before the response takes the place of the response line and records `status_code` 499 and the latency so far; a disconnect mid-stream follows the response line already written when the response head went out. The same lines cover the rare request the server itself dropped unanswered, such as on a handler panic or a connection cut by a forced shutdown. All of these count in `smg_http_responses_total` as a `499` with `error_code="client_closed_request"`; see the [Metrics Reference](../reference/metrics.md#layer-1-http-metrics).
 
 A refusal the gateway answers on its own — for example a 503 `no_available_workers` or a 404 `model_not_found` — is logged by the routing layer as one WARN line with the request ID, the model, and the state of its worker pools, rate-limited while the condition lasts. The response line for such a refusal drops to DEBUG, so a client retrying against a model whose workers are all down does not fill the log with extra error lines per attempt.
+
+### Optional Access-Log Fields
+
+`--access-log-fields` selects optional fields of the access record by name. A selected field is recorded on the request's `http_request` span, so it appears on the request's log lines like any other span field; an unselected field is never written, so without the flag the record keeps exactly the fields described above — nothing that parses the log needs to change.
+
+| Field | Records |
+|-------|---------|
+| `client_addr` | The address the request came in from, as `ip:port` — the TCP peer. When a proxy or load balancer sits in front of the gateway, this is that proxy's address, not the end client's. |
+| `forwarded_for` | The request's `X-Forwarded-For` header as it arrived, unverified; when the header arrives on several lines, they are joined with `, `, keeping every hop in order. The gateway keeps no list of trusted proxies, so this value is never folded into `client_addr` — which hop to believe is the log reader's decision. |
+| `user_agent` | The request's `User-Agent` header. |
+| `tenant` | The caller's tenant as the serving path resolved it: `auth:<tenant>` from an API key, `header:<tenant>` from a trusted tenant header, `ip:<address>` from the client IP, or `anonymous` — the same canonical tenant keys [tenant rate limiting](../reference/tenant-rate-limiting.md) uses. |
+| `key_id` | The API key the request authenticated with, named by its fingerprint: the first 16 hex digits of the key's SHA-256, the same value [`GET /config`](../reference/api/admin.md#effective-configuration) shows. The key itself never reaches the log. |
+| `request_bytes` | The request-body bytes the gateway read. |
+| `response_bytes` | The response body's length in bytes. A response that declares its length carries it on its response line; a streamed response's bytes are counted as they go out and recorded on the `finished streaming the response` line at the stream's end (the stream's response line carries no count — the length is not known yet). |
+| `worker` | The worker that served the request, by its [masked](#worker-address-masking) registered URL — the same value as the `x-smg-routed-worker-id` [response header](../reference/api/openai.md#response-headers): for a prefill/decode pair it names the decode worker, and gRPC and ZMQ workers' responses carry it only on success. |
+
+`user_agent` and `forwarded_for` each carry at most the first 256 bytes of the header's value, cut at a character boundary. `client_addr`, `forwarded_for`, and `user_agent` are known when the request arrives, so they appear on the `started processing request` line as well; the other fields appear from the response line on (a streamed response's `response_bytes` only at the stream's end). A field with nothing to record — no `X-Forwarded-For` header sent, no API key on the request, no worker named on the response — is left off the line rather than written empty.
+
+With `response_bytes` selected, a response body that ends early records the bytes that actually went out under a separate key, `response_bytes_sent`, on the line reporting the early end: `client closed the connection before the response stream ended` or `response stream failed after the head was sent`. `response_bytes` always means the body's full length — a response that declared a length keeps it beside the sent count, and a stream cut short, whose full length was never known, records no `response_bytes` at all.
 
 ### Worker Address Masking
 

@@ -585,7 +585,7 @@ cargo bench --locked --bench manual_policy_benchmark
 cargo bench --locked --bench stream_state_machines
 ```
 
-When a PR touches benchmarked code, the matching `benchmark-*` workflow gates it: it builds the benchmark from the PR and from its base branch, runs the two binaries interleaved on the same runner, compares them id by id through `scripts/bench_gate.py` against the thresholds in `.github/bench-gates/`, and fails when a benchmark regresses past its threshold. There is no separate tool-parser benchmark; a change under `crates/tool_parser/src/` triggers the stream-state-machines workflow, whose benchmarks exercise the gateway's per-token stream paths, parsers included.
+When a PR touches benchmarked code, the matching `benchmark-*` workflow gates it: it builds the benchmark from the PR and from its base branch, runs the two binaries interleaved on the same runner, compares their results id by id through `scripts/bench_gate.py` against the thresholds in `.github/bench-gates/`, and fails when a benchmark regresses past its threshold. There is no separate tool-parser benchmark; a change under `crates/tool_parser/src/` triggers the stream-state-machines workflow, whose benchmarks exercise the gateway's per-token stream paths, parsers included.
 
 Gateway-perf is the one advisory `benchmark-*` workflow: instead of gating, it measures the gateway's per-request cost (allocations, RSS, CPU time) on the CPU mock bed of `crates/gateway_perf` (described below) and reports its table in the step summary, as a pull-request comment, and as an artifact; it never fails on a regression. The GPU `benchmarks` job (`e2e_test/benchmarks`, driven by genai-bench) is advisory too: a missed latency threshold is reported as a warning and does not block merge.
 

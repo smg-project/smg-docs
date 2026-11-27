@@ -744,7 +744,7 @@ On `main` between releases, every crate and package changed since the last relea
 | `go-unit-tests`, `go-bindings-e2e` | The Go bindings | [Go Bindings](#go-bindings) |
 | `finish` | Fails if any job above failed; required for merge | — |
 | `Bellwether Fixtures` | The `bellwether_*` fixture tests, when the protocol, tokenizer, or Symphony crates, the gRPC router, or the dependency manifests change | [Bellwether Fixture Tests](#bellwether-fixture-tests) |
-| `benchmark-*`, `benchmarks` | Performance; each `benchmark-*` workflow except the advisory gateway-perf fails on a regression against the PR's base branch; the GPU `benchmarks` job is also advisory | [Benchmarks](#benchmarks) |
+| `benchmark-*`, `benchmarks` | Performance; the `benchmark-*` workflows fail on a regression against the PR's base branch; gateway-perf and the GPU `benchmarks` job are advisory | [Benchmarks](#benchmarks) |
 
 `cargo-audit` fails on any vulnerability that `.cargo/audit.toml` does not ignore, and passes when only warnings (unmaintained or yanked crates) remain. Every ignore entry needs a reason and is removed once the fixed release is in the lockfile. `scripts/ci_cargo_audit.sh` downloads the same pinned `cargo-audit` release that CI uses, so running the script from the repository root reproduces the job. A nightly workflow runs the same audit against `main`, catching advisories published after the last dependency change.
 

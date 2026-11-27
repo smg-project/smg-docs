@@ -84,6 +84,14 @@ Reference documentation provides detailed specifications for SMG's APIs, CLI, co
 
     [:octicons-arrow-right-24: Priority Scheduler](priority-scheduler.md)
 
+-   :material-call-split:{ .lg .middle } **Grand Central Controller**
+
+    ---
+
+    The standalone `smg-grand-central` controller: deployment, flags and defaults, gRPC scopes, and admin endpoints.
+
+    [:octicons-arrow-right-24: Grand Central Controller](grand-central-controller.md)
+
 -   :material-server-security:{ .lg .middle } **Internal MCP Servers**
 
     ---
@@ -126,6 +134,7 @@ Reference documentation provides detailed specifications for SMG's APIs, CLI, co
 |-----------|-------------|
 | [CLI Options](configuration.md) | All command-line flags |
 | [Environment Variables](configuration.md#environment-variable-reference) | Configurable environment variables |
+| [Grand Central Controller](grand-central-controller.md) | The standalone controller's flags and admin endpoints |
 | [Chat Completions API](api/openai.md#chat-completions) | `/v1/chat/completions` endpoint |
 | [HTTP Metrics](metrics.md#layer-1-http-metrics) | HTTP request metrics |
 | [Worker Metrics](metrics.md#layer-3-worker-metrics) | Worker health and performance metrics |

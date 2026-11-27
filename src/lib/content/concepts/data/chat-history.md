@@ -32,7 +32,7 @@ Store complete conversation history including messages, tool calls, and reasonin
 
 ### :material-tune: Configurable Retention
 
-Redis entries expire after `--redis-retention-days` (default 30 days). The in-memory backend keeps a record for `--history-memory-retention-secs` (default 86400, one day) and at most `--history-memory-max-responses` stored responses and `--history-memory-max-items` conversation items, the oldest dropped first; it loses everything on restart. PostgreSQL and Oracle keep data until it's deleted. The in-memory response count and retention also bound the [Messages thread store](../../reference/api/messages.md#storage-and-lifetime) under every history backend.
+Redis entries expire after `--redis-retention-days` (default 30 days). The in-memory backend keeps a record for `--history-memory-retention-secs` (default 86400, one day) and at most `--history-memory-max-responses` stored responses and `--history-memory-max-items` conversation items, the oldest dropped first; it loses everything on restart. PostgreSQL and Oracle keep data until it's deleted. The in-memory backend's response count and retention also bound the [Messages thread store](../../reference/api/messages.md#storage-and-lifetime) under every history backend.
 
 </div>
 

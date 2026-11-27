@@ -72,9 +72,9 @@ Skipping the workers a request failed on applies even under deterministic affini
 
 The skip applies in PD mode too, on the HTTP and gRPC routers alike. When a pair's answer is retried, both of its workers count as tried, and the next attempt re-selects one side at a time: the prefill among the untried prefill workers, then the decode among the chosen prefill's untried partners.
 
-The skip is a preference, never a refusal, among the workers that are available and have room for the request: a tried worker with room is not passed over for an untried one that has none. A side with nothing untried left selects from its whole pool again, so a deployment with a single pair keeps retrying it. A worker that answered the request with its own `500` is excluded outright, not merely skipped, so a lone pair's `500` goes back to the client instead of being retried (see [When a Worker Answers 500](#when-a-worker-answers-500)).
+On each side, the skip is a preference, not an exclusion, among the workers that are available and have room for the request: a tried worker with room is not passed over for an untried one that has none. A side with nothing untried left selects from its whole pool again, so a deployment with a single pair keeps retrying it. Only a worker that answered the request with its own `500` is excluded outright, so a lone pair's `500` goes back to the client instead of being retried (see [When a Worker Answers 500](#when-a-worker-answers-500)).
 
-The one exception is a request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers): it is retried on the worker it targets. A worker's own `500` overrides even this exception.
+The one exception to the skip is a request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers): it is retried on the worker it targets. A worker's own `500` overrides even this exception.
 
 `--retry-max-retries` counts **attempts, including the first**: the default `5` allows the initial attempt plus up to four retries, and `1` disables retries.
 

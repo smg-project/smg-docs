@@ -1822,9 +1822,9 @@ Panics the policy engine held and counted, by kind. [Grand Central](../concepts/
 | `event` | A stage hearing a lease event (the lease's issue, the request's dispatch, its completion, the lease's release) or a change of worker membership |
 | `upkeep` | A step of the engine's own upkeep: its periodic sweep, a step of following the worker registry, the handling of a worker's load report, or the filling of a worker list |
 
-A live decision that panics places nothing: its request fails with `503` (`no_available_workers`), and the gateway logs `Grand Central refused a decision` at `warn`. A shadow's panic costs its request nothing — the live decision serves the request as decided — and counts here, not in the shadow family.
+A live decision that panics places nothing: its request fails with `503` (`no_available_workers`), and the gateway logs `Grand Central refused a decision` at `warn`, rate-limited while the condition lasts — count faults by this family, not by log lines. A shadow's panic costs its request nothing — the live decision serves the request as decided — and counts here, not in the shadow family.
 
-A stage's panic at an event also costs the request nothing: the request keeps its decision and its lease, and the registration, removal or document application the event was part of goes on. Only the stages after the one that panicked miss the event.
+A stage's panic at an event also costs the request nothing: the request keeps its decision and its lease, and a registration, removal or document application the event was part of goes on. Only the stages after the one that panicked miss the event.
 
 A panic in an upkeep step leaves that step's work undone for the round; the upkeep goes on.
 

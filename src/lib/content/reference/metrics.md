@@ -1828,7 +1828,7 @@ A stage's panic at an event also costs the request nothing: the request keeps it
 
 A panic in an upkeep step leaves that step's work undone for the round; the upkeep goes on.
 
-The family is published only by a gateway that runs a policy engine: a gateway on the classic routing policies publishes no such series. The standalone [Grand Central controller](grand-central-controller.md#metrics) publishes the same family, with the same kinds, on its own `/metrics`.
+A gateway publishes the family only when it runs a policy engine: on the classic routing policies it publishes no such series. The standalone [Grand Central controller](grand-central-controller.md#metrics) publishes the same family, with the same kinds, on its own `/metrics`.
 
 All three series are published at zero from the first scrape, before any fault, so `absent()` alerts stay quiet and `increase()` catches the first one. The counts are read from the engine at each scrape, not on any request's path, and each scrape sets a series to the engine's count as read, so a series never falls.
 

@@ -1826,7 +1826,7 @@ A live decision that panics places nothing: its request fails with `503` (`no_av
 
 A stage's panic at an event also costs the request nothing: the request keeps its decision and its lease, and a registration, removal or document application the event was part of goes on. Only the stages after the one that panicked miss the event.
 
-A panic in an upkeep step leaves that step's work undone for the round; the upkeep goes on.
+A panic in an upkeep step cuts that step short for the round — what the step had already done stands — and the upkeep goes on.
 
 A gateway publishes the family only when it runs a policy engine: on the classic routing policies it publishes no such series. The standalone [Grand Central controller](grand-central-controller.md#metrics) publishes the same family, with the same kinds, on its own `/metrics`.
 

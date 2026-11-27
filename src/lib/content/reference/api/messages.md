@@ -522,7 +522,7 @@ With gRPC workers (SGLang, vLLM, TensorRT-LLM, TokenSpeed, or MLX), and ZMQ work
 | `output_config.effort` | Rendered into the prompt as the chat template's `reasoning_effort`; not itself sent to the engine. |
 | `metadata`, `service_tier`, `container`, `mcp_servers`, `output_config`'s other keys, extra fields such as `context_management` | Not sent to the engine. |
 
-A `file` source names a file uploaded through Anthropic's Files API, which this pipeline cannot read. An image with a `file` source is refused wherever the image stands — in a user message's content or inside a `tool_result` — and so is a `file`-source document in a user message's content, each with `400` (`process_messages_failed`) before any worker takes part. The error names the block and the sources to send instead:
+A `file` source names a file uploaded through Anthropic's Files API, which this pipeline cannot read. An image with a `file` source is refused wherever the image stands — in a user message's content or inside a `tool_result` — and so is a `file`-source document in a user message's content. The refusal is `400` (`process_messages_failed`), before any worker takes part, and the error names the block and the sources to send instead:
 
 ```text
 messages.0.content.1: image source type 'file' is not supported; send the image as a base64 or url source

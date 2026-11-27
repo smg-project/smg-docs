@@ -170,7 +170,8 @@ SMG checks every MCP call before running it:
 
 - By default it decides by policy, without asking the client. The gateway currently runs the built-in default policy, which allows every tool. The `policy` section of `mcp.yaml` is not applied.
 - `require_approval: "always"` on an `mcp` tool pauses before a matching call only in non-streaming requests to an OpenAI-compatible provider. The response ends with an `mcp_approval_request` item instead of running the call, and SMG does not currently resume from an `mcp_approval_response`.
-- On gRPC workers, in streaming requests, and in the Messages API, every call is decided by policy.
+- In a streaming request to an OpenAI-compatible provider, `require_approval: "always"` still keeps a matching call from running, but the stream carries no `mcp_approval_request`: the announced `mcp_call` closes as `failed` with an error saying the tool requires approval, and the stream ends normally with `response.completed`. Send the request non-streamed to get the approval request.
+- On gRPC workers and in the Messages API, every call is decided by policy.
 
 See [Approval](../concepts/extensibility/mcp.md#approval) for details.
 

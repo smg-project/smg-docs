@@ -220,9 +220,10 @@ Every MCP call passes through SMG's approval check before it runs, in one of two
 | Policy-only | Every path, by default | SMG decides without asking the client. The gateway currently runs the built-in default policy, which allows every tool. The `policy` section of the configuration file is not applied. |
 | Interactive | `require_approval: "always"` on an `mcp` tool, in a non-streaming Responses request to an OpenAI-compatible provider | When the model calls one of that server's tools (or, if `allowed_tools` lists names, one of those tools), SMG stops the loop and returns the response with an `mcp_approval_request` output item instead of running the call. |
 
-- `require_approval: "never"`, the object form (`{"always": ..., "never": ...}`), streaming requests, gRPC workers, and the Messages API all use policy-only mode.
+- `require_approval: "never"`, the object form (`{"always": ..., "never": ...}`), gRPC workers, and the Messages API all use policy-only mode.
+- In a streaming request to an OpenAI-compatible provider, `require_approval: "always"` holds a matching call instead of asking: the tool does not run, no `mcp_approval_request` appears on the stream, and the `mcp_call` the stream announced closes as `failed` with the error `Tool requires approval (not supported in this context)`. The model gets that error as the tool result, the loop carries on, and the stream still ends with `response.completed`. To receive the `mcp_approval_request` item, send the request non-streamed.
 - SMG does not currently act on an `mcp_approval_response` input item, so a paused call cannot be approved through SMG.
-- The loop stops at the first call that needs approval, so a response carries at most one `mcp_approval_request` item.
+- The non-streaming loop stops at the first call that needs approval, so a response carries at most one `mcp_approval_request` item.
 
 ---
 

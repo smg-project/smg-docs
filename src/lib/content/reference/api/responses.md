@@ -285,7 +285,7 @@ held to the same rule as a message's.
 
 An `agent_message` with empty `content` is refused with `400` `message_content_empty`,
 and a content part other than `input_text` or `encrypted_content` is refused with `400`,
-the message naming the part (`content[0].type`).
+the message naming the part, such as `content[0].type`.
 
 External providers receive both item kinds unchanged — an `agent_message`'s
 `encrypted_content` parts and its `internal_chat_message_metadata_passthrough` metadata

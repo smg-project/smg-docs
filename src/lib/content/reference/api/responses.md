@@ -210,7 +210,7 @@ an unmatched result is rejected with `400` `harmony_build_failed`
 
 **Tool search and programmatic tool calling items:**
 
-The input also takes the items that hosted tool search and Programmatic Tool Calling
+The input also takes the items that tool search and Programmatic Tool Calling
 produce: `tool_search_call`, `tool_search_output` (the tool definitions the search
 returned, under `tools`), `web_search_call`, `program` (the code of a Programmatic Tool
 Calling turn), and `program_output`. The tools of a `tool_search_output` count as

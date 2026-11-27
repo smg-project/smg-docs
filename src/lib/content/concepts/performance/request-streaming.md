@@ -85,7 +85,7 @@ Rules 1–7 always buffer, at any size up to `--max-payload-size`. In the first 
 
 With [`--grand-central on`](../routing/load-balancing.md#grand-central), the policy document decides rule 2 in place of the routing policies. The body buffers when the document's stages read the prompt, as the `cache_aware` and `bucket` presets do. It also buffers when any binding of the document takes its routing key from the request's own id (a `rid: true` source): the id sits in the body, and which binding a request matches is known only once the model is read from that body, so a single `rid`-keyed binding keeps every eligible request buffered.
 
-No stock preset takes a routing key from the request id, and the document your routing flags mean gains a `rid` source only under `--routing-key-override`, where rule 1 already buffers every request. In practice, only a [supplied `--policy-spec` document](../routing/load-balancing.md#supplying-a-document) buffers this way.
+No stock preset takes a routing key from the request id, and the document built from your routing flags gains a `rid` source only under `--routing-key-override`, where rule 1 already buffers every request. In practice, only a [supplied `--policy-spec` document](../routing/load-balancing.md#supplying-a-document) buffers this way.
 
 A valid `x-smg-routing-tokens` hint lifts both needs — the prompt's and the id's — and the body can stream. The `rid` of a streamed body is never read, so the routing key can come only from the binding's header sources; under a binding whose only key source is the id, a streamed request is placed as one without a key.
 

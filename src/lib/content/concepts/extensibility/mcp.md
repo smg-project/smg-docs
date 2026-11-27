@@ -213,17 +213,23 @@ A failed call does not fail the request. SMG sends the error back to the model a
 
 ## Approval
 
-Every MCP call passes through SMG's approval check before it runs, in one of two modes:
+Every MCP call passes through SMG's approval check before it runs. By default the check is policy-only: SMG decides without asking the client, under the built-in default policy that allows every tool. The `policy` section of the configuration file is not applied.
 
-| Mode | Used for | Behavior |
-|------|----------|----------|
-| Policy-only | Every path, by default | SMG decides without asking the client. The gateway currently runs the built-in default policy, which allows every tool. The `policy` section of the configuration file is not applied. |
-| Interactive | `require_approval: "always"` on an `mcp` tool, in a non-streaming Responses request to an OpenAI-compatible provider | When the model calls one of that server's tools (or, if `allowed_tools` lists names, one of those tools), SMG stops the loop and returns the response with an `mcp_approval_request` output item instead of running the call. |
+`require_approval` on an `mcp` tool marks calls as needing approval:
 
-- `require_approval: "never"`, the object form (`{"always": ..., "never": ...}`), gRPC workers, and the Messages API all use policy-only mode.
-- In a streaming request to an OpenAI-compatible provider, `require_approval: "always"` holds a matching call instead of asking: the tool does not run, no `mcp_approval_request` appears on the stream, and the `mcp_call` the stream announced closes as `failed` with the error `Tool requires approval (not supported in this context)`. The model gets that error as the tool result, the loop carries on, and the stream still ends with `response.completed`. To receive the `mcp_approval_request` item, send the request non-streamed.
-- SMG does not currently act on an `mcp_approval_response` input item, so a paused call cannot be approved through SMG.
-- The non-streaming loop stops at the first call that needs approval, so a response carries at most one `mcp_approval_request` item.
+| `require_approval` | Calls that need approval |
+|--------------------|--------------------------|
+| `"always"` | Every call to the server's tools or, when `allowed_tools` lists names, to those tools. |
+| Object form with an `always` filter | Calls to the tools the filter's `tool_names` lists. A filter that names no tools or sets `read_only` covers every tool the entry exposes, because SMG cannot evaluate `read_only` yet. The `never` filter exempts nothing: a tool named under both filters still needs approval. |
+| `"never"`, an object form without an `always` filter, or no `require_approval` at all | None. |
+
+What happens to a call that needs approval depends on the path:
+
+- **Non-streaming request to an OpenAI-compatible provider.** SMG stops the loop and returns the response with an `mcp_approval_request` output item instead of running the call. The loop stops at the first such call, so a response carries at most one `mcp_approval_request` item.
+- **Streaming request to an OpenAI-compatible provider, and gRPC or ZMQ workers with regular (non-Harmony) models, streaming or not.** The call is held: the tool does not run, no `mcp_approval_request` is produced, and the call appears as an `mcp_call` with `status: "failed"` and the error `Tool requires approval (not supported in this context)`. The model gets that error as the tool result, the loop carries on, and the response completes normally — a stream still ends with `response.completed`. To receive the `mcp_approval_request` item, send the request non-streamed to an OpenAI-compatible provider.
+- **gpt-oss (Harmony) models and the Messages API.** `require_approval` is not applied; every call is decided by policy.
+
+SMG does not currently act on an `mcp_approval_response` input item, so a paused call cannot be approved through SMG.
 
 ---
 

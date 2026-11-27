@@ -63,7 +63,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     docker pull ghcr.io/smg-project/smg:latest
     ```
 
-    Release tags are the bare version with no `v` prefix, for example `lightseekorg/smg:1.14.0`, and `latest` points at the newest release. GHCR carries gateway releases from 1.10.1 on; older release tags are on Docker Hub. Nightly builds are on GHCR only: `ghcr.io/smg-project/smg:nightly`, or `nightly-<YYYYMMDD>-<short-sha>` to pin one night. Dated nightly tags are pruned after a short retention window.
+    Release tags are the bare version with no `v` prefix, for example `lightseekorg/smg:1.15.0`, and `latest` points at the newest release. GHCR carries gateway releases from 1.10.1 on; older release tags are on Docker Hub. Nightly builds are on GHCR only: `ghcr.io/smg-project/smg:nightly`, or `nightly-<YYYYMMDD>-<short-sha>` to pin one night. Dated nightly tags are pruned after a short retention window.
 
     An Oracle Linux 9 build of the gateway ships under the same tags with `-ol9` appended, for `linux/amd64` only. Releases publish `lightseekorg/smg:<version>-ol9` and `ghcr.io/smg-project/smg:<version>-ol9`, and `latest-ol9` points at the newest final release; releases that predate the variant have no `-ol9` tags. Nightlies publish `ghcr.io/smg-project/smg:nightly-ol9` and the dated `nightly-<YYYYMMDD>-<short-sha>-ol9`.
 
@@ -84,7 +84,7 @@ Shepherd Model Gateway (SMG) routes and manages LLM traffic across workers. This
     | TensorRT-LLM | `trtllm-1.3.0rc24`, `trtllm-1.3.0rc23`, `trtllm-1.3.0rc22` | `nvcr.io/nvidia/tensorrt-llm/release` | `nightly-trtllm` |
     | TokenSpeed | `tokenspeed-<x.y.z.postYYYYMMDD>` | dated TokenSpeed nightly build | `nightly-tokenspeed` |
 
-    For example, v1.14.0 published `ghcr.io/smg-project/smg:1.14.0-vllm-v0.31.0` and `ghcr.io/smg-project/smg:1.14.0-sglang-v0.5.21`, both built from SMG 1.14.0. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
+    For example, v1.15.0 published `ghcr.io/smg-project/smg:1.15.0-vllm-v0.31.0` and `ghcr.io/smg-project/smg:1.15.0-sglang-v0.5.21`, both built from SMG 1.15.0. Browse every tag on [GHCR](https://github.com/smg-project/smg/pkgs/container/smg) or [Docker Hub](https://hub.docker.com/r/lightseekorg/smg). Engine images for 1.9.0 and earlier were published as `ghcr.io/lightseekorg/smg`.
 
     Each release's TokenSpeed image is built from the dated TokenSpeed nightly pinned in the SMG repository at build time, and its tag suffix carries that nightly's version. The older `tokenspeed-tml` release images belong to 1.11.0 and earlier, and they do not contain that release's SMG: they were built from SMG 1.7.0, so `1.11.0-tokenspeed-tml` contains SMG 1.7.0. `nightly-tokenspeed` is built from current SMG.
 
@@ -597,7 +597,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:1.14.0-sglang-v0.5.21 \
+      ghcr.io/smg-project/smg:1.15.0-sglang-v0.5.21 \
       serve \
       --backend sglang \
       --model-path /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -612,7 +612,7 @@ Engine images use `smg` as their entrypoint, so pass `serve` to start the worker
       --name smg \
       -p 30000:30000 \
       -v /path/to/models:/models \
-      ghcr.io/smg-project/smg:1.14.0-vllm-v0.31.0 \
+      ghcr.io/smg-project/smg:1.15.0-vllm-v0.31.0 \
       serve \
       --backend vllm \
       --model /models/meta-llama/Llama-3.1-8B-Instruct \
@@ -641,7 +641,7 @@ The chart is published to GHCR as an OCI artifact, versioned with SMG releases (
 
 ```bash
 helm install smg oci://ghcr.io/smg-project/charts/smg \
-  --version 1.14.0 \
+  --version 1.15.0 \
   --namespace inference --create-namespace \
   -f values.yaml
 ```
@@ -698,7 +698,7 @@ A few chart behaviors to know:
 - `router.parser`, rendered as `--parser`, picks the parser that reads a chat completion's reasoning and tool calls: `symphony` (one table per model family) or `legacy` (the per-model parsers). Empty, the default, renders no flag and is safe on every image: the image's own default applies (Symphony on releases after 1.13.0, the legacy parsers on a 1.13.0 image). A set value needs a gateway image of 1.13.0 or later; an earlier image rejects the flag and exits at startup. The choice applies to gRPC and ZMQ workers; an HTTP worker's engine parses its own output. A request's `X-SMG-Parser` header overrides the chosen parser for that request. If your values already pass `--parser` through `router.extraArgs`, remove it there when setting this value: the chart renders `extraArgs` last and the gateway takes the last occurrence of a repeated flag, so the leftover `extraArgs` value silently overrides `router.parser`. [Parser Selection](../concepts/architecture/grpc-pipeline.md#parser-selection) covers the two parsers and what `router.toolCallParser` and `router.reasoningParser` mean under each.
 - `router.mmTurbojpeg`, rendered as `--mm-turbojpeg`, sets what the gateway does when libjpeg-turbo (`libturbojpeg.so.0`) cannot be loaded. The chart's default is `require`: the gateway refuses to start rather than decode JPEGs with the pure-Rust fallback, whose pixels differ from the engine's by a few levels. That is stricter than the flag's own default of `prefer`, under which the gateway decodes with the fallback, says so once at startup, and sets the gauge `smg_mm_turbojpeg_available` to `0`. The published gateway image ships the library, so the default matters only for a custom router image: if yours lacks the library, set `router.mmTurbojpeg: prefer` or add the library to the image. The schema rejects values other than `require` and `prefer`; [Media Processing and Limits](../reference/configuration.md#media-processing-and-limits) documents the flag itself.
 - `global.image.tag` overrides the gateway version, which defaults to the chart's `appVersion`.
-- Engine images for `workers[]` resolve to `ghcr.io/smg-project/smg:<tag>` by default; `workers[].image.registry` and `image.repository` override the path. Set each worker's `image.tag` to the engine-specific tag (for example `1.14.0-vllm-v0.31.0`); without it the tag falls back to `global.image.tag` or the chart's `appVersion`, a bare gateway version rather than an engine image tag.
+- Engine images for `workers[]` resolve to `ghcr.io/smg-project/smg:<tag>` by default; `workers[].image.registry` and `image.repository` override the path. Set each worker's `image.tag` to the engine-specific tag (for example `1.15.0-vllm-v0.31.0`); without it the tag falls back to `global.image.tag` or the chart's `appVersion`, a bare gateway version rather than an engine image tag.
 - The engine images for `workers[]` are published for `linux/amd64` only, so a worker pod scheduled on a node of another architecture fails its image pull (`ImagePullBackOff`). Keep the workers on amd64 nodes with `workers[].nodeSelector` (`kubernetes.io/arch: amd64`), or set `workers[].image` to an image built for that node's architecture.
 - Each `workers[]` pod gets `terminationGracePeriodSeconds: 90`. On SIGTERM a gRPC worker's Rust servicer drains in-flight streams for up to `SMG_<ENGINE>_SERVICER_DRAIN_SECS` (default `30` seconds; set it through `workers[].extraEnv`; see [gRPC Workers](grpc-workers.md)), then stops its server and terminates the engine — up to about 70 s in all, past Kubernetes' own default grace of 30 s, which would cut streams mid-drain. `workers[].terminationGracePeriodSeconds` overrides the default per worker as a whole number of seconds, `0` included (the schema refuses a duration such as `"90s"` rather than reading it as no grace at all). If you raise the drain bound, raise the grace in step: the 90 s default leaves 60 s past the drain, which covers the server stop and the engine's termination with margin.
 - `history.backend` selects the conversation-history backend: `memory` (the default), `none` (history off), `postgres`, `redis`, or `oracle`. For `postgres` and `redis`, set the store's `url` under `history.<backend>`, or name a Secret you manage in `existingSecret`; for `oracle`, set `history.oracle.dsn`, `user`, and `password`, or `existingSecret`. The connection URL and credentials reach the router from a Secret through environment variables, never in the pod's arguments. [Data Connections](data-connections.md) covers each backend, including schema migrations.

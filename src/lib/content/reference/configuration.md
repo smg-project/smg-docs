@@ -210,14 +210,14 @@ See [RL Control Plane](../getting-started/rl-control-plane.md).
 
 ## PD Disaggregation Configuration
 
-Prefill-decode (PD) disaggregation runs prefill and decode on separate workers. Encode-prefill-decode (EPD) mode adds encode workers that run the vision tower. See [PD Disaggregation](../concepts/routing/pd-disaggregation.md).
+Prefill-decode (PD) disaggregation runs prefill and decode on separate workers. Encode-prefill-decode (EPD) mode adds encode workers that run the media encoding. See [PD Disaggregation](../concepts/routing/pd-disaggregation.md).
 
 ### Enable PD or EPD Mode
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--pd-disaggregation` | `false` | Enable PD mode. |
-| `--epd-disaggregation` | `false` | Enable EPD mode (gRPC + TokenSpeed only). Encode workers run the vision tower and ship embeddings to prefill over Mooncake; prefill and decode reuse the PD path. |
+| `--epd-disaggregation` | `false` | Enable EPD mode (gRPC vLLM or TokenSpeed workers). Encode workers run the media encoding ahead of prefill — TokenSpeed encode workers ship embeddings to prefill over Mooncake, vLLM encode workers hand off the encoder cache through the engines' encoder-cache (EC) connector — and prefill and decode reuse the PD path. |
 
 ### Prefill Servers
 

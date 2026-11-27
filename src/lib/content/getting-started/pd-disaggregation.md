@@ -34,7 +34,7 @@ Running both on the same worker creates contention — prefill batches wait for 
 | Engine | HTTP workers | gRPC workers | Section |
 |--------|--------------|--------------|---------|
 | SGLang | :material-check: | :material-check: | [SGLang PD](#sglang-pd) |
-| vLLM | :material-check: | :material-check: | [vLLM PD over gRPC](#vllm-pd-over-grpc), [vLLM PD over HTTP](#vllm-pd-over-http) |
+| vLLM | :material-check: | :material-check: | [vLLM PD over gRPC](#vllm-pd-over-grpc), [vLLM PD over HTTP](#vllm-pd-over-http), [vLLM EPD](#vllm-epd-grpc) |
 | TokenSpeed | :material-close: | :material-check: | [TokenSpeed PD and EPD](#tokenspeed-pd-and-epd-grpc) |
 
 With HTTP workers, SMG forwards the request body to both legs and adds the handoff fields. With gRPC workers, SMG tokenizes the prompt and parses the output itself (see [gRPC Workers](grpc-workers.md)).
@@ -362,7 +362,26 @@ smg launch \
   --model-path "$MODEL"
 ```
 
-The number after each encode and prefill URL is that worker's `--disaggregation-bootstrap-port`. `--encode-policy` (`random`, `round_robin`, or the default `consistent_hashing`) assigns media items to encode workers; the default sends a repeated image to the same encode worker. EPD works only with gRPC TokenSpeed workers, and text-only requests skip the encode leg.
+The number after each encode and prefill URL is that worker's `--disaggregation-bootstrap-port`. `--encode-policy` (`random`, `round_robin`, or the default `consistent_hashing`) assigns media items to encode workers; the default sends a repeated image to the same encode worker. Text-only requests skip the encode leg.
+
+---
+
+## vLLM EPD (gRPC)
+
+vLLM serves EPD over gRPC through the engines' encoder-cache (EC) connector. The encode worker processes the request's media itself — forwarded media references included — and hands the encoder cache to the prefill worker, which consumes a pixel-less prompt; prefill's KV handoff then reaches decode as in vLLM PD.
+
+Start three vLLM gRPC workers of the model. The encode and prefill workers run the engine's EC transfer config (`ec_transfer_config`): the encode worker as EC producer (`ec_role` `ec_producer`) with a media processor (for example `SMG_VLLM_MM_PROCESSOR=inprocess`), the prefill worker as EC consumer (`ec_role` `ec_consumer`) on the same connector (for example `ECMooncakeConnector`). The decode worker takes no EC config. The workers advertise their connector, role, and `supports_ec_transfer` through their server info, and SMG pairs the legs from those labels. Then start SMG in EPD mode:
+
+```bash
+smg launch \
+  --epd-disaggregation \
+  --encode grpc://encode:50060 \
+  --prefill grpc://prefill:50061 \
+  --decode grpc://decode:50062 \
+  --model-path "$MODEL"
+```
+
+Multimodal requests require `n=1`, and a failed dispatch is not replayed onto another prefill replica: the encoder's handoff is bound to the replica it reserved on. See [EPD (Encode-Prefill-Decode)](../concepts/routing/pd-disaggregation.md#epd-encode-prefill-decode) for the worker requirements, media placement, and error codes.
 
 ---
 

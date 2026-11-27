@@ -87,7 +87,7 @@ The processor configuration (`config.json`, `preprocessor_config.json`, and, whe
 
 | Mode | Behavior |
 |------|----------|
-| `auto` (default) | Forward references when the request is forwardable, the model supports worker-side expansion, and every registered worker of the model is a vLLM gRPC worker that advertises a media processor. Otherwise preprocess on the router. |
+| `auto` (default) | Forward references when the request is forwardable, the model supports worker-side expansion, and every registered worker of the model is a vLLM gRPC worker that advertises a media processor — or, on an EPD pool, every encode worker of the model is a vLLM worker that advertises a media processor and the encoder-cache transfer; the prefill and decode workers consume the expanded identity and need no processor (see [EPD](#epd-encode-prefill-decode)). Otherwise preprocess on the router. |
 | `router` | Always preprocess on the router. |
 | `worker` | Forward references. A request with per-item hints (`fps`, `max_long_side_pixel`) is preprocessed on the router instead when SMG can apply the hints itself (it has a processor for the model's family and every media part is an `image_url` or `video_url`), and refused with 400 `multimodal_hint_unsupported_in_worker_mode` when it cannot. Any other request that cannot be forwarded is refused with 400; when no worker of the model advertises a media processor, SMG returns 503 `no_media_ref_capable_worker`. |
 
@@ -102,7 +102,7 @@ On the worker path:
 - The request carries the unexpanded prompt (one anchor per item) and the media URLs in prompt order.
 - An inline `data:` URL larger than `SMG_IMAGE_MAX_INPUT_BYTES`, `SMG_VIDEO_MAX_INPUT_BYTES`, or `SMG_AUDIO_MAX_INPUT_BYTES` (each capping its own modality) is refused with `media_ref_too_large`.
 - Every URL scheme must be one the selected worker advertises in its `mm_media_ref_schemes` label: `http`, `https`, and `data`, plus `file` when vLLM runs with `--allowed-local-media-path` (never with the `smg` processor).
-- Direct ZMQ workers and EPD encode workers never take references.
+- Direct ZMQ workers and TokenSpeed EPD encode workers never take references. On a vLLM EPD pool, forwarded references go to the encode workers, which fetch and process the media themselves (see [EPD](#epd-encode-prefill-decode)).
 
 !!! warning "Routing sees unexpanded prompts on the worker path"
     When media is forwarded, SMG never expands the placeholders, so routing that weighs prompt length (cache-aware policies, load estimates) counts one token per media item while the worker schedules the full placeholder run.
@@ -348,7 +348,7 @@ Multimodal errors use the standard error body (`{"error": {"type": ..., "code": 
 | 400 | `media_too_large` | The media is over a size cap: its encoded bytes, its decoded bytes, a MiniMax-M3 image's planned size over the pixel budget, or the image decoder's own limits (see [Sizes and Timeouts](#sizes-and-timeouts)) |
 | 400 | `multimodal_item_too_large` | One media item needs more feature tokens than the engine can place for a single item; the message names the item's feature-token count and the budget (see [Per-Item Encoder Budget](#per-item-encoder-budget)) |
 | 400 | `multimodal_processing_failed` | Preprocessing failed, or a processing failure the media codes do not cover |
-| 400 | `multimodal_not_supported` | The selected engine does not take the modality; media references cannot reach the worker (ZMQ, EPD encode workers, or audio to a worker running the gateway's own `smg` pipeline); or the model has no processor and the chat template the request renders through takes one string per message, so nothing would anchor the media in the prompt — refused before any render or fetch (see [Request Flow](#request-flow)) |
+| 400 | `multimodal_not_supported` | The selected engine does not take the modality; media references cannot reach the worker (ZMQ, TokenSpeed EPD encode workers, or audio to a worker running the gateway's own `smg` pipeline); or the model has no processor and the chat template the request renders through takes one string per message, so nothing would anchor the media in the prompt — refused before any render or fetch (see [Request Flow](#request-flow)) |
 | 400 | `multimodal_worker_processing_unsupported_model` | `--mm-processing worker`, and vLLM cannot expand the model's anchor |
 | 400 | `multimodal_hint_unsupported_in_worker_mode` | `--mm-processing worker`, and a part carries an `fps` or `max_long_side_pixel` hint that SMG cannot apply itself (it has no processor for the model's family, or the request also carries audio); a hinted request SMG can serve is preprocessed on the router instead |
 | 400 | `media_ref_too_large` | Worker path: an inline `data:` payload is above the byte cap |
@@ -439,7 +439,11 @@ See [PD Disaggregation](../routing/pd-disaggregation.md) for how the legs are pa
 
 ### EPD (Encode-Prefill-Decode)
 
-`--epd-disaggregation` (gRPC TokenSpeed workers only) adds encode workers, listed with `--encode <url> [bootstrap_port]`. SMG still fetches and preprocesses the media, then sends each item's pixels to an encode worker picked by `--encode-policy` (default `consistent_hashing`). The encode worker runs the vision tower and ships the embeddings to the prefill worker over Mooncake, so the prefill request carries no pixels. Pixels reach encode workers inline, through shared memory, or over the RDMA lane.
+`--epd-disaggregation` (gRPC vLLM or TokenSpeed workers) adds encode workers that run the media encoding ahead of prefill, listed with `--encode <url> [bootstrap_port]` and picked by `--encode-policy` (default `consistent_hashing`).
+
+On TokenSpeed, SMG still fetches and preprocesses the media, then sends each item's pixels to an encode worker. The encode worker runs the vision tower and ships the embeddings to the prefill worker over Mooncake, so the prefill request carries no pixels. Pixels reach encode workers inline, through shared memory, or over the RDMA lane.
+
+On vLLM, the encode worker processes the media itself and hands the encoder cache to the prefill worker through the engines' encoder-cache (EC) connector: forwarded media references go to the encode worker (see [Where Media Is Processed](#where-media-is-processed)), which answers with the expanded prompt and the transfer handles before prefill runs; under `--mm-processing router`, the encode worker takes the preprocessed pixels instead. Multimodal requests require `n=1`. See [EPD (Encode-Prefill-Decode)](../routing/pd-disaggregation.md#epd-encode-prefill-decode) for the worker requirements and error codes.
 
 ---
 

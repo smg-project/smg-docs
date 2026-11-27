@@ -539,6 +539,11 @@ How the encoded media reach the prefill worker depends on the runtime.
 
 SMG fetches and preprocesses the media itself and assigns each item to an encode worker by `--encode-policy`, each with its own rendezvous, so the items of one request can be encoded on different workers. The encode worker runs the vision tower and ships the resulting embeddings to the prefill worker over Mooncake, and prefill and decode then proceed as in PD. TokenSpeed encode workers never take raw media references, so with `--mm-processing worker` an EPD request that carries media fails with 400 `multimodal_not_supported`.
 
+The encode calls are dispatched alongside the prefill/decode pair and are tied to their request:
+
+- An encode call in flight counts in its encode worker's load, just as a generate call counts in its worker's; the per-worker `smg_worker_requests_active` gauge (see [Monitoring](#monitoring)) includes it.
+- Encode calls end with their request: when the request is over — answered, failed, or the client disconnected — a call the encoder still holds is cancelled rather than left running, and the load it counted is released with it.
+
 ### Encoder-Cache Handoff (vLLM)
 
 vLLM encode workers process the media themselves and hand the encoder cache to the prefill worker through the engines' encoder-cache (EC) connector. The encode worker answers first, with the expanded prompt's identity (token ids, content hashes, placeholder ranges, grid tensors) and the transfer handles; the prefill worker consumes a pixel-less prompt that names them, and SMG then relays prefill's KV handoff to decode as in [vLLM PD](#sequential-dispatch-vllm).

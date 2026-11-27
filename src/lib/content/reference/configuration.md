@@ -472,6 +472,8 @@ Prefill bootstrap ports come from the fixed `sglang.ai/bootstrap-port` pod annot
 
 Aliases do not participate in Kubernetes Pod selection or model discovery. A discovered worker's canonical model ID continues to come from the backend `served_model_name` (or from `--model-id-from`); aliases only add names that resolve to that canonical ID after registration.
 
+Under `--parser symphony`, an alias can also pick the model's parsing table. When no parser name is set for the model, Symphony's registry does not list its served name, and legacy auto-detection finds no parser for that name, an alias that is a listed checkpoint's name gives the model that checkpoint's table — of several such aliases, the first in sorted order. The model's first worker registration logs which alias gives which table, and warns when another listed alias names a different one. See [Which Table Reads a Model](../concepts/architecture/grpc-pipeline.md#which-table-reads-a-model).
+
 Example:
 
 ```bash
@@ -717,7 +719,7 @@ Both flags take a registered parser name; an unknown name fails startup. For eac
 
 Names use underscores: `--reasoning-parser deepseek-r1` fails; use `deepseek_r1`.
 
-`--parser` chooses which parser reads a chat completion's reasoning and tool calls: the per-model parsers (`legacy`) or Symphony. With `symphony`, a model's worker labels decide, else Symphony's registry for a model it knows, else the two flags above: a Symphony table's name reads with that table, and so does a legacy parser's name whose format a table reads (`qwen` for `qwen3`, `qwen_xml` for `qwen3_tagged`: the table's aliases, so existing flags keep a working parser); any other legacy parser's name keeps the legacy parsers (`passthrough` among them), and no name leaves the legacy parsers to detect. A request's `X-SMG-Parser` header overrides the flag for that request.
+`--parser` chooses which parser reads a chat completion's reasoning and tool calls: the per-model parsers (`legacy`) or Symphony. With `symphony`, a model's worker labels decide, else Symphony's registry for a model it knows, else the two flags above: a Symphony table's name reads with that table, and so does a legacy parser's name whose format a table reads (`qwen` for `qwen3`, `qwen_xml` for `qwen3_tagged`: the table's aliases, so existing flags keep a working parser); any other legacy parser's name keeps the legacy parsers (`passthrough` among them). With no name at all, a `--model-alias` that is the name of a checkpoint the registry knows gives that checkpoint's table to a served model auto-detection finds no parser for ([Model Aliases](#model-aliases)); else the legacy parsers detect. A request's `X-SMG-Parser` header overrides the flag for that request.
 
 ---
 

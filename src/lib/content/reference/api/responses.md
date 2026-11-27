@@ -302,7 +302,7 @@ gRPC and HTTP workers receive a rewritten request instead:
   top-level tools, and a `tool_choice` or replayed call item targeting the `functions`
   namespace is rewritten to the bare name. When the request's own `tools` already declare a
   `functions` namespace, inline `functions` members are merged into it instead, and a
-  bare `tool_choice` name that matches a member gains the namespace. Any other namespace
+  bare `tool_choice` name that only a member matches gains the namespace. Any other namespace
   (`collaboration`, `clock`, ...) is kept as a namespace tool.
 - A plaintext `agent_message` becomes a `user` message in its place, keeping its `id`
   when it has one: a single `input_text` part opening with `Sender:` and `Recipient:`
@@ -1098,8 +1098,9 @@ when the window holds no such message, the first tool call whose output is also 
 window, together with the reasoning items immediately before that call. The tail of the
 turn the cut split is not replayed, and neither is a tool output whose call fell before
 the window, so a cut never leaves the prompt opening with a tool result whose call is
-missing. `additional_tools` items in the trimmed part of the window are kept ahead of
-it, so inline tool declarations survive the cut (see [Input Formats](#input-formats)).
+missing. `additional_tools` items in the trimmed part of the window are kept, replayed
+ahead of the turn boundary, so inline tool declarations survive the cut (see
+[Input Formats](#input-formats)).
 
 Within the window, a message a response wrote is replayed without the content parts the
 serving pipeline never carried, while an item the client added itself keeps every part;

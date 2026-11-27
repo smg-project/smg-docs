@@ -220,7 +220,7 @@ Every MCP call passes through SMG's approval check before it runs. By default th
 | `require_approval` | Calls that need approval |
 |--------------------|--------------------------|
 | `"always"` | Every call to the server's tools or, when `allowed_tools` lists names, to those tools. |
-| Object form with an `always` filter | Calls to the tools the filter's `tool_names` lists. A filter that names no tools or sets `read_only` covers every tool the entry exposes, because SMG cannot evaluate `read_only` yet. The `never` filter exempts nothing: a tool named under both filters still needs approval. |
+| Object form with an `always` filter | Calls to the tools the filter's `tool_names` lists. A filter without a `tool_names` list, or one that sets `read_only`, covers every tool the entry exposes, because SMG cannot evaluate `read_only` yet. The `never` filter exempts nothing: a tool named under both filters still needs approval. |
 | `"never"`, an object form without an `always` filter, or no `require_approval` at all | None. |
 
 What happens to a call that needs approval depends on the path:

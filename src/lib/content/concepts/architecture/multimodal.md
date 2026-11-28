@@ -423,7 +423,7 @@ vLLM, TokenSpeed, and SGLang workers reached over the direct ZMQ backend take ro
 
 On TokenSpeed, media whose `image_grid_thw` or `video_grid_thw` tensors feed M-RoPE positions are served only for the Qwen3.5 lineage (Qwen3.5, Qwen3.5-MoE, Qwen4-Exp): SMG computes the lineage's M-RoPE position table itself, as the engine's input processor would, provided the engine's handshake declares the checkpoint's `spatial_merge_size`, `image_token_id`, and `video_token_id`. When a lineage engine's handshake omits any of them, every multimodal request is refused with a 400. Media of other M-RoPE families (such as Qwen3-VL or Qwen3-Omni) are refused with a 400; serve those models over gRPC. Muse Spark's grid tensors only describe the vision patch layout, so its images and video pass.
 
-On SGLang, images — the one modality this wire serves — are assembled as they are for an SGLang gRPC worker; video and audio are refused with 400 `multimodal_not_supported` (see [Engine Support](#engine-support)).
+On SGLang, images — the one modality this wire serves — are assembled as they are for an SGLang gRPC worker; video and audio are refused with a 400 (`multimodal_not_supported`, see [Engine Support](#engine-support)).
 
 ### Prefill-Decode Disaggregation
 

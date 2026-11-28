@@ -424,7 +424,7 @@ Two shapes don't run as rank workers:
 | Harmony (gpt-oss) stop strings | Yes | Yes | Yes |
 | Multimodal inputs | Yes, one modality per request | Yes; media whose `image_grid_thw`/`video_grid_thw` grids feed MRoPE positions are served only for the Qwen3.5 lineage (Qwen3.5, Qwen3.5-MoE, Qwen4-Exp), and only when the engine's handshake declares the checkpoint's `spatial_merge_size`, `image_token_id`, and `video_token_id`; patch-layout grids (Muse Spark) pass | Yes, images; video and audio are refused with a `400` (see [Limits](#limits)) |
 | Output logprobs | Yes, including `top_logprobs` | Sampled-token logprobs, with `--enable-output-logprobs`; `top_logprobs` above 1 is rejected | Yes, including `top_logprobs` |
-| Prompt logprobs | Forwarded to the engine, but no API field requests them | Not supported; `token_ids_logprob` is rejected | Yes, requested through `/generate`'s `logprob_start_len`; `token_ids_logprob` gets a `501` (see [Limits](#limits)) |
+| Prompt logprobs | Forwarded to the engine, but no API field requests them | Not supported; `token_ids_logprob` is rejected | Yes, requested through `/generate`'s `logprob_start_len`; `token_ids_logprob` is refused with a `501` (see [Limits](#limits)) |
 | `n > 1` and sampling `seed` | Yes | Yes | `n > 1` yes; the SGLang wire carries no `seed` |
 
 ### Limits

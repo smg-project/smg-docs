@@ -1800,12 +1800,45 @@ The counts are read from the engine at each scrape, not on any request's path. E
 
 Each scrape adds a count's growth since the scrape before, so a series only rises. When a new policy document is put in force, the engine's counts restart at zero but the published series carry on from where they stood: the first counts read under the new document are added whole. What the previous document counted after its last scrape is not published.
 
-A shadow that panics is not counted here: the live decision serves the request as decided, and the panic counts in `smg_policy_faults_total` under `kind="decision"`.
+A shadow that panics is not counted here: the live decision serves the request as decided, and the panic counts in [`smg_policy_faults_total`](#smg_policy_faults_total) under `kind="decision"`.
 
 ```promql
 # Shadow disagreement rate by binding and side
 sum by (binding, side) (rate(smg_policy_shadow_decisions_total{kind=~"other-target|other-outcome"}[5m]))
   / sum by (binding, side) (rate(smg_policy_shadow_decisions_total{kind!="skipped"}[5m]))
+```
+
+### `smg_policy_faults_total`
+
+Panics the policy engine held and counted, by kind. [Grand Central](../concepts/routing/load-balancing.md#grand-central) catches a panic in a decision, in a stage hearing one of the engine's events, or in a step of the engine's own upkeep: the panic is counted here instead of taking the gateway down.
+
+| Type | Labels |
+|------|--------|
+| Counter | `kind` |
+
+| `kind` | Meaning |
+|--------|---------|
+| `decision` | A decision — a live one, or a [shadow](#smg_policy_shadow_decisions_total) decided beside a live one |
+| `event` | A stage hearing a lease event (the lease's issue, the request's dispatch, its completion, the lease's release) or a change of worker membership |
+| `upkeep` | A step of the engine's own upkeep: its periodic sweep, a step of following the worker registry, the handling of a worker's load report, or the filling of a worker list |
+
+A live decision that panics places nothing: its request fails with `500` (`grand_central_decision_failed`), which the gateway does not retry, and the gateway logs `Grand Central refused a decision` at `warn`, rate-limited per model. Count faults by this family, not by log lines.
+
+A shadow's panic costs its request nothing — the live decision serves the request as decided — and counts here, not in the shadow family.
+
+A stage's panic at an event also costs the request nothing: the request keeps its decision and its lease, and a registration, removal or document application the event was part of goes on. Only the stages after the one that panicked miss the event.
+
+A panic in an upkeep step cuts that step short for the round — what the step had already done stands — and the upkeep goes on.
+
+A gateway publishes the family only when it runs a policy engine: on the classic routing policies it publishes no such series. The standalone [Grand Central controller](grand-central-controller.md#metrics) publishes the same family, with the same kinds, on its own `/metrics`.
+
+All three series are published at zero from the first scrape, before any fault, so `absent()` alerts stay quiet and `increase()` catches the first one. The counts are read from the engine at each scrape, not on any request's path, and each scrape sets a series to the engine's count as read, so a series never falls.
+
+The engine counts for its whole life, under every policy document: putting a new document in force does not reset the counts. Unlike the shadow counts, nothing counted between the last scrape and a document replacement goes unpublished.
+
+```promql
+# Policy engine faults per second, by kind
+sum by (kind) (rate(smg_policy_faults_total[5m]))
 ```
 
 ### Cache-Aware Policy Metrics

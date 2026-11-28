@@ -70,7 +70,13 @@ Without retries, every transient failure becomes a client-visible error. With re
 
 Skipping the workers a request failed on applies even under deterministic affinity: when `cache_aware` has the prompt's prefix cached on the failed worker, or a `consistent_hashing` routing key maps to it, the retry moves to another worker instead of going straight back. When every available worker has already been tried, including when the pool has a single worker, the retry selects among all of them again — except a worker that answered the request with its own `500`, which is never selected for that request again (see [When a Worker Answers 500](#when-a-worker-answers-500)).
 
-There are two exceptions. A request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers) is retried on the worker it targets. PD mode does not skip tried workers: each attempt selects its prefill/decode pair from all available workers, so a retry can pick the same pair again. A worker's own `500` overrides both exceptions (see [When a Worker Answers 500](#when-a-worker-answers-500)).
+The skip applies in PD mode too, on the HTTP and gRPC routers alike. When a pair's answer is retried, both of its workers count as tried, and the next attempt re-selects one side at a time: the prefill among the untried prefill workers, then the decode among the chosen prefill's untried partners.
+
+On each side, the skip is a preference, not an exclusion, among the workers that are available and have room for the request: a tried worker with room is not passed over for an untried worker that has no room. A side with nothing untried left selects from its whole pool again, so a deployment with a single pair keeps retrying it.
+
+A worker that answered the request with its own `500` is excluded outright (see [When a Worker Answers 500](#when-a-worker-answers-500)). On the gRPC router, so is a worker whose leg was [given up on as silent](../routing/pd-disaggregation.md#failures-cancellation-and-streaming). A lone pair's `500` or silence-verdict `504` therefore goes back to the client instead of being retried.
+
+The one exception to the skip is a request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers): it is retried on the worker it targets. A worker's own `500` overrides even this exception.
 
 `--retry-max-retries` counts **attempts, including the first**: the default `5` allows the initial attempt plus up to four retries, and `1` disables retries.
 

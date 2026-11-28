@@ -397,9 +397,7 @@ A failed shared-memory write falls back to inline and is counted in `smg_mm_shm_
 | vLLM (gRPC) | :material-check: | :material-check: | Falls back to inline |
 | TokenSpeed (gRPC, including EPD encode workers) | :material-check: | :material-check: | :material-check: (with an `mm-rdma` build) |
 | SGLang, TensorRT-LLM (gRPC) | :material-check: | Inline only | Inline only |
-| vLLM, TokenSpeed (direct ZMQ) | :material-check: | Inline only | Inline only |
-
-SGLang workers reached over the direct ZMQ backend take no media on any transport mode (see [Direct ZMQ Backends](#direct-zmq-backends)).
+| vLLM, TokenSpeed, SGLang (direct ZMQ) | :material-check: | Inline only | Inline only |
 
 ### RDMA Pixel Lane
 
@@ -421,11 +419,11 @@ vLLM workers receive the pixel tensor as float32 unless `SMG_VLLM_ENCODER_INPUT_
 
 ### Direct ZMQ Backends
 
-vLLM and TokenSpeed workers reached over the direct ZMQ backend take router-preprocessed media, sent inline. Media references, shared memory, and RDMA are not available on this wire.
+vLLM, TokenSpeed, and SGLang workers reached over the direct ZMQ backend take router-preprocessed media, sent inline. Media references, shared memory, and RDMA are not available on this wire. See [ZMQ Workers](../../getting-started/zmq-workers.md).
 
 On TokenSpeed, media whose `image_grid_thw` or `video_grid_thw` tensors feed M-RoPE positions are served only for the Qwen3.5 lineage (Qwen3.5, Qwen3.5-MoE, Qwen4-Exp): SMG computes the lineage's M-RoPE position table itself, as the engine's input processor would, provided the engine's handshake declares the checkpoint's `spatial_merge_size`, `image_token_id`, and `video_token_id`. When a lineage engine's handshake omits any of them, every multimodal request is refused with a 400. Media of other M-RoPE families (such as Qwen3-VL or Qwen3-Omni) are refused with a 400; serve those models over gRPC. Muse Spark's grid tensors only describe the vision patch layout, so its images and video pass.
 
-SGLang workers reached over the direct ZMQ backend take no media: a request with images — the one modality SGLang takes over gRPC — is refused with a 400 (`multimodal inputs are not supported over the SGLang ZMQ backend yet`). Serve vision SGLang models over gRPC. See [ZMQ Workers](../../getting-started/zmq-workers.md).
+On SGLang, images — the one modality SGLang takes — are served with the same payload an SGLang gRPC worker gets; video and audio are refused with a 400 (`multimodal_not_supported`, see [Engine Support](#engine-support)).
 
 ### Prefill-Decode Disaggregation
 

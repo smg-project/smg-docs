@@ -34,6 +34,8 @@ Store complete conversation history including messages, tool calls, and reasonin
 
 Redis entries expire after `--redis-retention-days` (default 30 days). The in-memory backend keeps a record for `--history-memory-retention-secs` (default 86400, one day) and at most `--history-memory-max-responses` stored responses and `--history-memory-max-items` conversation items, the oldest dropped first; it loses everything on restart. PostgreSQL and Oracle keep data until it's deleted.
 
+The in-memory backend's response count and retention also bound the [Messages thread store](../../reference/api/messages.md#storage-and-lifetime) under every history backend.
+
 </div>
 
 </div>
@@ -76,9 +78,9 @@ smg --history-backend memory
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--history-memory-max-responses` | `10000` | Most stored responses kept; the oldest go first, on every write (a stored response takes about 12 KB) |
-| `--history-memory-max-items` | `100000` | Most conversation items kept; the oldest go first and leave every conversation that listed them (an item takes about 1.5 KB) |
-| `--history-memory-retention-secs` | `86400` | How long a record is kept, in seconds, checked on every write; `0` keeps a record until a count bound drops it. A conversation is kept that long after its last use (created, read or updated); a background response still running is not dropped by a count bound |
+| `--history-memory-max-responses` | `10000` | Most stored responses kept; the oldest go first, on every write (a stored response takes about 12 KB). The [Messages thread store](../../reference/api/messages.md#storage-and-lifetime) keeps that many turns under every history backend, the oldest evicted first |
+| `--history-memory-max-items` | `100000` | Most conversation items kept; the oldest go first and leave every conversation that listed them (an item takes about 1.5 KB). Bounds the memory backend's records only, not the Messages thread store |
+| `--history-memory-retention-secs` | `86400` | How long a record is kept, in seconds, checked on every write; `0` keeps a record until a count bound drops it. A conversation is kept that long after its last use (created, read or updated); a background response still running is not dropped by a count bound. The Messages thread store keeps a turn that long after it was written, under every history backend |
 
 <div class="grid" markdown>
 

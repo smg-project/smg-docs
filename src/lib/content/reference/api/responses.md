@@ -313,7 +313,9 @@ gRPC and HTTP workers receive a rewritten request instead:
 
 On these workers a request whose input holds only `additional_tools` items is refused
 with `400` `input_items_empty`: once the declarations are lifted, nothing is left to
-answer.
+answer. On gRPC workers replayed history counts as input for this check, so a
+continuation over stored turns is served even when its own input holds only
+declarations; on HTTP workers the check sees the request's own input alone.
 
 Both item kinds replay on gRPC workers too: a continuation through
 `previous_response_id` or `conversation` recovers tools declared inline on an earlier

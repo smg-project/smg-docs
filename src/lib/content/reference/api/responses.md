@@ -86,8 +86,8 @@ POST /v1/responses
 | `store` | boolean | No | Store response for later retrieval, default: true |
 | `background` | boolean | No | Return a `queued` response object at once and run the request in the background; see [Background Mode](#background-mode) |
 | `tools` | array | No | Available tools: `function`, `namespace`, `mcp`, `tool_search`, `programmatic_tool_calling`, and built-in tool types; see [Tool Configuration](#tool-configuration) |
-| `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` or `auto` requires declared tools — the `tools` array, or tools discovered in a `tool_search_output` input item (see [Input Formats](#input-formats)); with `auto` and no declared tools the model answers in text, as if `tool_choice` were omitted |
-| `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set |
+| `tool_choice` | string/object | No | `auto`, `none`, `required`, a function (`{"type": "function", "name": "...", "namespace": "..."}`), `allowed_tools`, an MCP server (`{"type": "mcp", "server_label": "..."}`), or a built-in tool type. Anything except `none` or `auto` requires declared tools — the `tools` array, tools declared inline in an `additional_tools` input item, or tools discovered in a `tool_search_output` input item (see [Input Formats](#input-formats)); with `auto` and no declared tools the model answers in text, as if `tool_choice` were omitted |
+| `parallel_tool_calls` | boolean | No | Allow parallel tool execution, default: true when `tools` is set or an input item declares or discovers tools |
 | `previous_response_id` | string | No | Continue from a stored response |
 | `conversation` | string or object | No | Conversation ID (`conv_...`) or `{"id": "conv_..."}`; mutually exclusive with `previous_response_id`. The conversation's stored items replay ahead of the request's input, bounded at the newest 100 items (see [Conversation Management](#conversation-management)) |
 | `reasoning` | object | No | Reasoning configuration |
@@ -233,6 +233,97 @@ workers one in the request's own input is refused with `400` (`convert_request_f
 or `harmony_build_failed` on gpt-oss models), and one replayed from stored history is
 left out of the prompt rather than refused.
 
+**Codex inline tools and agent messages:**
+
+The input also takes two item kinds Codex clients send: `additional_tools`, which
+declares tools inline at a point in `input` instead of in the top-level `tools` field,
+and `agent_message`, a message between agents of a multi-agent run, carrying `author`,
+`recipient`, and a `content` array of `input_text` and `encrypted_content` parts.
+
+```json
+{
+  "input": [
+    {
+      "type": "additional_tools",
+      "role": "developer",
+      "tools": [
+        {
+          "type": "namespace",
+          "name": "functions",
+          "description": "",
+          "tools": [
+            {"type": "function", "name": "exec_command", "parameters": {"type": "object"}},
+            {"type": "custom", "name": "apply_patch"}
+          ]
+        },
+        {
+          "type": "namespace",
+          "name": "collaboration",
+          "description": "Multi-agent tools",
+          "tools": [
+            {"type": "function", "name": "send_message", "parameters": {"type": "object"}}
+          ]
+        }
+      ]
+    },
+    {
+      "type": "agent_message",
+      "author": "/root",
+      "recipient": "/root/worker",
+      "content": [{"type": "input_text", "text": "Apply the patch and report back."}]
+    }
+  ]
+}
+```
+
+An `additional_tools` item takes every tool type the `tools` field does, and its tools
+count as declared tools: a `tool_choice` may name a function declared there, including a
+member of an inline `functions` namespace by its bare name. The declarations are held to
+the rules of [Tool Configuration](#tool-configuration); a violation is refused with that
+rule's own code, the message naming `input[i].tools[j]`. The item's optional `role` is
+held to the same rule as a message's.
+
+An `agent_message` with empty `content` is refused with `400` `message_content_empty`,
+and a content part other than `input_text` or `encrypted_content` is refused with `400`,
+the message naming the part, such as `content[0].type`.
+
+External providers receive both item kinds unchanged — an `agent_message`'s
+`encrypted_content` parts and its `internal_chat_message_metadata_passthrough` metadata
+included — and SMG's stored history replays them: items of these types in a stored
+response or conversation reach the provider again on later turns.
+
+gRPC and HTTP workers receive a rewritten request instead:
+
+- Each `additional_tools` item is dropped from the input and its tools are lifted into
+  the request's top-level `tools`. When the same function or custom tool name is declared
+  more than once, the latest declaration wins; same-named namespaces merge, their
+  same-named members replaced the same way. The `functions` namespace — Codex's default
+  wrapper for plain function and custom tools — is unwrapped: its members become
+  top-level tools, and a `tool_choice` or replayed call item targeting the `functions`
+  namespace is rewritten to the bare name. When the request's own `tools` already declare a
+  `functions` namespace, inline `functions` members are merged into it instead, and a
+  bare `tool_choice` name that matches a member but no top-level tool gains the
+  namespace. Any other namespace (`collaboration`, `clock`, ...) is kept as a namespace
+  tool.
+- A plaintext `agent_message` becomes a `user` message in its place, keeping its `id`
+  when it has one. The message carries a single `input_text` part: `Sender:` and
+  `Recipient:` lines, then the text of the item's parts. The payload is not elevated to a
+  system or developer instruction, and the item's
+  `internal_chat_message_metadata_passthrough` is not carried over. An `agent_message`
+  carrying an `encrypted_content` part is refused with `400` `unsupported_content_part`
+  rather than forwarded without the part.
+
+On these workers a request whose input holds only `additional_tools` items is refused
+with `400` `input_items_empty`: once the declarations are lifted, nothing is left to
+answer. On gRPC workers replayed history counts as input for this check, so a
+continuation over stored turns is served even when its own input holds only
+declarations; on HTTP workers the check sees the request's own input alone.
+
+Both item kinds replay on gRPC workers too: a continuation through
+`previous_response_id` or `conversation` recovers tools declared inline on an earlier
+turn — even when the new request sends an empty `tools` array — and replays stored
+agent messages as the user messages described above.
+
 ### Tool Configuration
 
 **Function tools:**
@@ -355,11 +446,11 @@ server backs, omits `"direct"` from its `allowed_callers`, the request is refuse
 other MCP-backed built-ins take no `allowed_callers`.
 
 On gRPC workers the rule covers every tool, including namespace members and tools lifted
-from the input's `tool_search_output` items: that backend runs no programmatic tool calls
-and offers a tool to the model only for direct calls, so any tool whose `allowed_callers`
-omit `"direct"` is refused with `400` `tool_not_supported`. Tools SMG does not execute
-itself reach HTTP workers and external providers with their `allowed_callers` unchanged,
-and those backends apply their own rules.
+from the input's `additional_tools` and `tool_search_output` items: that backend runs no
+programmatic tool calls and offers a tool to the model only for direct calls, so any tool
+whose `allowed_callers` omit `"direct"` is refused with `400` `tool_not_supported`. Tools
+SMG does not execute itself reach HTTP workers and external providers with their
+`allowed_callers` unchanged, and those backends apply their own rules.
 
 ### Reasoning Configuration
 
@@ -1006,11 +1097,14 @@ in the request's `input`.
 
 A conversation holding exactly 100 items replays whole; a longer one is cut, and the cut
 can land inside a turn. The replayed window then begins at its first turn boundary: the
-first `user`, `developer`, or `system` message or, when the window holds no such message,
-the first tool call whose output is also in the window, together with the reasoning items
-immediately before that call. The tail of the turn the cut split is not replayed, and
-neither is a tool output whose call fell before the window, so a cut never leaves the
-prompt opening with a tool result whose call is missing.
+first `user`, `developer`, or `system` message (an `agent_message` counts as one) or,
+when the window holds no such message, the first tool call whose output is also in the
+window, together with the reasoning items immediately before that call. The tail of the
+turn the cut split is not replayed, and neither is a tool output whose call fell before
+the window, so a cut never leaves the prompt opening with a tool result whose call is
+missing. An `additional_tools` item that fell before the turn boundary is still
+replayed, ahead of the boundary, so inline tool declarations survive the cut (see
+[Input Formats](#input-formats)).
 
 Within the window, a message a response wrote is replayed without the content parts the
 serving pipeline never carried, while an item the client added itself keeps every part;
@@ -1691,7 +1785,7 @@ endpoints' request bodies; see [Conversation Management](#conversation-managemen
 | HTTP Status | `code` | Description |
 |-------------|--------|-------------|
 | 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...), or `json_parse_error` when the body fails to parse for a reason outside those codes, such as a key repeated inside an `input` item or a conversation body |
-| 400 | `unsupported_content_part` | gRPC: an unsupported message content part (`input_file`, or `input_image` without `image_url`), or a `function_call_output` part other than `input_text` or `output_text`; see [Input Formats](#input-formats) |
+| 400 | `unsupported_content_part` | gRPC: an unsupported message content part (`input_file`, or `input_image` without `image_url`), or a `function_call_output` part other than `input_text` or `output_text`; gRPC and HTTP workers: an `agent_message` carrying an `encrypted_content` part; see [Input Formats](#input-formats) |
 | 400 | `convert_request_failed` | gRPC: an input item kind the chat pipeline does not carry, such as a `computer_call` |
 | 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a `function_call_output` part other than `input_text` or `output_text`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |
 | 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |

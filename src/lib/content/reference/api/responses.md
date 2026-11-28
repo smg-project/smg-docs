@@ -279,7 +279,7 @@ and `agent_message`, a message between agents of a multi-agent run, carrying `au
 An `additional_tools` item takes every tool type the `tools` field does, and its tools
 count as declared tools: a `tool_choice` may name a function declared there, including a
 member of an inline `functions` namespace by its bare name. The declarations are held to
-the rules of [Tool Configuration](#tool-configuration), a violation refused with that
+the rules of [Tool Configuration](#tool-configuration); a violation is refused with that
 rule's own code, the message naming `input[i].tools[j]`. The item's optional `role` is
 held to the same rule as a message's.
 

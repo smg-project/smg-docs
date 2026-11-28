@@ -254,7 +254,7 @@ smg/
 ├── grpc_servicer/              # smg-grpc-servicer: Python gRPC servicers for vLLM, SGLang, TokenSpeed, MLX
 ├── e2e_test/                   # End-to-end tests (pytest) against real engines or the mock worker
 ├── deploy/helm/smg/            # Helm chart
-├── docker/                     # Dockerfiles for the gateway and engine images
+├── docker/                     # Dockerfiles for the gateway, engine, and Grand Central controller images
 ├── examples/                   # RL, Grand Central, and WASM plugin examples
 ├── scripts/                    # Dev and CI scripts (e2e-test.sh, install_opencv.sh, ci_*.sh, ...)
 ├── Cargo.toml                  # Workspace manifest and shared lints

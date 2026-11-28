@@ -302,14 +302,16 @@ gRPC and HTTP workers receive a rewritten request instead:
   top-level tools, and a `tool_choice` or replayed call item targeting the `functions`
   namespace is rewritten to the bare name. When the request's own `tools` already declare a
   `functions` namespace, inline `functions` members are merged into it instead, and a
-  bare `tool_choice` name that only a member matches gains the namespace. Any other namespace
-  (`collaboration`, `clock`, ...) is kept as a namespace tool.
+  bare `tool_choice` name that matches a member but no top-level tool gains the
+  namespace. Any other namespace (`collaboration`, `clock`, ...) is kept as a namespace
+  tool.
 - A plaintext `agent_message` becomes a `user` message in its place, keeping its `id`
-  when it has one: a single `input_text` part opening with `Sender:` and `Recipient:`
-  lines, then the text of the item's parts. The payload is not raised to a system or
-  developer instruction, and the item's `internal_chat_message_metadata_passthrough` is
-  not carried over. An `agent_message` carrying an `encrypted_content` part is refused
-  with `400` `unsupported_content_part` rather than forwarded without the part.
+  when it has one. The message carries a single `input_text` part: `Sender:` and
+  `Recipient:` lines, then the text of the item's parts. The payload is not raised to a
+  system or developer instruction, and the item's
+  `internal_chat_message_metadata_passthrough` is not carried over. An `agent_message`
+  carrying an `encrypted_content` part is refused with `400` `unsupported_content_part`
+  rather than forwarded without the part.
 
 On these workers a request whose input holds only `additional_tools` items is refused
 with `400` `input_items_empty`: once the declarations are lifted, nothing is left to

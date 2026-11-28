@@ -133,6 +133,7 @@ SMG also accepts these SGLang-style extensions on Chat Completions:
 | `lora_path` | string | LoRA adapter to apply |
 | `sampling_seed` | integer | Seed for deterministic sampling |
 | `return_hidden_states` | boolean | Return the model's hidden states (default `false`; a `null` reads as the default) |
+| `return_prompt_text` | boolean | Return the prompt as rendered for the model in a top-level `prompt_text` field on the response (default `false`; a `null` reads as the default). See [Prompt Text](#prompt-text) |
 | `rid` | string | Request ID forwarded to the backend |
 
 Fields SMG does not model are kept and forwarded unchanged to HTTP workers, and so are
@@ -316,6 +317,30 @@ curl http://localhost:30000/v1/chat/completions \
 }
 ```
 
+#### Prompt Text
+
+With `return_prompt_text: true`, the response carries the prompt the chat template
+rendered for this request — with the special tokens and the generation prefix the
+template wrote — in a top-level `prompt_text` field next to `choices` and `usage`. On a
+stream it rides on the first chunk that opens a choice and on no other, so a stream with
+several choices still carries it once.
+
+SMG returns the prompt on gRPC and ZMQ workers, where it renders the chat template itself,
+and only for a request that sends the worker no media. When media travels to the worker
+with the prompt, and on gpt-oss (Harmony) models, the answer carries no `prompt_text` —
+the key is absent, not `null`. What counts is what reaches the worker: an image that a
+text-only model's template turns into a text note in the prompt sends no media, so that
+answer carries the rendered prompt, note included.
+
+On HTTP workers SMG does not fill the field: `return_prompt_text` is forwarded to the
+worker, and the response is relayed as the worker wrote it, so whether that answer
+carries `prompt_text` is up to the worker.
+
+`prompt_text` is the rendered text, not the token IDs the model received. Encoding the
+string anew need not give those IDs back: where a message's text is encoded into the
+prompt as plain text, text that spells a special token becomes that token when the whole
+string is encoded again.
+
 #### Usage
 
 | Field | Description |
@@ -463,7 +488,7 @@ POST /v1/completions
 
 Completions takes the same [extension fields](#extension-fields) as Chat Completions except
 the chat-only ones (`continue_final_message`, `separate_reasoning`, `stream_reasoning`,
-`chat_template_kwargs`), plus a `json_schema` string constraint. On gRPC workers each
+`chat_template_kwargs`, `return_prompt_text`), plus a `json_schema` string constraint. On gRPC workers each
 prompt in an array is its own engine request.
 
 A prompt can arrive already tokenized: an array of token IDs (unsigned 32-bit integers,

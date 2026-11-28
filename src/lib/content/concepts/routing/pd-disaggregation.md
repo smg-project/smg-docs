@@ -541,7 +541,7 @@ SMG fetches and preprocesses the media itself and assigns each item to an encode
 
 The encode calls are dispatched alongside the prefill/decode pair and are tied to their request:
 
-- An encode call in flight counts in its encode worker's load, just as prefill and decode calls do in their workers'; the per-worker `smg_worker_requests_active` gauge (see [Monitoring](#monitoring)) includes it.
+- An encode call in flight counts in its encode worker's load, just as prefill and decode calls count in their workers' loads; the per-worker `smg_worker_requests_active` gauge (see [Monitoring](#monitoring)) includes it.
 - Encode calls end with their request: when the request is over — answered, failed, or the client disconnected — a call the encoder still holds is cancelled rather than left running, and the load it counted is released with it.
 
 ### Encoder-Cache Handoff (vLLM)

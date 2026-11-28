@@ -226,7 +226,7 @@ The credit is normally the request's whole prompt: its token count when known, o
 The token-usage thresholds must be above 0 (a value of 1.0 or more disables them), and `--overlap-decay` and `--selection-temperature` must be 0 or more. In the trees every matched tenant starts with the same score, so `--selection-temperature` changes nothing there unless `--overlap-decay` separates them.
 
 !!! warning "Per-model policies from worker labels"
-    When the first worker registered for a model carries a `policy` label, that model gets its own policy instance. A `cache_aware` label inherits the flags on this page only when the gateway's `--policy` is also `cache_aware`. Otherwise the instance uses built-in defaults: a `cache_threshold` of 0.5, a spill gate of 1.1x the mean with the absolute margin capped at 32 requests, eviction every 30 seconds, and a `max_tree_size` of 10,000.
+    When the first worker registered for a model carries a `policy` label, that model gets its own policy. A `cache_aware` label inherits the flags on this page only when the gateway's `--policy` is also `cache_aware`. Otherwise the model runs built-in defaults: a `cache_threshold` of 0.5, a spill gate of 1.1x the mean with the absolute margin capped at 32 requests, eviction every 30 seconds, and a `max_tree_size` of 10,000. With the classic policies the label builds a per-model policy instance. Under [Grand Central](load-balancing.md#grand-central), the gateway instead rebuilds the document the routing flags mean with a `cache_aware` binding at those same defaults; the binding places the model's single requests, and PD and EPD legs keep the plan's policies. Beside a supplied `--policy-spec`, no label is read.
 
 ### Backend Load Reports
 

@@ -698,7 +698,9 @@ Nothing to balance, so skip the selection and cache bookkeeping entirely.
 
 A label that names the same policy as `--policy` gets a per-model instance built from your flags. A label naming any other policy gets that policy's built-in defaults, which can differ from the CLI defaults; its flags are not applied. In PD and EPD mode, the legs always use the leg policies below, whatever the labels say.
 
-Under [Grand Central](#grand-central), `policy` labels are inert: Grand Central's document places every model's requests.
+Under [Grand Central](#grand-central), labels still apply when the gateway runs the document the routing flags mean, under the same first-registration rule. When the deciding label names a policy other than `--policy`, the gateway rebuilds the document with a binding that places that model's single requests under the named policy's profile — at the same built-in defaults as above — and puts the rebuilt document in force on the running engine. Every other model's placement is unchanged, and PD and EPD legs keep the plan's leg policies. When the model's last worker is removed, the document is rebuilt without the label. A label naming `--policy` itself adds nothing: that policy's profile, built from your flags, places the model already.
+
+A label the gateway cannot build into the document — a model id containing `*`, for example — fails alone: the worker still registers, the document in force stays, one warning names the reason, and the label is not tried again while the model is served. On a gateway whose document binds no single requests (a single-router PD gateway over gRPC or ZMQ, which plans the pair alone), a label binds nothing. Beside a supplied `--policy-spec`, no label is read: the supplied document places every model's requests.
 
 ### PD and EPD Legs
 
@@ -797,10 +799,10 @@ A setting that decides a placement but has no place in a document is refused at 
 
 ### Under Grand Central
 
-- Per-model `policy` worker labels are inert: no model gets a policy of its own, and Grand Central's document places every model's requests.
+- A worker's `policy` label still sets its model's policy under the document the routing flags mean: the gateway rebuilds the document with the label's binding and puts it in force on the running engine (see [Per-Model Policies](#per-model-policies)). Beside a supplied `--policy-spec`, no label is read: the supplied document places every model's requests.
 - An EPD request that carries media for the model's encode workers is refused with `501` (`encode_under_grand_central`): whatever the document plans, the gateway asks Grand Central for prefill/decode pairs and for no encoder. The `501` is terminal for [retries](../reliability/retries.md); send the request without media, or to a gateway with Grand Central off. EPD requests without media are still served as pairs.
 - A PD pair's two sides are picked in one decision under the document's `plans.pd-pair.decode: with-prefill` — the default, and what the document the flags mean uses. A supplied document can set `after-prefill`: the pair's first decision then books the prefill alone, and the decode is decided again once the prefill has answered, so a decode that became a poor choice while the prefill ran can move. A route that sends both sides at once keeps the first decision's decode.
-- `smg_worker_selection_total` counts each selection under the document profile that picked it. Under the document the flags mean, a single request's selections keep your policy's name; a pair's sides are counted as `prefill` and `decode`.
+- `smg_worker_selection_total` counts each selection under the document profile that picked it. Under the document the flags mean, a single request's selections keep the placing policy's name — `--policy`, or the policy a [worker's label](#per-model-policies) named; a pair's sides are counted as `prefill` and `decode`.
 
 Everything else stays the gateway's own, exactly as under the classic policies: the worker pools and their registration, [service discovery](../architecture/service-discovery.md), health probes, load polling, [retries](../reliability/retries.md), [circuit breakers](../reliability/circuit-breakers.md), and the PD prefill admission queue. [Overload protection](../reliability/overload-protection.md) is still enforced — its two thresholds stay the gateway's own, set on each worker as it registers, while the document carries its on/off switch and shed choice (see [Supplying a Document](#supplying-a-document)).
 

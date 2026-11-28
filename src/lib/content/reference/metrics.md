@@ -1822,7 +1822,7 @@ Panics the policy engine held and counted, by kind. [Grand Central](../concepts/
 | `event` | A stage hearing a lease event (the lease's issue, the request's dispatch, its completion, the lease's release) or a change of worker membership |
 | `upkeep` | A step of the engine's own upkeep: its periodic sweep, a step of following the worker registry, the handling of a worker's load report, or the filling of a worker list |
 
-A live decision that panics places nothing: its request fails with `500` (`grand_central_decision_failed`), which the gateway does not retry, and the gateway logs `Grand Central refused a decision` at `warn`, rate-limited per model — count faults by this family, not by log lines.
+A live decision that panics places nothing: its request fails with `500` (`grand_central_decision_failed`), which the gateway does not retry, and the gateway logs `Grand Central refused a decision` at `warn`, rate-limited per model. Count faults by this family, not by log lines.
 
 A shadow's panic costs its request nothing — the live decision serves the request as decided — and counts here, not in the shadow family.
 

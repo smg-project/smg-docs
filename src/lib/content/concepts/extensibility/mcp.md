@@ -213,16 +213,23 @@ A failed call does not fail the request. SMG sends the error back to the model a
 
 ## Approval
 
-Every MCP call passes through SMG's approval check before it runs, in one of two modes:
+Every MCP call passes through SMG's approval check before it runs. By default the check is policy-only: SMG decides without asking the client, under the built-in default policy that allows every tool. The `policy` section of the configuration file is not applied.
 
-| Mode | Used for | Behavior |
-|------|----------|----------|
-| Policy-only | Every path, by default | SMG decides without asking the client. The gateway currently runs the built-in default policy, which allows every tool. The `policy` section of the configuration file is not applied. |
-| Interactive | `require_approval: "always"` on an `mcp` tool, in a non-streaming Responses request to an OpenAI-compatible provider | When the model calls one of that server's tools (or, if `allowed_tools` lists names, one of those tools), SMG stops the loop and returns the response with an `mcp_approval_request` output item instead of running the call. |
+`require_approval` on an `mcp` tool marks calls as needing approval:
 
-- `require_approval: "never"`, the object form (`{"always": ..., "never": ...}`), streaming requests, gRPC workers, and the Messages API all use policy-only mode.
-- SMG does not currently act on an `mcp_approval_response` input item, so a paused call cannot be approved through SMG.
-- The loop stops at the first call that needs approval, so a response carries at most one `mcp_approval_request` item.
+| `require_approval` | Calls that need approval |
+|--------------------|--------------------------|
+| `"always"` | Every call to the server's tools or, when `allowed_tools` lists names, to those tools. |
+| Object form with an `always` filter | Calls to the tools the filter's `tool_names` lists. A filter without `tool_names` covers every tool the entry exposes; so does one that sets `read_only`, even alongside `tool_names`, because SMG cannot evaluate `read_only` yet. The `never` filter exempts nothing: a tool named under both filters still needs approval. |
+| `"never"`, an object form without an `always` filter, or no `require_approval` at all | None. |
+
+What happens to a call that needs approval depends on the path:
+
+- **Non-streaming request to an OpenAI-compatible provider.** SMG stops the loop and returns the response with an `mcp_approval_request` output item instead of running the call. The loop stops at the first such call, so a response carries at most one `mcp_approval_request` item.
+- **Streaming request to an OpenAI-compatible provider, and gRPC or ZMQ workers with regular (non-Harmony) models (streaming or not).** The call is held: the tool does not run, no `mcp_approval_request` is produced, and the call appears as an `mcp_call` with `status: "failed"` and the error `Tool requires approval (not supported in this context)`. The model gets that error as the tool result, the loop carries on, and the response completes normally — a stream still ends with `response.completed`. To receive the `mcp_approval_request` item, send the request non-streamed to an OpenAI-compatible provider.
+- **gpt-oss (Harmony) models and the Messages API.** `require_approval` is not applied; every call is decided by policy.
+
+SMG does not currently act on an `mcp_approval_response` input item, so a paused call cannot be approved through SMG.
 
 ---
 
@@ -438,6 +445,7 @@ How streams are filtered depends on the backend. On an OpenAI-compatible provide
 | `mcp_call` fails with `Tool call timed out after 120s` | The server took longer than the per-call timeout | Make the tool faster or split the work. The timeout can't currently be changed. |
 | `mcp_call` fails with `Tool call outcome unknown` | The connection dropped during a call to a tool not marked read-only or idempotent, so SMG did not re-issue it (see [Interrupted Calls](#interrupted-calls)) | Check the server. Retry only if the tool is safe to run twice; for SMG to re-issue such calls, have the server list the tool with `readOnlyHint` or `idempotentHint` set to `true`. |
 | `mcp_call` fails with `Server access denied: ambiguous MCP connection for '<name>'` | The same `server_url` was used with different credentials; the quoted name is the request's name for the server (see [Ambiguous Pooled Connections](#ambiguous-pooled-connections)) | Send a single credential to each URL. |
+| `mcp_call` fails with `Tool requires approval (not supported in this context)` | `require_approval` marked the call, on a path that cannot return an approval request (see [Approval](#approval)) | To get the `mcp_approval_request` item, send the request non-streamed to an OpenAI-compatible provider. Otherwise remove `require_approval` so the call runs under policy. |
 | Calls to a static server keep failing after a disconnect | The server has not come back (for stdio, the relaunched `command` keeps failing): SMG retries the connection as calls arrive, 5 attempts per round, and the calls fail until an attempt succeeds | Fix what keeps the server from coming up. The server stays registered and the next call reconnects on its own; no SMG restart is needed. |
 | Request fails with `Unsupported input item type` | On gRPC workers, the request `input` contains an `mcp_approval_response` item (see [How It Works](#how-it-works)) | Remove `mcp_approval_response` items from `input`. Stored `mcp_call`, `mcp_list_tools`, and `mcp_approval_request` items can stay. |
 | A `pool`, `policy`, or top-level `proxy` setting has no effect | Only `servers` is applied | See [Accepted but Not Applied](#accepted-but-not-applied). |

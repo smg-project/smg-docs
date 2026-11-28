@@ -307,7 +307,7 @@ gRPC and HTTP workers receive a rewritten request instead:
   tool.
 - A plaintext `agent_message` becomes a `user` message in its place, keeping its `id`
   when it has one. The message carries a single `input_text` part: `Sender:` and
-  `Recipient:` lines, then the text of the item's parts. The payload is not raised to a
+  `Recipient:` lines, then the text of the item's parts. The payload is not elevated to a
   system or developer instruction, and the item's
   `internal_chat_message_metadata_passthrough` is not carried over. An `agent_message`
   carrying an `encrypted_content` part is refused with `400` `unsupported_content_part`
@@ -1785,7 +1785,7 @@ endpoints' request bodies; see [Conversation Management](#conversation-managemen
 | HTTP Status | `code` | Description |
 |-------------|--------|-------------|
 | 400 | The failure's code (see [Error Format](#error-format)) | Malformed request or validation failure: `invalid_json`, a schema or bound code (`unknown_parameter`, `invalid_type`, `integer_above_max_value`, ...), the violated rule's code (`invalid_conversation_id`, `mutually_exclusive_parameters`, ...), or `json_parse_error` when the body fails to parse for a reason outside those codes, such as a key repeated inside an `input` item or a conversation body |
-| 400 | `unsupported_content_part` | gRPC: an unsupported message content part (`input_file`, or `input_image` without `image_url`), or a `function_call_output` part other than `input_text` or `output_text`; on gRPC and HTTP workers, an `encrypted_content` part in an `agent_message`; see [Input Formats](#input-formats) |
+| 400 | `unsupported_content_part` | gRPC: an unsupported message content part (`input_file`, or `input_image` without `image_url`), or a `function_call_output` part other than `input_text` or `output_text`; gRPC and HTTP workers: an `agent_message` carrying an `encrypted_content` part; see [Input Formats](#input-formats) |
 | 400 | `convert_request_failed` | gRPC: an input item kind the chat pipeline does not carry, such as a `computer_call` |
 | 400 | `harmony_build_failed` | gpt-oss (Harmony) models: the prompt cannot be built — an `input_image` or `input_file` part, a `function_call_output` part other than `input_text` or `output_text`, or a `function_call_output` whose `call_id` matches no earlier call; see [Input Formats](#input-formats) |
 | 400 | `response_already_completed`, `response_already_failed`, `cancellation_not_supported` | Cancel refused; see [Cancel Response](#cancel-response) |

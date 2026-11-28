@@ -1102,8 +1102,8 @@ when the window holds no such message, the first tool call whose output is also 
 window, together with the reasoning items immediately before that call. The tail of the
 turn the cut split is not replayed, and neither is a tool output whose call fell before
 the window, so a cut never leaves the prompt opening with a tool result whose call is
-missing. `additional_tools` items in the trimmed part of the window are kept, replayed
-ahead of the turn boundary, so inline tool declarations survive the cut (see
+missing. An `additional_tools` item that fell before the turn boundary is still
+replayed, ahead of the boundary, so inline tool declarations survive the cut (see
 [Input Formats](#input-formats)).
 
 Within the window, a message a response wrote is replayed without the content parts the

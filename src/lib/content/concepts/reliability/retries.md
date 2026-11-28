@@ -72,9 +72,9 @@ Skipping the workers a request failed on applies even under deterministic affini
 
 The skip applies in PD mode too, on the HTTP and gRPC routers alike. When a pair's answer is retried, both of its workers count as tried, and the next attempt re-selects one side at a time: the prefill among the untried prefill workers, then the decode among the chosen prefill's untried partners.
 
-On each side, the skip is a preference, not an exclusion, among the workers that are available and have room for the request: a tried worker with room is not passed over for an untried one that has none. A side with nothing untried left selects from its whole pool again, so a deployment with a single pair keeps retrying it.
+On each side, the skip is a preference, not an exclusion, among the workers that are available and have room for the request: a tried worker with room is not passed over for an untried worker that has no room. A side with nothing untried left selects from its whole pool again, so a deployment with a single pair keeps retrying it.
 
-A worker that answered the request with its own `500` is excluded outright (see [When a Worker Answers 500](#when-a-worker-answers-500)), and, on the gRPC router, so is a worker whose leg was [given up on as silent](../routing/pd-disaggregation.md#failures-cancellation-and-streaming). A lone pair's `500` or silence-verdict `504` therefore goes back to the client instead of being retried.
+A worker that answered the request with its own `500` is excluded outright (see [When a Worker Answers 500](#when-a-worker-answers-500)). On the gRPC router, so is a worker whose leg was [given up on as silent](../routing/pd-disaggregation.md#failures-cancellation-and-streaming). A lone pair's `500` or silence-verdict `504` therefore goes back to the client instead of being retried.
 
 The one exception to the skip is a request targeted with [`X-SMG-Target-Worker`](../routing/load-balancing.md#routing-headers): it is retried on the worker it targets. A worker's own `500` overrides even this exception.
 
